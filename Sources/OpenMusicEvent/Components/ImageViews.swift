@@ -109,19 +109,13 @@ extension MusicEvent {
             .clipped()
         }
     }
-
-    
 }
-
 
 extension Artist {
     struct ImageView: View {
+
         @FetchOne
         var imageURL: URL?
-
-        init(imageURL: URL? = nil) {
-            self._imageURL = FetchOne(wrappedValue: imageURL)
-        }
 
         init(artistID: Artist.ID) {
             self._imageURL = FetchOne(wrappedValue: nil, Artist.find(artistID).select { $0.imageURL })

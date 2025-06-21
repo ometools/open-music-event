@@ -36,7 +36,6 @@ let package = Package(
                 .product(name: "CustomDump", package: "swift-custom-dump"),
             ],
         ),
-
         .target(
             name: "OpenMusicEventParser",
             dependencies: [
@@ -53,7 +52,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log")
             ]
         ),
-
         .executableTarget(
             name: "OpenMusicEventCLI",
             dependencies: [
@@ -63,7 +61,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log")
             ]
         ),
-
         .testTarget(
             name: "OpenMusicEventParserTests",
             dependencies: [

@@ -100,8 +100,8 @@ struct ArtistsListView: View {
         var body: some View {
             HStack(spacing: 10) {
                 Group {
-                    if let image = artist.imageURL {
-                        Artist.ImageView(imageURL: image)
+                    if artist.imageURL == nil && showArtistImages {
+                        Artist.ImageView(artistID: artist.id)
                             .frame(square: 60)
                     } else {
                         ForEach(performanceStages) {

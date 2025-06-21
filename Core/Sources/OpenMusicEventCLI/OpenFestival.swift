@@ -16,6 +16,7 @@ import Logging
 extension Logger {
     static let cli = Logger(subsystem: "com.openfestival.ome", category: "CLI")
 }
+
 extension Logger {
     init(subsystem: String, category: String) {
         self.init(label: subsystem + "." + category)

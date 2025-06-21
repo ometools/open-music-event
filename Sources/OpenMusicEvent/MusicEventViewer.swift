@@ -2,44 +2,30 @@ import SwiftUI
 import SharingGRDB
 import CoreModels
 
-enum ContentTab: String, Hashable {
-    case welcome, home, settings
-}
-
 struct MusicEventViewer: View {
-    var id: MusicEvent.ID
-
-    @State
-    var eventFeatures: MusicEventFeatures?
-
-    var isLoading: Bool { eventFeatures == nil }
-
-    @State
-    var error: LocalizedStringKey?
-
-    @Environment(\.exitEvent) var dismiss
-
-    var body: some View {
-        ZStack {
-            AnimatedMeshView()
-                .ignoresSafeArea()
-
-            if let eventFeatures {
-                MusicEventFeaturesView(store: eventFeatures)
-            }
+    @Observable
+    @MainActor
+    class Model {
+        init(eventID: MusicEvent.ID) {
+            self.id = eventID
         }
-        .animation(.default, value: isLoading)
-        .task(id: id) {
-            @Dependency(\.defaultDatabase)
-            var database
 
+        var id: MusicEvent.ID
+        var eventFeatures: MusicEventFeatures?
+        var isLoading: Bool { eventFeatures == nil }
+
+        @ObservationIgnored
+        @Dependency(\.imagePrefetchClient) var imagePrefetchClient
+
+        func onAppear() async {
+            @Dependency(\.defaultDatabase) var database
             self.eventFeatures = nil
-            await withErrorReporting {
+
+            do {
                 @FetchOne(MusicEvent?.find(id))
                 var musicEvent: MusicEvent? = nil
 
                 try await $musicEvent.sharedReader.load()
-//                try await Task.sleep(for: .seconds(1))
 
                 if let event = musicEvent {
                     try await withDependencies {
@@ -52,10 +38,16 @@ struct MusicEventViewer: View {
                         try await withThrowingTaskGroup {
                             $0.addTask { try await FetchAll(Current.stages).load() }
                             $0.addTask { try await FetchAll(Current.artists).load() }
-                            $0.addTask { try await FetchAll(Current.schedules) .load() }
-                            $0.addTask { await prefetchStageImages() }
+                            $0.addTask { try await FetchAll(Current.schedules).load() }
+                            $0.addTask { try await self.imagePrefetchClient.prefetchStageImages() }
 
                             try await $0.waitForAll()
+                        }
+
+                        // Unstructured Task so that we don't wait on artist images.
+                        // A little bit of loading there is better than a lot of loading now.
+                        Task {
+                            try? await imagePrefetchClient.prefetchArtistImages()
                         }
 
                         self.eventFeatures = MusicEventFeatures(
@@ -65,52 +57,35 @@ struct MusicEventViewer: View {
                             schedules: schedules
                         )
                     }
-                } else {
-                    dismiss()
                 }
-            }
-        }
-
-    }
-}
-
-
-import ImageCaching
-private func prefetchStageImages() async {
-    @FetchAll(Current.stages) var stages
-    try? await $stages.sharedReader.load()
-
-    await withTaskGroup {
-        for stage in stages {
-            if let imageURL = stage.iconImageURL {
-                $0.addTask {
-                    await withErrorReporting {
-                        _ = try await ImagePipeline.images.image(for: imageURL)
-                    }
-                }
-            }
-        }
-
-        await $0.waitForAll()
-    }
-}
-
-private func prefetchArtistImages() async {
-    @FetchAll(Current.artists) var artists
-    try? await $artists.sharedReader.load()
-    
-    await withTaskGroup {
-        for artist in artists {
-            if let imageURL = artist.imageURL {
-                $0.addTask {
-                    await withErrorReporting {
-                        _ = try await ImagePipeline.images.image(for: imageURL)
-                    }
-                }
+            } catch {
+                reportIssue(error)
             }
         }
     }
+
+    let store: Model
+    public init(store: Model) {
+        self.store = store
+    }
+
+    var body: some View {
+        ZStack {
+            AnimatedMeshView()
+                .ignoresSafeArea()
+
+            if let eventFeatures = store.eventFeatures {
+                MusicEventFeaturesView(store: eventFeatures)
+            }
+        }
+        .animation(.default, value: store.isLoading)
+        .task(id: store.id) {
+            await store.onAppear()
+        }
+    }
 }
+
+
 
 enum MusicEventIDDependencyKey: DependencyKey {
     static let liveValue: MusicEvent.ID = .init(-1)
@@ -138,7 +113,6 @@ public class MusicEventFeatures: Identifiable {
         stages: [Stage],
         schedules: [Schedule]
     ) {
-
         self.artists = ArtistsList()
         self.more = MoreTabFeature()
 
@@ -156,7 +130,7 @@ public class MusicEventFeatures: Identifiable {
             self.location = LocationFeature(location: location)
         }
 
-        self._event = FetchOne(wrappedValue: event)
+        self._event = FetchOne(wrappedValue: event, MusicEvent.find(event.id))
     }
 
 
@@ -175,8 +149,13 @@ public class MusicEventFeatures: Identifiable {
     public var contactInfo: ContactInfoFeature?
     var more: MoreTabFeature
 
-
     var shouldShowArtistImages: Bool = true
+
+    func onAppear() async {
+        await withErrorReporting {
+            try await $event.load()
+        }
+    }
 }
 
 public struct MusicEventFeaturesView: View {
@@ -253,6 +232,7 @@ public struct MusicEventFeaturesView: View {
 //            .tabItem { Label("Notifications", systemImage: Icons.notifications) }
 //            .tag(MusicEventFeatures.Feature.notifications)
         }
+        .onAppear { Task { await store.onAppear() }}
         .environment(\.showArtistImages, store.shouldShowArtistImages)
     }
 }

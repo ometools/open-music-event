@@ -15,6 +15,11 @@ public typealias OpenFestivalIDType = UUID
 public struct OrganizerConfiguration: Equatable, Sendable {
     public var info: CoreModels.Organizer.Draft
     public var events: [EventConfiguration]
+
+    public init(info: CoreModels.Organizer.Draft, events: [EventConfiguration]) {
+        self.info = info
+        self.events = events
+    }
 }
 
 public struct EventConfiguration: Equatable, Sendable {

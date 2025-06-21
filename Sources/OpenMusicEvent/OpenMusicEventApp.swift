@@ -9,16 +9,24 @@ private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", cate
 ///
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
 /* SKIP @bridge */public struct OpenMusicEventRootView : View {
+
+    @Dependency(\.context) var context
     // SKIP @bridge
     public init() {
-        OME.prepareDependencies()
+        if context == .live {
+            try! OME.prepareDependencies()
+        }
     }
 
     public var body: some View {
-        OME.AppEntryPoint()
-            .task {
-                logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
-            }
+        if context == .live {
+            OME.AppEntryPoint()
+                .task {
+                    logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
+                }
+        } else {
+            Text("OpenMusicEventRootView: context is \(String(describing: _context.wrappedValue))")
+        }
     }
 }
 

@@ -10,17 +10,15 @@ import SharingGRDB
 import SwiftUINavigation
 import ImageCaching
 
-
 struct OrganizerListView: View {
     @MainActor
     @Observable
-    class ViewModel {
+    class Model {
         public init() {}
 
         @ObservationIgnored
         @FetchAll(Organizer.all.order(by: \.name))
         var organizers
-
 
         @CasePathable
         enum Destination {
@@ -29,6 +27,11 @@ struct OrganizerListView: View {
         }
 
         var destination: Destination?
+        func onAppear() async {
+            await withErrorReporting {
+                try await $organizers.load()
+            }
+        }
 
         func didTapOrganizer(id: Organizer.ID) {
             self.destination = .organizerDetail(.init(url: id))
@@ -50,7 +53,7 @@ struct OrganizerListView: View {
         }
     }
 
-    @State var store = ViewModel()
+    @Bindable var store: Model
 
     public var body: some View {
         Group {

@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "B04ED7FE-036A-4EAD-90C0-39EF25EDC642",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "OpenMusicEventTests",
+        "name" : "OpenMusicEventTests"
+      }
+    }
+  ],
+  "version" : 1
+}

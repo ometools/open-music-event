@@ -17,7 +17,6 @@ final class MoreTabFeature {
     var musicEvent: MusicEvent?
 
     var isLoadingOrganizer = false
-
     var errorMessage: String?
 
     func didTapReloadOrganizer() async {
@@ -35,6 +34,10 @@ final class MoreTabFeature {
             self.isLoadingOrganizer = true
 
         }
+    }
+
+    func didTapExitEvent() {
+        NotificationCenter.default.post(name: .userRequestedToExitEvent, object: nil)
     }
 }
 
@@ -83,10 +86,7 @@ struct AboutAppView: View {
                 }
 
                 Button("Exit and see previous events", systemImage: "door.left.hand.open") {
-                    @Shared(Current.musicEventID)
-                    var musicEventID
-
-                    $musicEventID.withLock { $0 = nil }
+                    store.didTapExitEvent()
                 }
             }
 

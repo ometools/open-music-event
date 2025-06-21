@@ -49,15 +49,17 @@ public struct OrganizerDetailView: View {
         @FetchAll
         var events: [MusicEvent]
 
-        @ObservationIgnored
-        @Shared(Current.musicEventID)
-        public var currentEvent
-
         public var showingLoadingScreen: Bool = false
 
         public func didTapEvent(id: MusicEvent.ID) {
             logger.info("didTapEvent: \(id.rawValue)")
-            self.$currentEvent.withLock { $0 = id}
+            NotificationCenter.default.post(
+                name: .userSelectedToViewEvent,
+                object: nil,
+                userInfo: [
+                    "eventID": id
+                ]
+            )
         }
 
         public func onPullToRefresh() async  {

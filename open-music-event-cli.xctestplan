@@ -12,13 +12,7 @@
 
   },
   "testTargets" : [
-    {
-      "target" : {
-        "containerPath" : "container:",
-        "identifier" : "OpenMusicEventParserTests",
-        "name" : "OpenMusicEventParserTests"
-      }
-    }
+
   ],
   "version" : 1
 }

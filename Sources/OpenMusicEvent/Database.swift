@@ -30,17 +30,15 @@ func appDatabase() throws -> any DatabaseWriter {
     }
 
     @Dependency(\.context) var context
-    switch context {
-    case .live:
-        let path = URL.documentsDirectory
-            .appending(component: "db.sqlite")
-            .path()
-
-        logger.info("open \(path)")
-
-        database = try DatabasePool(path: path, configuration: configuration)
-    case .preview, .test:
+    if context == .preview {
         database = try DatabaseQueue(configuration: configuration)
+    } else {
+        let path =
+        context == .live
+        ? URL.documentsDirectory.appending(component: "db.sqlite").path()
+        : URL.temporaryDirectory.appending(component: "\(UUID().uuidString)-db.sqlite").path()
+        logger.info("open \(path)")
+        database = try DatabasePool(path: path, configuration: configuration)
     }
 
     var migrator = DatabaseMigrator()
@@ -146,7 +144,7 @@ func appDatabase() throws -> any DatabaseWriter {
     }
 
     #if DEBUG
-    if true /*context == .preview*/ {
+    if context == .preview {
         migrator.registerMigration("Seed sample data") { db in
             try db.seedSampleData()
         }

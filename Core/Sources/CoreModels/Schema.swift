@@ -7,41 +7,14 @@
 
 import Foundation
 import StructuredQueries
-
+@_exported import Tagged
 
 #if canImport(SwiftUI)
 import SwiftUI
 #endif
 
 
-//public typealias OmeID<T> = Int
-
-public struct OmeID<T>: Hashable, Sendable, ExpressibleByIntegerLiteral, RawRepresentable, QueryBindable, Codable {
-    public let rawValue: Int
-    public init(_ intValue: Int) {
-        self.rawValue = intValue
-    }
-
-    public init(rawValue: Int) {
-        self.rawValue = rawValue
-    }
-
-    public init(integerLiteral value: IntegerLiteralType) {
-        self.rawValue = value
-    }
-}
-
-import Tagged
-
-extension OmeID: _OptionalPromotable {}
-extension OmeID: QueryDecodable {}
-extension OmeID: QueryExpression {}
-extension OmeID: QueryRepresentable {}
-extension OmeID: SQLiteType {
-  public static var typeAffinity: SQLiteTypeAffinity {
-      .integer
-  }
-}
+public typealias OmeID<T> = Tagged<T, Int>
 
 public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringConvertible, QueryBindable {
     case repository(Repository)
@@ -154,28 +127,28 @@ extension Organizer.Draft: Equatable, Codable, Sendable {}
 @Table
 public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
     public typealias ID = OmeID<MusicEvent>
-    
+
     public let id: MusicEvent.ID
     public var organizerURL: Organizer.ID?
-    
+
     public let name: String  //
-    
+
     public var timeZone: TimeZone
-    
+
     public var startTime: Date?
-    
+
     public var endTime: Date?
 
     public let iconImageURL: URL?
     public let imageURL: URL?
     public let siteMapImageURL: URL?
-    
+
     @Column(as: Location.JSONRepresentation?.self)
     public let location: Location?
-    
+
     @Column(as: [ContactNumber].JSONRepresentation.self)
     public let contactNumbers: [ContactNumber]
-    
+
     public struct ContactNumber: Equatable, Sendable, Codable {
         public let phoneNumber: String
         public let title: String
@@ -187,7 +160,7 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
             self.description = description
         }
     }
-    
+
     public struct Location: Equatable, Sendable, Codable {
         public let address: String?
         public let directions: String?
@@ -416,7 +389,7 @@ extension TimeZone: @retroactive QueryBindable {
     public var queryBinding: StructuredQueriesCore.QueryBinding {
         .text(identifier)
     }
-    
+
     struct InvalidTimeZone: Error {}
     public init(decoder: inout some StructuredQueriesCore.QueryDecoder) throws {
         guard let timeZone = Self(identifier: try String(decoder: &decoder)) else {
@@ -426,9 +399,6 @@ extension TimeZone: @retroactive QueryBindable {
         self = timeZone
     }
 }
-
-
-
 
 public enum _ColorTag {}
 public typealias OMEColor = Tagged<_ColorTag, Int>
