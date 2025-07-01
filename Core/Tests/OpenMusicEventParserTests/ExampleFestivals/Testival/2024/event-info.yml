@@ -1,0 +1,19 @@
+version: "0.1.0" # Schema Version
+
+siteMapImageURL: "https://www.example.com/amap"
+imageURL: "https://www.example.com/main-image"
+address: "1234, somewhere in a forest"
+timeZone: "America/Denver"
+
+stages:
+- name: "Bass Haven"
+  color: 0xdf529f
+  imageURL: "https://firebasestorage.googleapis.com/v0/b/festivl.appspot.com/o/userContent%2Fstage_logo_amp.png?alt=media&token=259c79a0-0df8-4434-931a-e3b9037789a6"
+
+- name: "Mystic Grove"
+  color: 0xbabc69
+  imageURL: "https://firebasestorage.googleapis.com/v0/b/festivl.appspot.com/o/userContent%2Fstage_logo_fractal.png?alt=media&token=fc4b8549-b689-4b90-88d6-e318d8db6e4a"
+
+- name: "Tranquil Meadow"
+  color: 0x77bd91
+  imageURL: "https://firebasestorage.googleapis.com/v0/b/festivl.appspot.com/o/userContent%2Fstage_logo_grove.png?alt=media&token=514a6eca-079f-45cf-8ccf-1decba72b35d"

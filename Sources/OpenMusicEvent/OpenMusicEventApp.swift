@@ -1,8 +1,8 @@
 import Foundation
-import SkipFuse
-import SkipFuseUI
-
-
+import  SwiftUI; import SkipFuse
+// import SharingGRDB
+import GRDB
+import Dependencies
 /// A logger for the OpenMusicEvent module.
 private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "OpenMusicEvent")
 
@@ -10,16 +10,24 @@ private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", cate
 ///
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
 /* SKIP @bridge */public struct OpenMusicEventRootView : View {
-    /* SKIP @bridge */public init() {
-        OME.prepareDependencies()
+
+    @Dependency(\.context) var context
+    // SKIP @bridge
+    public init() {
+        if context == .live {
+            try! OME.prepareDependencies()
+        }
     }
 
     public var body: some View {
-        Text("Hello World!")
-//        OME()
-//            .task {
-//                logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
-//            }
+        if context == .live {
+            OMEAppEntryPoint()
+                .task {
+                    logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
+                }
+        } else {
+            Text("OpenMusicEventRootView: context is \(String(describing: _context.wrappedValue))")
+        }
     }
 }
 
@@ -56,3 +64,4 @@ private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", cate
         logger.debug("onLowMemory")
     }
 }
+

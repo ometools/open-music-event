@@ -10,6 +10,8 @@ let package = Package(
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
     ],
     dependencies: [
+        .package(path: "Core"),
+
         .package(url: "https://github.com/woodymelling/swift-file-tree", branch: "android-support"),
 
         .package(url: "https://source.skip.tools/skip.git", from: "1.5.18"),
@@ -21,61 +23,28 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.4.1"),
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3"),
         .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.0"),
-        .package(url: "https://github.com/pointfreeco/swift-parsing", from: "0.1.0"),
 
         .package(url: "https://github.com/apple/swift-collections", from: "1.0.4"),
-
-        .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
+        .package(url: "https://github.com/vapor-community/Zip.git", from: "2.2.6"),
     ],
     targets: [
         .target(
             name: "OpenMusicEvent",
             dependencies: [
-                "OMECoreModels",
-                "OpenMusicEventParser",
+                .product(name: "CoreModels", package: "Core"),
+                .product(name: "OpenMusicEventParser", package: "Core"),
+
                 .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
                 .product(name: "GRDB", package: "grdb-sqlcipher"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "DependenciesMacros", package: "swift-dependencies"),
+
                 .product(name: "CasePaths", package: "swift-case-paths"),
-//                .product(name: "SkipZip", package: "skip-zip")
+
+
+                .product(name: "Zip", package: "zip"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
-        ),
-        .target(
-            name: "OMECoreModels",
-            dependencies: [
-                .product(name: "Tagged", package: "swift-tagged"),
-//                .product(name: "StructuredQueries", package: "swift-structured-queries")
-            ]
-        ),
-        .target(
-            name: "OpenMusicEventParser",
-            dependencies: [
-                "Yams",
-                "OMECoreModels",
-                .product(name: "FileTree", package: "swift-file-tree"),
-                .product(name: "Dependencies", package: "swift-dependencies"),
-                .product(name: "DependenciesMacros", package: "swift-dependencies"),
-                .product(name: "CustomDump", package: "swift-custom-dump"),
-                .product(name: "Parsing", package: "swift-parsing"),
-                .product(name: "Collections", package: "swift-collections"),
-                .product(name: "Tagged", package: "swift-tagged"),
-
-            ]
-        ),
-        .testTarget(
-            name: "OpenMusicEventParserTests",
-            dependencies: [
-                 "OpenMusicEventParser",
-                 "Yams",
-                 .product(name: "CustomDump", package: "swift-custom-dump"),
-                 .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
-                 .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
-                 .product(name: "SnapshotTestingCustomDump", package: "swift-snapshot-testing"),
-            ],
-            resources: [
-                .copy("ExampleFestivals")
-            ]
         ),
     ]
 )

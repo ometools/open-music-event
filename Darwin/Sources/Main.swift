@@ -8,6 +8,7 @@ import OpenMusicEvent
 
     var body: some Scene {
         WindowGroup {
+//            Text("Hello World!")
             OpenMusicEventRootView()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in

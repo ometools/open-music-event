@@ -2,61 +2,57 @@
 //  Database.swift
 //  open-music-event
 //
-//  Created by Woodrow Melling on 6/3/25.
+//  Created by Woodrow Melling on 5/4/25.
 //
 
 import GRDB
-import Foundation
-import SkipFuse
+// import SharingGRDB
+import SwiftUI
 import Dependencies
-import SkipFoundation
+import SkipFuse
 
 private let logger = Logger(
-    subsystem: OME.subsystem,
+    subsystem: "OpenMusicEvent",
     category: "Database"
 )
 
 func appDatabase() throws -> any DatabaseWriter {
+    print("Preparing Database")
     let database: any DatabaseWriter
     var configuration = Configuration()
 
     configuration.foreignKeysEnabled = true
 
-    configuration.prepareDatabase { db in
+    configuration .prepareDatabase { db in
+        #if DEBUG
         db.trace(options: .profile) {
+            print("\($0.expandedDescription)")
             logger.debug("\($0.expandedDescription)")
         }
+        #endif
     }
 
     @Dependency(\.context) var context
-    switch context {
-    case .live:
+    if context == .preview {
+        database = try DatabaseQueue(configuration: configuration)
+    } else {
         #if os(iOS)
-        let sqlDestinationDirectory = URL.documentsDirectory
-        #elseif os(Android)
-        let sqlDestinationDirectory = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
+        let rootDirectory = URL.documentsDirectory
+        #else
+        let rootDirectory = URL.applicationSupportDirectory
         #endif
 
-        let path = sqlDestinationDirectory
-            .appending(component: "db.sqlite")
-            .path()
 
-        logger.info("Database Path: open \(path)")
+
+        let path =
+        context == .live
+        ? rootDirectory.appending(component: "db.sqlite").path()
+        : URL.temporaryDirectory.appending(component: "\(UUID().uuidString)-db.sqlite").path()
+        logger.info("open \(path)")
         database = try DatabasePool(path: path, configuration: configuration)
-        
-    case .preview, .test:
-        database = try DatabaseQueue(configuration: configuration)
     }
 
     var migrator = DatabaseMigrator()
-
-
-
     #if DEBUG
     migrator.eraseDatabaseOnSchemaChange = true
     #endif
@@ -65,7 +61,8 @@ func appDatabase() throws -> any DatabaseWriter {
         CREATE TABLE organizers (
             "url" TEXT PRIMARY KEY NOT NULL,
             "name" TEXT NOT NULL,
-            "imageURL" TEXT
+            "imageURL" TEXT,
+            "iconImageURL" TEXT
         ) STRICT;
         """).execute(db)
 
@@ -78,6 +75,7 @@ func appDatabase() throws -> any DatabaseWriter {
             "endTime" TEXT,
             "timeZone" TEXT,
             "imageURL" TEXT,
+            "iconImageURL" TEXT,
             "siteMapImageURL" TEXT,
             "location" TEXT,
             "contactNumbers" TEXT,
@@ -103,11 +101,14 @@ func appDatabase() throws -> any DatabaseWriter {
         CREATE TABLE stages(
             "id" INTEGER PRIMARY KEY AUTOINCREMENT,
             "musicEventID" INTEGER,
+            "sortIndex" TEXT NOT NULL,
             "name" TEXT NOT NULL,
             "iconImageURL" TEXT,
             "imageURL" TEXT,
+            "posterImageURL" TEXT,
             "color" INTEGER NOT NULL,
-            
+            "lineup" TEXT,
+        
             FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
         ) STRICT;
         """).execute(db)
@@ -170,24 +171,136 @@ func appDatabase() throws -> any DatabaseWriter {
 #if DEBUG
 extension Database {
     func seedSampleData() throws {
-        logger.warning("No sample data to seed")
-//        logger.log("Seeding sample data...")
 //        try seed {
-//
 //            Organizer.wickedWoods
-//            MusicEvent.testival
+//            Organizer.shambhala
 //
-//            for artist in Artist.previewValues {
-//                artist
-//            }
-//
-//            for stage in Stage.previewValues {
-//                stage
-//            }
+////            for artist in Artist.previewValues {
+////                artist
+////            }
+////
+////            for stage in Stage.previewValues {
+////                stage
+////            }
 //        }
     }
 }
 #endif
+
+// MARK: - Default Database Dependency
+// Copied from SharingGRDB to avoid Swift/Android compatibility issues
+
+extension DependencyValues {
+  /// The default database used by `fetchAll`, `fetchOne`, and `fetch`.
+  ///
+  /// Configure this as early as possible in your app's lifetime, like the app entry point in
+  /// SwiftUI, using `prepareDependencies`:
+  ///
+  /// ```swift
+  /// import  SwiftUI; import SkipFuse
+  ///
+  /// @main
+  /// struct MyApp: App {
+  ///   init() {
+  ///     prepareDependencies {
+  ///       // Create database connection and run migrations...
+  ///       $0.defaultDatabase = try! DatabaseQueue(/* ... */)
+  ///     }
+  ///   }
+  ///   // ...
+  /// }
+  /// ```
+  ///
+  /// > Note: You can only prepare the database a single time in the lifetime of your app.
+  /// > Attempting to do so more than once will produce a runtime warning.
+  ///
+  /// Once configured, access the database anywhere using `@Dependency`:
+  ///
+  /// ```swift
+  /// @Dependency(\.defaultDatabase) var database
+  ///
+  /// var newItem = Item(/* ... */)
+  /// try database.write { db in
+  ///   try newItem.insert(db)
+  /// }
+  /// ```
+  public var defaultDatabase: any DatabaseWriter {
+    get { self[DefaultDatabaseKey.self] }
+    set { self[DefaultDatabaseKey.self] = newValue }
+  }
+
+  private enum DefaultDatabaseKey: DependencyKey {
+    static var liveValue: any DatabaseWriter { testValue }
+    static var testValue: any DatabaseWriter {
+      var message: String {
+        @Dependency(\.context) var context
+        switch context {
+        case .live:
+          return """
+            A blank, in-memory database is being used. To set the database that is used by \
+            the app, use the 'prepareDependencies' tool as early as possible in the lifetime \
+            of your app, such as in your app or scene delegate in UIKit, or the app entry point in \
+            SwiftUI:
+
+                @main
+                struct MyApp: App {
+                  init() {
+                    prepareDependencies {
+                      $0.defaultDatabase = try! DatabaseQueue(/* ... */)
+                    }
+                  }
+                  // ...
+                }
+            """
+
+        case .preview:
+          return """
+            A blank, in-memory database is being used. To set the database that is used by \
+            the app in a preview, use a tool like 'prepareDependencies':
+
+                #Preview {
+                  let _ = prepareDependencies {
+                    $0.defaultDatabase = try! DatabaseQueue(/* ... */)
+                  }
+                  // ...
+                }
+            """
+
+        case .test:
+          return """
+            A blank, in-memory database is being used. To set the database that is used by \
+            the app in a test, use a tool like the 'dependency' trait from \
+            'DependenciesTestSupport':
+
+                import DependenciesTestSupport
+
+                @Suite(.dependency(\\.defaultDatabase, try DatabaseQueue(/* ... */)))
+                struct MyTests {
+                  // ...
+                }
+            """
+        }
+      }
+      if shouldReportUnimplemented {
+        reportIssue(message)
+      }
+      var configuration = Configuration()
+      #if DEBUG
+        configuration.label = .defaultDatabaseLabel
+      #endif
+      return try! DatabaseQueue(configuration: configuration)
+    }
+  }
+}
+
+#if DEBUG
+  extension String {
+    static let defaultDatabaseLabel = "co.pointfree.OpenMusicEvent.testValue"
+  }
+#endif
+
+// MARK: - SQL Macro Replacement
+// Replace #sql macro with function for Android compatibility
 
 struct SQLStatement: Sendable {
     var rawValue: String
@@ -196,7 +309,9 @@ struct SQLStatement: Sendable {
         try db.execute(sql: rawValue)
     }
 }
+
 @Sendable func sql(_ sql: String) -> SQLStatement {
     return .init(rawValue: sql)
 }
+
 

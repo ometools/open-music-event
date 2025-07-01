@@ -1,6 +1,15 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "" : {
+
+    },
+    "%@" : {
+
+    },
+    "%lld" : {
+
+    },
     "%lld Items" : {
       "comment" : "Header title for a list that contains the number of items",
       "extractionState" : "stale",
@@ -31,9 +40,11 @@
         }
       }
     },
+    "About" : {
+
+    },
     "Add" : {
       "comment" : "Button in items list that will cause a new item to be added",
-      "extractionState" : "stale",
       "localizations" : {
         "es" : {
           "stringUnit" : {
@@ -61,10 +72,7 @@
         }
       }
     },
-    "Add Organizer" : {
-
-    },
-    "Android Support!" : {
+    "Add Organization" : {
 
     },
     "Appearance" : {
@@ -97,6 +105,15 @@
         }
       }
     },
+    "Artists" : {
+
+    },
+    "branch" : {
+
+    },
+    "Branch Name" : {
+
+    },
     "Cancel" : {
       "comment" : "Button title indicating that the operation should be cancelled",
       "extractionState" : "stale",
@@ -126,6 +143,12 @@
           }
         }
       }
+    },
+    "Contact Info" : {
+
+    },
+    "Content Unavailable" : {
+
     },
     "Dark" : {
       "comment" : "Menu item indicating that the appearance should be in dark mode",
@@ -187,6 +210,9 @@
         }
       }
     },
+    "Exit and see previous events" : {
+
+    },
     "Favorite" : {
       "comment" : "Item editor title label for marking the item as a favorite",
       "extractionState" : "stale",
@@ -216,6 +242,21 @@
           }
         }
       }
+    },
+    "Favorites" : {
+
+    },
+    "Filter" : {
+
+    },
+    "GitHub" : {
+
+    },
+    "github.com/your-organization/ome-config" : {
+
+    },
+    "Go to Artist" : {
+
     },
     "Hello [%@](https://skip.tools)!" : {
       "comment" : "Welcome tab contents",
@@ -247,9 +288,6 @@
         }
       }
     },
-    "Hello World!" : {
-
-    },
     "Home" : {
       "comment" : "Tab bar item title for the Home tab",
       "extractionState" : "stale",
@@ -280,6 +318,9 @@
         }
       }
     },
+    "Invalid Repository URL" : {
+
+    },
     "Light" : {
       "comment" : "Menu item indicating that the appearance should be in light mode",
       "extractionState" : "stale",
@@ -309,6 +350,12 @@
           }
         }
       }
+    },
+    "Links" : {
+
+    },
+    "More" : {
+
     },
     "Name" : {
       "comment" : "Placeholder title for the Name field in a form",
@@ -370,10 +417,22 @@
         }
       }
     },
-    "Organizer Detail" : {
+    "offset: %lf" : {
 
     },
-    "Organizers" : {
+    "OME (Open Music Event) is designed to help festival attendees effortlessly get access to information that they need during an event. The main goal of this project is to give concert and festival goers a simple, intuitive way to get information about events they are attending.\n\nThe secondary goal is providing a free and open source way for event organizers to create, maintain and update information about their event.\n\nIf you have any suggestions or discover any issues, please start a discussion and they will be addressed as soon as possible." : {
+
+    },
+    "Open Music Event" : {
+
+    },
+    "OpenMusicEventRootView: context is %@" : {
+
+    },
+    "Organization URL" : {
+
+    },
+    "Organizations" : {
 
     },
     "Powered by [Skip](https://skip.tools)" : {
@@ -406,6 +465,12 @@
         }
       }
     },
+    "Previous Events" : {
+
+    },
+    "Report an Issue" : {
+
+    },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
       "extractionState" : "stale",
@@ -435,6 +500,12 @@
           }
         }
       }
+    },
+    "scale: %lf" : {
+
+    },
+    "ScrollVisibility" : {
+
     },
     "Settings" : {
       "comment" : "Tab bar item title for the Settings tab",
@@ -466,6 +537,12 @@
         }
       }
     },
+    "STAGE INDICATOR" : {
+
+    },
+    "Suggest a feature" : {
+
+    },
     "System" : {
       "comment" : "Menu item indicating that the appearance should be in the default system mode",
       "extractionState" : "stale",
@@ -496,6 +573,9 @@
         }
       }
     },
+    "TIMEINDICATOR" : {
+
+    },
     "Title" : {
       "comment" : "Label for the item editor form indicating the title of the item",
       "extractionState" : "stale",
@@ -525,6 +605,21 @@
           }
         }
       }
+    },
+    "Upcoming Events" : {
+
+    },
+    "Update to the newest schedule" : {
+
+    },
+    "url" : {
+
+    },
+    "version" : {
+
+    },
+    "Version" : {
+
     },
     "Version %@ (%@)" : {
       "comment" : "Settings label showing the current version of the app",
@@ -561,6 +656,9 @@
           }
         }
       }
+    },
+    "View in Schedule" : {
+
     },
     "Welcome" : {
       "comment" : "Tab bar item title for the Welcome tab",

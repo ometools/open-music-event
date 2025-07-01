@@ -10,8 +10,8 @@
 		496BDBEE2B8A7E9C00C09264 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 496BDBED2B8A7E9C00C09264 /* Localizable.xcstrings */; };
 		499CD43B2AC5B799001AE8D8 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F90C2B2A52156200F06D93 /* Main.swift */; };
 		499CD4402AC5B799001AE8D8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 49F90C2F2A52156300F06D93 /* Assets.xcassets */; };
-		EF2B16F22E11D2FA00346E17 /* OpenMusicEvent in Frameworks */ = {isa = PBXBuildFile; productRef = EF2B16F12E11D2FA00346E17 /* OpenMusicEvent */; };
-		EF2B16F32E11D2FA00346E17 /* OpenMusicEvent in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EF2B16F12E11D2FA00346E17 /* OpenMusicEvent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		EF9299302E149C6E00C5AB5C /* OpenMusicEvent in Frameworks */ = {isa = PBXBuildFile; productRef = EF92992F2E149C6E00C5AB5C /* OpenMusicEvent */; };
+		EF9299312E149C6E00C5AB5C /* OpenMusicEvent in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EF92992F2E149C6E00C5AB5C /* OpenMusicEvent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -21,7 +21,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				EF2B16F32E11D2FA00346E17 /* OpenMusicEvent in Embed Frameworks */,
+				EF9299312E149C6E00C5AB5C /* OpenMusicEvent in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -47,7 +47,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EF2B16F22E11D2FA00346E17 /* OpenMusicEvent in Frameworks */,
+				EF9299302E149C6E00C5AB5C /* OpenMusicEvent in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -122,7 +122,7 @@
 			);
 			name = "OpenMusicEvent App";
 			packageProductDependencies = (
-				EF2B16F12E11D2FA00346E17 /* OpenMusicEvent */,
+				EF92992F2E149C6E00C5AB5C /* OpenMusicEvent */,
 			);
 			productName = App;
 			productReference = 496BDBEB2B89A47800C09264 /* OpenMusicEvent.app */;
@@ -289,7 +289,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		EF2B16F12E11D2FA00346E17 /* OpenMusicEvent */ = {
+		EF92992F2E149C6E00C5AB5C /* OpenMusicEvent */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = OpenMusicEvent;
 		};
