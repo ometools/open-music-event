@@ -14,6 +14,7 @@ let package = Package(
 
         .package(url: "https://github.com/woodymelling/swift-file-tree", branch: "android-support"),
 
+        .package(url: "https://github.com/kean/Nuke", from: "12.0.0"),
         .package(url: "https://source.skip.tools/skip.git", from: "1.5.18"),
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", "0.0.0"..<"2.0.0"),
         .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0"),
@@ -41,6 +42,7 @@ let package = Package(
 
                 .product(name: "CasePaths", package: "swift-case-paths"),
 
+                .product(name: "Nuke", package: "Nuke", condition: .when(platforms: [.iOS])),
 
                 .product(name: "Zip", package: "zip"),
             ],
