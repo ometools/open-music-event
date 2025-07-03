@@ -14,18 +14,18 @@ public struct CachedAsyncImage<I: View, P: View>: View {
     let content: (Image) -> I
 
     var label: LocalizedStringKey?
-    var placeholder: () -> P
+    var placeholder: P
 
     public init(
         requests: [PipelinedRequest],
         label: LocalizedStringKey? = nil,
         @ViewBuilder content: @escaping (Image) -> I,
-        @ViewBuilder placeholder: @escaping () -> P
+        @ViewBuilder placeholder: () -> P
     ) {
         self.requests = requests
         self.label = label
         self.content = content
-        self.placeholder = placeholder
+        self.placeholder = placeholder()
     }
 
     public init(
@@ -33,7 +33,7 @@ public struct CachedAsyncImage<I: View, P: View>: View {
         on pipeline: ImagePipeline = .shared,
         label: LocalizedStringKey? = nil,
         @ViewBuilder content: @escaping (Image) -> I,
-        @ViewBuilder placeholder: @escaping () -> P
+        @ViewBuilder placeholder: () -> P
     ) {
         self.init(
             requests: requests.map { PipelinedRequest(request: $0, on: pipeline) },
@@ -51,7 +51,7 @@ public struct CachedAsyncImage<I: View, P: View>: View {
             if let image = model.image {
                 content(image)
             } else {
-                placeholder()
+                placeholder
             }
         }
             .accessibilityLabel(label)
@@ -128,17 +128,11 @@ public struct CachedAsyncImage<I: View, P: View>: View {
     #elseif SKIP
 
     public var body: some View {
-        AsyncImage(url: requests.first { $0.imageRequest.url != nil }?.imageRequest.url) { phase in
-            switch phase {
-            case .success(let image):
-                content(image)
-            case .failure(_), .empty:
-                placeholder()
-            @unknown default:
-                placeholder()
-            }
+        AsyncImage(url: requests.first { $0.imageRequest.url != nil }?.imageRequest.url) { image in
+            image.resizable()
+        } placeholder: {
+            placeholder()
         }
-        .accessibilityLabel(label)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     #endif

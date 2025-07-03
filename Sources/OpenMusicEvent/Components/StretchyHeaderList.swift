@@ -114,11 +114,8 @@ struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {
     }
 
     private var topDimOverlay: some View {
-        #if os(iOS)
         let shadowColor = Color.systemBackground
-        #else
-        let shadowColor = Color.red
-        #endif
+
         // Adjust the height/opacity to taste:
         return LinearGradient(
             gradient: Gradient(colors: [
@@ -157,7 +154,6 @@ struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {
 
             listContent
         }
-        .listStyle(.plain)
         .ignoresSafeArea(.all, edges: .top)
         .navigationTitle(titleContent)
         .navigationBarTitleDisplayMode(.inline)
@@ -175,7 +171,7 @@ struct StretchyHeaderListTitleView: View {
     var titleContent: Text
 
     let mainColor = Color.systemBackground
-   
+
 
     var body: some View {
         self.titleContent

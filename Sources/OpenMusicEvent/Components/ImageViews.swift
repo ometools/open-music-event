@@ -23,101 +23,44 @@ struct OrganizerIconView: View {
     let organizer: Organizer
 
     var body: some View {
-//        Text("HELLO WORLD")
-        #if os(iOS)
-        CachedAsyncImage(
-            requests: [
-                ImageRequest(
-                    url: organizer.iconImageURL,
-                    processors: [.resize(width: 440)]
-                ).withPipeline(.images)
-            ]
-        ) {
-            $0
+        AsyncImage(url: organizer.iconImageURL) { image in
+            image
                 .resizable()
             #if os(iOS)
                 .renderingMode(.template)
             #endif
+
         } placeholder: {
             ProgressView()
-
         }
-        #elseif os(Android)
-        AsyncImage(url: organizer.iconImageURL) { image in
+    }
+}
+
+struct OrganizerImageView: View {
+    let organizer: Organizer
+
+    var body: some View {
+        AsyncImage(url: organizer.imageURL) { image in
             image.resizable()
+
         } placeholder: {
             ProgressView()
         }
-        #endif
-//        .frame(maxWidth: .infinity)
     }
 }
 
-extension Organizer {
+struct EventIconImageView: View {
+    var event: MusicEvent
 
-
-    struct ImageView: View {
-        let organizer: Organizer
-
-        var body: some View {
-            CachedAsyncImage(
-                requests: [
-                    ImageRequest(
-                        url: organizer.imageURL,
-                        processors: [.resize(width: 440)]
-                    ).withPipeline(.images)
-                ]
-            ) {
-                $0.resizable()
-                    #if os(iOS)
-                    .renderingMode(.original)
-                    #endif
-            } placeholder: {
-                #if !SKIP
-                AnimatedMeshView()
-                    .opacity(0.25)
-                #else
-                ProgressView().frame(square: 440)
-                #endif
-
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-}
-
-extension MusicEvent {
-    struct IconImageView: View {
-        var event: MusicEvent
-        
-        var body: some View {
-            CachedAsyncImage(
-                requests: [
-                    ImageRequest(
-                        url: event.iconImageURL,
-                        processors: [
-//                            .resize(width: 60, height: 60)
-                        ]
-                    )
-                    .withPipeline(.images)
-                ]
-            ) {
-                $0
+    var body: some View {
+        AsyncImage(url: event.iconImageURL) { image in
+            image
+                .resizable()
                 #if os(iOS)
-                    .renderingMode(.template)
+                .renderingMode(.template)
                 #endif
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } placeholder: {
-                if event.iconImageURL != nil {
-                    ProgressView()
-                } else {
-                    Image(systemName: "x.circle").foregroundStyle(.red)
-                }
-
-            }
-            .frame(width: 60, height: 60)
-            .clipped()
+        } placeholder: {
+            ProgressView()
         }
     }
 }

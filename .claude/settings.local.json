@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "WebFetch(domain:skiptools.org)",
+      "WebFetch(domain:skip.tools)"
     ],
     "deny": []
   }

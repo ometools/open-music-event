@@ -17,15 +17,14 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 #endif
-//
-//extension Color {
-//#if SKIP
+
+extension Color {
+    #if os(Android)
 //    static let systemBackground = Color(colorImpl: {
 //        MaterialTheme.colorScheme.surface
 //    })
-//#elseif canImport(UIKit)
-//    static let systemBackground: Color = Color.systemBackground
-//#else
-//    #error("Unsupported platform")
-//#endif
-//}
+    static let systemBackground = SwiftUI.Color.brown
+    #else
+    static let systemBackground = Color(.systemBackground)
+    #endif
+}

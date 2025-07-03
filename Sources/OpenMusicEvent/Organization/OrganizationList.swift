@@ -30,7 +30,6 @@ struct OrganizerListView: View {
 
         var destination: Destination?
 
-        // The observation handle
 
 
         func onAppear() async {
@@ -109,11 +108,13 @@ struct OrganizerListView: View {
             if !store.organizers.isEmpty {
                 List {
                     ForEach(store.organizers) { org in
-                        NavigationLinkButton {
-                            store.didTapOrganizer(id: org.id)
+
+                        NavigationLink {
+                            OrganizerDetailView(store: .init(url: org.url))
                         } label: {
                             Row(org: org)
                         }
+
 //                        .swipeActions(edge: .trailing) {
 //                            Button(role: .destructive) {
 //                                store.didDeleteOrganization(organization: org)
@@ -141,11 +142,7 @@ struct OrganizerListView: View {
             Button("Add Organization", systemImage: "plus") {
                 store.didTapAddOrganizerButton()
             }
-//            .popoverTip(AddOrganizationTip())
         }
-//        .navigationDestination(item: $store.organizerDetail) { url in
-//            OrganizerDetailView(store: .init(url: url))
-//        }
         .sheet(item: $store.addOrganization) { store in
             NavigationStack {
                 OrganizationFormView(store: store)

@@ -31,21 +31,11 @@ public struct OrganizerDetailView: View {
         public init(url: Organizer.ID) {
             self.id = url
 
-            // TODO: Replace @FetchOne/@FetchAll with GRDB queries
-            // _organizer = FetchOne(wrappedValue: nil, Organizer?.find(id))
-            // _events = FetchAll(
-            //     MusicEvent
-            //         .where { $0.organizerURL == id }
-            //         .order { $0.startTime.desc(nulls: .last)  }
-            // )
         }
 
         public let id: Organizer.ID
 
-        // TODO: Replace @FetchOne with GRDB query
         public var organizer: Organizer?
-
-        // TODO: Replace @FetchAll with GRDB query
         var events: [MusicEvent] = []
 
         public var showingLoadingScreen: Bool = false
@@ -67,7 +57,6 @@ public struct OrganizerDetailView: View {
             }
         }
 
-
         struct OrganizerEvents {
             let info: Organizer
             let events: [MusicEvent]
@@ -77,6 +66,7 @@ public struct OrganizerDetailView: View {
 
             let query = ValueObservation.tracking { db in
                 let org = try Organizer.fetchOne(db, id: self.id)
+
                 let events = try MusicEvent
                     .filter(Column("organizerURL") == self.id)
                     .order(Column("startTime").desc)
@@ -131,6 +121,28 @@ public struct OrganizerDetailView: View {
     @Bindable var store: ViewModel
     @Environment(\.loadingScreenImage) var loadingScreenImage
 
+    @Environment(\.date) var date
+
+    var previousEvents: [MusicEvent] {
+        store.events.filter { event in
+            if let endTime = event.endTime {
+                endTime < date()
+            } else {
+                true
+            }
+        }
+    }
+
+    var upcomingEvents: [MusicEvent] {
+        store.events.filter { event in
+            if let startTime = event.startTime {
+                startTime > date()
+            } else {
+                true
+            }
+        }
+    }
+
     public var body: some View {
         Group {
             ZStack {
@@ -138,13 +150,32 @@ public struct OrganizerDetailView: View {
                     StretchyHeaderList(
                         title: Text(organizer.name),
                         stretchyContent: {
-                            Organizer.ImageView(organizer: organizer)
+                            OrganizerImageView(organizer: organizer)
                         },
                         listContent: {
-                            EventsListView(events: store.events) { eventID in
-                                store.didTapEvent(id: eventID)
+                            if !upcomingEvents.isEmpty {
+                                Section("Upcoming Events") {
+                                    ForEach(upcomingEvents) { event in
+                                        NavigationLinkButton {
+                                            store.didTapEvent(id: event.id)
+                                        } label: {
+                                            EventRowView(event: event)
+                                        }
+                                    }
+                                }
                             }
 
+                            if !previousEvents.isEmpty {
+                                Section("Previous Events") {
+                                    ForEach(previousEvents) { event in
+                                        NavigationLinkButton {
+                                            store.didTapEvent(id: event.id)
+                                        } label: {
+                                            EventRowView(event: event)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     )
                     .refreshable { await store.onPullToRefresh() }
@@ -177,52 +208,9 @@ public struct OrganizerDetailView: View {
         var onTapEvent: (MusicEvent.ID) -> Void
 
 
-        @Environment(\.date) var date
-
-        var previousEvents: [MusicEvent] {
-            events.filter { event in
-                if let endTime = event.endTime {
-                    endTime < date()
-                } else {
-                    true
-                }
-            }
-        }
-
-        var upcomingEvents: [MusicEvent] {
-            events.filter { event in
-                if let startTime = event.startTime {
-                    startTime > date()
-                } else {
-                    true
-                }
-            }
-        }
 
         var body: some View {
-            if !upcomingEvents.isEmpty {
-                Section("Upcoming Events") {
-                    ForEach(upcomingEvents) { event in
-//                        NavigationLinkButton {
-//                            onTapEvent(event.id)
-//                        } label: {
-//                            EventRowView(event: event)
-//                        }
-                    }
-                }
-            }
 
-            if !previousEvents.isEmpty {
-                Section("Previous Events") {
-                    ForEach(previousEvents) { event in
-//                        NavigationLinkButton {
-//                            onTapEvent(event.id)
-//                        } label: {
-//                            EventRowView(event: event)
-//                        }
-                    }
-                }
-            }
         }
     }
 
@@ -256,7 +244,7 @@ public struct OrganizerDetailView: View {
 
         var body: some View {
             HStack(spacing: 10) {
-                MusicEvent.IconImageView(event: event)
+                EventIconImageView(event: event)
                     .frame(width: 60, height: 60)
 //                    .foregroundColor(.label)
 //                .invertForLightMode()

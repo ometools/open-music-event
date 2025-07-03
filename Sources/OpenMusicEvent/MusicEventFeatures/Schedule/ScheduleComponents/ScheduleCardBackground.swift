@@ -294,9 +294,3 @@ extension View {
             .shadow(color: color, radius: radius / 3)
     }
 }
-
-extension Color {
-    static var systemBackground: Color {
-        Color.red
-    }
-}

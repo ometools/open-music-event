@@ -78,19 +78,31 @@ public struct OMEAppEntryPoint: View {
             var eventID: MusicEvent.ID?
 
             init() {
-//                NotificationCenter.default.addObserver(
-//                    self,
-//                    selector: #selector(handleSelectedEventIDNotification(_:)),
-//                    name: .userSelectedToViewEvent,
-//                    object: nil
-//                )
-//                NotificationCenter.default.addObserver(
-//                    self,
-//                    selector: #selector(handleExitEventNotification(_:)),
-//                    name: .userRequestedToExitEvent,
-//                    object: nil
-//                )
-            }
+
+                NotificationCenter.default.addObserver(
+                    forName: .userSelectedToViewEvent,
+                    object: nil,
+                    queue: .main
+                ) { notification in
+                    guard let eventID = notification.userInfo?["eventID"] as? OmeID<MusicEvent> else {
+                        reportIssue("Posted notification: selectedEventID did not contain eventID")
+                        return
+                    }
+                    MainActor.assumeIsolated {
+                        self.handleSelectedEventIDNotification(eventID)
+                    }
+                }
+
+                NotificationCenter.default.addObserver(
+                    forName: .userRequestedToExitEvent,
+                    object: nil,
+                    queue: .main
+                ) { _ in
+                    MainActor.assumeIsolated {
+                        self.handleExitEventNotification()
+                    }
+                }
+           }
 
             func onAppear() async {
                 // TODO: Replace $eventID.load() with proper state loading
@@ -103,24 +115,20 @@ public struct OMEAppEntryPoint: View {
             deinit {
                 NotificationCenter.default.removeObserver(self)
             }
-//
-//            @objc private func handleSelectedEventIDNotification(_ notification: Notification) {
-//                guard let eventID = notification.userInfo?["eventID"] as? OmeID<MusicEvent> else {
-//                    reportIssue("Posted notification: selectedEventID did not contain eventID")
-//                    return
-//                }
-//                // TODO: Replace $eventID.withLock with proper state management
-//                // self.$eventID.withLock { $0 = eventID }
-//                self.eventID = eventID
-//                self.musicEventViewer = .init(eventID: eventID)
-//            }
-//
-//            @objc private func handleExitEventNotification(_ notification: Notification) {
-//                // TODO: Replace $eventID.withLock with proper state management
-//                // self.$eventID.withLock { $0 = nil }
-//                self.eventID = nil
-//                self.musicEventViewer = nil
-//            }
+
+            private func handleSelectedEventIDNotification(_ eventID: MusicEvent.ID) {
+                // TODO: Replace $eventID.withLock with proper state management
+                // self.$eventID.withLock { $0 = eventID }
+                self.eventID = eventID
+                self.musicEventViewer = .init(eventID: eventID)
+            }
+
+            private func handleExitEventNotification() {
+                // TODO: Replace $eventID.withLock with proper state management
+                // self.$eventID.withLock { $0 = nil }
+                self.eventID = nil
+                self.musicEventViewer = nil
+            }
         }
 
 
