@@ -56,7 +56,8 @@ public struct NavigationLinkButtonStyle: ButtonStyle {
                 .foregroundStyle(.tertiary)
                 .aspectRatio(contentMode: .fit)
                 .fontWeight(.bold)
-                .frame(height: self.height)
+                .frame(width: 6, height: self.height)
+
             #endif
         }
     }
@@ -84,9 +85,12 @@ struct NavigationLinkButton<Label: View>: View {
                     .contentShape(Rectangle())
                     #endif
                     .tint(.primary)
+                #if os(iOS)
                 Spacer()
                 NavigationLinkButtonStyle.NavigationArrow()
+                #endif
             }
+            .frame(maxWidth: .infinity)
         }
     }
 }

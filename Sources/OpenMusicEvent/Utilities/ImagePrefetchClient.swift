@@ -39,7 +39,9 @@ extension ImagePrefetchClient: DependencyKey {
                     if let imageURL = stage.iconImageURL {
                         $0.addTask {
                             await withErrorReporting {
-//                                _ = try await ImagePipeline.images.image(for: imageURL)
+                                #if os(iOS)
+                                _ = try await ImagePipeline.images.image(for: imageURL)
+                                #endif
                             }
                         }
                     }
@@ -59,7 +61,9 @@ extension ImagePrefetchClient: DependencyKey {
                     if let imageURL = artist.imageURL {
                         $0.addTask {
                             await withErrorReporting {
-//                                _ = try await ImagePipeline.images.image(for: imageURL)
+                                #if os(iOS)
+                                _ = try await ImagePipeline.images.image(for: imageURL)
+                                #endif
                             }
                         }
                     }

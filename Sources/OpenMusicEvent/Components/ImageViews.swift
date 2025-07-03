@@ -19,58 +19,69 @@ import Dependencies
 // import SharingGRDB
 import CoreModels
 
-extension Organizer {
-    struct IconView: View {
-        let organizer: Organizer
+struct OrganizerIconView: View {
+    let organizer: Organizer
 
-        var body: some View {
-//            CachedAsyncImage(
-//                requests: [
-//                    ImageRequest(
-//                        url: organizer.iconImageURL,
-//                        processors: [.resize(width: 440)]
-//                    ).withPipeline(.images)
-//                ]
-//            ) {
-//                $0.resizable().renderingMode(.template)
-//            } placeholder: {
-//                #if !SKIP
-//                AnimatedMeshView()
-//                    .overlay(Material.thinMaterial)
-//                    .opacity(0.25)
-//                #else
-//                ProgressView().frame(square: 440)
-//                #endif
-//
-//            }
-//            .frame(maxWidth: .infinity)
+    var body: some View {
+//        Text("HELLO WORLD")
+        #if os(iOS)
+        CachedAsyncImage(
+            requests: [
+                ImageRequest(
+                    url: organizer.iconImageURL,
+                    processors: [.resize(width: 440)]
+                ).withPipeline(.images)
+            ]
+        ) {
+            $0
+                .resizable()
+            #if os(iOS)
+                .renderingMode(.template)
+            #endif
+        } placeholder: {
+            ProgressView()
+
         }
+        #elseif os(Android)
+        AsyncImage(url: organizer.iconImageURL) { image in
+            image.resizable()
+        } placeholder: {
+            ProgressView()
+        }
+        #endif
+//        .frame(maxWidth: .infinity)
     }
+}
+
+extension Organizer {
+
 
     struct ImageView: View {
         let organizer: Organizer
 
         var body: some View {
-//            CachedAsyncImage(
-//                requests: [
-//                    ImageRequest(
-//                        url: organizer.imageURL,
-//                        processors: [.resize(width: 440)]
-//                    ).withPipeline(.images)
-//                ]
-//            ) {
-//                $0.resizable().renderingMode(.original)
-//            } placeholder: {
-//                #if !SKIP
-//                AnimatedMeshView()
-//                    .overlay(Material.thinMaterial)
-//                    .opacity(0.25)
-//                #else
-//                ProgressView().frame(square: 440)
-//                #endif
-//
-//            }
-//            .frame(maxWidth: .infinity)
+            CachedAsyncImage(
+                requests: [
+                    ImageRequest(
+                        url: organizer.imageURL,
+                        processors: [.resize(width: 440)]
+                    ).withPipeline(.images)
+                ]
+            ) {
+                $0.resizable()
+                    #if os(iOS)
+                    .renderingMode(.original)
+                    #endif
+            } placeholder: {
+                #if !SKIP
+                AnimatedMeshView()
+                    .opacity(0.25)
+                #else
+                ProgressView().frame(square: 440)
+                #endif
+
+            }
+            .frame(maxWidth: .infinity)
         }
     }
 }
@@ -80,31 +91,33 @@ extension MusicEvent {
         var event: MusicEvent
         
         var body: some View {
-//            CachedAsyncImage(
-//                requests: [
-//                    ImageRequest(
-//                        url: event.iconImageURL,
-//                        processors: [
-//                            .resize(size: CGSize(width: 60, height: 60))
-//                        ]
-//                    )
-//                    .withPipeline(.images)
-//                ]
-//            ) {
-//                $0
-//                    .renderingMode(.template)
-//                    .resizable()
-//                    .aspectRatio(contentMode: .fill)
-//            } placeholder: {
-//                if event.iconImageURL != nil {
-//                    ProgressView()
-//                } else {
-//                    Image(systemName: "x.circle").foregroundStyle(.red)
-//                }
-//
-//            }
-//            .frame(width: 60, height: 60)
-//            .clipped()
+            CachedAsyncImage(
+                requests: [
+                    ImageRequest(
+                        url: event.iconImageURL,
+                        processors: [
+//                            .resize(width: 60, height: 60)
+                        ]
+                    )
+                    .withPipeline(.images)
+                ]
+            ) {
+                $0
+                #if os(iOS)
+                    .renderingMode(.template)
+                #endif
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } placeholder: {
+                if event.iconImageURL != nil {
+                    ProgressView()
+                } else {
+                    Image(systemName: "x.circle").foregroundStyle(.red)
+                }
+
+            }
+            .frame(width: 60, height: 60)
+            .clipped()
         }
     }
 }
@@ -122,27 +135,22 @@ extension Artist {
         }
 
         var body: some View {
-//            GeometryReader { geo in
-//                CachedAsyncImage(
-//                    requests: [
-//                        ImageRequest(
-//                            url: imageURL,
-//                            processors: [
-//                                .resize(size: geo.size)
-//                            ]
-//                        )
-//                        .withPipeline(.images)
-//                    ]
-//                ) {
-//                    $0.resizable()
-//                        .aspectRatio(contentMode: .fill)
-//                } placeholder: {
-//                    Image(systemName: "person.fill")
-//                        .resizable()
-//                        .frame(square: 30)
-//                }
-//            }
-//            .clipped()
+            CachedAsyncImage(
+                requests: [
+                    ImageRequest(
+                        url: imageURL,
+                        processors: []
+                    )
+                    .withPipeline(.images)
+                ]
+            ) {
+                $0.resizable()
+                    .aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Image(systemName: "person.fill")
+                    .resizable()
+                    .frame(square: 30)
+            }
         }
     }
 }
@@ -189,28 +197,28 @@ public extension Stage {
         @Environment(\.colorScheme) var colorScheme
 
         public var body: some View {
-//            // TODO: Needs
-//            CachedAsyncImage(requests: [
-//                ImageRequest(
-//                    url: stage.iconImageURL,
-//                    processors: [
-//                        .resize(size: CGSize(width: 60, height: 60))
-//                    ],
-//                    priority: .veryHigh // There are very few stage images, and they are often very required for best UI.
-//                )
-//                .withPipeline(.images)
-//
-//            ]) { @MainActor image in
-//                image
-//                    .resizable()
-//                    .renderingMode(.template)
-//                    .resizable()
-//                    .aspectRatio(contentMode: .fit)
-//                    .frame(alignment: .center)
-//
-//            } placeholder: {
-//                Placeholder(stageName: stage.name)
-//            }
+            CachedAsyncImage(requests: [
+                ImageRequest(
+                    url: stage.iconImageURL,
+                    processors: [
+//                        .resize(width: 60, height: 60)
+                    ]
+                )
+                .withPipeline(.images)
+
+            ]) { image in
+                image
+                    .resizable()
+                    #if os(iOS)
+                    .renderingMode(.template)
+                    #endif
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(alignment: .center)
+
+            } placeholder: {
+                Placeholder(stageName: stage.name)
+            }
         }
 
         struct Placeholder: View {

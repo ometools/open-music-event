@@ -157,9 +157,11 @@ struct OrganizerListView: View {
     struct Row: View {
         var org: Organizer
 
+        
+
         var body: some View {
             HStack {
-                Organizer.IconView(organizer: org)
+                OrganizerIconView(organizer: org)
                     .frame(width: 60, height: 60)
                     .aspectRatio(contentMode: .fit)
 
@@ -171,6 +173,9 @@ struct OrganizerListView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .onAppear {
+                print(org)
+            }
         }
     }
 }

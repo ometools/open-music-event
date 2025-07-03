@@ -155,28 +155,20 @@ struct ArtistDetailView: View {
         let artist: Artist
 
         var body: some View {
-//            CachedAsyncImage(
-//                requests: [
-//                    ImageRequest(
-//                        url: artist.imageURL,
-//                        processors: [.resize(width: 440)],
-//                        priority: .veryHigh // Detail screen should have high priority
-//                    )
-//                    .withPipeline(.images)
-//                ]
-//            ) {
-//                $0.resizable()
-//            } placeholder: {
-//                #if !SKIP
-//                AnimatedMeshView()
-//                    .overlay(Material.thinMaterial)
-//                    .opacity(0.25)
-//                #else
-//                ProgressView().frame(square: 440)
-//                #endif
-//
-//            }
-//            .frame(maxWidth: .infinity)
+            CachedAsyncImage(
+                requests: [
+                    ImageRequest(
+                        url: artist.imageURL,
+                        processors: [.resize(width: 440)]
+                    )
+                    .withPipeline(.images)
+                ]
+            ) {
+                $0.resizable()
+            } placeholder: {
+                ProgressView().frame(square: 440)
+            }
+            .frame(maxWidth: .infinity)
         }
     }
 }
