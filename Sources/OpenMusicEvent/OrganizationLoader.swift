@@ -323,6 +323,12 @@ extension OrganizerConfiguration {
 
                             for artistName in performance.artistNames {
                                 let artistID = try getOrCreateArtist(withName: artistName)
+                                let draft = Performance.Artists.Draft(
+                                    performanceID: performanceID,
+                                    artistID: artistID
+                                )
+
+                                let _ = try draft.saved(db)
                             }
                         }
                     }

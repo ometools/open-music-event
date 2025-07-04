@@ -112,7 +112,7 @@ struct ArtistsListView: View {
                     }
                 }
 
-                Stage.IndicatorView(colors: performanceStages.map(\.color))
+                StageIndicatorView(colors: performanceStages.map(\.color))
                     .frame(width: 5, height: 60)
 
                 Text(artist.name)

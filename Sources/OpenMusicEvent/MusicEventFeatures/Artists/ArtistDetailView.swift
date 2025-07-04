@@ -35,14 +35,18 @@ class ArtistDetail {
     }
 
 
+    @MainActor
     func onAppear() async {
-        let query = ValueObservation.tracking { db in
-            try Artist.find(db, id: self.artistID)
+        let combinedQuery = ValueObservation.tracking { db in
+            let artist = try Artist.find(db, id: self.artistID)
+            let performances = try self.fetchPerformances(db: db)
+            return (artist, performances)
         }
 
         await withErrorReporting {
-            for try await artist in query.values() {
+            for try await (artist, performances) in combinedQuery.values() {
                 self.artist = artist
+                self.performances = performances
             }
         }
     }
@@ -53,26 +57,39 @@ class ArtistDetail {
     var artist: Artist = .placeholder
 
 
-    // TODO: Replace @FetchAll with GRDB query
     var performances: [PerformanceDetailRow.ArtistPerformance] = []
 
-    // TODO: Convert to GRDB query
-    // static let performancesQuery = { @Sendable (artistID: Artist.ID) in
-    //     Performance.Artists
-    //         .where { $0.artistID == artistID }
-    //         .join(Performance.all) { $0.performanceID.eq($1.id) }
-    //         .join(Stage.all) { $1.stageID.eq($2.id) }
-    //         .select {
-    //             PerformanceDetailRow.ArtistPerformance.Columns(
-    //                 id: $1.id,
-    //                 stageID: $2.id,
-    //                 startTime: $1.startTime,
-    //                 endTime: $1.endTime,
-    //                 title: $1.title,
-    //                 stageColor: $2.color
-    //             )
-    //         }
-    // }
+
+    nonisolated private func fetchPerformances(db: Database) throws -> [PerformanceDetailRow.ArtistPerformance] {
+        let sql = """
+            SELECT 
+                p.id as id,
+                p.stageID as stageID,
+                p.startTime as startTime,
+                p.endTime as endTime,
+                p.title as title,
+                s.color as stageColor
+            FROM performanceArtists pa
+            JOIN performances p ON pa.performanceID = p.id
+            JOIN stages s ON p.stageID = s.id
+            WHERE pa.artistID = ?
+            ORDER BY p.startTime ASC
+        """
+        
+        return try Row.fetchAll(db, sql: sql, arguments: [artistID.rawValue]).map { row in
+            let startTimeString: String = row["startTime"]
+            let endTimeString: String = row["endTime"]
+            
+            return PerformanceDetailRow.ArtistPerformance(
+                id: OmeID(row["id"]),
+                stageID: OmeID(row["stageID"]),
+                startTime: ISO8601DateFormatter().date(from: startTimeString) ?? Date(),
+                endTime: ISO8601DateFormatter().date(from: endTimeString) ?? Date(),
+                title: row["title"],
+                stageColor: OMEColor(rawValue: row["stageColor"])
+            )
+        }
+    }
 
 
 //        static func performances(for artistID: Artist.ID) -> some StructuredQueriesCore.Statement<PerformanceDetail> {
@@ -145,12 +162,6 @@ struct ArtistDetailView: View {
                 if !store.artist.links.isEmpty {
                     Section("Links") {
                         ForEach(store.artist.links, id: \.url) { link in
-//                            Text(link.url.absoluteString)
-//                            NavigationLinkButton {
-//                                store.send(.didTapURL(link.url))
-//                            } label: {
-//                                LinkView(link)
-//                            }
                             Link(link.url.absoluteString, destination: link.url)
                                 #if os(iOS)
                                 .foregroundStyle(.tint)
@@ -183,7 +194,10 @@ struct ArtistDetailView: View {
 
 public extension OMEColor {
     var swiftUIColor: SwiftUI.Color {
-        fatalError()
-        //        return Color(hex: self.rawValue)
+        return Color(
+            red: Double((self.rawValue >> 16) & 0xFF) / 255.0,
+            green: Double((self.rawValue >> 8) & 0xFF) / 255.0,
+            blue: Double(self.rawValue & 0xFF) / 255.0
+        )
     }
 }

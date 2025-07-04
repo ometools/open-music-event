@@ -40,7 +40,7 @@ public struct PerformanceDetailRow: View {
 
     public var body: some View {
         HStack(spacing: 10) {
-            Stage.IndicatorView(color: performance.stageColor)
+            StageIndicatorView(color: performance.stageColor)
                 .frame(width: 5)
 
             Stage.IconView(stageID: performance.stageID)
