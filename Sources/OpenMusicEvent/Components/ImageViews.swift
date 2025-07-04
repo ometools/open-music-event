@@ -29,6 +29,7 @@ struct OrganizerIconView: View {
             #if os(iOS)
                 .renderingMode(.template)
             #endif
+                .aspectRatio(contentMode: .fill)
 
         } placeholder: {
             ProgressView()
@@ -42,7 +43,7 @@ struct OrganizerImageView: View {
     var body: some View {
         AsyncImage(url: organizer.imageURL) { image in
             image.resizable()
-
+                .aspectRatio(contentMode: .fill)
         } placeholder: {
             ProgressView()
         }
@@ -59,41 +60,29 @@ struct EventIconImageView: View {
                 #if os(iOS)
                 .renderingMode(.template)
                 #endif
+                .aspectRatio(contentMode: .fill)
+
         } placeholder: {
             ProgressView()
         }
     }
 }
 
-extension Artist {
-    struct ImageView: View {
+struct ArtistImageView: View {
+    var artist: Artist
 
-        // TODO: Replace @FetchOne with GRDB query
-        var imageURL: URL?
+    init(artist: Artist) {
+        self.artist = artist
+    }
 
-        init(artistID: Artist.ID) {
-            // TODO: Replace FetchOne with GRDB query
-            // self._imageURL = FetchOne(wrappedValue: nil, Artist.find(artistID).select { $0.imageURL })
-            self.imageURL = nil
-        }
+    var body: some View {
+        AsyncImage(url: artist.imageURL) { image in
+            image
+                .resizable()
+                .aspectRatio(contentMode: .fill)
 
-        var body: some View {
-            CachedAsyncImage(
-                requests: [
-                    ImageRequest(
-                        url: imageURL,
-                        processors: []
-                    )
-                    .withPipeline(.images)
-                ]
-            ) {
-                $0.resizable()
-                    .aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Image(systemName: "person.fill")
-                    .resizable()
-                    .frame(square: 30)
-            }
+        } placeholder: {
+            ProgressView()
         }
     }
 }

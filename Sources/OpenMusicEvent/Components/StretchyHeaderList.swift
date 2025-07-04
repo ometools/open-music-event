@@ -155,7 +155,7 @@ struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {
             listContent
         }
         .ignoresSafeArea(.all, edges: .top)
-        .navigationTitle(titleContent)
+//        .navigationTitle(titleContent)
         .navigationBarTitleDisplayMode(.inline)
     }
     #else

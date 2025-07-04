@@ -24,6 +24,7 @@ extension Artist {
 
 
 
+@MainActor
 @Observable
 class ArtistDetail {
     init(artistID: Artist.ID) {
@@ -31,6 +32,19 @@ class ArtistDetail {
         // TODO: Replace with GRDB query
         // self._artist = FetchOne(wrappedValue: .placeholder, Artist.find(artistID))
         // self._performances = FetchAll(ArtistDetail.performancesQuery(artistID))
+    }
+
+
+    func onAppear() async {
+        let query = ValueObservation.tracking { db in
+            try Artist.find(db, id: self.artistID)
+        }
+
+        await withErrorReporting {
+            for try await artist in query.values() {
+                self.artist = artist
+            }
+        }
     }
 
     let artistID: Artist.ID
@@ -107,8 +121,7 @@ struct ArtistDetailView: View {
         StretchyHeaderList(
             title: Text(store.artist.name),
             stretchyContent: {
-                ArtistImage(artist: store.artist)
-
+                ArtistImageView(artist: store.artist)
             },
             listContent: {
                 ForEach(store.performances) { performance in
@@ -119,6 +132,12 @@ struct ArtistDetailView: View {
                 if let bio = bioMarkdown {
                     Text(bio)
                         .font(.body)
+                } else if let bioString = store.artist.bio {
+                    Text(bioString)
+                }
+                #elseif os(Android)
+                if let bioString = store.artist.bio {
+                    Text(bioString)
                 }
                 #endif
 
@@ -143,6 +162,7 @@ struct ArtistDetailView: View {
             }
         )
         .listStyle(.plain)
+        .onAppear { Task { await self.store.onAppear() }}
 
 //        .toolbar {
 //            Toggle("Favorite", isOn: $store.favoriteArtists[store.artist.id])
@@ -151,26 +171,6 @@ struct ArtistDetailView: View {
 //        }
     }
 
-    struct ArtistImage: View {
-        let artist: Artist
-
-        var body: some View {
-            CachedAsyncImage(
-                requests: [
-                    ImageRequest(
-                        url: artist.imageURL,
-                        processors: [.resize(width: 440)]
-                    )
-                    .withPipeline(.images)
-                ]
-            ) {
-                $0.resizable()
-            } placeholder: {
-                ProgressView().frame(square: 440)
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
 }
 //
 //#Preview {

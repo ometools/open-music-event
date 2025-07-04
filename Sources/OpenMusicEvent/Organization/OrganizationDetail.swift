@@ -75,14 +75,12 @@ public struct OrganizerDetailView: View {
                 return (org, events)
             }
 
-            
-            do {
+
+            await withErrorReporting {
                 for try await (organizer, events) in query.values(in: database) {
                     self.organizer = organizer
                     self.events = events
                 }
-            } catch {
-                reportIssue(error)
             }
 //
 //
@@ -317,51 +315,40 @@ public enum DatabaseDebugStatus: Sendable {
 // }
 
 enum Current {
-//    static var musicEventID: AppStorageKey<MusicEvent.ID?> {
-//        .appStorage("OME-eventID")
+    static var musicEvent: QueryInterfaceRequest<MusicEvent> {
+        @Dependency(\.musicEventID) var musicEventID
+        return MusicEvent.filter(id: musicEventID)
+    }
+
+//    static var organizer: QueryInterfaceRequest<Organizer> {
+//        @Dependency(\.musicEventID) var musicEventID
+//        return Organizer.joining(required: Organizer.musicEvents.filter(id: musicEventID))
 //    }
 
+    static var artists: QueryInterfaceRequest<Artist> {
+        @Dependency(\.musicEventID) var musicEventID
+        return Artist.filter(Column("musicEventID") == musicEventID)
+    }
 
-    // TODO: Replace with GRDB query
-    // static var musicEvent: Where<MusicEvent> {
-    //     @Dependency(\.musicEventID) var musicEventID
-    //     return MusicEvent.find(musicEventID)
-    // }
+    static var stages: QueryInterfaceRequest<Stage> {
+        @Dependency(\.musicEventID) var musicEventID
+        return Stage
+            .filter(Column("musicEventID") == musicEventID)
+            .order(Column("sortIndex"))
+    }
 
-    // TODO: Replace with GRDB query
-    // static var organizer: SelectOf<Organizer> {
-    //     @Dependency(\.musicEventID) var musicEventID
-    //
-    //     return Organizer.all
-    //         .where { $0.url == Current.musicEvent.select(\.organizerURL) }
-    //         .limit(1)
-    // }
-
-    // TODO: Replace with GRDB query
-    // static var artists: Where<Artist> {
-    //     @Dependency(\.musicEventID) var eventID
-    //     return Artist.where {
-    //         eventID == $0.musicEventID
-    //     }
-    // }
-
-    // TODO: Replace with GRDB query
-    // static var stages: SelectOf<Stage> {
-    //     Stage.where {
-    //         @Dependency(\.musicEventID) var eventID
-    //         eventID == $0.musicEventID
-    //     }
-    //     .order(by: \.sortIndex)
-    // }
-
-    // TODO: Replace with GRDB query
-    // static var schedules: Where<Schedule> {
-    //     Schedule.where {
-    //         @Dependency(\.musicEventID) var eventID
-    //         eventID == $0.musicEventID
-    //     }
-    // }
-
+    static var schedules: QueryInterfaceRequest<Schedule> {
+        @Dependency(\.musicEventID) var musicEventID
+        return Schedule
+            .filter(Column("musicEventID") == musicEventID)
+            .order(Column("startTime"))
+    }
+//    
+//    static var performances: QueryInterfaceRequest<Performance> {
+//        @Dependency(\.musicEventID) var musicEventID
+//        return Performance
+//            .joining(required: Performance.stage.filter(Column("musicEventID") == musicEventID))
+//    }
 }
 
 

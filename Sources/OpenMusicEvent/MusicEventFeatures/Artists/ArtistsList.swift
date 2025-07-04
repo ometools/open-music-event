@@ -9,6 +9,7 @@ import  SwiftUI; import SkipFuse
 // import SharingGRDB
 import CoreModels
 import Dependencies
+import GRDB
 
 @MainActor
 @Observable
@@ -18,30 +19,34 @@ public class ArtistsList {
     // TODO: Replace @FetchAll with GRDB query
     var artists: [Artist] = []
 
-    @ObservationIgnored
-    @Dependency(\.musicEventID)
-    var musicEventID
 
     // MARK: State
     var searchText: String = ""
 
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var defaultDatabase
+
+    @ObservationIgnored
+    @Dependency(\.musicEventID) var musicEventID
+
     func searchTextDidChange() async {
-        // TODO: Replace with GRDB query
-        // let artistsSearchQuery = Current.artists
-        //     .where {
-        //         $0.name.collate(.nocase).contains(self.searchText)
-        //     }
-        //     .order(by: \.name)
-        //     .group(by: \.id)
-        //
-        // await withErrorReporting {
-        //     try await $artists.load(artistsSearchQuery)
-        // }
+        let id = self.musicEventID
+        let searchText = self.searchText
+        let query = ValueObservation.tracking { db in
+            try Artist
+                .filter(Column("musicEventID") == id)
+                .filter(Column("name").collating(.nocase).like("%\(searchText)%"))
+                .order(Column("name"))
+                .fetchAll(db)
+        }
+
+        await withErrorReporting {
+            for try await artists in query.values() {
+                self.artists = artists
+            }
+        }
     }
-
 }
-
-
 
 struct ArtistsListView: View {
     @Bindable var store: ArtistsList
@@ -53,11 +58,7 @@ struct ArtistsListView: View {
             }
         }
         .searchable(text: $store.searchText)
-        .task(id: store.searchText) {
-            await withDependencies(from: store) { @Sendable in
-                await store.searchTextDidChange()
-            }
-        }
+        .task(id: store.searchText) { await store.searchTextDidChange() }
         .autocorrectionDisabled()
         #if os(iOS)
         .textInputAutocapitalization(.never)
@@ -99,9 +100,10 @@ struct ArtistsListView: View {
         var body: some View {
             HStack(spacing: 10) {
                 Group {
-                    if artist.imageURL == nil && showArtistImages {
-                        Artist.ImageView(artistID: artist.id)
+                    if artist.imageURL != nil && showArtistImages {
+                        ArtistImageView(artist: artist)
                             .frame(square: 60)
+                            .clipped()
                     } else {
                         ForEach(performanceStages) {
                             Stage.IconView(stageID: $0.id)

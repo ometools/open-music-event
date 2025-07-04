@@ -5,6 +5,7 @@
 //  Created by Woodrow Melling on 6/22/25.
 //
 
+import Dependencies
 import GRDB
 import Foundation
 
@@ -80,3 +81,17 @@ extension Tagged: @retroactive SQLExpressible where RawValue: SQLExpressible { }
 extension Tagged: @retroactive StatementBinding where RawValue: StatementBinding { }
 extension Tagged: @retroactive StatementColumnConvertible where RawValue: StatementColumnConvertible { }
 extension Tagged: @retroactive DatabaseValueConvertible where RawValue: DatabaseValueConvertible { }
+
+
+extension ValueObservation {
+    public func values(
+        scheduling scheduler: some ValueObservationScheduler = .task,
+        bufferingPolicy: AsyncValueObservation<Reducer.Value>.BufferingPolicy = .unbounded)
+    -> AsyncValueObservation<Reducer.Value>
+    where Reducer: ValueReducer
+    {
+        @Dependency(\.defaultDatabase) var defaultDatabase
+
+        return self.values(in: defaultDatabase, scheduling: scheduler, bufferingPolicy: bufferingPolicy)
+    }
+}

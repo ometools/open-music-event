@@ -11,8 +11,6 @@ import Dependencies
 import CoreModels
 import IssueReporting
 
-
-
 struct OrganizationFormView: View {
     @Observable
     @MainActor
@@ -43,10 +41,6 @@ struct OrganizationFormView: View {
         var dismiss = ViewTrigger()
         var errorMessage: String?
 
-        enum FocusField {
-            case orgURL
-            case versioning
-        }
 
         var repositoryLocation: OrganizationReference? {
             guard let url = URL(string: githubURL)
@@ -89,7 +83,6 @@ struct OrganizationFormView: View {
     }
 
     @Bindable var store = Model()
-    @FocusState var focusField: Model.FocusField?
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
@@ -105,7 +98,6 @@ struct OrganizationFormView: View {
                 .textInputAutocapitalization(.never)
                 .textContentType(.URL)
                 #endif
-                .focused($focusField, equals: .orgURL)
 
                 if let errorMessage = store.errorMessage {
                     Text(errorMessage)
@@ -130,7 +122,6 @@ struct OrganizationFormView: View {
                     }
                 }
             }
-            .focused($focusField, equals: .orgURL)
             .frame(maxWidth: .infinity)
         }
         .toolbar {
@@ -145,9 +136,6 @@ struct OrganizationFormView: View {
                     Text("Add")
                 }
             }
-        }
-        .onChange(of: store.githubConfigType) { oldValue, newValue in
-            focusField = .versioning
         }
         .onTrigger(of: store.dismiss) {
             dismiss()

@@ -38,9 +38,9 @@ struct MusicEventViewer: View {
                     } operation: { @MainActor in
 
                         let (artists, stages, schedules) = try await database.read { db in
-                            let artists = try Artist.filter(Column("musicEventID") == musicEventID).fetchAll(db)
-                            let stages = try Stage.filter(Column("musicEventID") == musicEventID).order(Column("sortIndex")).fetchAll(db)
-                            let schedules = try Schedule.filter(Column("musicEventID") == musicEventID).order(Column("startTime")).fetchAll(db)
+                            let artists = try Current.artists.fetchAll(db)
+                            let stages = try Current.stages.fetchAll(db)
+                            let schedules = try Current.schedules.fetchAll(db)
 
                             return (artists, stages, schedules)
                         }
@@ -108,10 +108,13 @@ public class MusicEventFeatures: Identifiable {
         stages: [Stage],
         schedules: [Schedule]
     ) {
+        @Dependency(\.musicEventID) var musicEventID
+
+
         self.artists = ArtistsList()
         self.more = MoreTabFeature()
 
-        self.shouldShowArtistImages = !artists.compactMap { $0.imageURL }.isEmpty
+        self.shouldShowArtistImages = true
 
         if !schedules.isEmpty {
             self.schedule = ScheduleFeature()
@@ -164,13 +167,11 @@ public struct MusicEventFeaturesView: View {
 //                .tag(MusicEventFeatures.Feature.schedule)
 //            }
 //
-//            NavigationSplitView {
-//                ArtistsListView(store: store.artists)
-//            } detail: {
-//                Text("Select an Artist")
-//            }
-//            .tabItem { Label("Artists", systemImage: "person.3") }
-//            .tag(MusicEventFeatures.Feature.artists)
+            NavigationStack {
+                ArtistsListView(store: store.artists)
+            }
+            .tabItem { Label("Artists", systemImage: "person.3") }
+            .tag(MusicEventFeatures.Feature.artists)
 
             if let contactInfo = store.contactInfo {
                 NavigationStack {
