@@ -70,3 +70,13 @@ extension TimeZone: DatabaseValueConvertible {
         return TimeZone(identifier: identifier)
     }
 }
+
+import Tagged
+import GRDB
+
+
+// Add database support to Tagged values
+extension Tagged: @retroactive SQLExpressible where RawValue: SQLExpressible { }
+extension Tagged: @retroactive StatementBinding where RawValue: StatementBinding { }
+extension Tagged: @retroactive StatementColumnConvertible where RawValue: StatementColumnConvertible { }
+extension Tagged: @retroactive DatabaseValueConvertible where RawValue: DatabaseValueConvertible { }

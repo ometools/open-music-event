@@ -5,6 +5,7 @@ import CoreModels
 import Dependencies
 import IssueReporting
 
+
 struct MusicEventViewer: View {
     @Observable
     @MainActor
@@ -24,39 +25,24 @@ struct MusicEventViewer: View {
             @Dependency(\.defaultDatabase) var database
             self.eventFeatures = nil
 
+            let musicEventID = self.id
             do {
-                // TODO: Replace @FetchOne with GRDB query
-                // @FetchOne(MusicEvent?.find(id))
-                var musicEvent: MusicEvent? = nil
-
-                // try await $musicEvent.sharedReader.load()
+                // Load MusicEvent from database using GRDB
+                let musicEvent = try await database.read { db in
+                    try MusicEvent.fetchOne(db, id: musicEventID)
+                }
 
                 if let event = musicEvent {
                     try await withDependencies {
-                        $0.musicEventID = self.id
+                        $0.musicEventID = musicEventID
                     } operation: { @MainActor in
-                        // TODO: Replace @FetchAll with GRDB queries
-                        // @FetchAll(Current.artists) var artists
-                        // @FetchAll(Current.stages) var stages
-                        // @FetchAll(Current.schedules) var schedules
-                        var artists: [Artist] = []
-                        var stages: [Stage] = []
-                        var schedules: [Schedule] = []
 
-                        // TODO: Replace FetchAll.load() with GRDB queries
-                        // try await withThrowingTaskGroup {
-                        //     $0.addTask { try await FetchAll(Current.stages).load() }
-                        //     $0.addTask { try await FetchAll(Current.artists).load() }
-                        //     $0.addTask { try await FetchAll(Current.schedules).load() }
-                        //     $0.addTask { try await self.imagePrefetchClient.prefetchStageImages() }
-                        //
-                        //     try await $0.waitForAll()
-                        // }
+                        let (artists, stages, schedules) = try await database.read { db in
+                            let artists = try Artist.filter(Column("musicEventID") == musicEventID).fetchAll(db)
+                            let stages = try Stage.filter(Column("musicEventID") == musicEventID).order(Column("sortIndex")).fetchAll(db)
+                            let schedules = try Schedule.filter(Column("musicEventID") == musicEventID).order(Column("startTime")).fetchAll(db)
 
-                        // Unstructured Task so that we don't wait on artist images.
-                        // A little bit of loading there is better than a lot of loading now.
-                        Task {
-                            try? await imagePrefetchClient.prefetchArtistImages()
+                            return (artists, stages, schedules)
                         }
 
                         self.eventFeatures = MusicEventFeatures(
@@ -139,19 +125,12 @@ public class MusicEventFeatures: Identifiable {
 //            self.location = LocationFeature(location: location)
         }
 
-        // TODO: Replace @FetchOne with GRDB query
-        // self._event = FetchOne(wrappedValue: event, MusicEvent.find(event.id))
         self.event = event
     }
 
 
-    // TODO: Replace @FetchOne with GRDB query
     var event: MusicEvent
-
-//    public var orgLoader = OrganizerLoader()
-
-    // TODO: Replace @SharedReader(.appStorage("selectedFeature")) with proper state management
-    // @SharedReader(.appStorage("selectedFeature"))
+    
     public var selectedFeature: Feature = .schedule
 
     public var schedule: ScheduleFeature?
@@ -163,10 +142,8 @@ public class MusicEventFeatures: Identifiable {
     var shouldShowArtistImages: Bool = true
 
     func onAppear() async {
-        // TODO: Replace $event.load() with GRDB query
-        // await withErrorReporting {
-        //     try await $event.load()
-        // }
+        // Event is already loaded in MusicEventViewer.Model.onAppear()
+        // No additional loading needed here
     }
 }
 
