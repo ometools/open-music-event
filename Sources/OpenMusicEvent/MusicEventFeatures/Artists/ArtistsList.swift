@@ -74,25 +74,15 @@ struct ArtistsListView: View {
     struct Row: View {
         init(artist: Artist) {
             self.artist = artist
-
-            // TODO: Replace with GRDB query
-            // let query = Performance.Artists
-            //     .where { $0.artistID.eq(artist.id) }
-            //     .join(Performance.all, on: { $0.performanceID.eq($1.id) })
-            //     .join(Stage.all) { $1.stageID.eq($2.id) }
-            //     .select { $2 }
-            //
-            // self._performanceStages = FetchAll(query)
-
         }
 
         var artist: Artist
+        
+        @State var performanceStages: [Stage] = []
 
         private var imageSize: CGFloat = 60
 
-        // TODO: Replace @FetchAll with GRDB query
-        var performanceStages: [Stage] = []
-
+        @Dependency(\.defaultDatabase) private var database
 
         @Environment(\.showArtistImages)
         var showArtistImages
@@ -131,6 +121,24 @@ struct ArtistsListView: View {
 //                }
             }
             .foregroundStyle(.primary)
+            .task {
+                await loadPerformanceStages()
+            }
+        }
+        
+        private func loadPerformanceStages() async {
+            let artistID = artist.id
+            let query = ValueObservation.tracking { db in
+                try ArtistQueries.fetchPerformanceStages(for: artistID, from: db)
+            }
+            
+            await withErrorReporting {
+                for try await stages in query.values() {
+                    self.performanceStages = stages
+                    print("Artist \(artist.name): \(stages.count) stages")
+                    print("Colors: \(stages.map(\.color))")
+                }
+            }
         }
     }
 }

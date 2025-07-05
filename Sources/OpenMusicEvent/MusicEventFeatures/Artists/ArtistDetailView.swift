@@ -61,34 +61,7 @@ class ArtistDetail {
 
 
     nonisolated private func fetchPerformances(db: Database) throws -> [PerformanceDetailRow.ArtistPerformance] {
-        let sql = """
-            SELECT 
-                p.id as id,
-                p.stageID as stageID,
-                p.startTime as startTime,
-                p.endTime as endTime,
-                p.title as title,
-                s.color as stageColor
-            FROM performanceArtists pa
-            JOIN performances p ON pa.performanceID = p.id
-            JOIN stages s ON p.stageID = s.id
-            WHERE pa.artistID = ?
-            ORDER BY p.startTime ASC
-        """
-        
-        return try Row.fetchAll(db, sql: sql, arguments: [artistID.rawValue]).map { row in
-            let startTimeString: String = row["startTime"]
-            let endTimeString: String = row["endTime"]
-            
-            return PerformanceDetailRow.ArtistPerformance(
-                id: OmeID(row["id"]),
-                stageID: OmeID(row["stageID"]),
-                startTime: ISO8601DateFormatter().date(from: startTimeString) ?? Date(),
-                endTime: ISO8601DateFormatter().date(from: endTimeString) ?? Date(),
-                title: row["title"],
-                stageColor: OMEColor(rawValue: row["stageColor"])
-            )
-        }
+        return try ArtistQueries.fetchPerformances(for: artistID, from: db)
     }
 
 

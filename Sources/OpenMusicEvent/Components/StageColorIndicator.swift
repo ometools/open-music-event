@@ -12,32 +12,24 @@ import GRDB
 
 struct StageIndicatorView: View {
     public init(colors: [OMEColor]) {
-        self._colors = .init(wrappedValue: colors)
+        self.colors = colors
     }
 
     public init(color: OMEColor) {
         self.init(colors: [color])
     }
 
-    public init(_ stages: [Stage.ID]) {
-        self.stageIDs = stages
-    }
-
-    public init(_ stages: Set<Stage.ID>) {
-        self.init(Array(stages))
-    }
-
-
     var angleHeight: CGFloat = 5 / 2
     
-    var stageIDs: [Stage.ID] = []
-    
+
     @Dependency(\.defaultDatabase) var defaultDatabase
     
-    @State internal var colors: [OMEColor] = []
+
+    var colors: [OMEColor] = []
 
     public var body: some View {
         Group {
+            let _ = print("StageIndicatorView colors count: \(colors.count)")
 #if os(iOS)
         Canvas { context, size in
             let segmentHeight = size.height / CGFloat(colors.count)
@@ -84,25 +76,6 @@ struct StageIndicatorView: View {
 #endif
 
         }
-        .task { Task { await loadColors() }}
-        //            Text("STAGE INDICATOR")
-    }
 
-    
-    private func loadColors() async {
-        guard !stageIDs.isEmpty else { return }
-        
-        do {
-            let colors = try await defaultDatabase.read { db in
-                try Stage
-                    .filter(stageIDs.contains(Column("id")))
-                    .select(Column("color"))
-                    .fetchAll(db)
-                    .map(\.color)
-            }
-            self.colors = colors
-        } catch {
-            print("Error loading stage colors: \(error)")
-        }
     }
 }
