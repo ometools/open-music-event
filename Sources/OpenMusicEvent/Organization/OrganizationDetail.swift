@@ -353,23 +353,6 @@ enum Current {
 
 
 
-
-
-extension ImagePipeline {
-    static let images: ImagePipeline = {
-
-        var configuration = ImagePipeline.Configuration()
-
-        var dataCache = try? DataCache(name: "com.open-music-event.images")
-        dataCache?.sizeLimit = 1024 * 1024 * 150
-
-        configuration.dataCache = dataCache
-        configuration.imageCache = ImageCache()
-
-        return ImagePipeline(configuration: configuration)
-    }()
-}
-
 let intervalFormatter = DateIntervalFormatter()
 
 

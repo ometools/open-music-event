@@ -9,6 +9,7 @@ import Dependencies
 import DependenciesMacros
 import GRDB
 import IssueReporting
+import ImageCaching
 
 @DependencyClient
 struct ImagePrefetchClient: Sendable {
@@ -40,7 +41,7 @@ extension ImagePrefetchClient: DependencyKey {
                         $0.addTask {
                             await withErrorReporting {
                                 #if os(iOS)
-                                _ = try await ImagePipeline.images.image(for: imageURL)
+//                                _ = try await ImagePipeline.images.image(for: imageURL)
                                 #endif
                             }
                         }
@@ -62,7 +63,7 @@ extension ImagePrefetchClient: DependencyKey {
                         $0.addTask {
                             await withErrorReporting {
                                 #if os(iOS)
-                                _ = try await ImagePipeline.images.image(for: imageURL)
+//                                _ = try await ImagePipeline.images.image(for: imageURL)
                                 #endif
                             }
                         }
@@ -76,3 +77,21 @@ extension ImagePrefetchClient: DependencyKey {
 
     )
 }
+
+
+import ImageCaching
+//
+//extension ImagePipeline {
+//    static let images: ImagePipeline = {
+//
+//        var configuration = ImagePipeline.Configuration()
+//
+//        var dataCache = try? DataCache(name: "com.open-music-event.images")
+//        dataCache?.sizeLimit = 1024 * 1024 * 150
+//
+//        configuration.dataCache = dataCache
+//        configuration.imageCache = ImageCache()
+//
+//        return ImagePipeline(configuration: configuration)
+//    }()
+//}

@@ -7,17 +7,28 @@ let package = Package(
     defaultLocalization: "en",
     platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v17), .watchOS(.v10), .macCatalyst(.v17)],
     products: [
-        .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
+        .library(
+            name: "OpenMusicEvent",
+            type: .dynamic,
+            targets: ["OpenMusicEvent"]
+        ),
+
+        .library(
+            name: "ImageCaching",
+            type: .dynamic,
+            targets: ["ImageCaching"]
+        ),
     ],
     dependencies: [
         .package(path: "Core"),
 
         .package(url: "https://github.com/woodymelling/swift-file-tree", branch: "android-support"),
 
-        .package(url: "https://github.com/kean/Nuke", from: "12.0.0"),
-        .package(url: "https://source.skip.tools/skip.git", from: "1.5.18"),
+        .package(url: "https://source.skip.tools/skip.git", from: "1.6.5"),
+        .package(url: "https://source.skip.tools/skip-ui.git", from: "1.35.1"),
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", "0.0.0"..<"2.0.0"),
         .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0"),
+        
 
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/swift-case-paths", from: "1.0.0"),
@@ -27,6 +38,8 @@ let package = Package(
 
         .package(url: "https://github.com/apple/swift-collections", from: "1.0.4"),
         .package(url: "https://github.com/vapor-community/Zip.git", from: "2.2.6"),
+
+        .package(url: "https://github.com/kean/Nuke", from: "12.8.0"),
     ],
     targets: [
         .target(
@@ -42,9 +55,20 @@ let package = Package(
 
                 .product(name: "CasePaths", package: "swift-case-paths"),
 
-                .product(name: "Nuke", package: "Nuke", condition: .when(platforms: [.iOS])),
-
                 .product(name: "Zip", package: "zip"),
+                "ImageCaching"
+            ],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "ImageCaching",
+            dependencies: [
+                .product(name: "Nuke", package: "Nuke", condition: .when(platforms: [.iOS])),
+                .product(name: "SkipUI", package: "skip-ui"),
+
+            ],
+            swiftSettings: [
+                .swiftLanguageVersion(.v5)
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),

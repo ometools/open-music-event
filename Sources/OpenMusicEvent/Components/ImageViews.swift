@@ -18,6 +18,7 @@ import  SwiftUI; import SkipFuse
 import Dependencies
 // import SharingGRDB
 import CoreModels
+import ImageCaching
 
 struct OrganizerIconView: View {
     let organizer: Organizer
@@ -129,28 +130,29 @@ public extension Stage {
         @Environment(\.colorScheme) var colorScheme
 
         public var body: some View {
-            CachedAsyncImage(requests: [
-                ImageRequest(
-                    url: stage.iconImageURL,
-                    processors: [
-//                        .resize(width: 60, height: 60)
-                    ]
-                )
-                .withPipeline(.images)
-
-            ]) { image in
-                image
-                    .resizable()
-                    #if os(iOS)
-                    .renderingMode(.template)
-                    #endif
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(alignment: .center)
-
-            } placeholder: {
-                Placeholder(stageName: stage.name)
-            }
+            EmptyView()
+//            CachedAsyncImage(requests: [
+//                ImageRequest(
+//                    url: stage.iconImageURL,
+//                    processors: [
+////                        .resize(width: 60, height: 60)
+//                    ]
+//                )
+//                .withPipeline(.images)
+//
+//            ]) { image in
+//                image
+//                    .resizable()
+//                    #if os(iOS)
+//                    .renderingMode(.template)
+//                    #endif
+//                    .resizable()
+//                    .aspectRatio(contentMode: .fit)
+//                    .frame(alignment: .center)
+//
+//            } placeholder: {
+//                Placeholder(stageName: stage.name)
+//            }
         }
 
         struct Placeholder: View {
