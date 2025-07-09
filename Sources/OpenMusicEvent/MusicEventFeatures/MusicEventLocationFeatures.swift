@@ -209,10 +209,21 @@ struct MapView: View {
     var body: some View {
         #if os(Android)
         // on Android platforms, we use com.google.maps.android.compose.GoogleMap within in a ComposeView
-//        ComposeView { MapComposer(latitude: latitude, longitude: longitude) }
+        ComposeView { MapComposer(latitude: latitude, longitude: longitude) }
         #else
         // on Darwin platforms, we use the SwiftUI Map type
-        Map(initialPosition: .region(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude), span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1))))
+        Map(
+            initialPosition: .region(
+                MKCoordinateRegion(
+                    center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+                    span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+                )
+            )
+        ) {
+            Marker(coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude)) {
+
+            }
+        }
         #endif
     }
 }
@@ -221,11 +232,13 @@ struct MapView: View {
 struct MapComposer : ContentComposer {
     let latitude: Double
     let longitude: Double
-    
+
     @Composable func Compose(context: ComposeContext) {
         GoogleMap(cameraPositionState: rememberCameraPositionState {
             position = CameraPosition.fromLatLngZoom(LatLng(latitude, longitude), Float(12.0))
-        })
+        }) {
+            Marker(state = MarkerState(position = LatLng(latitude, longitude)))
+        }
     }
 }
 #endif

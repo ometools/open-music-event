@@ -32,8 +32,11 @@ import Dependencies
 @Observable
 public class ContactInfoFeature {
 
-    // TODO: Replace @FetchOne with GRDB query
     var contactNumbers: [MusicEvent.ContactNumber] = []
+
+    func onAppear() async {
+
+    }
 
     func didTapContactNumber(_ contactNumber: MusicEvent.ContactNumber) async {
         #if os(iOS)

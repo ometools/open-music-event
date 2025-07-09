@@ -159,14 +159,14 @@ public struct MusicEventFeaturesView: View {
 
     public var body: some View {
         TabView(selection: $store.selectedFeature) {
-//            if let schedule = store.schedule {
-//                NavigationStack {
-//                    ScheduleView(store: schedule)
-//                }
-//                .tabItem { Label("Schedule", systemImage: "calendar") }
-//                .tag(MusicEventFeatures.Feature.schedule)
-//            }
-//
+            if let schedule = store.schedule {
+                NavigationStack {
+                    ScheduleView(store: schedule)
+                }
+                .tabItem { Label("Schedule", systemImage: "calendar") }
+                .tag(MusicEventFeatures.Feature.schedule)
+            }
+
             NavigationStack {
                 ArtistsListView(store: store.artists)
             }

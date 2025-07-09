@@ -33,10 +33,10 @@ public enum OME {
         #if canImport(Nuke)
         ImagePipeline.shared = ImagePipeline(configuration: .withDataCache)
         #endif
-
-        #if os(Android)
-        prepareAndroidDependencies()
-        #endif
+//
+//        #if os(Android)
+//        prepareAndroidDependencies()
+//        #endif
     }
 
 
@@ -167,13 +167,5 @@ public struct OMEAppEntryPoint: View {
     }
 
     OMEAppEntryPoint()
-}
-#endif
-
-#if SKIP
-import androidx.emoji2.text.EmojiCompat
-
-private func prepareAndroidDependencies() {
- 
 }
 #endif
