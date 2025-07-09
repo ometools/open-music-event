@@ -125,7 +125,7 @@ public class MusicEventFeatures: Identifiable {
         }
 
         if let location = event.location {
-//            self.location = LocationFeature(location: location)
+            self.location = LocationFeature(location: location)
         }
 
         self.event = event
@@ -138,7 +138,7 @@ public class MusicEventFeatures: Identifiable {
 
     public var schedule: ScheduleFeature?
     public var artists: ArtistsList
-//    public var location: LocationFeature?
+    public var location: LocationFeature?
     public var contactInfo: ContactInfoFeature?
     var more: MoreTabFeature
 
@@ -180,18 +180,18 @@ public struct MusicEventFeaturesView: View {
                 .tabItem { Label("Contact Info", systemImage: "phone") }
                 .tag(MusicEventFeatures.Feature.contactInfo)
             }
-//
-//            if let location = store.location {
-//                NavigationStack {
-////                    LocationView(store: location)
-//                }
-//                #if os(iOS)
-//                .tabItem { Label("Location", systemImage: "mappin") }
-//                #elseif os(Android)
-//                .tabItem { Label("Location", systemImage: "mappin.circle")}
-//                #endif
-//                .tag(MusicEventFeatures.Feature.location)
-//            }
+
+            if let location = store.location {
+                NavigationStack {
+                    LocationView(store: location)
+                }
+                #if os(iOS)
+                .tabItem { Label("Location", systemImage: "mappin") }
+                #elseif os(Android)
+                .tabItem { Label("Location", systemImage: "mappin.circle")}
+                #endif
+                .tag(MusicEventFeatures.Feature.location)
+            }
 
             NavigationStack {
                 MoreView(store: store.more)

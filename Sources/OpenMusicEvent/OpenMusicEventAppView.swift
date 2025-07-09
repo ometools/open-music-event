@@ -33,6 +33,10 @@ public enum OME {
         #if canImport(Nuke)
         ImagePipeline.shared = ImagePipeline(configuration: .withDataCache)
         #endif
+
+        #if os(Android)
+        prepareAndroidDependencies()
+        #endif
     }
 
 
@@ -71,76 +75,76 @@ public struct OMEAppEntryPoint: View {
 
     public init() {}
 
-        @State var store = Model()
+    @State var store = Model()
 
-        @Observable
-        @MainActor
-        class Model {
-            var musicEventViewer: MusicEventViewer.Model?
-            var organizerList = OrganizerListView.Model()
+    @Observable
+    @MainActor
+    class Model {
+        var musicEventViewer: MusicEventViewer.Model?
+        var organizerList = OrganizerListView.Model()
 
-            @ObservationIgnored
-            // TODO: Replace @Shared(.eventID) with proper state management
-            // @Shared(.eventID) var eventID
-            var eventID: MusicEvent.ID?
+        @ObservationIgnored
+        // TODO: Replace @Shared(.eventID) with proper state management
+        // @Shared(.eventID) var eventID
+        var eventID: MusicEvent.ID?
 
-            init() {
+        init() {
 
-                NotificationCenter.default.addObserver(
-                    forName: .userSelectedToViewEvent,
-                    object: nil,
-                    queue: .main
-                ) { notification in
-                    guard let eventID = notification.userInfo?["eventID"] as? OmeID<MusicEvent> else {
-                        reportIssue("Posted notification: selectedEventID did not contain eventID")
-                        return
-                    }
-                    MainActor.assumeIsolated {
-                        self.handleSelectedEventIDNotification(eventID)
-                    }
+            NotificationCenter.default.addObserver(
+                forName: .userSelectedToViewEvent,
+                object: nil,
+                queue: .main
+            ) { notification in
+                guard let eventID = notification.userInfo?["eventID"] as? OmeID<MusicEvent> else {
+                    reportIssue("Posted notification: selectedEventID did not contain eventID")
+                    return
                 }
-
-                NotificationCenter.default.addObserver(
-                    forName: .userRequestedToExitEvent,
-                    object: nil,
-                    queue: .main
-                ) { _ in
-                    MainActor.assumeIsolated {
-                        self.handleExitEventNotification()
-                    }
-                }
-           }
-
-            func onAppear() async {
-                // TODO: Replace $eventID.load() with proper state loading
-                // try? await $eventID.load()
-                if let eventID {
-                    self.musicEventViewer = .init(eventID: eventID)
+                MainActor.assumeIsolated {
+                    self.handleSelectedEventIDNotification(eventID)
                 }
             }
 
-            deinit {
-                NotificationCenter.default.removeObserver(self)
-            }
-
-            private func handleSelectedEventIDNotification(_ eventID: MusicEvent.ID) {
-                // TODO: Replace $eventID.withLock with proper state management
-                // self.$eventID.withLock { $0 = eventID }
-                self.eventID = eventID
-                self.musicEventViewer = .init(eventID: eventID)
-            }
-
-            private func handleExitEventNotification() {
-                // TODO: Replace $eventID.withLock with proper state management
-                // self.$eventID.withLock { $0 = nil }
-                self.eventID = nil
-                self.musicEventViewer = nil
+            NotificationCenter.default.addObserver(
+                forName: .userRequestedToExitEvent,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    self.handleExitEventNotification()
+                }
             }
         }
 
+        func onAppear() async {
+            // TODO: Replace $eventID.load() with proper state loading
+            // try? await $eventID.load()
+            if let eventID {
+                self.musicEventViewer = .init(eventID: eventID)
+            }
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        private func handleSelectedEventIDNotification(_ eventID: MusicEvent.ID) {
+            // TODO: Replace $eventID.withLock with proper state management
+            // self.$eventID.withLock { $0 = eventID }
+            self.eventID = eventID
+            self.musicEventViewer = .init(eventID: eventID)
+        }
+
+        private func handleExitEventNotification() {
+            // TODO: Replace $eventID.withLock with proper state management
+            // self.$eventID.withLock { $0 = nil }
+            self.eventID = nil
+            self.musicEventViewer = nil
+        }
+    }
+
 
     public var body: some View {
-//        Text("APP ENTRY POINT")
+        //        Text("APP ENTRY POINT")
         ZStack {
             NavigationStack {
                 OrganizerListView(store: store.organizerList)
@@ -159,10 +163,17 @@ public struct OMEAppEntryPoint: View {
 #if os(iOS)
 #Preview {
     let _ = try! prepareDependencies {
-      $0.defaultDatabase = try appDatabase()
+        $0.defaultDatabase = try appDatabase()
     }
 
     OMEAppEntryPoint()
 }
 #endif
 
+#if SKIP
+import androidx.emoji2.text.EmojiCompat
+
+private func prepareAndroidDependencies() {
+ 
+}
+#endif

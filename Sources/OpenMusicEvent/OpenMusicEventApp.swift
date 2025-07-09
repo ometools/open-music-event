@@ -16,6 +16,7 @@ private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", cate
     public init() {
         if context == .live {
             try! OME.prepareDependencies()
+
         }
     }
 
