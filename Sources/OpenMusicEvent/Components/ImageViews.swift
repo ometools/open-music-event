@@ -18,23 +18,12 @@ import  SwiftUI; import SkipFuse
 import Dependencies
 // import SharingGRDB
 import CoreModels
-import ImageCaching
 
 struct OrganizerIconView: View {
     let organizer: Organizer
 
     var body: some View {
-        AsyncImage(url: organizer.iconImageURL) { image in
-            image
-                .resizable()
-            #if os(iOS)
-                .renderingMode(.template)
-            #endif
-                .aspectRatio(contentMode: .fill)
-
-        } placeholder: {
-            ProgressView()
-        }
+        CachedAsyncImage(url: organizer.iconImageURL)
     }
 }
 
@@ -42,12 +31,7 @@ struct OrganizerImageView: View {
     let organizer: Organizer
 
     var body: some View {
-        AsyncImage(url: organizer.imageURL) { image in
-            image.resizable()
-                .aspectRatio(contentMode: .fill)
-        } placeholder: {
-            ProgressView()
-        }
+        CachedAsyncImage(url: organizer.imageURL)
     }
 }
 
@@ -77,14 +61,7 @@ struct ArtistImageView: View {
     }
 
     var body: some View {
-        AsyncImage(url: artist.imageURL) { image in
-            image
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-
-        } placeholder: {
-            ProgressView()
-        }
+        CachedAsyncImage(url: artist.imageURL)
     }
 }
 
@@ -114,70 +91,61 @@ extension Stage {
     }
 }
 
-public extension Stage {
-    struct IconView: View {
-        public init(stageID: Stage.ID) {
-//            _stage = FetchOne(
-//                wrappedValue: .placeholder,
-//                Stage.find(stageID)
-//            )
-            
-        }
+import GRDB
+struct StageIconView: View {
+    public init(stageID: Stage.ID) {
+        self.stageID = stageID
+    }
 
-        // TODO: Replace @FetchOne with GRDB query
-        var stage: Stage = .placeholder
+    let stageID: Stage.ID
 
-        @Environment(\.colorScheme) var colorScheme
+    @State var stage: Stage = .placeholder
 
-        public var body: some View {
-            EmptyView()
-//            CachedAsyncImage(requests: [
-//                ImageRequest(
-//                    url: stage.iconImageURL,
-//                    processors: [
-////                        .resize(width: 60, height: 60)
-//                    ]
-//                )
-//                .withPipeline(.images)
-//
-//            ]) { image in
-//                image
-//                    .resizable()
-//                    #if os(iOS)
-//                    .renderingMode(.template)
-//                    #endif
-//                    .resizable()
-//                    .aspectRatio(contentMode: .fit)
-//                    .frame(alignment: .center)
-//
-//            } placeholder: {
-//                Placeholder(stageName: stage.name)
-//            }
-        }
+    @Environment(\.colorScheme) var colorScheme
+    @Dependency(\.defaultDatabase) var database
 
-        struct Placeholder: View {
-            var stageName: String
-
-            var symbol: String {
-                stageName
-                    .split(separator: " ")
-                    .filter { !$0.contains("The") }
-                    .compactMap { $0.first.map(String.init) }
-                    .joined()
-            }
-
-            var body: some View {
-                ZStack {
-                    Text(symbol)
-                        .font(.system(size: 300, weight: .heavy))
-                        #if os(iOS)
-                        .minimumScaleFactor(0.001)
-                        #endif
-                        .padding()
+    public var body: some View {
+        CachedAsyncImage(url: stage.iconImageURL)
+            .task {
+                let query = ValueObservation.tracking { db in
+                    try Stage.fetchOne(db, id: stageID)
                 }
+
+                await withErrorReporting {
+                    for try await stage in query.values(in: database) {
+                        if let stage {
+                            self.stage = stage
+                        }
+                    }
+                }
+            }
+    }
+
+    struct Placeholder: View {
+        var stageName: String
+
+        var symbol: String {
+            stageName
+                .split(separator: " ")
+                .filter { !$0.contains("The") }
+                .compactMap { $0.first.map(String.init) }
+                .joined()
+        }
+
+        var body: some View {
+            ZStack {
+                Text(symbol)
+                    .font(.system(size: 300, weight: .heavy))
+                    #if os(iOS)
+                    .minimumScaleFactor(0.001)
+                    #endif
+                    .padding()
             }
         }
     }
+}
+public extension Stage {
+
 
     struct Legend: View {
         // TODO: Replace @FetchAll with GRDB query
@@ -186,7 +154,7 @@ public extension Stage {
         public var body: some View {
             HStack {
                 ForEach(stages, id: \.self) {
-                    Stage.IconView(stageID: $0)
+                    StageIconView(stageID: $0)
                         .frame(square: 50)
                 }
             }

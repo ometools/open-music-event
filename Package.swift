@@ -13,11 +13,6 @@ let package = Package(
             targets: ["OpenMusicEvent"]
         ),
 
-        .library(
-            name: "ImageCaching",
-            type: .dynamic,
-            targets: ["ImageCaching"]
-        ),
     ],
     dependencies: [
         .package(path: "Core"),
@@ -56,19 +51,7 @@ let package = Package(
                 .product(name: "CasePaths", package: "swift-case-paths"),
 
                 .product(name: "Zip", package: "zip"),
-                "ImageCaching"
-            ],
-            plugins: [.plugin(name: "skipstone", package: "skip")]
-        ),
-        .target(
-            name: "ImageCaching",
-            dependencies: [
-                .product(name: "Nuke", package: "Nuke", condition: .when(platforms: [.iOS])),
-                .product(name: "SkipUI", package: "skip-ui"),
-
-            ],
-            swiftSettings: [
-                .swiftLanguageVersion(.v5)
+                .product(name: "NukeUI", package: "Nuke", condition: .when(platforms: [.iOS])),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),

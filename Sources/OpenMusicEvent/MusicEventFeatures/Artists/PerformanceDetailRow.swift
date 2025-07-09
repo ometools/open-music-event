@@ -43,7 +43,7 @@ public struct PerformanceDetailRow: View {
             StageIndicatorView(color: performance.stageColor)
                 .frame(width: 5)
 
-            Stage.IconView(stageID: performance.stageID)
+            StageIconView(stageID: performance.stageID)
                 .frame(square: 60)
 
             VStack(alignment: .leading) {

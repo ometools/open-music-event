@@ -9,7 +9,6 @@ import Dependencies
 import DependenciesMacros
 import GRDB
 import IssueReporting
-import ImageCaching
 
 @DependencyClient
 struct ImagePrefetchClient: Sendable {
@@ -79,7 +78,6 @@ extension ImagePrefetchClient: DependencyKey {
 }
 
 
-import ImageCaching
 //
 //extension ImagePipeline {
 //    static let images: ImagePipeline = {

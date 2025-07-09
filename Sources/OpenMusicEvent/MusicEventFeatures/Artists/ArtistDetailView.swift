@@ -29,9 +29,6 @@ extension Artist {
 class ArtistDetail {
     init(artistID: Artist.ID) {
         self.artistID = artistID
-        // TODO: Replace with GRDB query
-        // self._artist = FetchOne(wrappedValue: .placeholder, Artist.find(artistID))
-        // self._performances = FetchAll(ArtistDetail.performancesQuery(artistID))
     }
 
 

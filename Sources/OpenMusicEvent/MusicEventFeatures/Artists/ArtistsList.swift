@@ -96,7 +96,7 @@ struct ArtistsListView: View {
                             .clipped()
                     } else {
                         ForEach(performanceStages) {
-                            Stage.IconView(stageID: $0.id)
+                            StageIconView(stageID: $0.id)
                                 .frame(square: 60)
                         }
                     }

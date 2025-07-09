@@ -13,6 +13,9 @@ import CasePaths
 import CoreModels
 import Dependencies
 import IssueReporting
+#if canImport(Nuke)
+import Nuke
+#endif
 
 // Step 1: Create a unique notification name
 extension Notification.Name {
@@ -26,6 +29,10 @@ public enum OME {
         try Dependencies.prepareDependencies {
             $0.defaultDatabase = try appDatabase()
         }
+
+        #if canImport(Nuke)
+        ImagePipeline.shared = ImagePipeline(configuration: .withDataCache)
+        #endif
     }
 
 

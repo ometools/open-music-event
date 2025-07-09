@@ -82,37 +82,6 @@ public struct OrganizerDetailView: View {
                     self.events = events
                 }
             }
-//
-//
-//
-//            // TODO: Replace $organizer.load() with GRDB query
-//            // try? await $organizer.load()
-//            if organizer == nil {
-//                await withErrorReporting {
-//                    self.showingLoadingScreen = true
-//                    try await downloadAndStoreOrganizer(from: .url(self.id))
-//
-//                    try await withThrowingTaskGroup {
-//                        if let orgImageURL = organizer?.imageURL {
-//                            $0.addTask {
-//                                _ = try await ImagePipeline.images.image(for: orgImageURL)
-//                            }
-//                        }
-//
-//                        for event in events {
-//                            if let imageURL = event.imageURL {
-//                                $0.addTask {
-//                                    _ = try await ImagePipeline.images.image(for: imageURL)
-//                                }
-//                            }
-//                        }
-//
-//                        try await $0.waitForAll()
-//                    }
-//
-//                    self.showingLoadingScreen = false
-//                }
-//            }
         }
     }
 
