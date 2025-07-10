@@ -33,9 +33,27 @@ import Dependencies
 public class ContactInfoFeature {
 
     var contactNumbers: [MusicEvent.ContactNumber] = []
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var defaultDatabase
+
+    @ObservationIgnored
+    @Dependency(\.musicEventID) var musicEventID
 
     func onAppear() async {
+        await withDependencies(from: self) { @Sendable @MainActor in
+            let musicEventID = self.musicEventID
 
+            let values = ValueObservation.tracking { db in
+                try MusicEvent.find(db, id: musicEventID)
+            }
+            .values(in: defaultDatabase)
+
+            await withErrorReporting {
+                for try await event in values {
+                    self.contactNumbers = event.contactNumbers
+                }
+            }
+        }
     }
 
     func didTapContactNumber(_ contactNumber: MusicEvent.ContactNumber) async {
@@ -62,9 +80,7 @@ struct ContactInfoView: View {
                         await store.didTapContactNumber(contactNumber)
                     }
                 } label: {
-
                     HStack {
-
                         VStack(alignment: .leading, spacing: 4) {
                             Text(contactNumber.title)
                                 .font(.headline)
@@ -95,6 +111,7 @@ struct ContactInfoView: View {
             }
         }
         .navigationTitle("Contact Info")
+        .task { await store.onAppear() }
     }
 }
 
