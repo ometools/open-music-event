@@ -15,6 +15,7 @@
 
 import  SwiftUI; import SkipFuse
 import Dependencies
+import GRDB
 // import SharingGRDB
 import CoreModels
 
@@ -39,24 +40,11 @@ public class ScheduleFeature {
         
     }
 
+    var singleStageAtOnceFeature = ScheduleSingleStageAtOnceView.ViewModel()
 
-    var singleStageAtOnceFeature = ScheduleView.SingleStageAtOnceView.ViewModel()
-
-    @ObservationIgnored
-    // TODO: Replace @Shared(.selectedStage) with proper state management
-    // @Shared(.selectedStage)
     public var selectedStage: Stage.ID?
-
-    @ObservationIgnored
-    // TODO: Replace @Shared(.selectedSchedule) with proper state management
-    // @Shared(.selectedSchedule)
     public var selectedSchedule: Schedule.ID?
 
-
-    // TODO: Replace @FetchAll with GRDB query
-    public var stages: [Stage] = []
-
-    // TODO: Replace @FetchAll with GRDB query
     public var schedules: [Schedule] = []
 
     public var filteringFavorites: Bool = false
@@ -76,17 +64,27 @@ public class ScheduleFeature {
 //        }
 //    }
 
+    @ObservationIgnored
+    @Dependency(\.musicEventID) var musicEventID
+
     public func task() async {
-        if self.selectedStage == nil || !stages.contains(where: { $0.id == self.selectedStage }) {
-            // TODO: Replace $selectedStage.withLock with proper state management
-            // self.$selectedStage.withLock { $0 = stages.first?.id }
-            self.selectedStage = stages.first?.id
+        let musicEventID = musicEventID
+
+        let query = ValueObservation.tracking { db in
+            try Schedule
+                .filter(Column("musicEventID") == musicEventID)
+                .order(Column("startTime"))
+                .fetchAll(db)
         }
 
-        if self.selectedSchedule == nil || !schedules.contains(where: { $0.id == self.selectedSchedule }) {
-            // TODO: Replace $selectedSchedule.withLock with proper state management  
-            // self.$selectedSchedule.withLock { $0 = schedules.first?.id }
-            self.selectedSchedule = schedules.first?.id
+        await withErrorReporting {
+            for try await schedules in query.values() {
+                self.schedules = schedules
+
+                if selectedSchedule == nil {
+                    selectedSchedule = schedules.first?.id
+                }
+            }
         }
     }
 }
@@ -116,23 +114,22 @@ public struct ScheduleView: View {
         Group {
             switch visibleSchedule {
             case .singleStageAtOnce:
-                SingleStageAtOnceView(store: store.singleStageAtOnceFeature)
+                ScheduleSingleStageAtOnceView(store: store.singleStageAtOnceFeature)
             case .allStagesAtOnce:
                 AllStagesAtOnceView(store: store)
             }
         }
-//        .scrollPosition(id: $scrolledEvent)
         .modifier(
             ScheduleSelectorModifier(
                 selectedScheduleID: $store.selectedSchedule,
                 schedules: store.schedules
             )
         )
-        .toolbar {
-            ToolbarItem {
-                FilterMenu(store: store)
-            }
-        }
+//        .toolbar {
+//            ToolbarItem {
+//                FilterMenu(store: store)
+//            }
+//        }
         .task { await store.task() }
 
 //        .environment(\.dayStartsAtNoon, true)

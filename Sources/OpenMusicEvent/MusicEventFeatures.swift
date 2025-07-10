@@ -20,6 +20,7 @@ struct MusicEventViewer: View {
 
         @ObservationIgnored
         @Dependency(\.imagePrefetchClient) var imagePrefetchClient
+        
 
         func onAppear() async {
             @Dependency(\.defaultDatabase) var database
@@ -40,7 +41,10 @@ struct MusicEventViewer: View {
                         let (artists, stages, schedules) = try await database.read { db in
                             let artists = try Current.artists.fetchAll(db)
                             let stages = try Current.stages.fetchAll(db)
-                            let schedules = try Current.schedules.fetchAll(db)
+                            let schedules = try Schedule
+                                .filter(Column("musicEventID") == musicEventID)
+                                .order(Column("startTime"))
+                                .fetchAll(db)
 
                             return (artists, stages, schedules)
                         }

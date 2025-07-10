@@ -3,6 +3,7 @@ import  SwiftUI; import SkipFuse
 // import SharingGRDB
 import GRDB
 import Dependencies
+@_exported import CoreModels
 /// A logger for the OpenMusicEvent module.
 private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "OpenMusicEvent")
 

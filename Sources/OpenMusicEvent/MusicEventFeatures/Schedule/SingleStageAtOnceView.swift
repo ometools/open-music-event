@@ -7,10 +7,9 @@
 
 import  SwiftUI; import SkipFuse
 import OrderedCollections
-// import SharingGRDB
+import Dependencies
 import GRDB
-@_exported import CoreModels
-import IssueReporting
+import CoreModels
 
 extension Performance: DateIntervalRepresentable {
     public var dateInterval: DateInterval {
@@ -29,128 +28,138 @@ extension Performance: DateIntervalRepresentable {
 //     }
 // }
 
-extension ScheduleView {
-    public struct SingleStageAtOnceView: View {
-        @Observable @MainActor
-        class ViewModel {
-            init() { }
+public struct ScheduleSingleStageAtOnceView: View {
 
-            @ObservationIgnored
-            // TODO: Replace @Shared(.selectedStage) with proper state management
-            // @Shared(.selectedStage)
-            var selectedStage: Stage.ID?
+    @Observable @MainActor
+    class ViewModel {
+        init() { }
 
-            @ObservationIgnored
-            // TODO: Replace @SharedReader(.selectedSchedule) with proper state management
-            // @SharedReader(.selectedSchedule)
-            var selectedSchedule: Schedule.ID?
+        var selectedStage: Stage.ID?
+        var selectedSchedule: Schedule.ID?
 
-            // TODO: Replace @FetchAll with GRDB query
-            var stages: [Stage] = []
-        }
+        @ObservationIgnored
+        @Dependency(\.musicEventID) var musicEventID
 
-        @Bindable var store: ViewModel
+        var stages: [Stage] = []
 
-//        @Namespace var namespace
-        @Environment(\.dayStartsAtNoon) var dayStartsAtNoon
-
-        struct StageSchedulePage: View, Identifiable {
-
-            var id: Stage.ID
-
-            // TODO: Replace @SharedReader(.selectedSchedule) with proper state management
-            // @SharedReader(.selectedSchedule) var selectedSchedule
-            var selectedSchedule: Schedule.ID? = nil
-
-            // TODO: Replace @FetchAll with GRDB query
-            var performances: [PerformanceTimelineCard] = []
-
-//            @Selection
-            struct PerformanceTimelineCard: Identifiable, TimelineCard, Codable {
-                var id: Performance.ID
-
-                var startTime: Date
-                var endTime: Date
-
-                var dateInterval: DateInterval {
-                    DateInterval(start: startTime, end: endTime)
-                }
+        func task() async {
+            let musicEventID = self.musicEventID
+            let query = ValueObservation.tracking { db in
+                try Stage.filter(Column("musicEventID") == musicEventID).fetchAll(db)
             }
 
-            func loadPerformances() async throws {
-                guard let selectedSchedule
-                else { return }
+            await withErrorReporting {
+                for try await stages in query.values() {
+                    self.stages = stages
 
-                // TODO: Replace with GRDB query
-                // let performancesQuery = Performance.all
-                //     .for(schedule: selectedSchedule, at: self.id)
-                //     .select {
-                //         PerformanceTimelineCard.Columns(
-                //             id: $0.id,
-                //             startTime: $0.startTime,
-                //             endTime: $0.endTime,
-                //         )
-                //     }
-
-                // TODO: Replace $performances.load() with GRDB query
-                // try await self.$performances.load(performancesQuery, animation: .snappy)
-
-            }
-
-            var body: some View {
-                SchedulePageView(performances) { performance in
-                    Performance.ScheduleCardView(id: performance.id)
-                }
-                .tag(id)
-                .task(id: selectedSchedule) {
-                    await withErrorReporting {
-                        try await self.loadPerformances()
+                    if selectedStage == nil {
+                        selectedStage = stages.first?.id
                     }
                 }
             }
         }
+    }
+
+    @Bindable var store: ViewModel
+
+    //        @Namespace var namespace
+    @Environment(\.dayStartsAtNoon) var dayStartsAtNoon
 
 
-        public var body: some View {
-            ScrollView {
-                HorizontalPageView(page: $store.selectedStage) {
-                    ForEach(store.stages) { stage in
-                        StageSchedulePage(id: stage.id)
-                    }
+
+
+    public var body: some View {
+        ScrollView {
+            HorizontalPageView(page: $store.selectedStage) {
+                ForEach(store.stages) { stage in
+                    StageSchedulePage(id: stage.id)
                 }
-                .frame(height: 1500)
-                #if os(iOS)
-                .scrollClipDisabled()
-                .scrollTargetLayout()
-                #endif
             }
-//            .scrollPosition($store.highlightedPerformance) { id, size in
-//                // TODO: Replace @Shared(.event) with proper state management
-//                // @Shared(.event) var event
-//                // guard let performance = event.schedule[id: id]
-//                // else { return nil }
-//
-//                return CGPoint(
-//                    x: 0,
-//                    y: performance.startTime.toY(
-//                        containerHeight: size.height,
-//                        dayStartsAtNoon: dayStartsAtNoon
-//                    )
-//                )
-//            }
-//            .overlay {
-//                if store.showingComingSoonScreen {
-//                    ScheduleComingSoonView()
-//                }
-//            }
-//            .navigationBarExtension {
-//                StageSelector(
-//                    stages: store.stages,
-//                    selectedStage: $store.selectedStage
-//                )
-//            }
-            .environment(\.dayStartsAtNoon, true)
-//            .navigationBarTitleDisplayMode(.inline)
+            .frame(height: 1500)
+#if os(iOS)
+            .scrollClipDisabled()
+            .scrollTargetLayout()
+#endif
+        }
+        //            .scrollPosition($store.highlightedPerformance) { id, size in
+        //                // TODO: Replace @Shared(.event) with proper state management
+        //                // @Shared(.event) var event
+        //                // guard let performance = event.schedule[id: id]
+        //                // else { return nil }
+        //
+        //                return CGPoint(
+        //                    x: 0,
+        //                    y: performance.startTime.toY(
+        //                        containerHeight: size.height,
+        //                        dayStartsAtNoon: dayStartsAtNoon
+        //                    )
+        //                )
+        //            }
+        //            .overlay {
+        //                if store.showingComingSoonScreen {
+        //                    ScheduleComingSoonView()
+        //                }
+        //            }
+        .navigationBarExtension {
+            ScheduleStageSelector(
+                stages: store.stages,
+                selectedStage: $store.selectedStage
+            )
+        }
+        .task { await store.task() }
+        .environment(\.dayStartsAtNoon, true)
+        //            .navigationBarTitleDisplayMode(.inline)
+    }
+
+
+    struct StageSchedulePage: View, Identifiable {
+        var id: Stage.ID
+        var selectedSchedule: Schedule.ID? = nil
+
+        var performances: [PerformanceTimelineCard] = []
+
+        //            @Selection
+        struct PerformanceTimelineCard: Identifiable, TimelineCard, Codable {
+            var id: Performance.ID
+
+            var startTime: Date
+            var endTime: Date
+
+            var dateInterval: DateInterval {
+                DateInterval(start: startTime, end: endTime)
+            }
+        }
+
+        func loadPerformances() async throws {
+            guard let selectedSchedule
+            else { return }
+
+            // TODO: Replace with GRDB query
+            // let performancesQuery = Performance.all
+            //     .for(schedule: selectedSchedule, at: self.id)
+            //     .select {
+            //         PerformanceTimelineCard.Columns(
+            //             id: $0.id,
+            //             startTime: $0.startTime,
+            //             endTime: $0.endTime,
+            //         )
+            //     }
+
+            // TODO: Replace $performances.load() with GRDB query
+            // try await self.$performances.load(performancesQuery, animation: .snappy)
+
+        }
+
+        var body: some View {
+            SchedulePageView(performances) { performance in
+                Performance.ScheduleCardView(id: performance.id)
+            }
+            .tag(id)
+            .task(id: selectedSchedule) {
+                await withErrorReporting {
+                    try await self.loadPerformances()
+                }
+            }
         }
     }
 }

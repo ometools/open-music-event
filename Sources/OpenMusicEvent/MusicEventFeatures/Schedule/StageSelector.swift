@@ -7,31 +7,30 @@
 
 import  SwiftUI; import SkipFuse
 
-extension ScheduleView {
-    struct StageSelector: View {
-        var stages: [Stage]
+struct ScheduleStageSelector: View {
+    var stages: [Stage]
 
-        @Binding var selectedStage: Stage.ID?
+    @Binding var selectedStage: Stage.ID?
 
-        var body: some View {
-            ZStack(alignment: .bottom) {
-                HStack {
-                    ForEach(stages) { stage in
-                        Spacer()
-                        ScheduleHeaderButton(
-                            stage: stage,
-                            isSelected: selectedStage == stage.id,
-                            onSelect: {
-                                selectedStage = $0
-                            }
-                        )
-                    }
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            HStack {
+                ForEach(stages) { stage in
                     Spacer()
+                    ScheduleHeaderButton(
+                        stage: stage,
+                        isSelected: selectedStage == stage.id,
+                        onSelect: {
+                            selectedStage = $0
+                        }
+                    )
                 }
-                .frame(maxWidth: .infinity)
-                .shadow()
+                Spacer()
             }
+            .frame(maxWidth: .infinity)
+            .shadow()
         }
+
     }
 }
 
