@@ -115,16 +115,17 @@ public struct ScheduleView: View {
             switch visibleSchedule {
             case .singleStageAtOnce:
                 ScheduleSingleStageAtOnceView(store: store.singleStageAtOnceFeature)
+                    .modifier(
+                        ScheduleSelectorModifier(
+                            selectedScheduleID: $store.selectedSchedule,
+                            schedules: store.schedules
+                        )
+                    )
             case .allStagesAtOnce:
                 AllStagesAtOnceView(store: store)
             }
         }
-        .modifier(
-            ScheduleSelectorModifier(
-                selectedScheduleID: $store.selectedSchedule,
-                schedules: store.schedules
-            )
-        )
+
 //        .toolbar {
 //            ToolbarItem {
 //                FilterMenu(store: store)
@@ -158,43 +159,66 @@ public struct ScheduleView: View {
         }
     }
 
-    struct ScheduleSelectorModifier: ViewModifier {
-        @Binding var selectedScheduleID: Schedule.ID?
-        var schedules: [Schedule]
+}
 
-        func label(for day: Schedule) -> String {
-            if let customTitle = day.customTitle {
-                return customTitle
-            } else if let startTime = day.startTime {
-                return startTime.formatted(.dateTime.weekday(.wide))
-            } else {
-                return String(day.id.rawValue)
+struct ScheduleSelectorModifier: ViewModifier {
+    @Binding var selectedScheduleID: Schedule.ID?
+    var schedules: [Schedule]
+
+    func label(for day: Schedule) -> String {
+        if let customTitle = day.customTitle {
+            return customTitle
+        } else if let startTime = day.startTime {
+            return startTime.formatted(.dateTime.weekday(.wide))
+        } else {
+            return String(day.id.rawValue)
+        }
+    }
+
+
+    var selectedSchedule: Schedule? {
+        schedules.first { $0.id == selectedScheduleID }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            #if os(iOS)
+            .toolbarTitleMenu {
+                ForEach(schedules) { schedule in
+                    Button(label(for: schedule)) {
+                        selectedScheduleID = schedule.id
+                    }
+                }
             }
-        }
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(selectedSchedule.map { label(for: $0) } ?? "")
+            #elseif os(Android)
+            .toolbar {
+                ToolbarItem(placement: .title) {
 
-
-        var selectedSchedule: Schedule? {
-            schedules.first { $0.id == selectedScheduleID }
-        }
-
-        func body(content: Content) -> some View {
-            content
-                #if os(iOS)
-                .toolbarTitleMenu {
-                    ForEach(schedules) { schedule in
-                        Button(label(for: schedule)) {
-                            selectedScheduleID = schedule.id
+                    Menu {
+                        ForEach(schedules) { schedule in
+                            Button(label(for: schedule)) {
+                                selectedScheduleID = schedule.id
+                            }
                         }
                     }
                 }
-                .navigationTitle(selectedSchedule.map { label(for: $0) } ?? "")
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-        }
+            }
+            #endif
+
     }
 }
 
-
+#if SKIP
+struct ToolbarTitleMenu : ContentModifier {
+    func modify(view: any View) -> any View {
+        view.material3ColorScheme { colors, isDark in
+            colors.copy(surface: isDark ? Color.purple.asComposeColor() : Color.yellow.asComposeColor())
+        }
+    }
+}
+#endif
 
 
 //

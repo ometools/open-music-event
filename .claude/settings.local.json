@@ -3,7 +3,9 @@
     "allow": [
       "Bash(rg:*)",
       "WebFetch(domain:skiptools.org)",
-      "WebFetch(domain:skip.tools)"
+      "WebFetch(domain:skip.tools)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(jj new:*)"
     ],
     "deny": []
   }

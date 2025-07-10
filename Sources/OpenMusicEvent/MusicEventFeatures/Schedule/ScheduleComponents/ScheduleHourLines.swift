@@ -10,12 +10,14 @@ import  SwiftUI; import SkipFuse
 public struct ScheduleHourLines: View {
     
     public init() {}
+
+    var lineColor = Color.secondary.opacity(0.5)
+
     public var body: some View {
         GeometryReader { proxy in
-            let hourSpacing = proxy.size.height / 24
+            let hourSpacing: CGFloat = 1500 / 24
 
             ForEach(0..<24) { index in
-
                 let lineHeight = hourSpacing * CGFloat(index)
 
                 ZStack {
@@ -34,15 +36,12 @@ public struct ScheduleHourLines: View {
                             )
                         )
                     }
-                    #if os(iOS)
-                    .stroke(.tertiary)
-                    #else
-                    .stroke(.green)
-                    #endif
+                    .stroke(lineColor)
                 }
             }
         }
-        
+        .frame(maxWidth: .infinity)
+
     }
 }
 //

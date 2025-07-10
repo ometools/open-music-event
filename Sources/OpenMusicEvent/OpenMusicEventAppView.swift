@@ -83,10 +83,6 @@ public struct OMEAppEntryPoint: View {
         var musicEventViewer: MusicEventViewer.Model?
         var organizerList = OrganizerListView.Model()
 
-        @ObservationIgnored
-        // TODO: Replace @Shared(.eventID) with proper state management
-        // @Shared(.eventID) var eventID
-        var eventID: MusicEvent.ID?
 
         init() {
 
@@ -116,10 +112,10 @@ public struct OMEAppEntryPoint: View {
         }
 
         func onAppear() async {
-            // TODO: Replace $eventID.load() with proper state loading
-            // try? await $eventID.load()
-            if let eventID {
-                self.musicEventViewer = .init(eventID: eventID)
+            let eventIDString: String? = UserDefaults.standard.string(forKey: "selectedMusicEventID")
+
+            if let eventIDString, let eventIDInt = Int(eventIDString) {
+                self.musicEventViewer = .init(eventID: .init(eventIDInt))
             }
         }
 
@@ -128,16 +124,13 @@ public struct OMEAppEntryPoint: View {
         }
 
         private func handleSelectedEventIDNotification(_ eventID: MusicEvent.ID) {
-            // TODO: Replace $eventID.withLock with proper state management
-            // self.$eventID.withLock { $0 = eventID }
-            self.eventID = eventID
+            let eventString = String(eventID.rawValue)
+            UserDefaults.standard.set(eventString, forKey: "selectedMusicEventID")
             self.musicEventViewer = .init(eventID: eventID)
         }
 
         private func handleExitEventNotification() {
-            // TODO: Replace $eventID.withLock with proper state management
-            // self.$eventID.withLock { $0 = nil }
-            self.eventID = nil
+            UserDefaults.standard.set(nil, forKey: "selectedMusicEventID")
             self.musicEventViewer = nil
         }
     }

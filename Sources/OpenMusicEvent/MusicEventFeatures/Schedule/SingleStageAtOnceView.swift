@@ -69,18 +69,29 @@ public struct ScheduleSingleStageAtOnceView: View {
 
 
     public var body: some View {
-        ScrollView {
-            HorizontalPageView(page: $store.selectedStage) {
-                ForEach(store.stages) { stage in
-                    StageSchedulePage(id: stage.id)
+        GeometryReader { geo in
+            ScrollView {
+                HorizontalPageView(page: $store.selectedStage) {
+                    ForEach(store.stages) { stage in
+                        StageSchedulePage(id: stage.id)
+                            .frame(width: geo.size.width)
+                    }
                 }
+                .frame(height: 1500)
+    #if os(iOS)
+                .scrollClipDisabled()
+                .scrollTargetLayout()
+    #endif
             }
-            .frame(height: 1500)
-#if os(iOS)
-            .scrollClipDisabled()
-            .scrollTargetLayout()
-#endif
         }
+        .navigationBarExtension {
+            ScheduleStageSelector(
+                stages: store.stages,
+                selectedStage: $store.selectedStage
+            )
+        }
+        .task { await store.task() }
+        .environment(\.dayStartsAtNoon, true)
         //            .scrollPosition($store.highlightedPerformance) { id, size in
         //                // TODO: Replace @Shared(.event) with proper state management
         //                // @Shared(.event) var event
@@ -100,14 +111,7 @@ public struct ScheduleSingleStageAtOnceView: View {
         //                    ScheduleComingSoonView()
         //                }
         //            }
-        .navigationBarExtension {
-            ScheduleStageSelector(
-                stages: store.stages,
-                selectedStage: $store.selectedStage
-            )
-        }
-        .task { await store.task() }
-        .environment(\.dayStartsAtNoon, true)
+
         //            .navigationBarTitleDisplayMode(.inline)
     }
 

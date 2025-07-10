@@ -168,6 +168,7 @@ struct HorizontalPageView<Content: View, ID: Hashable>: View {
     }
 
     var body: some View {
+        #if os(iOS)
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
                 content
@@ -176,11 +177,15 @@ struct HorizontalPageView<Content: View, ID: Hashable>: View {
                 #endif
             }
         }
-        #if os(iOS)
         .scrollTargetLayout()
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $page)
         .scrollIndicators(.never, axes: .horizontal)
+        #elseif os(Android)
+        TabView(selection: $page) {
+            content
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
         #endif
     }
 }
