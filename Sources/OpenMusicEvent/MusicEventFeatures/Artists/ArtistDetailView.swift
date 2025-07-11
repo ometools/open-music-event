@@ -58,7 +58,7 @@ class ArtistDetail {
 
 
     nonisolated private func fetchPerformances(db: Database) throws -> [PerformanceDetailRow.ArtistPerformance] {
-        return try ArtistQueries.fetchPerformances(for: artistID, from: db)
+        return try Queries.fetchPerformances(for: artistID, from: db)
     }
 
 

@@ -28,14 +28,20 @@ extension Performance: DateIntervalRepresentable {
 //     }
 // }
 
+@Observable
+@MainActor
+class ScheduleState {
+    var selectedStage: Stage.ID?
+    var selectedSchedule: Schedule.ID?
+
+    static let shared = ScheduleState()
+}
+
 public struct ScheduleSingleStageAtOnceView: View {
 
     @Observable @MainActor
     class ViewModel {
-        init() { }
-
-        var selectedStage: Stage.ID?
-        var selectedSchedule: Schedule.ID?
+        var scheduleState: ScheduleState = .shared
 
         @ObservationIgnored
         @Dependency(\.musicEventID) var musicEventID
@@ -52,8 +58,8 @@ public struct ScheduleSingleStageAtOnceView: View {
                 for try await stages in query.values() {
                     self.stages = stages
 
-                    if selectedStage == nil {
-                        selectedStage = stages.first?.id
+                    if scheduleState.selectedStage == nil {
+                        scheduleState.selectedStage = stages.first?.id
                     }
                 }
             }
@@ -61,19 +67,17 @@ public struct ScheduleSingleStageAtOnceView: View {
     }
 
     @Bindable var store: ViewModel
-
     //        @Namespace var namespace
     @Environment(\.dayStartsAtNoon) var dayStartsAtNoon
-
 
 
 
     public var body: some View {
         GeometryReader { geo in
             ScrollView {
-                HorizontalPageView(page: $store.selectedStage) {
+                HorizontalPageView(page: $store.scheduleState.selectedStage) {
                     ForEach(store.stages) { stage in
-                        StageSchedulePage(id: stage.id)
+                        StageSchedulePage(id: stage.id, selectedSchedule: store.scheduleState.selectedSchedule)
                             .frame(width: geo.size.width)
                             .tag(stage.id)
                     }
@@ -88,7 +92,7 @@ public struct ScheduleSingleStageAtOnceView: View {
         .navigationBarExtension {
             ScheduleStageSelector(
                 stages: store.stages,
-                selectedStage: $store.selectedStage
+                selectedStage: $store.scheduleState.selectedStage
             )
         }
         .task { await store.task() }
@@ -115,65 +119,63 @@ public struct ScheduleSingleStageAtOnceView: View {
 
         //            .navigationBarTitleDisplayMode(.inline)
     }
+}
 
+struct StageSchedulePage: View, Identifiable {
+    var id: Stage.ID
+    var selectedSchedule: Schedule.ID?
 
-    struct StageSchedulePage: View, Identifiable {
-        var id: Stage.ID
-        var selectedSchedule: Schedule.ID? = nil
+    @State
+    var performances: [PerformanceTimelineCard] = []
 
-        var performances: [PerformanceTimelineCard] = []
+    var scheduleState = ScheduleState.shared
 
-        //            @Selection
-        struct PerformanceTimelineCard: Identifiable, TimelineCard, Codable {
-            var id: Performance.ID
+    struct PerformanceTimelineCard: Identifiable, TimelineCard, Codable {
+        var id: Performance.ID
 
-            var startTime: Date
-            var endTime: Date
+        var startTime: Date
+        var endTime: Date
 
-            var dateInterval: DateInterval {
-                DateInterval(start: startTime, end: endTime)
+        var dateInterval: DateInterval {
+            DateInterval(start: startTime, end: endTime)
+        }
+    }
+
+    let logger = Logger(subsystem: "OpenMusicEvent", category: "StageSchedulePage")
+
+    func task() async {
+        guard let selectedSchedule = scheduleState.selectedSchedule
+        else { return }
+
+        let query = ValueObservation.tracking { db in
+            try Queries
+                .performancesQuery(for: id, scheduleID: selectedSchedule)
+                .fetchAll(db)
+        }
+
+        await withErrorReporting {
+            for try await performances in query.values() {
+                self.performances = performances.map {
+                    PerformanceTimelineCard(
+                        id: $0.id,
+                        startTime: $0.startTime,
+                        endTime: $0.endTime
+                    )
+                }
+                logger.log("Performances: \(performances)")
             }
         }
 
-        func task() async throws {
-            guard let selectedSchedule
-            else { return }
+    }
 
-            let query = ValueObservation.tracking { db in
-                try ArtistQueries.fetchPerformanceStages(for: artistID, from: db)
-            }
-
+    var body: some View {
+        SchedulePageView(performances) { performance in
+            ScheduleCardView(id: performance.id)
+        }
+        .tag(id)
+        .task(id: selectedSchedule) {
             await withErrorReporting {
-                for try await _ in query.values() {
-                    self.performanceStages = stages
-                }
-            }
-
-            // TODO: Replace with GRDB query
-            // let performancesQuery = Performance.all
-            //     .for(schedule: selectedSchedule, at: self.id)
-            //     .select {
-            //         PerformanceTimelineCard.Columns(
-            //             id: $0.id,
-            //             startTime: $0.startTime,
-            //             endTime: $0.endTime,
-            //         )
-            //     }
-
-            // TODO: Replace $performances.load() with GRDB query
-            // try await self.$performances.load(performancesQuery, animation: .snappy)
-
-        }
-
-        var body: some View {
-            SchedulePageView(performances) { performance in
-                Performance.ScheduleCardView(id: performance.id)
-            }
-            .tag(id)
-            .task(id: selectedSchedule) {
-                await withErrorReporting {
-                    try await self.loadPerformances()
-                }
+                await self.task()
             }
         }
     }

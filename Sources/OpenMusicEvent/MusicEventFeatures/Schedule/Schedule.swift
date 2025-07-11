@@ -33,6 +33,9 @@ import CoreModels
 //         .inMemory("selectedSchedule")
 //     }
 // }
+
+private let logger = Logger(subsystem: "OpenMusicEvent", category: "Schedule")
+
 @MainActor
 @Observable
 public class ScheduleFeature {
@@ -41,9 +44,7 @@ public class ScheduleFeature {
     }
 
     var singleStageAtOnceFeature = ScheduleSingleStageAtOnceView.ViewModel()
-
-    public var selectedStage: Stage.ID?
-    public var selectedSchedule: Schedule.ID?
+    var scheduleState = ScheduleState.shared
 
     public var schedules: [Schedule] = []
 
@@ -80,14 +81,17 @@ public class ScheduleFeature {
         await withErrorReporting {
             for try await schedules in query.values() {
                 self.schedules = schedules
+                logger.log("schedules: \(schedules)")
 
-                if selectedSchedule == nil {
-                    selectedSchedule = schedules.first?.id
+                if scheduleState.selectedSchedule == nil {
+                    scheduleState.selectedSchedule = schedules.first?.id
                 }
             }
         }
     }
 }
+
+
 
 public struct ScheduleView: View {
     @Bindable var store: ScheduleFeature
@@ -110,6 +114,8 @@ public struct ScheduleView: View {
 
     @State var visibleSchedule: ScheduleType = .singleStageAtOnce
 
+    @Bindable var scheduleState = ScheduleState.shared
+    
     public var body: some View {
         Group {
             switch visibleSchedule {
@@ -117,7 +123,7 @@ public struct ScheduleView: View {
                 ScheduleSingleStageAtOnceView(store: store.singleStageAtOnceFeature)
                     .modifier(
                         ScheduleSelectorModifier(
-                            selectedScheduleID: $store.selectedSchedule,
+                            selectedScheduleID: $scheduleState.selectedSchedule,
                             schedules: store.schedules
                         )
                     )
@@ -132,7 +138,7 @@ public struct ScheduleView: View {
 //            }
 //        }
         .task { await store.task() }
-
+        .environment(store.scheduleState)
 //        .environment(\.dayStartsAtNoon, true)
     }
 

@@ -129,7 +129,7 @@ struct ArtistsListView: View {
         private func loadPerformanceStages() async {
             let artistID = artist.id
             let query = ValueObservation.tracking { db in
-                try ArtistQueries.fetchPerformanceStages(for: artistID, from: db)
+                try Queries.fetchPerformanceStages(for: artistID, from: db)
             }
             
             await withErrorReporting {

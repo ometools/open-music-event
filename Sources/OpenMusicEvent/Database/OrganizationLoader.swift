@@ -123,6 +123,8 @@ extension String {
         for b in buf {
             result = 127 * (result & 0x00ffffffffffffff) + UInt64(b)
         }
+        // I'm getting some weird mapping errors and I think it's due to Int's being different sizes across platforms?
+        // Lets
         return Int(result)
     }
 }

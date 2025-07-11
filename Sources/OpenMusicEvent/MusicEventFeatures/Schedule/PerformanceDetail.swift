@@ -31,7 +31,7 @@ extension Artist {
 }
 
 //@Selection
-struct PerformanceDetail: Identifiable {
+struct PerformanceDetail: Identifiable, FetchableRecord {
     public typealias ID = OmeID<Performance>
     public let id: ID
 
@@ -44,6 +44,41 @@ struct PerformanceDetail: Identifiable {
     public let stageColor: OMEColor
     public let stageName: String
     public let stageImageURL: URL?
+    
+    init(
+        id: ID,
+        title: String,
+        stageID: Stage.ID,
+        startTime: Date,
+        endTime: Date,
+        stageColor: OMEColor,
+        stageName: String,
+        stageImageURL: URL?
+    ) {
+        self.id = id
+        self.title = title
+        self.stageID = stageID
+        self.startTime = startTime
+        self.endTime = endTime
+        self.stageColor = stageColor
+        self.stageName = stageName
+        self.stageImageURL = stageImageURL
+    }
+    
+    init(row: Row) throws {
+        let stageImageURLString: String? = row["stageImageURL"]
+        
+        self.init(
+            id: OmeID(row["id"]),
+            title: row["title"],
+            stageID: OmeID(row["stageID"]),
+            startTime: row["startTime"],
+            endTime: row["endTime"],
+            stageColor: OMEColor(rawValue: row["stageColor"]),
+            stageName: row["stageName"],
+            stageImageURL: stageImageURLString.flatMap(URL.init(string:))
+        )
+    }
 
     struct SimpleArtist: Codable {
         var id: Artist.ID

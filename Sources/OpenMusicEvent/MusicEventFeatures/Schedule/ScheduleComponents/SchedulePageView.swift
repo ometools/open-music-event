@@ -44,12 +44,14 @@ public struct SchedulePageView<
     
     public var body: some View {
         ScheduleGrid {
+
             GeometryReader { geo in
                 ForEach(cards) { scheduleItem in
+                    let frame = frame(for: scheduleItem, in: .init(width: geo.size.width, height: 1500))
                     cardContent(scheduleItem)
                         .id(scheduleItem.id)
                         .zIndex(0)
-                        .placement(frame(for: scheduleItem, in: geo.size))
+                        .placement(frame)
                 }
             }
         }

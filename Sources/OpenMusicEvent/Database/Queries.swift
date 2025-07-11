@@ -62,5 +62,52 @@ struct Queries {
             )
         }
     }
+    
+    static func performancesQuery(for stageID: Stage.ID, scheduleID: Schedule.ID) -> QueryInterfaceRequest<Performance> {
+        return Performance.filter(
+            Column("stageID") == stageID.rawValue &&
+            Column("scheduleID") == scheduleID.rawValue
+        )
+        .order(Column("startTime"))
+    }
+    
+    static func performanceDetailQuery(for performanceID: Performance.ID) -> SQLRequest<PerformanceDetail> {
+        return SQLRequest<PerformanceDetail>(
+            sql: """
+                SELECT 
+                    p.id as id,
+                    p.title as title,
+                    p.stageID as stageID,
+                    p.startTime as startTime,
+                    p.endTime as endTime,
+                    s.color as stageColor,
+                    s.name as stageName,
+                    s.iconImageURL as stageImageURL
+                FROM performances p
+                JOIN stages s ON p.stageID = s.id
+                WHERE p.id = ?
+            """,
+            arguments: [performanceID.rawValue]
+        )
+    }
+    
+    static func performanceArtistsQuery(for performanceID: Performance.ID) -> SQLRequest<Artist> {
+        return SQLRequest<Artist>(
+            sql: """
+                SELECT 
+                    a.id as id,
+                    a.musicEventID as musicEventID,
+                    a.name as name,
+                    a.bio as bio,
+                    a.imageURL as imageURL,
+                    a.links as links
+                FROM performanceArtists pa
+                JOIN artists a ON pa.artistID = a.id
+                WHERE pa.performanceID = ?
+                ORDER BY a.name ASC
+            """,
+            arguments: [performanceID.rawValue]
+        )
+    }
 }
 
