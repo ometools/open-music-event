@@ -34,7 +34,7 @@ import CoreModels
 //     }
 // }
 
-private let logger = Logger(subsystem: "OpenMusicEvent", category: "Schedule")
+private let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "Schedule")
 
 @MainActor
 @Observable

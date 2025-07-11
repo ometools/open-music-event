@@ -26,7 +26,7 @@ public struct OrganizerDetailView: View {
     @Observable
     @MainActor
     public class ViewModel {
-        let logger = Logger(subsystem: "open-music-event.event-viewer", category: "OrganizerDetails")
+        let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "OrganizerDetails")
 
         public init(url: Organizer.ID) {
             self.id = url

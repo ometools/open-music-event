@@ -198,7 +198,7 @@ struct LocationView: View {
 }
 
 extension Logger {
-    static let geocoderLogging = Logger(subsystem: "OpenFestival", category: "geocoding")
+    static let geocoderLogging = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "geocoding")
 }
 
 

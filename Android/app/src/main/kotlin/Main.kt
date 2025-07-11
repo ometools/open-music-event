@@ -20,7 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 
-internal val logger: SkipLogger = SkipLogger(subsystem = "open.music.event", category = "OpenMusicEvent")
+internal val logger: SkipLogger = SkipLogger(subsystem = "bundle.ome.OpenMusicEvent", category = "OpenMusicEvent")
 
 /// AndroidAppMain is the `android.app.Application` entry point, and must match `application android:name` in the AndroidMainfest.xml file.
 open class AndroidAppMain: Application {

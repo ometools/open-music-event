@@ -141,7 +141,7 @@ struct StageSchedulePage: View, Identifiable {
         }
     }
 
-    let logger = Logger(subsystem: "OpenMusicEvent", category: "StageSchedulePage")
+    let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "StageSchedulePage")
 
     func task() async {
         guard let selectedSchedule = scheduleState.selectedSchedule

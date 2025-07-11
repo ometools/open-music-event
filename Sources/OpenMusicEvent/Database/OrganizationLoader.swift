@@ -113,7 +113,7 @@ import GRDB
 //    }
 //}
 
-private let logger = Logger(subsystem: "open-music-event.event-viewer", category: "OrganizerLoader")
+private let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "OrganizerLoader")
 
 
 extension String {

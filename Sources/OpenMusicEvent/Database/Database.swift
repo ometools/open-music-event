@@ -12,7 +12,7 @@ import Dependencies
 import SkipFuse
 
 private let logger = Logger(
-    subsystem: "OpenMusicEvent",
+    subsystem: "bundle.ome.OpenMusicEvent",
     category: "Database"
 )
 

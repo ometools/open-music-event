@@ -10,25 +10,25 @@ import ArgumentParser
 import OpenMusicEventParser
 import Dependencies
 import Foundation
-import Logging
+import OSLog
 
 
 extension Logger {
-    static let cli = Logger(subsystem: "com.openfestival.ome", category: "CLI")
+    static let cli = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "CLI")
 }
 
-extension Logger {
-    init(subsystem: String, category: String) {
-        self.init(label: subsystem + "." + category)
-    }
-}
+//extension Logger {
+//    init(subsystem: String, category: String) {
+//        self.init(label: subsystem + "." + category)
+//    }
+//}
 
 @main
 struct OpenMusicEvent: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ome",
         abstract: "A Swift command-line tool to parse OpenFestival data",
-        subcommands: [Validate.self]
+        subcommands: [Validate.self, FestivalProImport.self]
     )
 
     struct Validate: ParsableCommand {
@@ -60,4 +60,5 @@ struct OpenMusicEvent: AsyncParsableCommand {
         }
 
     }
+
 }
