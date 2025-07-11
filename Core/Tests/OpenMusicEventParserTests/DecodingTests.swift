@@ -3,11 +3,11 @@ import XCTest
 import CustomDump
 
 import Testing
-import Parsing
 import CustomDump
 import SnapshotTestingCustomDump
 import InlineSnapshotTesting
 import CoreModels
+import FileTree
 
 func expect<C: Conversion>(
     _ data: C.Input,
@@ -37,7 +37,7 @@ struct YamlCodingTests {
         imageURL: "http://example.com/event-image.jpg"
         siteMapImageURL: "http://example.com/site-map.jpg"
         """.utf8)
-        let result = try Conversions.YamlConversion(EventConfiguration.EventInfoYaml.self).apply(yaml)
+        let result = try YMLConversion(EventConfiguration.EventInfoYaml.self).apply(yaml)
         assertInlineSnapshot(of: result, as: .customDump) {
             """
             EventConfiguration.EventInfoYaml(
@@ -191,7 +191,7 @@ struct YamlCodingTests {
             title: "The Wind Down"
         """.utf8)
 
-        let result = try Conversions.YamlConversion<Schedule.YamlRepresentation>().apply(yaml)
+        let result = try YMLConversion<Schedule.YamlRepresentation>().apply(yaml)
 
         assertInlineSnapshot(of: result, as: .customDump) {
             """
@@ -378,14 +378,16 @@ struct YamlCodingTests {
             """
             ArtistConversion.ArtistInfoFrontMatter(
               imageURL: URL(http://example.com/subsonic.jpg),
+              logoURL: nil,
+              kind: nil,
               links: [
                 [0]: Artist.Link(
                   url: URL(http://soundcloud.com/subsonic),
-                  label: nil
+                  linkType: nil
                 ),
                 [1]: Artist.Link(
                   url: URL(http://instagram.com/subsonic),
-                  label: nil
+                  linkType: nil
                 )
               ]
             )
@@ -421,14 +423,16 @@ struct ArtistDecodingTests {
             MarkdownWithFrontMatter(
               frontMatter: ArtistConversion.ArtistInfoFrontMatter(
                 imageURL: URL(http://example.com/subsonic.jpg),
+                logoURL: nil,
+                kind: nil,
                 links: [
                   [0]: Artist.Link(
                     url: URL(http://soundcloud.com/subsonic),
-                    label: nil
+                    linkType: nil
                   ),
                   [1]: Artist.Link(
                     url: URL(http://instagram.com/subsonic),
-                    label: nil
+                    linkType: nil
                   )
                 ]
               ),

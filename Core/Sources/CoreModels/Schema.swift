@@ -225,26 +225,58 @@ public struct Artist: Identifiable, Equatable, Sendable, Codable {
     public let name: Name
     public let bio: String?
     public let imageURL: URL?
+    public let logoURL: URL?
+    public let kind: Kind?
 
+    public struct Kind: Equatable, Sendable, Codable, ExpressibleByStringLiteral {
+        public var type: String
+
+        public init(stringLiteral value: String) {
+            self.type = value
+        }
+    }
 //    @Column(as: [Link].JSONRepresentation.self)
     public let links: [Link]
 
     public struct Link: Equatable, Codable, Sendable {
         public var url: URL
-        public var label: String? = nil
+        public var linkType: LinkType?
 
-        public init(url: URL, label: String? = nil) {
+        public struct LinkType: Sendable, Equatable, Codable {
+            public let label: String
+            public let iconImage: URL?
+
+            public static let soundcloud = LinkType(label: "soundcloud", iconImage: nil)
+            public static let youtube = LinkType(label: "youtube", iconImage: nil)
+            public static let facebook = LinkType(label: "facebook", iconImage: nil)
+            public static let spotify = LinkType(label: "spotify", iconImage: nil)
+            public static let instagram = LinkType(label: "instagram", iconImage: nil)
+            public static let website = LinkType(label: "website", iconImage: nil)
+        }
+
+        public init(url: URL, type: LinkType? = nil) {
             self.url = url
-            self.label = label
+            self.linkType = type
         }
     }
 
-    public init(id: OmeID<Artist>, musicEventID: MusicEvent.ID?, name: String, bio: String?, imageURL: URL?, links: [Link]) {
+    public init(
+        id: OmeID<Artist>,
+        musicEventID: MusicEvent.ID?,
+        name: String,
+        bio: String?,
+        imageURL: URL?,
+        logoURL: URL?,
+        kind: Artist.Kind?,
+        links: [Link]
+    ) {
         self.id = id
         self.musicEventID = musicEventID
         self.name = name
         self.bio = bio
         self.imageURL = imageURL
+        self.logoURL = logoURL
+        self.kind = kind
         self.links = links
     }
 }
@@ -553,6 +585,8 @@ extension Artist {
         public let name: String
         public let bio: String?
         public let imageURL: URL?
+        public let logoURL: URL?
+        public let kind: Kind?
         public let links: [Link]
 
         public static let tableName = Artist.tableName
@@ -563,6 +597,8 @@ extension Artist {
             self.name = other.name
             self.bio = other.bio
             self.imageURL = other.imageURL
+            self.logoURL = other.logoURL
+            self.kind = other.kind
             self.links = other.links
         }
         public init(
@@ -571,6 +607,8 @@ extension Artist {
             name: String,
             bio: String? = nil,
             imageURL: URL? = nil,
+            logoURL: URL? = nil,
+            kind: Kind? = nil,
             links: [Link]
         ) {
             self.id = id
@@ -578,6 +616,8 @@ extension Artist {
             self.name = name
             self.bio = bio
             self.imageURL = imageURL
+            self.logoURL = logoURL
+            self.kind = kind
             self.links = links
         }
     }
@@ -752,3 +792,4 @@ extension Performance.Artists {
         }
     }
 }
+
