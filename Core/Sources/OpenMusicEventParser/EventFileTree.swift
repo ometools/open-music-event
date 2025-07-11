@@ -155,7 +155,7 @@ extension Dictionary {
 }
 
 extension FileExtension {
-    static let markdown: FileExtension = "md"
+    public static let markdown: FileExtension = "md"
 }
 
 extension EventConfiguration {
@@ -177,15 +177,17 @@ extension EventConfiguration {
 }
 
 
-struct ArtistConversion: Conversion {
+public struct ArtistConversion: Conversion {
+    public init() {}
 
-    public struct ArtistInfoFrontMatter: Codable, Equatable {
-        var imageURL: URL?
-        var links: [CoreModels.Artist.Link]
+    public struct ArtistInfoFrontMatter: Codable, Equatable, Sendable {
+        public var imageURL: URL?
+        public var logoURL: URL?
+        public var kind: CoreModels.Artist.Kind?
+        public var links: [CoreModels.Artist.Link]
     }
 
-    
-    var body: some Conversion<FileContent<Data>, CoreModels.Artist.Draft> {
+    public var body: some Conversion<FileContent<Data>, CoreModels.Artist.Draft> {
         FileContentConversion {
             Conversions.DataToString()
             MarkdownWithFrontMatterConversion<ArtistInfoFrontMatter>()
@@ -194,31 +196,35 @@ struct ArtistConversion: Conversion {
         FileToArtistConversion()
     }
 
-    struct FileToArtistConversion: Conversion {
-        typealias Input = FileContent<MarkdownWithFrontMatter<ArtistInfoFrontMatter>>
-        typealias Output = CoreModels.Artist.Draft
+    public struct FileToArtistConversion: Conversion {
+        public typealias Input = FileContent<MarkdownWithFrontMatter<ArtistInfoFrontMatter>>
+        public typealias Output = CoreModels.Artist.Draft
 
-        func apply(_ input: Input) throws -> Output {
+        public func apply(_ input: Input) throws -> Output {
             CoreModels.Artist.Draft(
                 name: input.fileName,
                 bio: input.data.body,
                 imageURL: input.data.frontMatter?.imageURL,
-                links: (input.data.frontMatter?.links ?? []).map { .init(url: $0.url, label: $0.label )}
+                logoURL: input.data.frontMatter?.logoURL,
+                kind: input.data.frontMatter?.kind,
+                links: (input.data.frontMatter?.links ?? []).map { .init(url: $0.url, type: $0.linkType )}
             )
         }
 
-        func unapply(_ output: Output) throws -> Input {
-            throw UnimplementedFailure(description: "FileToArtistConversion.unapply")
-            //            FileContent(
-//                fileName: output.name,
-//                data: MarkdownWithFrontMatter(
-//                    frontMatter: ArtistInfoFrontMatter(
-//                        imageURL: output.imageURL,
-//                        links: output.links.map { .init(url: $0.url, label: $0.label )}
-//                    ).nilIfEmpty,
-//                    body: output.bio?.nilIfEmpty
-//                )
-//            )
+        public func unapply(_ output: Output) throws -> Input {
+            FileContent(
+                fileName: output.name,
+                fileType: "md",
+                data: MarkdownWithFrontMatter(
+                    frontMatter: ArtistInfoFrontMatter(
+                        imageURL: output.imageURL,
+                        logoURL: output.logoURL,
+                        kind: output.kind,
+                        links: output.links
+                    ),
+                    body: output.bio?.nilIfEmpty
+                )
+            )
         }
     }
 }

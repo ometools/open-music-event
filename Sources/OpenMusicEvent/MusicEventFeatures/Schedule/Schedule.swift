@@ -196,7 +196,6 @@ struct ScheduleSelectorModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            #if os(iOS)
             .toolbarTitleMenu {
                 ForEach(schedules) { schedule in
                     Button(label(for: schedule)) {
@@ -204,22 +203,10 @@ struct ScheduleSelectorModifier: ViewModifier {
                     }
                 }
             }
-            #endif
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle(title)
     }
 }
-
-#if SKIP
-struct ToolbarTitleMenu : ContentModifier {
-    func modify(view: any View) -> any View {
-        view.material3ColorScheme { colors, isDark in
-            colors.copy(surface: isDark ? Color.purple.asComposeColor() : Color.yellow.asComposeColor())
-        }
-    }
-}
-#endif
-
 
 //
 //func determineDayScheduleAtLaunch(from schedule: Event.Schedule) -> Event.DailySchedule.ID? {

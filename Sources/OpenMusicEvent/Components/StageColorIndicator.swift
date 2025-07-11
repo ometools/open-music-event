@@ -71,9 +71,9 @@ struct StageIndicatorView: View {
                 )
             }
         }
-#else
-        colors.first?.swiftUIColor ?? .green
-#endif
+        #else
+            colors.first?.swiftUIColor .clear
+        #endif
 
         }
 

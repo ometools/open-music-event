@@ -27,3 +27,4 @@ extension Conversions {
         }
     }
 }
+typealias YMLConversion = Conversions.YamlConversion

@@ -13,7 +13,7 @@ extension Collection {
         !self.isEmpty
     }
 
-    var nilIfEmpty: Self? {
+    public var nilIfEmpty: Self? {
         self.isEmpty ? nil : self
     }
 

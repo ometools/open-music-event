@@ -48,14 +48,30 @@ struct OpenMusicEvent: AsyncParsableCommand {
 //                Logger.cli.debug("Verbose mode enabled")
 //            }
 
-            Logger.cli.info("Validating OME data at path: \(path)")
+            print("Validating OME data at path: \(path)")
 
             do {
-                _ = try OrganizerConfiguration.fileTree.read(from: URL(filePath: path))
-                Logger.cli.info("✅ Parsed successfully! This data can be used in the OpenFestival app 🎉")
+                let config = try OrganizerConfiguration.fileTree.read(from: URL(filePath: path))
+                print("✅ Parsed successfully! This data can be used in the OpenFestival app 🎉")
+                
+                printStatistics(config: config)
             } catch {
                 Logger.cli.error("❌ Failed to parse: \(error.localizedDescription)")
                 throw error
+            }
+        }
+        
+        private func printStatistics(config: OrganizerConfiguration) {
+            print("\n📊 Summary Statistics:")
+            print("Organizer: \(config.info.name)")
+            print("Events: \(config.events.count)")
+
+            if config.events.count > 1 {
+                print("\nPer Event Breakdown:")
+                for (index, event) in config.events.enumerated() {
+                    let eventPerformances = event.schedule.reduce(0) { $0 + $1.stageSchedules.values.map(\.count).reduce(0, +) }
+                    print("  Event \(index + 1) (\(event.info.name)): \(event.artists.count) artists, \(event.stages.count) stages, \(eventPerformances) performances")
+                }
             }
         }
 

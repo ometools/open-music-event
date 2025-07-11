@@ -24,20 +24,20 @@ extension Parsers {
 }
 
 
-struct MarkdownWithFrontMatter<FrontMatter: Sendable>: Sendable {
-    let frontMatter: FrontMatter?
-    let body: String?
+public struct MarkdownWithFrontMatter<FrontMatter: Sendable>: Sendable {
+    public let frontMatter: FrontMatter?
+    public let body: String?
 
-    struct Parser {}
+    public struct Parser {}
 }
 
 extension MarkdownWithFrontMatter: Equatable where FrontMatter: Equatable {}
 
 extension MarkdownWithFrontMatter.Parser: Parser, ParserPrinter where FrontMatter: Codable {
-    typealias Input = Substring
-    typealias Output = MarkdownWithFrontMatter
+    public typealias Input = Substring
+    public typealias Output = MarkdownWithFrontMatter
 
-    var body: some ParserPrinter<Input, Output> {
+    public var body: some ParserPrinter<Input, Output> {
         ParsePrint(.memberwise(MarkdownWithFrontMatter.init(frontMatter:body:))) {
             Optionally {
                 Parsers.FrontMatter<FrontMatter>()

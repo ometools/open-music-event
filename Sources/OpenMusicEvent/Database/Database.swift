@@ -91,6 +91,8 @@ func appDatabase() throws -> any DatabaseWriter {
             "name" TEXT NOT NULL,
             "bio" TEXT,
             "imageURL" TEXT,
+            "logoURL" TEXT,
+            "kind" TEXT,
             "links" TEXT,
         
             FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE

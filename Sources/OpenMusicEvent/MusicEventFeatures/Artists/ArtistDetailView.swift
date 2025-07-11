@@ -18,6 +18,8 @@ extension Artist {
         name: "",
         bio: "",
         imageURL: nil,
+        logoURL: nil,
+        kind: nil,
         links: []
     )
 }
