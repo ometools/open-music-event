@@ -71,21 +71,19 @@ struct ScheduleHeaderButton: View {
             .background {
                 if isSelected {
                     Circle()
-                        #if os(iOS)
                         .fill(stage.color.swiftUIColor)
-                        #endif
                         .shadow()
                 }
             }
             .scaleEffect(press ? 0.8 : 1)
+            .sensoryFeedback(.success, trigger: isSelected)
             .pressAndReleaseAction(
                 pressing: $press,
                 animation: .easeInOut(duration: 0.05),
                 onRelease: {
-#if canImport(UIKit)
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-#endif
-                    onSelect(stage.id)
+                    withAnimation {
+                        onSelect(stage.id)
+                    }
                 }
             )
     }
@@ -118,22 +116,22 @@ struct PressAndReleaseModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-//            .simultaneousGesture(
-//                DragGesture(minimumDistance: 0)
-//                    .onChanged{ state in
-//                        if let animation = animation {
-//                            withAnimation(animation) {
-//                                pressing = true
-//                            }
-//                        } else {
-//                            pressing = true
-//                        }
-//                    }
-//                    .onEnded{ _ in
-//                        pressing = false
-//                        onRelease()
-//                    }
-//            )
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged{ state in
+                        if let animation = animation {
+                            withAnimation(animation) {
+                                pressing = true
+                            }
+                        } else {
+                            pressing = true
+                        }
+                    }
+                    .onEnded{ _ in
+                        pressing = false
+                        onRelease()
+                    }
+            )
     }
 }
 

@@ -180,6 +180,14 @@ struct ScheduleSelectorModifier: ViewModifier {
         schedules.first { $0.id == selectedScheduleID }
     }
 
+    var title: String {
+        if let selectedSchedule {
+            label(for: selectedSchedule)
+        } else {
+            "Select a Schedule"
+        }
+    }
+
     func body(content: Content) -> some View {
         content
             #if os(iOS)
@@ -190,23 +198,9 @@ struct ScheduleSelectorModifier: ViewModifier {
                     }
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationTitle(selectedSchedule.map { label(for: $0) } ?? "")
-            #elseif os(Android)
-            .toolbar {
-                ToolbarItem(placement: .title) {
-
-                    Menu {
-                        ForEach(schedules) { schedule in
-                            Button(label(for: schedule)) {
-                                selectedScheduleID = schedule.id
-                            }
-                        }
-                    }
-                }
-            }
             #endif
-
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(title)
     }
 }
 

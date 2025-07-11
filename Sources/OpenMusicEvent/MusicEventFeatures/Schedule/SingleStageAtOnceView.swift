@@ -75,6 +75,7 @@ public struct ScheduleSingleStageAtOnceView: View {
                     ForEach(store.stages) { stage in
                         StageSchedulePage(id: stage.id)
                             .frame(width: geo.size.width)
+                            .tag(stage.id)
                     }
                 }
                 .frame(height: 1500)
