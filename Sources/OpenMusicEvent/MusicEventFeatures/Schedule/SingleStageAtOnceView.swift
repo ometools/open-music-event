@@ -135,9 +135,19 @@ public struct ScheduleSingleStageAtOnceView: View {
             }
         }
 
-        func loadPerformances() async throws {
+        func task() async throws {
             guard let selectedSchedule
             else { return }
+
+            let query = ValueObservation.tracking { db in
+                try ArtistQueries.fetchPerformanceStages(for: artistID, from: db)
+            }
+
+            await withErrorReporting {
+                for try await _ in query.values() {
+                    self.performanceStages = stages
+                }
+            }
 
             // TODO: Replace with GRDB query
             // let performancesQuery = Performance.all

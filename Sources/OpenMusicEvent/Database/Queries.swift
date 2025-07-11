@@ -1,5 +1,5 @@
 //
-//  ArtistQueries.swift
+//  Queries.swift
 //  open-music-event
 //
 //  Created by Claude on 7/5/25.
@@ -9,7 +9,7 @@ import GRDB
 import CoreModels
 import Foundation
 
-struct ArtistQueries {
+struct Queries {
     
     static func fetchPerformances(for artistID: Artist.ID, from db: Database) throws -> [PerformanceDetailRow.ArtistPerformance] {
         let sql = """
@@ -63,3 +63,4 @@ struct ArtistQueries {
         }
     }
 }
+
