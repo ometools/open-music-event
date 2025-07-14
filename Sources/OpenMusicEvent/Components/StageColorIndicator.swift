@@ -10,72 +10,83 @@ import CoreModels
 import Dependencies
 import GRDB
 
+struct StageIndicatorAngleKey: EnvironmentKey {
+    static let defaultValue: Angle = .degrees(15)
+}
+
+extension EnvironmentValues {
+    var stageIndicatorAngle: Angle {
+        get { self[StageIndicatorAngleKey.self] }
+        set { self[StageIndicatorAngleKey.self] = newValue }
+    }
+}
+
+extension View {
+    func stageIndicatorAngle(_ angle: Angle) -> some View {
+        environment(\.stageIndicatorAngle, angle)
+    }
+}
+
 struct StageIndicatorView: View {
     public init(colors: [OMEColor]) {
-        self.colors = colors
+        self.colors = colors.map(\.swiftUIColor)
     }
 
     public init(color: OMEColor) {
         self.init(colors: [color])
     }
 
+    public init(colors: [Color]) {
+        self.colors = colors
+    }
+
     var angleHeight: CGFloat = 5 / 2
     
 
     @Dependency(\.defaultDatabase) var defaultDatabase
-    
+    @Environment(\.stageIndicatorAngle) var stageIndicatorAngle
 
-    var colors: [OMEColor] = []
+    var colors: [Color] = []
 
     public var body: some View {
-        Group {
-            let _ = print("StageIndicatorView colors count: \(colors.count)")
-#if os(iOS)
-        Canvas { context, size in
-            let segmentHeight = size.height / CGFloat(colors.count)
-            for (index, color) in colors.map(\.swiftUIColor).enumerated() {
-                let index = CGFloat(index)
-
-                context.fill(
-                    Path { path in
-                        let topLeft = CGPoint(
-                            x: 0,
-                            y: index * segmentHeight - angleHeight
-                        )
-
-                        let topRight = CGPoint(
-                            x: size.width,
-                            y: index > 0 ?
-                            index * segmentHeight + angleHeight :
-                                index * segmentHeight
-                        )
-
-                        let bottomLeft = CGPoint(
-                            x: 0,
-                            y: index == colors.indices.last.flatMap { CGFloat($0) } ?
-                            index * segmentHeight + segmentHeight :
-                                index * segmentHeight + segmentHeight - angleHeight
-                        )
-
-                        let bottomRight = CGPoint(
-                            x: size.width,
-                            y: index * segmentHeight + segmentHeight + angleHeight
-                        )
-
-                        path.move(to: topLeft)
-                        path.addLine(to: topRight)
-                        path.addLine(to: bottomRight)
-                        path.addLine(to: bottomLeft)
-                    },
-                    with: .color(color)
-                )
+        ZStack {
+            ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
+                StageIndicator(stageCount: colors.count, index: index, angle: stageIndicatorAngle)
+                    .fill(color)
             }
         }
-        #else
-            colors.first?.swiftUIColor .clear
-        #endif
+    }
 
+    struct StageIndicator: Shape {
+        let stageCount: Int
+        let index: Int
+        var angle: Angle
+        
+        nonisolated func path(in rect: CGRect) -> Path {
+            let segmentHeight = rect.height / CGFloat(stageCount)
+            let indexFloat = CGFloat(index)
+            
+            let segmentTop = indexFloat * segmentHeight
+            let segmentBottom = segmentTop + segmentHeight
+            
+            let angleHeight = rect.width * tan(angle.radians)
+            
+            let isTop = index == 0
+            let isBottom = index == stageCount - 1
+            
+            let leftTopY = isTop ? segmentTop : segmentTop - angleHeight
+            let rightTopY = isTop ? segmentTop : segmentTop + angleHeight
+            
+            let leftBottomY = isBottom ? segmentBottom : segmentBottom - angleHeight
+            let rightBottomY = isBottom ? segmentBottom : segmentBottom + angleHeight
+
+            return Path { path in
+                path.move(to: CGPoint(x: 0, y: leftTopY))
+                path.addLine(to: CGPoint(x: rect.width, y: rightTopY))
+                path.addLine(to: CGPoint(x: rect.width, y: rightBottomY))
+                path.addLine(to: CGPoint(x: 0, y: leftBottomY))
+                path.closeSubpath()
+            }
         }
-
     }
 }
