@@ -17,11 +17,3 @@ let materialSystemBackground = Color(colorImpl: {
     MaterialTheme.colorScheme.surface
 })
 #endif
-
-extension SwiftUI.Color {
-    #if os(Android)
-    static let systemBackground = Color.red
-    #else
-    static let systemBackground = Color(.systemBackground)
-    #endif
-}

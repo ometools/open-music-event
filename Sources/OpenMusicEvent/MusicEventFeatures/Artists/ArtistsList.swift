@@ -36,7 +36,7 @@ public class ArtistsList {
             try Artist
                 .filter(Column("musicEventID") == id)
                 .filter(Column("name").collating(.nocase).like("%\(searchText)%"))
-                .order(Column("name"))
+                .order(Column("name").collating(.nocase))
                 .fetchAll(db)
         }
 

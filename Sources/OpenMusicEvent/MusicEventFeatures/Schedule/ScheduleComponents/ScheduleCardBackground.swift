@@ -83,7 +83,7 @@ struct TransparentScheduleCardBackground<Content: View>: View {
              */
             Rectangle()
                 .fill(color.opacity(isSelected ? 1 : 0.3))
-                .background { Color.systemBackground.opacity(0.8)}
+                .background { Color.black.opacity(0.8)}
 
         }
         .foregroundStyle(isSelected ? .white : color)

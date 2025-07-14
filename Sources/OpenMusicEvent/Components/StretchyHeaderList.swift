@@ -80,6 +80,7 @@ struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {
         List {
             self.stretchyContent
                 .scaledToFill()
+
                 .overlay { topDimOverlay }
                 .scaleEffect(scale, anchor: .bottom) // For stretching
                 .listRowInsets(EdgeInsets()) // Remove side + bottom padding from row
@@ -106,6 +107,8 @@ struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {
         .ignoresSafeArea(.all, edges: .top)
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
+        #elseif os(Android)
+        .toolbar(.hidden)
         #endif
         .navigationTitle(showNavigationBar ? self.titleContent : Text(""))
         .toolbarBackground(showNavigationBar ? .visible : .hidden)
@@ -113,8 +116,16 @@ struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {
         .background(.background)
     }
 
+    @Environment(\.colorScheme) var colorScheme
+    var mainColor: Color  {
+        switch colorScheme {
+        case .dark: .black
+        case .light: .white
+        @unknown default: .black
+        }
+    }
     private var topDimOverlay: some View {
-        let shadowColor = Color.systemBackground
+        let shadowColor = mainColor
 
         // Adjust the height/opacity to taste:
         return LinearGradient(
@@ -170,11 +181,18 @@ import SkipFuse
 struct StretchyHeaderListTitleView: View {
     var titleContent: Text
 
-    let mainColor = Color.systemBackground
-
+    @Environment(\.colorScheme) var colorScheme
+    var mainColor: Color  {
+        switch colorScheme {
+        case .dark: .black
+        case .light: .white
+        @unknown default: .black
+        }
+    }
 
     var body: some View {
         self.titleContent
+            .shadow(color: Color.black.opacity(0.5), radius: 5, x: 0.5, y: 2)
             .font(.largeTitle)
             .fontDesign(.default)
 //            #if !SKIP
@@ -190,6 +208,7 @@ struct StretchyHeaderListTitleView: View {
                     endPoint: .top
                 )
             }
+
     }
 }
 //

@@ -9,6 +9,7 @@ import SwiftUI
 
 public struct CachedAsyncImage: View {
     public var url: URL?
+    
 
     public init(url: URL?) {
         self.url = url
@@ -27,7 +28,7 @@ public struct CachedAsyncImage: View {
     public var body: some View {
         LazyImage(request: ImageRequest(url: url)) { state in
             if let image = state.image {
-                image.resizable().renderingMode(.template).aspectRatio(contentMode: .fill)
+                image.resizable().aspectRatio(contentMode: .fill)
             } else if state.error != nil {
                 Color.red // Indicates an error
             } else {

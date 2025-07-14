@@ -16,11 +16,12 @@
 import SwiftUI; import SkipFuse
 
 public struct NavigationLinkButtonStyle: ButtonStyle {
+    @Environment(\.colorScheme) var colorScheme
     func background(_ configuration: Configuration) -> Color {
         #if os(iOS)
-        configuration.isPressed ? Color(.tertiarySystemBackground) : Color.systemBackground
+        configuration.isPressed ? Color(.tertiarySystemBackground) : Color(.systemBackground)
         #elseif os(Android)
-        Color.systemBackground
+        Color.clear
         #endif
     }
 
@@ -95,11 +96,7 @@ struct NavigationLinkButton<Label: View>: View {
     }
 }
 
-public extension ButtonStyle where Self == NavigationLinkButtonStyle {
-    static var navigationLink: Self {
-        NavigationLinkButtonStyle()
-    }
-}
+
 
 
 //#Preview {
