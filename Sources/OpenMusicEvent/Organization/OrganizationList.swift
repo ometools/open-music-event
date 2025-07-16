@@ -58,13 +58,12 @@ struct OrganizerListView: View {
             self.destination = .addOrganization(.init())
         }
 
-        func didDeleteOrganization(organization: Organizer) {
+        func didDeleteOrganization(_ indices: IndexSet) {
             @Dependency(\.defaultDatabase) var database
 
-            withErrorReporting {
+            _ = withErrorReporting {
               try database.write { db in
-//                try Organizer.delete(organization)
-//                  .execute(db)
+                  try Organizer.deleteAll(db, ids: indices.map { organizers[$0].id })
               }
             }
         }
@@ -108,21 +107,14 @@ struct OrganizerListView: View {
             if !store.organizers.isEmpty {
                 List {
                     ForEach(store.organizers) { org in
-
                         NavigationLink {
                             OrganizerDetailView(store: .init(url: org.url))
                         } label: {
                             Row(org: org)
                         }
-
-//                        .swipeActions(edge: .trailing) {
-//                            Button(role: .destructive) {
-//                                store.didDeleteOrganization(organization: org)
-//                            } label: {
-//                                Image(systemName: "trash")
-//                            }
-//                            .tint(.red)
-//                        }
+                    }
+                    .onDelete { indexSet in
+                        store.didDeleteOrganization(indexSet)
                     }
                 }
                 .listStyle(.plain)

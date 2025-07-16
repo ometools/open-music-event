@@ -11,7 +11,6 @@ import GRDB
 import CoreModels
 
 public struct PerformanceDetailRow: View {
-
 //    @Selection
 //    @Table
     struct ArtistPerformance: Identifiable {
@@ -54,12 +53,10 @@ public struct PerformanceDetailRow: View {
                     .foregroundColor(.secondary)
             }
 
-
             Spacer()
         }
         .listRowBackground(
             AnimatedMeshView()
-
         )
         .padding(.horizontal, 5)
         .frame(height: 60)

@@ -14,15 +14,6 @@ import Dependencies
 struct ScheduleCardView: View {
     init(id: Performance.ID) {
         self.id = id
-        // TODO: Replace @FetchOne/@FetchAll with GRDB queries
-        // self._performance = FetchOne(wrappedValue: .empty, PerformanceDetail.find(id))
-        // self._performingArtists = FetchAll(
-        //     Performance.find(id)
-        //         .join(Performance.Artists.all) { $0.id == $1.performanceID }
-        //         .join(Artist.all) { $1.artistID.eq($2.id) }
-        //         .select { $2 }
-        // )
-        self.performingArtists = []
     }
 
     let id: Performance.ID

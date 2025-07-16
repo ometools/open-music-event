@@ -25,7 +25,6 @@ extension Artist {
 }
 
 
-
 @MainActor
 @Observable
 class ArtistDetail {
@@ -57,29 +56,10 @@ class ArtistDetail {
 
 
     var performances: [PerformanceDetailRow.ArtistPerformance] = []
-
-
     nonisolated private func fetchPerformances(db: Database) throws -> [PerformanceDetailRow.ArtistPerformance] {
+
         return try Queries.fetchPerformances(for: artistID, from: db)
     }
-
-
-//        static func performances(for artistID: Artist.ID) -> some StructuredQueriesCore.Statement<PerformanceDetail> {
-//            fatalError()
-////            Artist.performances(artistID)
-//                .join(Stage.all) { $0.id.eq($0.stageID) }
-//                .select {
-//                    PerformanceDetail.Columns(
-//                        id: $1.0.id,
-//                        stageID: $1.0.stageID,
-//                        startTime: $1.0.startTime,
-//                        endTime: $1.0.endTime,
-//                        customTitle: $1.0.customTitle,
-//                        stageColor: $1.1.color
-//                    )
-//                }
-//        }
-
 }
 
 
@@ -110,7 +90,11 @@ struct ArtistDetailView: View {
         StretchyHeaderList(
             title: Text(store.artist.name),
             stretchyContent: {
-                ArtistImageView(artist: store.artist)
+                ArtistImageView(artist: store.artist) {
+                    if let stage = store.performances.compactMap(\.stageID).first {
+                        StageImageView(stageID: stage)
+                    }
+                }
             },
             listContent: {
                 ForEach(store.performances) { performance in

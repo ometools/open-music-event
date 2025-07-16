@@ -91,7 +91,11 @@ struct ArtistsListView: View {
             HStack(spacing: 10) {
                 Group {
                     if artist.imageURL != nil && showArtistImages {
-                        ArtistImageView(artist: artist)
+                        ArtistImageView(artist: artist) {
+                            if let stage = performanceStages.first {
+                                StageIconView(stageID: stage.id)
+                            }
+                        }
                             .frame(square: 60)
                             .clipped()
                     } else {

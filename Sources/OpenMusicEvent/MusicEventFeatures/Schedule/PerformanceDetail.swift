@@ -164,9 +164,11 @@ extension Performance {
                 HStack {
 
                     if performingArtists.count == 1, let firstArtist = performingArtists.first {
-                        ArtistImageView(artist: firstArtist)
-                            .frame(square: 60)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        ArtistImageView(artist: firstArtist) {
+                            ProgressView()
+                        }
+                        .frame(square: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
 
                     VStack(alignment: .center, spacing: 16) {

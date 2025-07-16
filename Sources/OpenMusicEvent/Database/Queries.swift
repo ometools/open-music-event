@@ -28,14 +28,14 @@ struct Queries {
         """
         
         return try Row.fetchAll(db, sql: sql, arguments: [artistID.rawValue]).map { row in
-            let startTimeString: String = row["startTime"]
-            let endTimeString: String = row["endTime"]
-            
+            let startTimeString: String = row["startTime"] //   "2025-08-31 03:00:00.000"    
+            let endTimeString: String = row["endTime"] // "2025-08-31 04:00:00.000"
+
             return PerformanceDetailRow.ArtistPerformance(
                 id: OmeID(row["id"]),
                 stageID: OmeID(row["stageID"]),
-                startTime: ISO8601DateFormatter().date(from: startTimeString) ?? Date(),
-                endTime: ISO8601DateFormatter().date(from: endTimeString) ?? Date(),
+                startTime: row["startTime"] as Date,
+                endTime: row["endTime"] as Date,
                 title: row["title"],
                 stageColor: OMEColor(rawValue: row["stageColor"])
             )

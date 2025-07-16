@@ -53,7 +53,24 @@ struct EventIconImageView: View {
     }
 }
 
-struct ArtistImageView: View {
+struct ArtistImageView<P>: View {
+    var artist: Artist
+    var placeholder: P
+
+    init(
+        artist: Artist,
+        @ViewBuilder placeholder: () -> P
+    ) {
+        self.artist = artist
+        self.placeholder = placeholder()
+    }
+
+    var body: some View {
+        CachedAsyncImage(url: artist.imageURL)
+    }
+}
+
+struct ArtistIconView: View {
     var artist: Artist
 
     init(artist: Artist) {
@@ -92,6 +109,16 @@ extension Stage {
 }
 
 import GRDB
+
+struct StageImageView: View {
+    let stageID: Stage.ID
+
+    var body: some View {
+        StageLoader(stageID: stageID) { stage in
+            CachedAsyncImage(url: stage.iconImageURL)
+        }
+    }
+}
 struct StageIconView: View {
     public init(stageID: Stage.ID) {
         self.stageID = stageID
@@ -99,26 +126,13 @@ struct StageIconView: View {
 
     let stageID: Stage.ID
 
-    @State var stage: Stage = .placeholder
-
     @Environment(\.colorScheme) var colorScheme
     @Dependency(\.defaultDatabase) var database
 
     public var body: some View {
-        CachedAsyncImage(url: stage.iconImageURL)
-            .task {
-                let query = ValueObservation.tracking { db in
-                    try Stage.fetchOne(db, id: stageID)
-                }
-
-                await withErrorReporting {
-                    for try await stage in query.values(in: database) {
-                        if let stage {
-                            self.stage = stage
-                        }
-                    }
-                }
-            }
+        StageLoader(stageID: stageID) { stage in
+            CachedAsyncImage(url: stage.iconImageURL, contentMode: .fit)
+        }
     }
 
     struct Placeholder: View {
@@ -144,9 +158,46 @@ struct StageIconView: View {
         }
     }
 }
+
+public struct StageLoader<Content: View>: View {
+
+    var stageID: Stage.ID
+    @State var stage: Stage?
+    var content: (Stage) -> Content
+
+    init(stageID: Stage.ID, content: @escaping (Stage) -> Content) {
+        self.stageID = stageID
+        self.content = content
+    }
+
+    @Dependency(\.defaultDatabase) var database
+
+    public var body: some View {
+        Group {
+            if let stage {
+                content(stage)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            let query = ValueObservation.tracking { db in
+                try Stage.fetchOne(db, id: stageID)
+            }
+
+            await withErrorReporting {
+                for try await stage in query.values(in: database) {
+                    if let stage {
+                        self.stage = stage
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 public extension Stage {
-
-
     struct Legend: View {
         // TODO: Replace @FetchAll with GRDB query
         var stages: [Stage.ID] = []
@@ -162,3 +213,4 @@ public extension Stage {
     }
 
 }
+

@@ -64,6 +64,6 @@ struct DaySegmentStyle: FormatStyle {
             timeOfDay = "Night"
         }
 
-        return "\(value.formatted(.dateTime.weekday(.wide))) \(timeOfDay)"
+        return "\(date.formatted(.dateTime.weekday(.wide))) \(timeOfDay)"
     }
 }
