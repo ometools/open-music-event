@@ -171,6 +171,7 @@ struct StageSchedulePage: View, Identifiable {
     var body: some View {
         SchedulePageView(performances) { performance in
             ScheduleCardView(id: performance.id)
+            
         }
         .tag(id)
         .task(id: selectedSchedule) {

@@ -157,3 +157,13 @@ public extension OMEColor {
         )
     }
 }
+
+public extension Artist.Kind {
+    var symbol: some View {
+        switch self.type {
+        case "dj": Image(systemName: "person")
+        default:
+            Image(systemName: "person")
+        }
+    }
+}

@@ -58,26 +58,77 @@ struct ScheduleCardView: View {
                 .padding(.top, 2)
             }
         }
-#if os(iOS)
-        .contextMenu {
-            ForEach(performingArtists) { artist in
-                Section {
-                    Button {
+        .omeContextMenu {
 
-                    } label: {
-                        Label("Go to Artist", systemImage: "music.microphone")
-                        Text(artist.name)
-                    }
+            ForEach(performingArtists) { artist in
+                LabeledMenuButton(
+                    title: "Go to Artist",
+                    systemName: "person",
+                    label: "\(artist.name)"
+                ) {
+                    //
                 }
             }
         }
-//        } preview: {
-//            Performance.ScheduleDetailView(performance: performance, performingArtists: performingArtists)
+
+//#if os(iOS)
+//        .contextMenu {
+//
 //        }
-#endif
+////        } preview: {
+////            Performance.ScheduleDetailView(performance: performance, performingArtists: performingArtists)
+////        }
+//#endif
         .id(id)
         .tag(id)
         .task { await task() }
     }
 }
 
+
+//#if SKIP
+//extension View {
+//    func contextMenu<M: View>(@ViewBuilder _ menu: () -> M) -> some View {
+//
+//    }
+//}
+//#endif
+
+struct LabeledMenuButton: View {
+    init(
+        title: LocalizedStringKey,
+        systemName: String,
+        label: String,
+        action: @escaping () -> Void,
+
+    ) {
+        self.title = label
+        self.action = action
+        self.label = label
+    }
+
+    var action: () -> Void
+    var label: String
+    var title: String
+
+    var body: some View {
+        Button(action: action) {
+            #if os(Android)
+            HStack {
+                Image(systemName: "person")
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Go to Artist")
+                    Text(label)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal)
+            #else
+            Label("Go to Artist", systemImage: "music.microphone")
+            Text(label)
+            #endif
+        }
+        .buttonStyle(.plain)
+    }
+}
