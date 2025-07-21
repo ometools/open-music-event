@@ -12,7 +12,6 @@ let package = Package(
             type: .dynamic,
             targets: ["OpenMusicEvent"]
         ),
-
     ],
     dependencies: [
         .package(path: "Core"),
@@ -20,10 +19,9 @@ let package = Package(
         .package(url: "https://github.com/woodymelling/swift-file-tree", branch: "android-support"),
 
         .package(url: "https://source.skip.tools/skip.git", from: "1.6.5"),
-        .package(url: "https://source.skip.tools/skip-ui.git", from: "1.35.1"),
-        .package(url: "https://source.skip.tools/skip-fuse-ui.git", "0.0.0"..<"2.0.0"),
+        .package(url: "https://github.com/woodymelling/skip-ui", branch: "main"),
+        .package(url: "https://github.com/woodymelling/skip-fuse-ui", branch: "main"),
         .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0"),
-        
 
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/swift-case-paths", from: "1.0.0"),

@@ -5,7 +5,9 @@
 //  Created by Woodrow Melling on 4/18/22.
 //
 
-import  SwiftUI; import SkipFuse
+import SwiftUI
+import SkipFuse
+
 import Dependencies
 
 

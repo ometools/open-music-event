@@ -5,7 +5,8 @@
 //  Created by Woodrow Melling on 5/23/23.
 //
 
-import SwiftUI; import SkipFuse
+import SwiftUI
+import SkipFuse
 
 public struct SchedulePageView<
     Element: TimelineCard,

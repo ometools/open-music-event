@@ -6,7 +6,8 @@
 //
 
 import CoreModels
-import SwiftUI; import SkipFuse
+import SwiftUI
+import SkipFuse
 import GRDB
 import Dependencies
 import IssueReporting

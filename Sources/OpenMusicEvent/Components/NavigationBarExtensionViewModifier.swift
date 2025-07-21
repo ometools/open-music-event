@@ -5,7 +5,8 @@
 //  Created by Woodrow Melling on 1/5/25.
 //
 
-import SwiftUI; import SkipFuse
+import SwiftUI
+import SkipFuse
 
 extension View {
     func navigationBarExtension<ExtensionContent: View>(

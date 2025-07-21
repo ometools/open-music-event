@@ -5,7 +5,8 @@
 //  Created by Woodrow Melling on 2/21/25.
 //
 
-import SwiftUI; import SkipFuse
+import SwiftUI
+import SkipFuse
 
 
 struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {
