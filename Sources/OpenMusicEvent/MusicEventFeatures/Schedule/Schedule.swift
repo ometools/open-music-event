@@ -53,17 +53,20 @@ public class ScheduleFeature {
         // For future filters
         return filteringFavorites
     }
-//
-//    var showTimeIndicator: Bool {
-//        @Dependency(\.date) var date
-//
-//        if let selectedDay = event.schedule[day: selectedDay]?.metadata,
-//           selectedDay.date == CalendarDate(date()) {
-//            return true
-//        } else {
-//            return false
-//        }
-//    }
+
+    var showTimeIndicator: Bool {
+        @Dependency(\.date) var date
+
+        if let selectedDay = schedules.first(where: { $0.id == scheduleState.selectedSchedule }) {
+            if let startTime = selectedDay.startTime, let endTime = selectedDay.endTime {
+                return date() >= startTime && date() <= endTime
+            } else {
+                return false
+            }
+        } else {
+            return false
+        }
+    }
 
     @ObservationIgnored
     @Dependency(\.musicEventID) var musicEventID
@@ -139,7 +142,7 @@ public struct ScheduleView: View {
 //        }
         .task { await store.task() }
         .environment(store.scheduleState)
-//        .environment(\.dayStartsAtNoon, true)
+        .environment(\.shouldShowTimeIndicator, store.showTimeIndicator)
     }
 
 

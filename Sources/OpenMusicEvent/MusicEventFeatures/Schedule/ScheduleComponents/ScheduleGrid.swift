@@ -41,7 +41,7 @@ public struct ScheduleGrid<Content: View>: View {
 //            .onPreferenceChange(HourLabelsWidthPreferenceKey.self) { width = $0 }
             
             
-//            TimeIndicatorView()
+            TimeIndicatorView()
         }
         .ignoresSafeArea(edges: .trailing)
 

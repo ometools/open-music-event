@@ -13,9 +13,10 @@ public struct ScheduleHourLines: View {
 
     var lineColor = Color.secondary.opacity(0.5)
 
+    @Environment(\.scheduleHeight) var scheduleHeight
     public var body: some View {
         GeometryReader { proxy in
-            let hourSpacing: CGFloat = 1500 / 24
+            let hourSpacing: CGFloat = scheduleHeight / 24
 
             ForEach(0..<24) { index in
                 let lineHeight = hourSpacing * CGFloat(index)

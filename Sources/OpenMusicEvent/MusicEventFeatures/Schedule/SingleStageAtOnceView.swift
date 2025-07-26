@@ -69,8 +69,7 @@ public struct ScheduleSingleStageAtOnceView: View {
     @Bindable var store: ViewModel
     //        @Namespace var namespace
     @Environment(\.dayStartsAtNoon) var dayStartsAtNoon
-
-
+    @Environment(\.scheduleHeight) var scheduleHeight
 
     public var body: some View {
         GeometryReader { geo in
@@ -82,7 +81,7 @@ public struct ScheduleSingleStageAtOnceView: View {
                             .tag(stage.id)
                     }
                 }
-                .frame(height: 1500)
+                .frame(height: scheduleHeight)
     #if os(iOS)
                 .scrollClipDisabled()
                 .scrollTargetLayout()

@@ -32,7 +32,7 @@ struct OrganizationFormView: View {
             }
         }
 
-        var githubURL = "https://github.com/wicked-woods/wicked-woods-ome"
+        var githubURL = "https://github.com/woodymelling/shambhala-ome"
         var githubConfigType: GithubConfigType = .branch
         var branchText = "main"
         var versionText = ""

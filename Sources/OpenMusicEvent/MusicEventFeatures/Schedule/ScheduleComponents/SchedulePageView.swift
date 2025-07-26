@@ -8,13 +8,25 @@
 import SwiftUI
 import SkipFuse
 
+enum ScheduleHeightEnvironmentKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1500
+}
+
+extension EnvironmentValues {
+    var scheduleHeight: CGFloat {
+        get { self[ScheduleHeightEnvironmentKey.self] }
+        set { self[ScheduleHeightEnvironmentKey.self] = newValue }
+    }
+}
+
 public struct SchedulePageView<
     Element: TimelineCard,
     CardContent: View
 >: View {
     
     @Environment(\.dayStartsAtNoon) var dayStartsAtNoon
-    
+    @Environment(\.scheduleHeight) var scheduleHeight
+
     var cards: [Element]
     var cardContent: (Element) -> CardContent
     var groups: [Int]
@@ -42,13 +54,13 @@ public struct SchedulePageView<
         }
         self.groupMapping = groupMapping
     }
-    
+
     public var body: some View {
         ScheduleGrid {
 
             GeometryReader { geo in
                 ForEach(cards) { scheduleItem in
-                    let frame = frame(for: scheduleItem, in: .init(width: geo.size.width, height: 1500))
+                    let frame = frame(for: scheduleItem, in: .init(width: geo.size.width, height: scheduleHeight))
                     cardContent(scheduleItem)
                         .id(scheduleItem.id)
                         .zIndex(0)

@@ -261,6 +261,9 @@
     "Go to Artist" : {
 
     },
+    "Happening Now" : {
+
+    },
     "Hello [%@](https://skip.tools)!" : {
       "comment" : "Welcome tab contents",
       "extractionState" : "stale",
@@ -578,9 +581,6 @@
           }
         }
       }
-    },
-    "TIMEINDICATOR" : {
-
     },
     "Title" : {
       "comment" : "Label for the item editor form indicating the title of the item",
