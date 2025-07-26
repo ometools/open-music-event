@@ -110,6 +110,16 @@ public struct OrganizerDetailView: View {
         }
     }
 
+    var currentEvents: [MusicEvent] {
+        store.events.filter { event in
+            if let startTime = event.startTime, let endTime = event.endTime {
+                startTime < date() && endTime > date()
+            } else {
+                true
+            }
+        }
+    }
+
     public var body: some View {
         Group {
             ZStack {
@@ -120,6 +130,18 @@ public struct OrganizerDetailView: View {
                             OrganizerImageView(organizer: organizer)
                         },
                         listContent: {
+                            if !currentEvents.isEmpty {
+                                Section("Happening Now") {
+                                    ForEach(currentEvents) { event in
+                                        NavigationLinkButton {
+                                            store.didTapEvent(id: event.id)
+                                        } label: {
+                                            EventRowView(event: event)
+                                        }
+                                    }
+                                }
+                            }
+
                             if !upcomingEvents.isEmpty {
                                 Section("Upcoming Events") {
                                     ForEach(upcomingEvents) { event in

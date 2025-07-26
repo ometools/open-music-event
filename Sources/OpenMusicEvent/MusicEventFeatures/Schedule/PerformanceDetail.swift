@@ -117,108 +117,106 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
     // }
 }
 
+public struct PerformanceScheduleDetailView: View {
 
-extension Performance {
-    public struct ScheduleDetailView: View {
+    init(performance: PerformanceDetail, performingArtists: [Artist]) {
+        self.performance = performance
+        self.performingArtists = performingArtists
+    }
 
-        init(performance: PerformanceDetail, performingArtists: [Artist]) {
-            // self._performance = FetchOne(wrappedValue: performance)
-            // self._performingArtists = FetchAll(wrappedValue: performingArtists)
-        }
+    init(id: Performance.ID) {
+        // TODO: Replace with GRDB queries
+        // self._performance = FetchOne(wrappedValue: .empty, PerformanceDetail.find(id))
+        // self._performingArtists = FetchAll(
+        //     Performance.find(id)
+        //         .join(Performance.Artists.all) { $0.id == $1.performanceID }
+        //         .join(Artist.all) { $1.artistID.eq($2.id) }
+        //         .select { $2 }
+        // )
+    }
 
-        init(id: Performance.ID) {
-            // TODO: Replace with GRDB queries
-            // self._performance = FetchOne(wrappedValue: .empty, PerformanceDetail.find(id))
-            // self._performingArtists = FetchAll(
-            //     Performance.find(id)
-            //         .join(Performance.Artists.all) { $0.id == $1.performanceID }
-            //         .join(Artist.all) { $1.artistID.eq($2.id) }
-            //         .select { $2 }
-            // )
-        }
-
-        // TODO: Replace @FetchOne with GRDB query
-        var performance: PerformanceDetail = .empty
+    // TODO: Replace @FetchOne with GRDB query
+    var performance: PerformanceDetail = .empty
 
 
-        // TODO: Replace @FetchAll with GRDB query
-        var performingArtists: [Artist] = []
+    // TODO: Replace @FetchAll with GRDB query
+    var performingArtists: [Artist] = []
 
-        var timeIntervalLabel: String {
-            (performance.startTime..<performance.endTime)
-                .formatted(.performanceTime)
-        }
+    var timeIntervalLabel: String {
+        (performance.startTime..<performance.endTime)
+            .formatted(.performanceTime)
+    }
 
-        public var body: some View {
-            VStack {
-                Text(performance.title)
-                    .scaledToFill()
-                #if os(iOS)
-                    .minimumScaleFactor(0.5)
-                #endif
-                    .frame(maxWidth: .infinity)
-                    .lineLimit(nil)
-                    .multilineTextAlignment(.center)
-                    .font(.largeTitle.weight(.bold))
+    public var body: some View {
+        VStack {
+            Text(performance.title)
+                .scaledToFill()
+#if os(iOS)
+                .minimumScaleFactor(0.5)
+#endif
+                .frame(maxWidth: .infinity)
+                .lineLimit(nil)
+                .multilineTextAlignment(.center)
+                .font(.largeTitle.weight(.bold))
 
-                HStack {
+            HStack {
 
-                    if performingArtists.count == 1, let firstArtist = performingArtists.first {
-                        ArtistImageView(artist: firstArtist) {
-                            ProgressView()
-                        }
-                        .frame(square: 60)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                if performingArtists.count == 1, let firstArtist = performingArtists.first {
+                    ArtistImageView(artist: firstArtist) {
+                        ProgressView()
                     }
-
-                    VStack(alignment: .center, spacing: 16) {
-
-                        VStack {
-                            Text(performance.startTime.formatted(.daySegment))
-    //                            .font(.thin)
-                                .fontWeight(.thin)
-
-                            Label {
-                                Text(timeIntervalLabel)
-                                    .textCase(.lowercase)
-                                    .fontWeight(.bold)
-                            } icon: {
-                                Image(systemName: "clock")
-                            }
-
-                            Text(performance.stageName)
-                                .fontWeight(.thin)
-                        }
-
-    //                        .offset(x: 30)
-
-//                            .font(.title)
-//                            .font(.)
-//                            .fontWeight(.thin)
-                    }
-
-    //                Spacer(minLength: 24)
-
-
-                    StageIconView(stageID: performance.stageID)
-                        .frame(square: 60)
-                        .background {
-                            Circle()
-                                .fill(performance.stageColor.swiftUIColor)
-                                .shadow()
-                        }
+                    .frame(square: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
+
+                VStack(alignment: .center, spacing: 16) {
+
+                    VStack {
+                        Text(performance.startTime.formatted(.daySegment))
+                        //                            .font(.thin)
+                            .fontWeight(.thin)
+
+                        Label {
+                            Text(timeIntervalLabel)
+                                .textCase(.lowercase)
+                                .fontWeight(.bold)
+                        } icon: {
+                            Image(systemName: "clock")
+                        }
+
+                        Text(performance.stageName)
+                            .fontWeight(.thin)
+                    }
+
+                    //                        .offset(x: 30)
+
+                    //                            .font(.title)
+                    //                            .font(.)
+                    //                            .fontWeight(.thin)
+                }
+
+                //                Spacer(minLength: 24)
+
+
+                StageIconView(stageID: performance.stageID)
+                    .frame(square: 60)
+                    .background {
+                        Circle()
+                            .fill(performance.stageColor.swiftUIColor)
+                            .shadow()
+                    }
             }
-            .padding()
-            .background(
-                AnimatedMeshView()
-//                .overlay(Material.thinMaterial)
-                .opacity(0.25)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
+        .padding()
+        .background(
+            AnimatedMeshView()
+            //                .overlay(Material.thinMaterial)
+                .opacity(0.25)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
+
 //
 //#Preview("Context Menu") {
 //    try! prepareDependencies {

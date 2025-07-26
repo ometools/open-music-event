@@ -45,9 +45,6 @@ public enum OME {
             self.url = url
         }
 
-        @ObservationIgnored
-        // TODO: Replace @Shared(.eventID) with proper state management
-        // @Shared(.eventID) var eventID
         var eventID: MusicEvent.ID? = nil
 
         var url: Organizer.ID

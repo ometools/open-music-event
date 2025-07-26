@@ -149,10 +149,36 @@ public class MusicEventFeatures: Identifiable {
     var shouldShowArtistImages: Bool = true
 
     func onAppear() async {
-        // Event is already loaded in MusicEventViewer.Model.onAppear()
-        // No additional loading needed here
+        NotificationCenter.default.addObserver(
+            forName: .userSelectedToViewArtist,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let artistID = notification.userInfo?["eventID"] as? Artist.ID else {
+                reportIssue("Posted notification: selectedEventID did not contain eventID")
+                return
+            }
+            MainActor.assumeIsolated {
+                self.handleSelectedArtistIDNotification(artistID)
+            }
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    private func handleSelectedArtistIDNotification(_ artistID: Artist.ID) {
+        self.selectedFeature = .artists
     }
 }
+
+
+// Step 1: Create a unique notification name
+extension Notification.Name {
+    static let userSelectedToViewArtist = Notification.Name("requestedToViewArtist")
+}
+
 
 public struct MusicEventFeaturesView: View {
     public init(store: MusicEventFeatures) {

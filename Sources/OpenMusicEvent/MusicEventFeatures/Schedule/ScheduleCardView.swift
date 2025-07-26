@@ -49,8 +49,10 @@ struct ScheduleCardView: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading) {
                         Text(performance.title)
+                            .font(.headline)
+
                         Text(performance.startTime..<performance.endTime, format: .performanceTime)
-                            .font(.caption)
+                            .font(.subheadline)
                     }
 
                     Spacer()
@@ -59,26 +61,16 @@ struct ScheduleCardView: View {
             }
         }
         .omeContextMenu {
-
             ForEach(performingArtists) { artist in
                 LabeledMenuButton(
                     title: "Go to Artist",
-                    systemName: "person",
-                    label: "\(artist.name)"
+                    label: "\(artist.name)",
+                    systemImage: "person"
                 ) {
                     //
                 }
             }
         }
-
-//#if os(iOS)
-//        .contextMenu {
-//
-//        }
-////        } preview: {
-////            Performance.ScheduleDetailView(performance: performance, performingArtists: performingArtists)
-////        }
-//#endif
         .id(id)
         .tag(id)
         .task { await task() }
@@ -94,41 +86,3 @@ struct ScheduleCardView: View {
 //}
 //#endif
 
-struct LabeledMenuButton: View {
-    init(
-        title: LocalizedStringKey,
-        systemName: String,
-        label: String,
-        action: @escaping () -> Void,
-
-    ) {
-        self.title = label
-        self.action = action
-        self.label = label
-    }
-
-    var action: () -> Void
-    var label: String
-    var title: String
-
-    var body: some View {
-        Button(action: action) {
-            #if os(Android)
-            HStack {
-                Image(systemName: "person")
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Go to Artist")
-                    Text(label)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal)
-            #else
-            Label("Go to Artist", systemImage: "music.microphone")
-            Text(label)
-            #endif
-        }
-        .buttonStyle(.plain)
-    }
-}

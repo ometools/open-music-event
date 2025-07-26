@@ -54,6 +54,9 @@ internal struct AndroidContextMenu<Content: View, MenuContent: View>: View {
 
     var body: some View {
         Menu {
+            self
+                .frame(height: 60)
+
             menuContent
         } label: {
             content
@@ -108,12 +111,50 @@ extension View {
         OMEContextMenu(
             content: { self },
             menuContent: {
-                self
-                    .frame(height: 60)
-                    .scaleEffect(1.5)
 
                 menuContent()
             }
         )
+    }
+}
+
+struct LabeledMenuButton: View {
+    init(
+        title: String,
+        label: String,
+        systemImage: String,
+        action: @escaping () -> Void,
+
+    ) {
+        self.title = title
+        self.action = action
+        self.label = label
+        self.systemImage = systemImage
+    }
+
+    var action: () -> Void
+    var label: String
+    var title: String
+    var systemImage: String
+
+    var body: some View {
+        Button(action: action) {
+            #if os(Android)
+            HStack {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                    Text(label)
+                        .foregroundStyle(.secondary)
+                }
+
+                Image(systemName: systemImage)
+            }
+            .padding(.horizontal)
+            #else
+            Label(title, systemImage: systemImage)
+            Text(label)
+            #endif
+        }
+        .buttonStyle(.plain)
     }
 }
