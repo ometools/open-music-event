@@ -63,8 +63,6 @@ class ArtistDetail {
 }
 
 
-
-
 struct ArtistDetailView: View {
     let store: ArtistDetail
 

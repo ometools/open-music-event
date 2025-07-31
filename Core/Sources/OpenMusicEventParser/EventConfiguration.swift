@@ -89,7 +89,6 @@ extension CoreModels.Schedule {
             )
         }
 
-
         public struct Performance: Equatable, Sendable {
             public var title: String
             public var subtitle: String?
