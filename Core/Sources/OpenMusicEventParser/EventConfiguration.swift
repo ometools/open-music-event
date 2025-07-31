@@ -28,19 +28,22 @@ public struct EventConfiguration: Equatable, Sendable {
     public var stages: [CoreModels.Stage.Draft]
     public var schedule: [Schedule.StringlyTyped]
     public var stageLineups: StageLineups?
+    public var channels: CommunicationsConfiguration
 
     public init(
         info: CoreModels.MusicEvent.Draft,
         artists: [CoreModels.Artist.Draft],
         stages: [CoreModels.Stage.Draft],
         schedule: [Schedule.StringlyTyped],
-        stageLineups: StageLineups?
+        stageLineups: StageLineups?,
+        communications: CommunicationsConfiguration
     ) {
         self.info = info
         self.artists = artists
         self.stages = stages
         self.schedule = schedule
         self.stageLineups = stageLineups
+        self.channels = communications
     }
 }
 
@@ -52,6 +55,20 @@ extension EventConfiguration {
     }
 }
 
+public typealias CommunicationsConfiguration = [EventConfiguration.ChannelConfiguration]
+
+extension EventConfiguration {
+
+    public struct ChannelConfiguration: Equatable, Sendable {
+        public init(info: CoreModels.CommunicationChannel.Draft, posts: [CoreModels.CommunicationChannel.Post.Draft]) {
+            self.info = info
+            self.posts = posts
+        }
+        
+        public var info: CoreModels.CommunicationChannel.Draft
+        public var posts: [CoreModels.CommunicationChannel.Post.Draft]
+    }
+}
 
 struct UnresolvableDateError: Error {
     let message: String

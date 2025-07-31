@@ -87,7 +87,7 @@ struct MusicEventViewer: View {
 
 
 enum MusicEventIDDependencyKey: DependencyKey {
-    static let liveValue: MusicEvent.ID = .init(-1)
+    static let liveValue: MusicEvent.ID = .init("-1")
 }
 
 extension DependencyValues {
@@ -103,7 +103,7 @@ extension DependencyValues {
 @Observable
 public class MusicEventFeatures: Identifiable {
     public enum Feature: String, Hashable, Codable, Sendable {
-        case schedule, artists, contactInfo, siteMap, location, explore, workshops, notifications, more
+        case schedule, artists, contactInfo, communications, siteMap, location, explore, workshops, notifications, about, more
     }
 
     public init(
@@ -114,9 +114,9 @@ public class MusicEventFeatures: Identifiable {
     ) {
         @Dependency(\.musicEventID) var musicEventID
 
-
         self.artists = ArtistsList()
-        self.more = MoreTabFeature()
+        self.communications = CommunicationsFeatureView.Store()
+        self.notifications = NotificationPreferencesView.Store()
 
         self.shouldShowArtistImages = true
 
@@ -132,6 +132,7 @@ public class MusicEventFeatures: Identifiable {
             self.location = LocationFeature(location: location)
         }
 
+
         self.event = event
     }
 
@@ -144,9 +145,12 @@ public class MusicEventFeatures: Identifiable {
     public var artists: ArtistsList
     public var location: LocationFeature?
     public var contactInfo: ContactInfoFeature?
-    var more: MoreTabFeature
+    public var communications: CommunicationsFeatureView.Store?
+    public var notifications: NotificationPreferencesView.Store?
 
     var shouldShowArtistImages: Bool = true
+    var isLoadingOrganizer: Bool = false
+    var errorMessage: String?
 
     func onAppear() async {
         NotificationCenter.default.addObserver(
@@ -162,6 +166,27 @@ public class MusicEventFeatures: Identifiable {
                 self.handleSelectedArtistIDNotification(artistID)
             }
         }
+    }
+
+    func didTapReloadOrganizer() async {
+        guard let currentOrganizerID = event.organizerURL
+        else { return }
+        self.errorMessage = nil
+
+        self.isLoadingOrganizer = true
+
+        do {
+            try await downloadAndStoreOrganizer(from: .url(currentOrganizerID))
+            self.isLoadingOrganizer = false
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.isLoadingOrganizer = true
+
+        }
+    }
+
+    func didTapExitEvent() {
+        NotificationCenter.default.post(name: .userRequestedToExitEvent, object: nil)
     }
 
     deinit {
@@ -193,38 +218,46 @@ public struct MusicEventFeaturesView: View {
                 NavigationStack {
                     ScheduleView(store: schedule)
                 }
-                .tabItem { Label("Schedule", systemImage: "calendar") }
+                .tabItem {
+                    Label("Schedule", systemImage: "calendar")
+                }
                 .tag(MusicEventFeatures.Feature.schedule)
             }
 
             NavigationStack {
                 ArtistsListView(store: store.artists)
             }
-            .tabItem { Label("Artists", systemImage: "person.3") }
+            .tabItem {
+                Label("Artists", systemImage: "person.3")
+            }
             .tag(MusicEventFeatures.Feature.artists)
 
-            if let contactInfo = store.contactInfo {
+            if let communications = store.communications {
                 NavigationStack {
-                    ContactInfoView(store: contactInfo)
+                    CommunicationsFeatureView(store: communications)
                 }
-                .tabItem { Label("Contact Info", systemImage: "phone") }
-                .tag(MusicEventFeatures.Feature.contactInfo)
+                .tabItem {
+                    Label("Communication", systemImage: "megaphone")
+                }
+                .tag(MusicEventFeatures.Feature.communications)
             }
 
             if let location = store.location {
                 NavigationStack {
                     LocationView(store: location)
                 }
-                #if os(iOS)
-                .tabItem { Label("Location", systemImage: "mappin") }
-                #elseif os(Android)
-                .tabItem { Label("Location", systemImage: "mappin.circle")}
-                #endif
+                .tabItem {
+                    #if os(iOS)
+                    Label("Location", systemImage: "mappin")
+                    #elseif os(Android)
+                    Label("Location", systemImage: "mappin.circle")
+                    #endif
+                }
                 .tag(MusicEventFeatures.Feature.location)
             }
 
             NavigationStack {
-                MoreView(store: store.more)
+                MoreView(store: store)
             }
             .tabItem { Label("More", systemImage: "ellipsis") }
             .tag(MusicEventFeatures.Feature.more)
@@ -256,3 +289,160 @@ public struct MusicEventFeaturesView: View {
         .environment(\.showArtistImages, store.shouldShowArtistImages)
     }
 }
+
+struct MoreView: View {
+    let store: MusicEventFeatures
+
+    var body: some View {
+        List {
+            if let notifications = store.notifications {
+                Feature(.notifications) {
+                    NotificationPreferencesView(store: notifications)
+                } label: {
+                    Label("Notifications", systemImage: "bell")
+                }
+            }
+            
+            if let contactInfo = store.contactInfo {
+                Feature(.contactInfo) {
+                    ContactInfoView(store: contactInfo)
+                } label: {
+                    Label("Contact Info", systemImage: "phone")
+                }
+            }
+
+            Feature(.about) {
+                AboutAppView(store: store)
+            } label: {
+                Label("About", systemImage: "info.circle")
+            }
+
+        }
+        .navigationTitle("More")
+        .environment(\.featureLocation, .more)
+    }
+}
+
+
+enum FeatureLocation {
+    case tabBar
+    case more
+}
+
+enum FeatureLocationEnvironmentKey: EnvironmentKey {
+    static let defaultValue: FeatureLocation = .tabBar
+}
+
+extension EnvironmentValues {
+    var featureLocation: FeatureLocation {
+        get {
+            self[FeatureLocationEnvironmentKey.self]
+        } set {
+            self[FeatureLocationEnvironmentKey.self] = newValue
+        }
+    }
+}
+
+struct Feature<FeatureView: View, FeatureLabelView: View>: View {
+
+    @Environment(\.featureLocation) var location: FeatureLocation
+
+    var tag: MusicEventFeatures.Feature
+
+    var label: FeatureLabelView
+    var feature: FeatureView
+
+    init(_ tag: MusicEventFeatures.Feature, @ViewBuilder feature: () -> FeatureView, @ViewBuilder label: () -> FeatureLabelView) {
+        self.tag = tag
+        self.label = label()
+        self.feature = feature()
+    }
+
+    var body: some View {
+        switch location {
+        case .tabBar:
+            NavigationStack {
+                feature
+            }
+            .tabItem { label }
+            .tag(tag)
+        case .more:
+            NavigationLink {
+                feature
+            } label: {
+                label
+            }
+        }
+    }
+}
+
+
+
+struct AboutAppView: View {
+    let store: MusicEventFeatures
+    var body: some View {
+        List {
+            Section(store.event.name) {
+                Button {
+                    Task {
+                        await store.didTapReloadOrganizer()
+                    }
+                } label: {
+                    VStack(alignment: .leading) {
+                        HStack {
+                            Label("Update to the newest schedule", systemImage: "arrow.clockwise")
+                            Spacer()
+                            if store.isLoadingOrganizer {
+                                ProgressView()
+                            }
+                        }
+
+                        if let errorMessage = store.errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.circle.fill")
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+
+                Button("Exit and see previous events", systemImage: "door.left.hand.open") {
+                    store.didTapExitEvent()
+                }
+            }
+
+            Section("Open Music Event") {
+                Text("""
+                OME (Open Music Event) is designed to help festival attendees effortlessly get access to information that they need during an event. The main goal of this project is to give concert and festival goers a simple, intuitive way to get information about events they are attending.
+                
+                The secondary goal is providing a free and open source way for event organizers to create, maintain and update information about their event.
+                
+                If you have any suggestions or discover any issues, please start a discussion and they will be addressed as soon as possible.
+                """)
+
+                Link(destination: URL(string: "https://github.com/woodymelling/open-music-event")!) {
+                    Label("GitHub", systemImage: "link")
+                }
+
+                Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/issues/new")!) {
+                    Label("Report an Issue", systemImage: "exclamationmark.bubble")
+                }
+
+                Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/issues/new")!) {
+                    Label("Suggest a feature", systemImage: "plus.bubble")
+                }
+            }
+        }
+        .navigationTitle("About")
+    }
+}
+
+//
+//#Preview("About App") {
+//
+//    prepareDependencies {
+//        $0.defaultDatabase = try! appDatabase()
+//    }
+//
+//    return NavigationStack {
+//        AboutAppView(store: .init())
+//    }
+//}

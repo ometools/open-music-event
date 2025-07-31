@@ -129,9 +129,12 @@ extension String {
     }
 }
 
-extension OmeID where RawValue == Int {
+extension OmeID where RawValue == String {
     public init(stabilizedBy values: String...) {
-        self.init(rawValue: values.joined(separator: "-").stableHash)
+        self.init(rawValue: values
+            .map {
+                $0.replacingOccurrences(of: " ", with: "-")
+            }.joined(separator: "/"))
     }
 }
 
@@ -231,8 +234,8 @@ extension OrganizerConfiguration {
             for event in self.events {
                 var eventInfo = event.info
                 eventInfo.organizerURL = url
-                eventInfo.id = OmeID(stabilizedBy: String(eventInfo.name))
-                
+                eventInfo.id = OmeID(stabilizedBy: url.absoluteString, eventInfo.name)
+
                 let eventID = try eventInfo.saved(db).id!
                 var artistNameIDMapping: [String: Artist.ID] = [:]
 
@@ -251,12 +254,27 @@ extension OrganizerConfiguration {
                     artistNameIDMapping[artist.name] = artistID
                 }
 
+                for channel in event.channels {
+                    var channel = channel
+                    channel.info.id = OmeID(stabilizedBy: eventID.rawValue, channel.info.name)
+                    channel.info.musicEventID = eventInfo.id
+                    channel.info.defaultNotificationState = channel.info.defaultNotificationState ?? .unsubscribed
+                    let channelID = try channel.info.saved(db).id!
+
+                    for post in channel.posts {
+                        var post = post
+                        post.id = OmeID(stabilizedBy: channel.info.id!.rawValue, post.title)
+                        post.channelID = channelID
+                        try post.save(db)
+                    }
+                }
+
                 func getOrCreateArtist(withName artistName: Artist.Name) throws -> Artist.ID {
                     if let artistID = artistNameIDMapping[artistName] {
                         return artistID
                     } else {
                         let draft = Artist.Draft(
-                            id: OmeID(stabilizedBy: String(eventID.rawValue).lowercased(), artistName),
+                            id: OmeID(stabilizedBy: eventID.rawValue.lowercased(), artistName),
                             musicEventID: eventID,
                             name: artistName,
                             links: []
@@ -273,7 +291,7 @@ extension OrganizerConfiguration {
                     let lineup = event.stageLineups?[stage.name]
                     let artistIDs = try lineup?.artists.compactMap { try getOrCreateArtist(withName: $0) }
                     let stage = Stage.Draft(
-                        id: Stage.ID(rawValue: (String(eventID.rawValue) + stage.name).stableHash),
+                        id: Stage.ID(stabilizedBy: eventID.rawValue, stage.name),
                         musicEventID: eventID,
                         name: stage.name,
                         sortIndex: index,
@@ -335,7 +353,9 @@ extension OrganizerConfiguration {
                         }
                     }
                 }
+
             }
+
         }
     }
 }

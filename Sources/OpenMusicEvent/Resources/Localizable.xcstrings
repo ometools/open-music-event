@@ -144,6 +144,18 @@
         }
       }
     },
+    "Channels" : {
+
+    },
+    "Channels marked with ⚠️ send critical notifications that cannot be disabled." : {
+
+    },
+    "Communication" : {
+
+    },
+    "Communication Channels" : {
+
+    },
     "Contact Info" : {
 
     },
@@ -211,6 +223,15 @@
       }
     },
     "Directions" : {
+
+    },
+    "Don't Notify Me For New Posts" : {
+
+    },
+    "Enable" : {
+
+    },
+    "Enable push notifications above to configure channel preferences." : {
 
     },
     "Exit and see previous events" : {
@@ -396,6 +417,9 @@
         }
       }
     },
+    "No communication channels available for this event." : {
+
+    },
     "Notes" : {
       "comment" : "Item editor form label for the Notes field",
       "extractionState" : "stale",
@@ -426,6 +450,15 @@
         }
       }
     },
+    "Notifications" : {
+
+    },
+    "Notifications are currently disabled." : {
+
+    },
+    "Notify Me For New Posts" : {
+
+    },
     "offset: %lf" : {
 
     },
@@ -436,6 +469,9 @@
 
     },
     "OpenMusicEventRootView: context is %@" : {
+
+    },
+    "Options" : {
 
     },
     "Organization URL" : {
@@ -475,6 +511,9 @@
       }
     },
     "Previous Events" : {
+
+    },
+    "Recent Posts" : {
 
     },
     "Report an Issue" : {
@@ -549,6 +588,9 @@
         }
       }
     },
+    "Subscribed" : {
+
+    },
     "Suggest a feature" : {
 
     },
@@ -611,6 +653,9 @@
           }
         }
       }
+    },
+    "Unsubscribed" : {
+
     },
     "Upcoming Events" : {
 

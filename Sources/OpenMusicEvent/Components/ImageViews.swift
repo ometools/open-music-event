@@ -98,7 +98,7 @@ import  SwiftUI; import SkipFuse
 extension Stage {
     static var placeholder: Stage {
         Stage.init(
-            id: -1,
+            id: "",
             musicEventID: nil,
             sortIndex: 0,
             name: "",

@@ -30,6 +30,30 @@ func appDatabase() throws -> any DatabaseWriter {
             logger.debug("\($0.expandedDescription)")
         }
         #endif
+
+        db.add(
+          function: DatabaseFunction(
+            "handleChannelSubscriptionChanged",
+            argumentCount: 3
+          ) { dbValues in
+            // Arguments: channelID, oldState, newState
+            guard let channelID = String.fromDatabaseValue(dbValues[0]),
+                  let oldState = String.fromDatabaseValue(dbValues[1]),
+                  let newState = String.fromDatabaseValue(dbValues[2]) else {
+                return nil
+            }
+            
+            // Log the subscription change
+            logger.info("handleChannelSubscriptionChanged fired: \(channelID) notification state changed from \(oldState) to \(newState)")
+            
+            // Here you could trigger additional actions like:
+            // - Send analytics events
+            // - Schedule/cancel notifications
+            // - Update notification permission manager
+            
+            return nil
+          }
+        )
     }
 
     @Dependency(\.context) var context
@@ -68,7 +92,7 @@ func appDatabase() throws -> any DatabaseWriter {
 
         try sql("""
         CREATE TABLE musicEvents(
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+            "id" TEXT PRIMARY KEY NOT NULL,
             "organizerURL" TEXT,
             "name" TEXT NOT NULL,
             "startTime" TEXT,
@@ -86,8 +110,8 @@ func appDatabase() throws -> any DatabaseWriter {
 
         try sql("""
         CREATE TABLE artists(
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "musicEventID" INTEGER,
+            "id" TEXT PRIMARY KEY NOT NULL,
+            "musicEventID" TEXT,
             "name" TEXT NOT NULL,
             "bio" TEXT,
             "imageURL" TEXT,
@@ -101,8 +125,8 @@ func appDatabase() throws -> any DatabaseWriter {
 
         try sql("""
         CREATE TABLE stages(
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "musicEventID" INTEGER,
+            "id" TEXT PRIMARY KEY NOT NULL,
+            "musicEventID" TEXT,
             "sortIndex" TEXT NOT NULL,
             "name" TEXT NOT NULL,
             "iconImageURL" TEXT,
@@ -118,8 +142,8 @@ func appDatabase() throws -> any DatabaseWriter {
 
         try sql("""
         CREATE TABLE schedules(
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "musicEventID" INTEGER,
+            "id" TEXT PRIMARY KEY NOT NULL,
+            "musicEventID" TEXT,
             "startTime" TEXT,
             "endTime" TEXT,
             "customTitle" TEXT,
@@ -130,9 +154,9 @@ func appDatabase() throws -> any DatabaseWriter {
 
         try sql("""
         CREATE TABLE performances(
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "stageID" INTEGER NOT NULL,
-            "scheduleID" INTEGER,
+            "id" TEXT PRIMARY KEY NOT NULL,
+            "stageID" TEXT NOT NULL,
+            "scheduleID" TEXT,
             "title" TEXT NOT NULL,
             "description" TEXT,
             "startTime" TEXT NOT NULL,
@@ -146,22 +170,62 @@ func appDatabase() throws -> any DatabaseWriter {
         try sql("""
         CREATE TABLE performanceArtists (
             "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-            "performanceID" INTEGER NOT NULL,
-            "artistID" INTEGER REFERENCES artists(id) ON DELETE CASCADE,
+            "performanceID" TEXT NOT NULL,
+            "artistID" TEXT REFERENCES artists(id) ON DELETE CASCADE,
             "anonymousArtistName" TEXT,
 
             FOREIGN KEY("performanceID") REFERENCES "performances"("id") ON DELETE CASCADE
             FOREIGN KEY("artistID") REFERENCES "artists"("id") ON DELETE CASCADE
         ) STRICT;
         """).execute(db)
+
+        try sql("""
+        CREATE TABLE channels (
+            "id" TEXT PRIMARY KEY NOT NULL,
+            "musicEventID" TEXT,
+            "name" TEXT NOT NULL,
+            "description" TEXT NOT NULL,
+            "iconImageURL" TEXT,
+            "headerImageURL" TEXT,
+            "sortIndex" INTEGER,
+            "defaultNotificationState" TEXT NOT NULL,
+            "userNotificationState" TEXT NOT NULL,
+
+            FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
+        ) STRICT;
+        """).execute(db)
+
+        try sql("""
+        CREATE TABLE posts (
+            "id" TEXT PRIMARY KEY NOT NULL,
+            "channelID" TEXT NOT NULL,
+            "title" TEXT NOT NULL,
+            "contents" TEXT NOT NULL,
+            "headerImageURL" TEXT,
+            "timestamp" TEXT NOT NULL,
+            "isPinned" INTEGER NOT NULL DEFAULT 0,
+
+            FOREIGN KEY("channelID") REFERENCES "channels"("id") ON DELETE CASCADE
+        ) STRICT;
+        """).execute(db)
+        
+        try sql("""
+        CREATE TRIGGER on_channel_subscription_changed
+        AFTER UPDATE OF userNotificationState ON channels
+        FOR EACH ROW
+        WHEN OLD.userNotificationState != NEW.userNotificationState
+        BEGIN
+            SELECT handleChannelSubscriptionChanged(NEW.id, OLD.userNotificationState, NEW.userNotificationState);
+        END;
+        """).execute(db)
     }
 
     #if DEBUG
-    if context == .preview {
+//    if context == .preview {
         migrator.registerMigration("Seed sample data") { db in
             try db.seedSampleData()
         }
-    }
+//    }
     #endif
 
     try migrator.migrate(database)
@@ -173,18 +237,33 @@ func appDatabase() throws -> any DatabaseWriter {
 #if DEBUG
 extension Database {
     func seedSampleData() throws {
-//        try seed {
-//            Organizer.wickedWoods
-//            Organizer.shambhala
-//
-////            for artist in Artist.previewValues {
-////                artist
-////            }
-////
-////            for stage in Stage.previewValues {
-////                stage
-////            }
-//        }
+        // Insert organizers
+        try Organizer.Draft(Organizer.omeTools).upsert(self)
+        try Organizer.Draft(Organizer.wickedWoods).upsert(self)
+        try Organizer.Draft(Organizer.shambhala).upsert(self)
+
+        // Insert music event
+        try MusicEvent.Draft(MusicEvent.testival).upsert(self)
+
+        // Insert artists
+        for artist in Artist.previewValues {
+            try Artist.Draft(artist).upsert(self)
+        }
+        
+        // Insert stages
+        for stage in Stage.previewValues {
+            try Stage.Draft(stage).upsert(self)
+        }
+        
+        // Insert channels
+        for channel in CommunicationChannel.previewData {
+            try channel.upsert(self)
+        }
+        
+        // Insert posts
+        for post in CommunicationChannel.Post.previewData {
+            try post.upsert(self)
+        }
     }
 }
 #endif

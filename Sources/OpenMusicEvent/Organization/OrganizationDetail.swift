@@ -105,7 +105,7 @@ public struct OrganizerDetailView: View {
             if let startTime = event.startTime {
                 startTime > date()
             } else {
-                true
+                false
             }
         }
     }
@@ -115,10 +115,11 @@ public struct OrganizerDetailView: View {
             if let startTime = event.startTime, let endTime = event.endTime {
                 startTime < date() && endTime > date()
             } else {
-                true
+                false
             }
         }
     }
+
 
     public var body: some View {
         Group {

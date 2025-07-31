@@ -28,13 +28,12 @@ struct OrganizerListView: View {
             case addOrganization(OrganizationFormView.Model)
         }
 
-
         var destination: Destination?
 
-
+        @ObservationIgnored
+        @Dependency(\.defaultDatabase) var defaultDatabase
 
         func onAppear() async {
-            @Dependency(\.defaultDatabase) var defaultDatabase
 
             let values = ValueObservation.tracking { db in
                 try Organizer.fetchAll(db)
@@ -60,10 +59,8 @@ struct OrganizerListView: View {
         }
 
         func didDeleteOrganization(_ indices: IndexSet) {
-            @Dependency(\.defaultDatabase) var database
-
             _ = withErrorReporting {
-              try database.write { db in
+              try defaultDatabase.write { db in
                   try Organizer.deleteAll(db, ids: indices.map { organizers[$0].id })
               }
             }

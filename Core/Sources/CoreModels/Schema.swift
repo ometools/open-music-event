@@ -9,7 +9,7 @@
 import Foundation
 @_exported import Tagged
 
-public typealias OmeID<T> = Tagged<T, Int>
+public typealias OmeID<T> = Tagged<T, String>
 
 public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringConvertible {
     case repository(Repository)
@@ -391,7 +391,12 @@ public struct Performance: Identifiable, Equatable, Sendable, TimelineRepresenta
         public let artistID: Artist.ID?
         public let anonymousArtistName: String?
 
-        public init(id: OmeID<Performance.Artists>, performanceID: Performance.ID, artistID: Artist.ID?, anonymousArtistName: String?) {
+        public init(
+            id: OmeID<Performance.Artists>,
+            performanceID: Performance.ID,
+            artistID: Artist.ID?,
+            anonymousArtistName: String?
+        ) {
             self.id = id
             self.performanceID = performanceID
             self.artistID = artistID
@@ -792,4 +797,185 @@ extension Performance.Artists {
         }
     }
 }
+
+// MARK: Channel
+public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
+    public typealias ID = OmeID<CommunicationChannel>
+    public var id: ID
+    public var musicEventID: MusicEvent.ID?
+    public var name: String
+    public var description: String
+    public var iconImageURL: URL?
+    public var headerImageURL: URL?
+    public var sortIndex: Int?
+
+    public var defaultNotificationState: NotificationState = .unsubscribed
+    public var userNotificationState: NotificationState = .unsubscribed
+
+    public enum NotificationState: String, Sendable, Equatable, Codable, CaseIterable {
+        case subscribed
+        case unsubscribed
+    }
+
+
+    public init(
+        id: ID,
+        musicEventID: MusicEvent.ID?,
+        name: String,
+        description: String,
+        iconImageURL: URL? = nil,
+        headerImageURL: URL? = nil,
+        sortIndex: Int? = nil,
+        defaultNotificationState: NotificationState = .unsubscribed,
+        userNotificationState: NotificationState = .unsubscribed
+    ) {
+        self.id = id
+        self.musicEventID = musicEventID
+        self.name = name
+        self.description = description
+        self.iconImageURL = iconImageURL
+        self.headerImageURL = headerImageURL
+        self.sortIndex = sortIndex
+        self.defaultNotificationState = defaultNotificationState
+        self.userNotificationState = userNotificationState
+    }
+}
+
+extension CommunicationChannel {
+    public static let tableName = "channels"
+
+    public struct Draft {
+        public typealias PrimaryTable = CommunicationChannel
+
+        public var id: ID?
+        public var musicEventID: MusicEvent.ID?
+        public var name: String
+        public var description: String
+        public var iconImageURL: URL?
+        public var headerImageURL: URL?
+        public var sortIndex: Int?
+        public var defaultNotificationState: NotificationState
+        public var userNotificationState: NotificationState
+
+        public static let tableName = CommunicationChannel.tableName
+
+        public init(_ other: CommunicationChannel) {
+            self.id = other.id
+            self.musicEventID = other.musicEventID
+            self.name = other.name
+            self.description = other.description
+            self.iconImageURL = other.iconImageURL
+            self.headerImageURL = other.headerImageURL
+            self.sortIndex = other.sortIndex
+            self.defaultNotificationState = other.defaultNotificationState
+            self.userNotificationState = other.userNotificationState
+        }
+
+        public init(
+            id: ID? = nil,
+            musicEventID: MusicEvent.ID? = nil,
+            name: String,
+            description: String,
+            iconImageURL: URL? = nil,
+            headerImageURL: URL? = nil,
+            sortIndex: Int? = nil,
+            defaultNotificationState: NotificationState = .unsubscribed,
+            userNotificationState: NotificationState = .unsubscribed
+        ) {
+            self.id = id
+            self.musicEventID = musicEventID
+            self.name = name
+            self.description = description
+            self.iconImageURL = iconImageURL
+            self.headerImageURL = headerImageURL
+            self.sortIndex = sortIndex
+            self.defaultNotificationState = defaultNotificationState
+            self.userNotificationState = userNotificationState
+        }
+    }
+}
+
+extension CommunicationChannel.Draft: Codable, Sendable, Equatable {}
+
+// MARK: Post
+
+public extension CommunicationChannel {
+    public struct Post: Equatable, Identifiable, Sendable, Codable {
+        public typealias ID = OmeID<CommunicationChannel.Post>
+        public var id: ID
+        public var channelID: CommunicationChannel.ID
+        public var title: String
+        public var contents: String
+        public var headerImageURL: URL?
+        public var timestamp: Date
+        public var isPinned: Bool
+
+        public init(
+            id: ID,
+            channelID: CommunicationChannel.ID,
+            title: String,
+            contents: String,
+            headerImageURL: URL? = nil,
+            timestamp: Date = Date(),
+            isPinned: Bool = false
+        ) {
+            self.id = id
+            self.channelID = channelID
+            self.title = title
+            self.contents = contents
+            self.headerImageURL = headerImageURL
+            self.timestamp = timestamp
+            self.isPinned = isPinned
+        }
+    }
+}
+
+extension CommunicationChannel.Post {
+    public static let tableName = "posts"
+
+    public struct Draft {
+        public typealias PrimaryTable = CommunicationChannel.Post
+
+        public var id: ID?
+        public var channelID: CommunicationChannel.ID?
+        public var title: String
+        public var contents: String
+        public var headerImageURL: URL?
+        public var timestamp: Date
+        public var isPinned: Bool
+
+        public static let tableName = CommunicationChannel.Post.tableName
+
+        public init(_ other: CommunicationChannel.Post) {
+            self.id = other.id
+            self.channelID = other.channelID
+            self.title = other.title
+            self.contents = other.contents
+            self.headerImageURL = other.headerImageURL
+            self.timestamp = other.timestamp
+            self.isPinned = other.isPinned
+        }
+
+        public init(
+            id: ID? = nil,
+            channelID: CommunicationChannel.ID?,
+            title: String,
+            contents: String,
+            headerImageURL: URL? = nil,
+            timestamp: Date = Date(),
+            isPinned: Bool = false
+        ) {
+            self.id = id
+            self.channelID = channelID
+            self.title = title
+            self.contents = contents
+            self.headerImageURL = headerImageURL
+            self.timestamp = timestamp
+            self.isPinned = isPinned
+        }
+    }
+}
+
+extension CommunicationChannel.Post.Draft: Codable, Sendable, Equatable {}
+
 

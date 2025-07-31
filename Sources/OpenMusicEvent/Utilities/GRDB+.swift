@@ -50,7 +50,8 @@ extension Stage: Table {}
 extension Schedule: Table {}
 extension Performance: Table {}
 extension Performance.Artists: Table {}
-
+extension CommunicationChannel: Table {}
+extension CommunicationChannel.Post: Table {}
 extension Organizer.Draft:  MutableIdentifiable, TableDraft {}
 extension MusicEvent.Draft:  MutableIdentifiable, TableDraft {}
 extension Artist.Draft:  MutableIdentifiable, TableDraft {}
@@ -58,6 +59,10 @@ extension Stage.Draft:  MutableIdentifiable, TableDraft {}
 extension Schedule.Draft: MutableIdentifiable, TableDraft {}
 extension Performance.Draft:  MutableIdentifiable, TableDraft {}
 extension Performance.Artists.Draft:  MutableIdentifiable, TableDraft {}
+extension CommunicationChannel.Draft: MutableIdentifiable, TableDraft {}
+extension CommunicationChannel.Post.Draft: MutableIdentifiable, TableDraft {}
+
+extension CommunicationChannel.NotificationState: @retroactive FetchableRecord {}
 
 extension TimeZone: DatabaseValueConvertible {
     public var databaseValue: DatabaseValue {

@@ -67,6 +67,9 @@ public struct EventFileTree: FileTreeReader {
                 File.Many(withExtension: "md")
                     .map(ArtistConversion())
             }
+            
+            CommunicationsConfiguration.fileTree
+
         }
         .convert(EventConversion())
     }
@@ -86,7 +89,8 @@ struct EventConversion: Conversion {
             EventConfiguration.EventInfoYaml,
             EventConfiguration.StageLineups?,
             [Schedule.WithUnresolvedTimes]?,
-            [CoreModels.Artist.Draft]?
+            [CoreModels.Artist.Draft]?,
+            CommunicationsConfiguration
         )
         typealias Output = EventConfiguration
 
@@ -125,7 +129,8 @@ struct EventConversion: Conversion {
                 artists: artists ?? [],
                 stages: eventInfo.stages ?? [],
                 schedule: resolvedSchedule ?? [],
-                stageLineups: stageLineups
+                stageLineups: stageLineups,
+                communications: input.4
             )
         }
 
@@ -223,6 +228,134 @@ public struct ArtistConversion: Conversion {
                         links: output.links
                     ),
                     body: output.bio?.nilIfEmpty
+                )
+            )
+        }
+    }
+}
+
+extension CommunicationsConfiguration {
+    nonisolated(unsafe) static let fileTree: some FileTreeReader<CommunicationsConfiguration> = Directory.Optional("communications") {
+        Directory.Many {
+            ChannelConfiguration.fileTree
+        }
+    }
+    .convert(CommunicationsConversion())
+}
+
+
+typealias ChannelConfiguration = EventConfiguration.ChannelConfiguration
+
+extension FileTree: @unchecked Sendable {}
+
+extension ChannelConfiguration {
+    nonisolated(unsafe) static let fileTree: some FileTreeReader<EventConfiguration.ChannelConfiguration> = FileTree {
+        File("channel-info", "yaml")
+            .convert(Conversions.YamlConversion<CommunicationChannel.Yaml>())
+            .convert(
+                AnyConversion(
+                    apply: { $0.toDraft() },
+                    unapply: { $0.toYaml() }
+                )
+            )
+
+        File.Many(withExtension: "md")
+            .map(PostConversion())
+    }
+    .convert {
+        AnyConversion { info, posts in
+            return EventConfiguration.ChannelConfiguration(
+                info: info,
+                posts: posts
+            )
+        } unapply: { _ in
+            fatalError("EventConfiguration.ChannelConfiguration")
+        }
+    }
+
+}
+
+struct CommunicationsConversion: Conversion {
+    // Directory.Many produces [(channelInfo, [posts])] where channelInfo is from channel-info.yaml and posts are from .md files
+//        typealias Input = [(CoreModels.CommunicationChannel.Draft, [FileContent<CoreModels.CommunicationChannel.Post.Draft>])]?
+    typealias Input = [DirectoryContent<ChannelConfiguration>]?
+    typealias Output = CommunicationsConfiguration
+
+    func apply(_ input: Input) throws -> Output {
+        guard let channelsWithPosts = input else {
+            return []
+        }
+
+        return channelsWithPosts.map { channel in
+            let channelInfo = channel.components.info
+            // Set the channelID for all posts based on the channel info
+            let updatedPosts = channel.components.posts.map { post in
+                var updatedPost = post
+                updatedPost.channelID = channelInfo.id
+                return updatedPost
+            }
+
+            return EventConfiguration.ChannelConfiguration(
+                info: channelInfo,
+                posts: updatedPosts
+            )
+        }
+    }
+
+    func unapply(_ output: Output) throws -> Input {
+        fatalError("")
+        //        return output.isEmpty ? nil : output
+//            output.map { channelConfig in
+//                (channelConfig.info, channelConfig.posts)
+//            }
+    }
+}
+
+
+public struct PostConversion: Conversion {
+    public init() {}
+
+    public struct PostFrontMatter: Codable, Equatable, Sendable {
+        public var headerImageURL: URL?
+        public var timestamp: Date?
+        public var isPinned: Bool?
+    }
+
+    public var body: some Conversion<FileContent<Data>, CoreModels.CommunicationChannel.Post.Draft> {
+        FileContentConversion {
+            Conversions.DataToString()
+            MarkdownWithFrontMatterConversion<PostFrontMatter>()
+        }
+
+        FileToPostConversion()
+    }
+
+    public struct FileToPostConversion: Conversion {
+        public typealias Input = FileContent<MarkdownWithFrontMatter<PostFrontMatter>>
+        public typealias Output = CoreModels.CommunicationChannel.Post.Draft
+
+        public func apply(_ input: Input) throws -> Output {
+            CoreModels.CommunicationChannel.Post.Draft(
+                channelID: nil,
+                title: input.fileName,
+                contents: input.data.body ?? "",
+                headerImageURL: input.data.frontMatter?.headerImageURL,
+                timestamp: input.data.frontMatter?.timestamp ?? Date(),
+                isPinned: input.data.frontMatter?.isPinned ?? false
+            )
+        }
+
+        public func unapply(_ output: Output) throws -> Input {
+            FileContent(
+                fileName: output.title,
+                fileType: "md",
+                data: MarkdownWithFrontMatter(
+                    frontMatter: PostFrontMatter(
+                        headerImageURL: output.headerImageURL,
+                        timestamp: output.timestamp,
+                        isPinned: output.isPinned
+                    ),
+                    body: output.contents.nilIfEmpty
                 )
             )
         }

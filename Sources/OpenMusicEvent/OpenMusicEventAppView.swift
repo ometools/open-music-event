@@ -111,8 +111,8 @@ public struct OMEAppEntryPoint: View {
         func onAppear() async {
             let eventIDString: String? = UserDefaults.standard.string(forKey: "selectedMusicEventID")
 
-            if let eventIDString, let eventIDInt = Int(eventIDString) {
-                self.musicEventViewer = .init(eventID: .init(eventIDInt))
+            if let eventIDString {
+                self.musicEventViewer = .init(eventID: .init(eventIDString))
             }
         }
 

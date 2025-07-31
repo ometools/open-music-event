@@ -86,9 +86,9 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
     }
 
     static let empty: Self = .init(
-        id: .init(0),
+        id: "",
         title: "",
-        stageID: .init(0),
+        stageID: "",
         startTime: Date(),
         endTime: Date(),
         stageColor: .init(0),
@@ -246,9 +246,9 @@ public struct PerformanceScheduleDetailView: View {
 extension PerformanceDetail {
     static var preview: PerformanceDetail {
         PerformanceDetail(
-            id: 1,
+            id: "",
             title: "Overgrowth",
-            stageID: 1,
+            stageID: "1",
             startTime: Date(hour: 22, minute: 30)!,
             endTime: Date(hour: 23, minute: 30)!,
             stageColor: 0,

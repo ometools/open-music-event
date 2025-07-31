@@ -17,6 +17,12 @@ extension Performance: DateIntervalRepresentable {
     }
 }
 
+
+private let logger = Logger(
+    subsystem: "bundle.ome.OpenMusicEvent",
+    category: "Schedule"
+)
+
 // TODO: Replace with GRDB query
 // extension Where<Performance> {
 //     public func `for`(schedule scheduleID: Schedule.ID) -> Where<Performance> {
@@ -57,6 +63,7 @@ public struct ScheduleSingleStageAtOnceView: View {
             await withErrorReporting {
                 for try await stages in query.values() {
                     self.stages = stages
+                    logger.log("WOODY STAGES: \(stages.map(\.id))")
 
                     if scheduleState.selectedStage == nil {
                         scheduleState.selectedStage = stages.first?.id

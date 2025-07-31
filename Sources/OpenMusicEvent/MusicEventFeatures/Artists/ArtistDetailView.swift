@@ -13,7 +13,7 @@ import Dependencies
 
 extension Artist {
     static let placeholder = Artist(
-        id: .init(0),
+        id: .init(""),
         musicEventID: nil,
         name: "",
         bio: "",
