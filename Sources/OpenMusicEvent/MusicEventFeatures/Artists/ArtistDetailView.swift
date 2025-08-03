@@ -32,17 +32,19 @@ class ArtistDetail {
         self.artistID = artistID
     }
 
+    let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "ArtistDetailPage")
 
-    @MainActor
-    func onAppear() async {
+    func task() async {
+
         let combinedQuery = ValueObservation.tracking { db in
             let artist = try Artist.find(db, id: self.artistID)
-            let performances = try self.fetchPerformances(db: db)
+            let performances = try Queries.fetchPerformances(for: self.artistID, from: db)
             return (artist, performances)
         }
 
         await withErrorReporting {
             for try await (artist, performances) in combinedQuery.values() {
+                logger.info("Selected Artist: \(artist.name)")
                 self.artist = artist
                 self.performances = performances
             }
@@ -50,49 +52,29 @@ class ArtistDetail {
     }
 
     let artistID: Artist.ID
-
-    // TODO: Replace @FetchOne with GRDB query
     var artist: Artist = .placeholder
-
-
     var performances: [PerformanceDetailRow.ArtistPerformance] = []
-    nonisolated private func fetchPerformances(db: Database) throws -> [PerformanceDetailRow.ArtistPerformance] {
-
-        return try Queries.fetchPerformances(for: artistID, from: db)
-    }
 }
 
 
 struct ArtistDetailView: View {
-    let store: ArtistDetail
-
-    var bioMarkdown: AttributedString? {
-        guard let bio = store.artist.bio, !bio.isEmpty
-        else { return nil }
-
-        #if os(Android)
-        return nil
-        #else
-        return try? AttributedString(
-            markdown: bio,
-            options: .init(failurePolicy: .returnPartiallyParsedIfPossible)
-        )
-        #endif
-    }
+    @State var store: ArtistDetail
 
     var meshColors: [Color] {
         store.performances.map(\.stageColor.swiftUIColor)
     }
 
     var body: some View {
+        
         StretchyHeaderList(
             title: Text(store.artist.name),
             stretchyContent: {
-                ArtistImageView(artist: store.artist) {
-                    if let stage = store.performances.compactMap(\.stageID).first {
-                        StageImageView(stageID: stage)
-                    }
-                }
+                CachedAsyncImage(url: store.artist.imageURL)
+//                ArtistImageView(artist: store.artist) {
+//                    if let stage = store.performances.compactMap(\.stageID).first {
+//                        StageImageView(stageID: stage)
+//                    }
+//                }
             },
             listContent: {
                 ForEach(store.performances) { performance in
@@ -100,8 +82,11 @@ struct ArtistDetailView: View {
                 }
 
                 #if os(iOS)
-                if let bio = bioMarkdown {
-                    Text(bio)
+                if let bioString = store.artist.bio, let bioMarkdown = try? AttributedString(
+                    markdown: bioString,
+                    options: .init(failurePolicy: .returnPartiallyParsedIfPossible)
+                ) {
+                    Text(bioMarkdown)
                         .font(.body)
                 } else if let bioString = store.artist.bio {
                     Text(bioString)
@@ -127,13 +112,9 @@ struct ArtistDetailView: View {
             }
         )
         .listStyle(.plain)
-        .onAppear { Task { await self.store.onAppear() }}
+        .task { await self.store.task() }
+        .id(store.artist.id)
 
-//        .toolbar {
-//            Toggle("Favorite", isOn: $store.favoriteArtists[store.artist.id])
-//                .frame(square: 20)
-//                .toggleStyle(FavoriteToggleStyle())
-//        }
     }
 
 }

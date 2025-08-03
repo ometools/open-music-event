@@ -159,6 +159,7 @@ struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {
     var body: some View {
         List {
             stretchyContent
+                .ignoresSafeArea(.all, edges: [.leading, .trailing])
 //                .aspectRatio(1, contentMode: .fill)
                 .overlay(alignment: .bottomLeading) {
                     StretchyHeaderListTitleView(titleContent: titleContent)

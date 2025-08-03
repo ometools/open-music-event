@@ -51,7 +51,6 @@ public class ArtistsList {
 struct ArtistsListView: View {
     @Bindable var store: ArtistsList
 
-    @State var artistID: Artist.ID?
 
     var body: some View {
         List(store.artists) { artist in
