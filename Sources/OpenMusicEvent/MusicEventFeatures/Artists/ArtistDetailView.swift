@@ -81,21 +81,9 @@ struct ArtistDetailView: View {
                     PerformanceDetailRow(performance: performance)
                 }
 
-                #if os(iOS)
-                if let bioString = store.artist.bio, let bioMarkdown = try? AttributedString(
-                    markdown: bioString,
-                    options: .init(failurePolicy: .returnPartiallyParsedIfPossible)
-                ) {
-                    Text(bioMarkdown)
-                        .font(.body)
-                } else if let bioString = store.artist.bio {
-                    Text(bioString)
-                }
-                #elseif os(Android)
                 if let bioString = store.artist.bio {
-                    Text(bioString)
+                    MarkdownText(bioString)
                 }
-                #endif
 
                 // MARK: Socials
                 if !store.artist.links.isEmpty {
@@ -144,5 +132,32 @@ public extension Artist.Kind {
         default:
             Image(systemName: "person")
         }
+    }
+}
+
+
+struct MarkdownText: View {
+    init(_ text: String) {
+        self.text = text
+    }
+    var text: String
+
+    var body: some View {
+        #if SKIP
+        // Skip seems to render markdown rather nicely without having to go through AttributedString, 
+        Text(text)
+        #else
+        if let bioMarkdown = try? AttributedString(
+            markdown: text,
+            options: .init(
+                interpretedSyntax: .inlineOnlyPreservingWhitespace,
+                failurePolicy: .returnPartiallyParsedIfPossible
+            )
+        ) {
+            Text(bioMarkdown)
+        } else {
+            Text(text)
+        }
+        #endif
     }
 }

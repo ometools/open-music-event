@@ -301,12 +301,9 @@ struct PostDetailView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                
-                Text(post.contents)
-                    .font(.body)
-                #if !os(Android)
-                    .lineSpacing(4)
-                #endif
+
+                MarkdownText(post.contents)
+                    .multilineTextAlignment(.leading)
 
                 Spacer()
             }

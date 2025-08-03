@@ -66,7 +66,7 @@ struct TimeIndicatorView: View {
                             .frame(height: 1)
                             .offset(x: textWidth, y: 0)
                     }
-                    .position(x: geo.size.width / 2, y: date.toY(containerHeight: geo.size.height, dayStartsAtNoon: dayStartsAtNoon))
+                    .position(x: geo.size.width / 2, y: date.toY(containerHeight: 1500, dayStartsAtNoon: dayStartsAtNoon))
                 } else {
                     EmptyView()
                 }
