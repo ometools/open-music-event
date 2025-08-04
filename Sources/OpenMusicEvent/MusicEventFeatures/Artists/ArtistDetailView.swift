@@ -143,8 +143,8 @@ struct MarkdownText: View {
     var text: String
 
     var body: some View {
-        #if SKIP
-        // Skip seems to render markdown rather nicely without having to go through AttributedString, 
+        #if os(Android)
+        // Skip seems to render markdown rather nicely without having to go through AttributedString,
         Text(text)
         #else
         if let bioMarkdown = try? AttributedString(

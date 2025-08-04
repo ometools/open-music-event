@@ -150,9 +150,6 @@
     "Channels marked with ⚠️ send critical notifications that cannot be disabled." : {
 
     },
-    "Communication" : {
-
-    },
     "Communication Channels" : {
 
     },
@@ -379,6 +376,9 @@
       }
     },
     "Links" : {
+
+    },
+    "Loading Organization..." : {
 
     },
     "Location" : {
@@ -661,6 +661,9 @@
 
     },
     "Update to the newest schedule" : {
+
+    },
+    "Updates" : {
 
     },
     "url" : {

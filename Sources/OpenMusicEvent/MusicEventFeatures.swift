@@ -228,7 +228,16 @@ public struct MusicEventFeaturesView: View {
                 ArtistsListView(store: store.artists)
             }
             .tabItem {
-                Label("Artists", systemImage: "person.3")
+                Label {
+                    Text("Artists")
+                } icon: {
+                    #if os(Android)
+                    Image("person.3", bundle: .module)
+                    #else
+                    Image(systemName: "person.3")
+                    #endif
+                }
+
             }
             .tag(MusicEventFeatures.Feature.artists)
 
@@ -237,7 +246,15 @@ public struct MusicEventFeaturesView: View {
                     CommunicationsFeatureView(store: communications)
                 }
                 .tabItem {
-                    Label("Communication", systemImage: "megaphone")
+                    Label {
+                        Text("Updates")
+                    } icon: {
+                        #if os(Android)
+                        Image("megaphone", bundle: .module)
+                        #else
+                        Image(systemName: "megaphone")
+                        #endif
+                    }
                 }
                 .tag(MusicEventFeatures.Feature.communications)
             }

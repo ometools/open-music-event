@@ -21,7 +21,20 @@ struct TimeIndicatorView: View {
 
     @Environment(\.shouldShowTimeIndicator) var shouldShowTimeIndicator
 
-    let backgroundColor = Color.black
+
+    @Environment(\.colorScheme) var scheme
+
+    var backgroundColor: Color {
+        switch scheme {
+        case .dark:
+            Color.black
+        case .light:
+            Color.white
+        @unknown default:
+            Color.clear
+        }
+    }
+
     var body: some View {
         CrossPlatformTimelineView(.periodic(by: 1)) { date in
             GeometryReader { geo in
@@ -71,6 +84,7 @@ struct TimeIndicatorView: View {
                     EmptyView()
                 }
             }
+
         }
     }
     

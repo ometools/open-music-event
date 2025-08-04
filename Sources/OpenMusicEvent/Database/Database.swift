@@ -10,20 +10,21 @@ import GRDB
 import SwiftUI
 import Dependencies
 import SkipFuse
+import CoreModels
 
 private let logger = Logger(
     subsystem: "bundle.ome.OpenMusicEvent",
     category: "Database"
 )
 
-func appDatabase() throws -> any DatabaseWriter {
+func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any DatabaseWriter {
     print("Preparing Database")
     let database: any DatabaseWriter
     var configuration = Configuration()
 
     configuration.foreignKeysEnabled = true
 
-    configuration .prepareDatabase { db in
+    configuration.prepareDatabase { db in
         #if DEBUG
         db.trace(options: .profile) {
             print("\($0.expandedDescription)")
@@ -65,8 +66,6 @@ func appDatabase() throws -> any DatabaseWriter {
         #else
         let rootDirectory = URL.applicationSupportDirectory
         #endif
-
-
 
         let path =
         context == .live
@@ -219,6 +218,7 @@ func appDatabase() throws -> any DatabaseWriter {
         END;
         """).execute(db)
     }
+
 
     #if DEBUG
 //    if context == .preview {

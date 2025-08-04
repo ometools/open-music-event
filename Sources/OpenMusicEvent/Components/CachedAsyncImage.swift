@@ -10,15 +10,18 @@ import SwiftUI
 public struct CachedAsyncImage<P: View>: View {
     public var url: URL?
     public var contentMode: ContentMode
+    public var renderingMode: Image.TemplateRenderingMode
     public var backup: () -> P
 
     public init(
         url: URL?,
         contentMode: ContentMode = .fill,
+        renderingMode: Image.TemplateRenderingMode = .original,
         @ViewBuilder backup: @escaping () -> P = { EmptyView() }
     ) {
         self.url = url
         self.contentMode = contentMode
+        self.renderingMode = renderingMode
         self.backup = backup
     }
 
@@ -31,7 +34,10 @@ public struct CachedAsyncImage<P: View>: View {
                 backup()
             case .success(let image):
                 image
-                    .resizable().aspectRatio(contentMode: contentMode)
+                    .resizable()
+//                    .renderingMode(self.renderingMode)
+                    .aspectRatio(contentMode: contentMode)
+
             }
         }
 //        AsyncImage(url: url) {
@@ -44,7 +50,11 @@ public struct CachedAsyncImage<P: View>: View {
     public var body: some View {
         LazyImage(request: ImageRequest(url: url)) { state in
             if let image = state.image {
-                image.resizable().aspectRatio(contentMode: self.contentMode)
+                image
+                    .resizable()
+                    .renderingMode(self.renderingMode)
+                    .aspectRatio(contentMode: self.contentMode)
+
             } else if state.error != nil {
                 backup()
             } else {

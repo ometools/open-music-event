@@ -20,14 +20,18 @@ struct DataFetchingClient {
 struct FailedToLoadOrganizerError: Error {}
 extension DataFetchingClient: DependencyKey {
     static let liveValue = DataFetchingClient { orgReference in
+        // Create a safe directory name using the URL's hash
+        let urlHash = String(orgReference.zipURL.absoluteString.stableHash)
+        
         #if os(iOS)
         let unzippedURL = URL.documentsDirectory
             .appending(path: "ome-zips")
-            .appending(path: orgReference.zipURL.absoluteString)
+            .appending(path: urlHash)
+        
         #elseif os(Android)
         let unzippedURL = URL.applicationSupportDirectory
             .appending(path: "ome-zips")
-            .appending(path: orgReference.zipURL.absoluteString)
+            .appending(path: urlHash)
         #endif
 
         
@@ -48,12 +52,13 @@ extension DataFetchingClient: DependencyKey {
         }
 
         logger.info("Unzipping from \(downloadURL) to \(unzippedURL)")
-        let contents = try fileManager.contentsOfDirectory(at: unzippedURL, includingPropertiesForKeys: nil)
-
-        logger.info("Contents of \(unzippedURL): \(contents)")
 
         @Dependency(\.zipClient) var zipClient
         try zipClient.unzipFile(source: downloadURL, destination: unzippedURL)
+        
+        // Check contents AFTER unzipping
+        let contents = try fileManager.contentsOfDirectory(at: unzippedURL, includingPropertiesForKeys: nil)
+        logger.info("Contents of \(unzippedURL) after unzipping: \(contents)")
 
         let finalDestination = try getUnzippedDirectory(from: unzippedURL)
         logger.info("Parsing organizer from directory: \(finalDestination)")
@@ -81,19 +86,33 @@ extension DependencyValues {
 }
 
 private func getUnzippedDirectory(from zipURL: URL) throws -> URL {
+    // First check if the current directory contains organizer-info.yaml
+    let organizerInfoURL = zipURL.appendingPathComponent("organizer-info.yml")
+    if FileManager.default.fileExists(atPath: organizerInfoURL.path()) {
+        return zipURL
+    }
+    
     let fileURLs = try FileManager.default.contentsOfDirectory(
         at: zipURL,
         includingPropertiesForKeys: [.isDirectoryKey],
         options: .skipsHiddenFiles
     )
 
-    guard let directoryURL = fileURLs.first(where: { url in
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    }) else {
-        throw NSError(domain: "UnzipError", code: 1, userInfo: [NSLocalizedDescriptionKey: "No directory found in unzipped contents."])
+    // Look for a directory that contains organizer-info.yaml
+    for fileURL in fileURLs {
+        let isDirectory = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        
+        if isDirectory {
+            let organizerInfoURL = fileURL.appendingPathComponent("organizer-info.yaml")
+            if FileManager.default.fileExists(atPath: organizerInfoURL.path()) {
+                return fileURL
+            }
+        }
     }
 
-    return directoryURL
+    struct UnableToDeterminedDirectoryURL: Error {}
+
+    throw UnableToDeterminedDirectoryURL()
 }
 
 extension FileManager {

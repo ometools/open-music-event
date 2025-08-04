@@ -63,7 +63,7 @@ public struct CommunicationsFeatureView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("Communication")
+        .navigationTitle("Updates")
         .task { await store.task() }
     }
 
@@ -242,19 +242,23 @@ public struct CommunicationChannelView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             if post.isPinned {
-                                Image(systemName: "pin.fill")
-                                    .foregroundStyle(.blue)
+                                Image.pinSymbol
+                                    .foregroundStyle(Color.accentColor)
                                     .font(.caption)
                             }
                             
                             Text(post.title)
                                 .font(.headline)
                                 .fontWeight(.medium)
+                            
+                            Spacer()
+
+                            Text(post.timestamp, format: .relative(presentation: .named))
+                                .font(.caption)
+
+                                .foregroundStyle(.secondary)
                         }
                         
-                        Text(post.timestamp, format: .relative(presentation: .named))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                     
                     Spacer()
@@ -288,7 +292,7 @@ struct PostDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         if post.isPinned {
-                            Image(systemName: "pin.fill")
+                            Image.pinSymbol
                                 .foregroundStyle(Color.accentColor)
                         }
                         
@@ -310,6 +314,16 @@ struct PostDetailView: View {
             .padding(.horizontal)
         }
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+extension Image {
+    static var pinSymbol: Image {
+        #if os(Android)
+        Image("pin", bundle: .module)
+        #else
+        Image(systemName: "pin")
+        #endif
     }
 }
 //

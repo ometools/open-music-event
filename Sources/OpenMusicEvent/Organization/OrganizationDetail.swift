@@ -170,6 +170,8 @@ public struct OrganizerDetailView: View {
                     )
                     .refreshable { await store.onPullToRefresh() }
                     .listStyle(.plain)
+                } else {
+                    ProgressView("Loading Organization...")
                 }
 
                 if store.showingLoadingScreen {

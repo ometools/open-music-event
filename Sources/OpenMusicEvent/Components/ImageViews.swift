@@ -131,7 +131,11 @@ struct StageIconView: View {
 
     public var body: some View {
         StageLoader(stageID: stageID) { stage in
-            CachedAsyncImage(url: stage.iconImageURL, contentMode: .fit)
+            CachedAsyncImage(
+                url: stage.iconImageURL,
+                contentMode: .fit,
+                renderingMode: .template
+            )
         }
     }
 
