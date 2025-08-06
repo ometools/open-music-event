@@ -58,7 +58,13 @@ struct OpenMusicEvent: AsyncParsableCommand {
         func run() throws {
             try $eventName.withValue(event) {
                 do {
-                    let config = try OrganizerConfiguration.fileTree.read(from: URL(filePath: path))
+                    let config = try withDependencies {
+                        var utcCalendar = Calendar.current
+                        utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+                        $0.calendar = utcCalendar
+                    } operation: {
+                        try OrganizerConfiguration.fileTree.read(from: URL(filePath: path))
+                    }
                     print("✅ Parsed successfully! This data can be used in the OpenFestival app 🎉")
 
 

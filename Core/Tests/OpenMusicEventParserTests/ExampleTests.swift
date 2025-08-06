@@ -26,7 +26,9 @@ struct EventDecodingTests {
             .appendingPathComponent("2024")
 
         try withDependencies {
-            $0.calendar = .current
+            var utcCalendar = Calendar.current
+            utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+            $0.calendar = utcCalendar
             $0.timeZone = .current
             $0.date = .constant(.now)
         } operation: {

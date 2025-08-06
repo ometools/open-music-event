@@ -28,23 +28,17 @@ public struct CalendarDate: Equatable, Hashable, Sendable {
 
     public init(_ date: Date) {
         @Dependency(\.calendar) var calendar
-        var tzCalendar = calendar
 
-        tzCalendar.timeZone = .gmt
-
-        self.year = tzCalendar.component(.year, from: date)
-        self.month = tzCalendar.component(.month, from: date)
-        self.day = tzCalendar.component(.day, from: date)
+        self.year = calendar.component(.year, from: date)
+        self.month = calendar.component(.month, from: date)
+        self.day = calendar.component(.day, from: date)
     }
 
     private var date: Date {
         get {
             @Dependency(\.calendar) var calendar
             
-            var utcCalendar = calendar
-            utcCalendar.timeZone = TimeZone(identifier: "UTC")!
-            
-            let components = DateComponents(calendar: utcCalendar, year: self.year, month: self.month, day: self.day)
+            let components = DateComponents(calendar: calendar, year: self.year, month: self.month, day: self.day)
             let date = components.date!
             
             return date
@@ -57,13 +51,9 @@ public struct CalendarDate: Equatable, Hashable, Sendable {
 
 extension CalendarDate: LosslessStringConvertible {
     public init?(_ description: String) {
-        @Dependency(\.omeLogger) var logger
-        
         for formatter in Self.allFormatters {
             if let date = formatter.date(from: description) {
-                logger.debug("CalendarDate.init: parsing '\(description)' with formatter timeZone=\(formatter.calendar.timeZone.identifier) -> date=\(date)")
                 self = date.calendarDate
-                logger.debug("CalendarDate.init: final result for '\(description)' -> \(self.description)")
                 return
             }
         }
@@ -78,8 +68,14 @@ extension CalendarDate: LosslessStringConvertible {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd" // Always stable and sortable
         formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        @Dependency(\.calendar) var calendar
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
         return formatter
     }()
+
+
 
     private static let allFormatters: [DateFormatter] = [
         "yyyy-MM-dd",
@@ -93,10 +89,11 @@ extension CalendarDate: LosslessStringConvertible {
         "MMMM d, yyyy"    // August 30, 2024
     ].map { (format: String) in
         let formatter = DateFormatter()
+        @Dependency(\.calendar) var calendar
         formatter.dateFormat = format
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar.timeZone = .init(secondsFromGMT: 0)!
-//        formatter.calendar = .gregorian
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
         return formatter
     }
 }
@@ -207,9 +204,7 @@ public extension Date {
         get { CalendarDate(self) }
         set {
             @Dependency(\.calendar) var calendar
-            var tzCalendar = calendar
-            tzCalendar.timeZone = .gmt
-            let components = tzCalendar.dateComponents([.hour, .minute, .hour, .second], from: self)
+            let components = calendar.dateComponents([.hour, .minute, .hour, .second], from: self)
             self = newValue.atTimeOfDay(hour: components.hour, minute: components.minute, seconds: components.second)
         }
     }

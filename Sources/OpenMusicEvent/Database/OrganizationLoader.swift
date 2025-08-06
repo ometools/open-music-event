@@ -63,7 +63,13 @@ extension DataFetchingClient: DependencyKey {
         let finalDestination = try getUnzippedDirectory(from: unzippedURL)
         logger.info("Parsing organizer from directory: \(finalDestination)")
 
-        var organizerData = try OrganizerConfiguration.fileTree.read(from: finalDestination)
+        var organizerData = try withDependencies {
+            var utcCalendar = Calendar.current
+            utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+            $0.calendar = utcCalendar
+        } operation: {
+            try OrganizerConfiguration.fileTree.read(from: finalDestination)
+        }
         organizerData.info.url = orgReference.zipURL
 
         logger.info("Clearing temporary directory")
