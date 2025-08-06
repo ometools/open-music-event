@@ -108,6 +108,8 @@ extension ScheduleTime: Comparable {
 import Dependencies
 extension CalendarDate {
     public func resolveTime(_ time: ScheduleTime, timeZone: TimeZone) -> Date {
+        @Dependency(\.calendar) var calendar
+        
         var components = DateComponents()
         components.year = year
         components.month = month
@@ -115,8 +117,12 @@ extension CalendarDate {
         components.hour = time.hour % 24
         components.minute = time.minute
         components.second = 0
-        @Dependency(\.calendar) var calendar
-        var date = calendar.date(from: components)!
+        components.timeZone = timeZone
+
+        var tzCalendar = calendar
+        tzCalendar.timeZone = timeZone
+
+        var date = tzCalendar.date(from: components)!
 
         if time.hour >= 24 {
             date.addTimeInterval(24 * 60 * 60)

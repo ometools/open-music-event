@@ -73,7 +73,7 @@ struct ScheduleCardView: View {
         }
         .id(id)
         .tag(id)
-        .task { await task() }
+        .task(id: id) { await task() }
     }
 }
 

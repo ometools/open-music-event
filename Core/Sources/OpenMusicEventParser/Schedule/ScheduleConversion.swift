@@ -12,6 +12,7 @@ import FileTree
 import IssueReporting
 import CoreModels
 import Collections
+import Dependencies
 
 extension CoreModels.Performance {
     struct YamlRepresentation: Codable, Equatable {
@@ -163,18 +164,24 @@ struct ScheduleConversion: Conversion {
         typealias Output = Schedule.WithUnresolvedTimes
 
         func apply(_ input: Input) throws -> Output {
-
+            @Dependency(\.omeLogger) var logger
+            
             let customTitle = input.0.data.customTitle
             let dateFromYaml = input.0.data.date
             let dateFromFileName = CalendarDate(input.0.fileName)
+
+            logger.debug("FileContentToTupleScheduleDayConversion: fileName='\(input.0.fileName)', dateFromYaml=\(dateFromYaml?.description ?? "nil"), dateFromFileName=\(dateFromFileName?.description ?? "nil")")
 
             let scheduleDate: CalendarDate
             if let dateFromYaml, let dateFromFileName, dateFromYaml != dateFromFileName {
                 reportIssue("Date from filename (\(dateFromFileName)) does not match date from YAML (\(dateFromYaml)), using date from filename: \(dateFromFileName)")
                 scheduleDate = dateFromFileName
+                logger.debug("FileContentToTupleScheduleDayConversion: date conflict resolved, using dateFromFileName=\(scheduleDate.description)")
             } else {
                 scheduleDate = (dateFromFileName ?? dateFromYaml ?? .today)
+                logger.debug("FileContentToTupleScheduleDayConversion: final scheduleDate=\(scheduleDate.description)")
             }
+            
 
 
             let schedule = try input.1.mapValuesWithKeys { key, value in

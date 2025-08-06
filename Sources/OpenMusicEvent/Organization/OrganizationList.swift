@@ -144,8 +144,6 @@ struct OrganizerListView: View {
     struct Row: View {
         var org: Organizer
 
-        
-
         var body: some View {
             HStack {
                 OrganizerIconView(organizer: org)
@@ -160,6 +158,7 @@ struct OrganizerListView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(Color.primary)
             .onAppear {
                 print(org)
             }

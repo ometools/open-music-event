@@ -44,6 +44,7 @@ public struct PerformanceDetailRow: View {
 
             StageIconView(stageID: performance.stageID)
                 .frame(square: 60)
+                .foregroundStyle(.primary)
 
             VStack(alignment: .leading) {
                 Text(performance.title)

@@ -24,15 +24,28 @@ extension Notification.Name {
 }
 
 
+import OpenMusicEventParser
+
+public struct LoggingLogger: OMELogger {
+    let logger = Logger(subsystem: "ome.OpenMusicEvent", category: "Parser")
+
+    public func log(_ message: String, level: LogLevel, file: String, line: Int) {
+        logger.log(level: .debug, "\(message)")
+    }
+}
+
 public enum OME {
     public static func prepareDependencies() throws {
         try Dependencies.prepareDependencies {
             $0.defaultDatabase = try appDatabase()
+            $0.omeLogger = LoggingLogger()
         }
 
         #if canImport(Nuke)
         ImagePipeline.shared = ImagePipeline(configuration: .withDataCache)
         #endif
+
+
 //
 //        #if os(Android)
 //        prepareAndroidDependencies()

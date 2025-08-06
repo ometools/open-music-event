@@ -9,6 +9,8 @@ import Foundation
 import Tagged
 import CoreModels
 import Collections
+import Dependencies
+
 
 public typealias OpenFestivalIDType = UUID
 
@@ -80,9 +82,13 @@ extension CoreModels.Schedule {
         public var stageSchedules: [String: [Performance]]
 
         public func resolved(timeZone: TimeZone) throws -> CoreModels.Schedule.StringlyTyped {
+            @Dependency(\.omeLogger) var logger
+            
             guard let day = metadata.date else {
                 throw UnresolvableDateError(message: "Cannot resolve schedule times without a Date")
             }
+
+            logger.debug("Schedule.resolved: day=\(day.description), timeZone=\(timeZone.identifier)")
 
             let resolvedStageSchedules = stageSchedules.mapValues { performances in
                 performances.map { $0.resolved(day: day, timeZone: timeZone) }
@@ -95,6 +101,8 @@ extension CoreModels.Schedule {
             else {
                 throw UnresolvableDateError(message: "No performances to resolve")
             }
+
+            logger.debug("Schedule.resolved: calculated bounds startTime=\(earliestStart), endTime=\(latestEnd)")
 
             return CoreModels.Schedule.StringlyTyped(
                 metadata: .init(
@@ -115,8 +123,14 @@ extension CoreModels.Schedule {
             public var stageName: String
 
             func resolved(day: CalendarDate, timeZone: TimeZone) -> CoreModels.Schedule.StringlyTyped.Performance {
+                @Dependency(\.omeLogger) var logger
+                
+                logger.debug("Performance.resolved: '\(self.title)' startTime=\(startTime), endTime=\(endTime), day=\(day.description), timeZone=\(timeZone.identifier)")
+                
                 let startDate = day.resolveTime(startTime, timeZone: timeZone)
                 let endDate = day.resolveTime(endTime, timeZone: timeZone)
+                
+                logger.debug("Performance.resolved: '\(self.title)' resolved to startDate=\(startDate), endDate=\(endDate)")
 
                 return CoreModels.Schedule.StringlyTyped.Performance(
                     title: self.title,
@@ -141,14 +155,6 @@ extension CoreModels.Schedule {
 
             public var date: CalendarDate?
             public var customTitle: String?
-
-            public var startTime: Date? {
-                date?.date
-            }
-
-            public var endTime: Date? {
-                nil
-            }
         }
     }
 

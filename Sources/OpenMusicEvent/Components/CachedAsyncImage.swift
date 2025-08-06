@@ -35,7 +35,7 @@ public struct CachedAsyncImage<P: View>: View {
             case .success(let image):
                 image
                     .resizable()
-//                    .renderingMode(self.renderingMode)
+                    .renderingMode(self.renderingMode)
                     .aspectRatio(contentMode: contentMode)
 
             }

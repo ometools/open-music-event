@@ -178,6 +178,7 @@ struct ScheduleSelectorModifier: ViewModifier {
         if let customTitle = day.customTitle {
             return customTitle
         } else if let startTime = day.startTime {
+            logger.info("START TIME Determinng Title: \(startTime)")
             return startTime.formatted(.dateTime.weekday(.wide))
         } else {
             return String(day.id.rawValue)

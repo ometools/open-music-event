@@ -23,7 +23,7 @@ struct OrganizerIconView: View {
     let organizer: Organizer
 
     var body: some View {
-        CachedAsyncImage(url: organizer.iconImageURL)
+        CachedAsyncImage(url: organizer.iconImageURL, renderingMode: .template)
     }
 }
 
@@ -39,17 +39,7 @@ struct EventIconImageView: View {
     var event: MusicEvent
 
     var body: some View {
-        AsyncImage(url: event.iconImageURL) { image in
-            image
-                .resizable()
-                #if os(iOS)
-                .renderingMode(.template)
-                #endif
-                .aspectRatio(contentMode: .fill)
-
-        } placeholder: {
-            ProgressView()
-        }
+        CachedAsyncImage(url: event.iconImageURL, renderingMode: .template)
     }
 }
 

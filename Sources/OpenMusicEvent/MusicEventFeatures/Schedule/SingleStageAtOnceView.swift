@@ -168,7 +168,7 @@ struct StageSchedulePage: View, Identifiable {
                         endTime: $0.endTime
                     )
                 }
-                logger.log("Performances: \(performances)")
+                logger.log("PerformancesCount: \(performances.count)")
             }
         }
 

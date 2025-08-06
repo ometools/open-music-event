@@ -63,6 +63,7 @@ struct ScheduleHeaderButton: View {
     var body: some View {
         StageIconView(stageID: stage.id)
             .foregroundStyle(isSelected ? .white : stage.color.swiftUIColor)
+            .tint(isSelected ? .white : stage.color.swiftUIColor)
             .frame(idealWidth: 60, idealHeight: 60)
             .frame(maxWidth: 60, maxHeight: 60)
         #if os(iOS)

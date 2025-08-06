@@ -108,8 +108,10 @@ struct EventConversion: Conversion {
                 info: CoreModels.MusicEvent.Draft(
                     name: eventInfo.name ?? "",
                     timeZone: timeZone,
-                    startTime: eventInfo.startDate?.date,
-                    endTime: eventInfo.endDate?.date,
+//                    startTime: eventInfo.startDate?.date,
+//                    endTime: eventInfo.endDate?.date,
+                    startTime: nil,
+                    endTime: nil,
                     iconImageURL: eventInfo.iconImageURL,
                     imageURL: eventInfo.imageURL,
                     siteMapImageURL: eventInfo.siteMapImageURL,

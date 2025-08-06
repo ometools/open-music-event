@@ -174,13 +174,6 @@ public struct OrganizerDetailView: View {
                     ProgressView("Loading Organization...")
                 }
 
-                if store.showingLoadingScreen {
-                    AnimatedMeshView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-//                        .background(Material.ultraThin)
-                        .ignoresSafeArea()
-                }
-
                 if let image = loadingScreenImage, store.showingLoadingScreen {
                     image
                         .resizable()
@@ -189,6 +182,7 @@ public struct OrganizerDetailView: View {
                         .padding(80)
                 }
             }
+            .foregroundStyle(Color.primary)
         }
         .task { await store.onAppear() }
         .animation(.default, value: store.organizer == nil)

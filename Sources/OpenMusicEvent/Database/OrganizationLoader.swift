@@ -86,32 +86,51 @@ extension DependencyValues {
 }
 
 private func getUnzippedDirectory(from zipURL: URL) throws -> URL {
-    // First check if the current directory contains organizer-info.yaml
-    let organizerInfoURL = zipURL.appendingPathComponent("organizer-info.yml")
-    if FileManager.default.fileExists(atPath: organizerInfoURL.path()) {
-        return zipURL
+    return try findOrganizationInfoDirectory(startingFrom: zipURL, currentDepth: 0, maxDepth: 5)
+}
+
+private func findOrganizationInfoDirectory(startingFrom url: URL, currentDepth: Int, maxDepth: Int) throws -> URL {
+    // Safety check: prevent infinite recursion
+    guard currentDepth <= maxDepth else {
+        struct MaxDepthReachedError: Error {}
+        throw MaxDepthReachedError()
     }
     
+    // Check both .yml and .yaml extensions in current directory
+    let ymlPath = url.appendingPathComponent("organizer-info.yml")
+    let yamlPath = url.appendingPathComponent("organizer-info.yaml")
+    
+    if FileManager.default.fileExists(atPath: ymlPath.path()) ||
+       FileManager.default.fileExists(atPath: yamlPath.path()) {
+        return url
+    }
+    
+    // Get all subdirectories
     let fileURLs = try FileManager.default.contentsOfDirectory(
-        at: zipURL,
+        at: url,
         includingPropertiesForKeys: [.isDirectoryKey],
         options: .skipsHiddenFiles
     )
-
-    // Look for a directory that contains organizer-info.yaml
+    
+    // Recursively search subdirectories
     for fileURL in fileURLs {
         let isDirectory = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         
         if isDirectory {
-            let organizerInfoURL = fileURL.appendingPathComponent("organizer-info.yaml")
-            if FileManager.default.fileExists(atPath: organizerInfoURL.path()) {
-                return fileURL
+            do {
+                return try findOrganizationInfoDirectory(
+                    startingFrom: fileURL,
+                    currentDepth: currentDepth + 1,
+                    maxDepth: maxDepth
+                )
+            } catch {
+                // Continue searching other directories if this one fails
+                continue
             }
         }
     }
-
+    
     struct UnableToDeterminedDirectoryURL: Error {}
-
     throw UnableToDeterminedDirectoryURL()
 }
 
