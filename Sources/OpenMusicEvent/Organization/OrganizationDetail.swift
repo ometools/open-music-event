@@ -171,16 +171,20 @@ public struct OrganizerDetailView: View {
                     .refreshable { await store.onPullToRefresh() }
                     .listStyle(.plain)
                 } else {
-                    ProgressView("Loading Organization...")
+                    if let image = loadingScreenImage, store.showingLoadingScreen {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(80)
+                    } else {
+
+                        ProgressView("Loading Organization...")
+                    }
+
                 }
 
-                if let image = loadingScreenImage, store.showingLoadingScreen {
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(80)
-                }
+
             }
             .foregroundStyle(Color.primary)
         }

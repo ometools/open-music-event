@@ -267,24 +267,50 @@ extension OrganizerConfiguration {
         var info = self.info
         info.url = url
 
-        try await database.write { db in
-            try db.execute(literal: """
-               DELETE FROM organizers WHERE url = \(url);
-            """)
+        try await database.write { [info] db in
+            // Upsert organizer (preserves any local organizer state)
+            try info.upsert(db)
 
-            try self.info.save(db)
+            // Handle selective deletion for events
+            let sourceEventIDs = Set(self.events.map { event in
+                OmeID<MusicEvent>(stabilizedBy: url.absoluteString, event.info.name)
+            })
+            
+            // Find existing events that should be deleted (exist in DB but not in source)
+            let existingEvents = try MusicEvent
+                .filter(Column("organizerURL") == url)
+                .fetchAll(db)
+            let eventsToDelete = existingEvents.filter { !sourceEventIDs.contains($0.id) }
+            
+            // Delete orphaned events (CASCADE will handle related data)
+            if !eventsToDelete.isEmpty {
+                try MusicEvent.deleteAll(db, ids: eventsToDelete.map(\.id))
+            }
 
             for event in self.events {
                 var eventInfo = event.info
+                let eventID: MusicEvent.ID = OmeID(stabilizedBy: url.absoluteString, eventInfo.name)
                 eventInfo.organizerURL = url
-                eventInfo.id = OmeID(stabilizedBy: url.absoluteString, eventInfo.name)
+                eventInfo.id = eventID
 
-                let eventID = try eventInfo.saved(db).id!
+                try eventInfo.upsert(db)
+                
+                // Handle selective deletion for artists within this event
+                let sourceArtistIDs = Set(event.artists.map { artist in
+                    Artist.ID(stabilizedBy: String(eventID.rawValue), artist.name)
+                })
+                let existingArtists = try Artist.filter(Column("musicEventID") == eventID).fetchAll(db)
+                let artistsToDelete = existingArtists.filter { !sourceArtistIDs.contains($0.id) }
+                if !artistsToDelete.isEmpty {
+                    try Artist.deleteAll(db, ids: artistsToDelete.map(\.id))
+                }
+                
                 var artistNameIDMapping: [String: Artist.ID] = [:]
 
                 for artist in event.artists {
+                    let artistID = Artist.ID(stabilizedBy: String(eventID.rawValue), artist.name)
                     let artistDraft = Artist.Draft(
-                        id: OmeID(stabilizedBy: String(eventID.rawValue), artist.name),
+                        id: artistID,
                         musicEventID: eventID,
                         name: artist.name,
                         bio: artist.bio,
@@ -292,23 +318,49 @@ extension OrganizerConfiguration {
                         links: artist.links
                     )
 
-                    let artistID = try artistDraft.saved(db).id!
+                    try artistDraft.upsert(db)
 
                     artistNameIDMapping[artist.name] = artistID
                 }
 
+                // Handle selective deletion for channels within this event
+                let sourceChannelIDs = Set(event.channels.map { channel in
+                    CommunicationChannel.ID(stabilizedBy: eventID.rawValue, channel.info.name)
+                })
+                let existingChannels = try CommunicationChannel.filter(Column("musicEventID") == eventID).fetchAll(db)
+                let channelsToDelete = existingChannels.filter { !sourceChannelIDs.contains($0.id) }
+                if !channelsToDelete.isEmpty {
+                    try CommunicationChannel.deleteAll(db, ids: channelsToDelete.map(\.id))
+                }
+
                 for channel in event.channels {
-                    var channel = channel
-                    channel.info.id = OmeID(stabilizedBy: eventID.rawValue, channel.info.name)
-                    channel.info.musicEventID = eventInfo.id
-                    channel.info.defaultNotificationState = channel.info.defaultNotificationState
-                    let channelID = try channel.info.saved(db).id!
+                    var channelInfo = channel.info
+                    let channelID = CommunicationChannel.ID(stabilizedBy: eventID.rawValue, channelInfo.name)
+                    channelInfo.id = channelID
+                    channelInfo.musicEventID = eventID
+                    
+                    // Preserve user notification state if channel already exists
+                    if let existingChannel = try CommunicationChannel.fetchOne(db, id: channelID) {
+                        channelInfo.userNotificationState = existingChannel.userNotificationState
+                    }
+                    
+                    try channelInfo.upsert(db)
+                    
+                    // Handle selective deletion for posts within this channel
+                    let sourcePostIDs = Set(channel.posts.map { post in
+                        CommunicationChannel.Post.ID(stabilizedBy: channelID.rawValue, post.title)
+                    })
+                    let existingPosts = try CommunicationChannel.Post.filter(Column("channelID") == channelID).fetchAll(db)
+                    let postsToDelete = existingPosts.filter { !sourcePostIDs.contains($0.id) }
+                    if !postsToDelete.isEmpty {
+                        try CommunicationChannel.Post.deleteAll(db, ids: postsToDelete.map(\.id))
+                    }
 
                     for post in channel.posts {
                         var post = post
-                        post.id = OmeID(stabilizedBy: channel.info.id!.rawValue, post.title)
+                        post.id = OmeID(stabilizedBy: channelID.rawValue, post.title)
                         post.channelID = channelID
-                        try post.save(db)
+                        try post.upsert(db)
                     }
                 }
 
@@ -316,16 +368,28 @@ extension OrganizerConfiguration {
                     if let artistID = artistNameIDMapping[artistName] {
                         return artistID
                     } else {
+
+                        let artistID = Artist.ID(stabilizedBy: eventID.rawValue.lowercased(), artistName)
                         let draft = Artist.Draft(
-                            id: OmeID(stabilizedBy: eventID.rawValue.lowercased(), artistName),
+                            id: artistID,
                             musicEventID: eventID,
                             name: artistName,
                             links: []
                         )
 
-                        let artistID = try draft.saved(db).id!
+                        try draft.upsert(db)
                         return artistID
                     }
+                }
+
+                // Handle selective deletion for stages within this event
+                let sourceStageIDs = Set(event.stages.map { stage in
+                    Stage.ID(stabilizedBy: eventID.rawValue, stage.name)
+                })
+                let existingStages = try Stage.filter(Column("musicEventID") == eventID).fetchAll(db)
+                let stagesToDelete = existingStages.filter { !sourceStageIDs.contains($0.id) }
+                if !stagesToDelete.isEmpty {
+                    try Stage.deleteAll(db, ids: stagesToDelete.map(\.id))
                 }
 
                 var stageNameIDMapping: [String: Stage.ID] = [:]
@@ -333,8 +397,9 @@ extension OrganizerConfiguration {
                 for (index, stage) in event.stages.enumerated() {
                     let lineup = event.stageLineups?[stage.name]
                     let artistIDs = try lineup?.artists.compactMap { try getOrCreateArtist(withName: $0) }
+                    let stageID = Stage.ID(stabilizedBy: eventID.rawValue, stage.name)
                     let stage = Stage.Draft(
-                        id: Stage.ID(stabilizedBy: eventID.rawValue, stage.name),
+                        id: stageID,
                         musicEventID: eventID,
                         name: stage.name,
                         sortIndex: index,
@@ -345,35 +410,68 @@ extension OrganizerConfiguration {
                         lineup: artistIDs
                     )
 
-                    let stageID = try stage.saved(db).id!
+                    try stage.upsert(db)
 
                     stageNameIDMapping[stage.name] = stageID
                 }
 
+                // Handle selective deletion for schedules within this event
+                let sourceScheduleIDs = Set(event.schedule.map { schedule in
+                    Schedule.ID(
+                        stabilizedBy: String(eventID.rawValue),
+                        (schedule.metadata.customTitle ?? schedule.metadata.startTime.description)
+                    )
+                })
+                let existingSchedules = try Schedule.filter(Column("musicEventID") == eventID).fetchAll(db)
+                let schedulesToDelete = existingSchedules.filter { !sourceScheduleIDs.contains($0.id) }
+                if !schedulesToDelete.isEmpty {
+                    try Schedule.deleteAll(db, ids: schedulesToDelete.map(\.id))
+                }
+
                 for schedule in event.schedule {
+                    let scheduleID = Schedule.ID(
+                        stabilizedBy: String(eventID.rawValue),
+                        (schedule.metadata.customTitle ?? schedule.metadata.startTime.description)
+                    )
+
+
                     let scheduleDraft = Schedule.Draft(
-                        id: .init(
-                            stabilizedBy: String(eventID.rawValue),
-                            (schedule.metadata.customTitle ?? schedule.metadata.startTime.description)
-                        ),
+                        id: scheduleID,
                         musicEventID: eventID,
                         startTime: schedule.metadata.startTime,
                         endTime: schedule.metadata.endTime,
                         customTitle: schedule.metadata.customTitle
                     )
 
-                    let scheduleID = try scheduleDraft.saved(db).id!
+                    try scheduleDraft.upsert(db)
+                    
+                    // Handle selective deletion for performances within this schedule
+                    let sourcePerformanceIDs = Set(schedule.stageSchedules.flatMap { stageSchedule in
+                        stageSchedule.value.map { performance in
+                            Performance.ID(
+                                stabilizedBy: String(scheduleID.rawValue),
+                                stageSchedule.key,
+                                performance.title
+                            )
+                        }
+                    })
+                    let existingPerformances = try Performance.filter(Column("scheduleID") == scheduleID).fetchAll(db)
+                    let performancesToDelete = existingPerformances.filter { !sourcePerformanceIDs.contains($0.id) }
+                    if !performancesToDelete.isEmpty {
+                        try Performance.deleteAll(db, ids: performancesToDelete.map(\.id))
+                    }
 
                     for stageSchedule in schedule.stageSchedules {
                         for performance in stageSchedule.value {
+                            let performanceID = Performance.ID(
+                                stabilizedBy: String(scheduleID.rawValue),
+                                stageSchedule.key,
+                                performance.title
+                            )
                             let draft = Performance.Draft(
                                 // Stable for each performance **BUT*** will fail if an artist has two performances on the same stage on the same day
                                 // Maybe we increment a counter if there are multiple?
-                                id: .init(
-                                    stabilizedBy: String(scheduleID.rawValue),
-                                    stageSchedule.key,
-                                    performance.title
-                                ),
+                                id: performanceID,
                                 stageID: stageNameIDMapping[stageSchedule.key]!,
                                 scheduleID: scheduleID,
                                 startTime: performance.startTime,
@@ -382,7 +480,20 @@ extension OrganizerConfiguration {
                                 description: nil
                             )
 
-                            let performanceID = try draft.saved(db).id!
+                            try draft.upsert(db)
+                            
+                            // Handle selective deletion for performance artists
+                            let sourcePerformanceArtistIDs = Set(performance.artistNames.compactMap { artistName in
+                                try? getOrCreateArtist(withName: artistName)
+                            })
+                            let existingPerformanceArtists = try Performance.Artists.filter(Column("performanceID") == performanceID).fetchAll(db)
+                            let performanceArtistsToDelete = existingPerformanceArtists.filter { performanceArtist in
+                                guard let artistID = performanceArtist.artistID else { return false }
+                                return !sourcePerformanceArtistIDs.contains(artistID)
+                            }
+                            if !performanceArtistsToDelete.isEmpty {
+                                try Performance.Artists.deleteAll(db, ids: performanceArtistsToDelete.map(\.id))
+                            }
 
                             for artistName in performance.artistNames {
                                 let artistID = try getOrCreateArtist(withName: artistName)
@@ -391,7 +502,7 @@ extension OrganizerConfiguration {
                                     artistID: artistID
                                 )
 
-                                let _ = try draft.saved(db)
+                                let _ = try draft.upsert(db)
                             }
                         }
                     }
