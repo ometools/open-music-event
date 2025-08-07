@@ -13,7 +13,7 @@ import UserNotifications
 #endif
 
 @Observable
-public final class NotificationPermissionManager: @unchecked Sendable {
+public final class NotificationManager: @unchecked Sendable {
     private(set) var isAuthorized: Bool = false
     private(set) var hasRequestedPermission: Bool = false
     
@@ -24,7 +24,7 @@ public final class NotificationPermissionManager: @unchecked Sendable {
         loadStoredState()
     }
 
-    static let shared = NotificationPermissionManager()
+    static let shared = NotificationManager()
 
     private func loadStoredState() {
         hasRequestedPermission = UserDefaults.standard.bool(forKey: hasRequestedKey)
@@ -73,12 +73,12 @@ public final class NotificationPermissionManager: @unchecked Sendable {
 }
 
 enum NotificationPermissionManagerDependencyKey: DependencyKey {
-    public static let liveValue = NotificationPermissionManager.shared
-    public static let testValue = NotificationPermissionManager.shared
+    public static let liveValue = NotificationManager.shared
+    public static let testValue = NotificationManager.shared
 }
 
 extension DependencyValues {
-    public var notificationPermissionManager: NotificationPermissionManager {
+    public var notificationPermissionManager: NotificationManager {
         get { self[NotificationPermissionManagerDependencyKey.self] }
         set { self[NotificationPermissionManagerDependencyKey.self] = newValue }
     }
