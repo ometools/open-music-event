@@ -1,9 +1,4 @@
-//
-//  OpenMusicEventAppView.swift
-//  open-music-event
-//
-//  Created by Woodrow Melling on 5/6/25.
-//
+
 
 import  SwiftUI; import SkipFuse
 // import Sharing
@@ -55,8 +50,6 @@ public enum OME {
         #endif
 
         @Dependency(\.notificationManager) var notificationManager
-
-
 
         FirebaseApp.configure()
         Messaging.messaging().delegate = notificationManager
@@ -129,18 +122,11 @@ public struct OMEWhiteLabeledEntryPoint: View {
                 self.musicEventViewer = .init(eventID: .init(eventIDString))
             }
 
+            // Just download on launch if possible
+            // May not want to even report errors here, failure is expected if no service
             await withErrorReporting {
-                let organizerDownloaded = try await database.read { db in
-                    try Organizer.exists(db, id: self.organizerURL)
-                }
-
-                if !organizerDownloaded {
-                    self.isLoadingOrganizer = true
-                    try await downloadAndStoreOrganizer(from: .url(self.organizerURL))
-                    self.isLoadingOrganizer = false
-                }
+                try await downloadAndStoreOrganizer(from: .url(self.organizerURL))
             }
-
         }
 
         deinit {
@@ -163,15 +149,13 @@ public struct OMEWhiteLabeledEntryPoint: View {
         ZStack {
             NavigationStack {
                 OrganizerDetailView(store: store.organizerDetailStore)
+
             }
 
             if let musicEventViewer = store.musicEventViewer {
                 MusicEventViewer(store: musicEventViewer)
             }
 
-            if store.isLoadingOrganizer {
-                ProgressView()
-            }
         }
         .onAppear { Task { await store.onAppear() } }
     }

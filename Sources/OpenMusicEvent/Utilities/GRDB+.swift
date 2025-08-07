@@ -62,7 +62,9 @@ extension Performance.Artists.Draft:  MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Draft: MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Post.Draft: MutableIdentifiable, TableDraft {}
 
-extension CommunicationChannel.NotificationState: @retroactive FetchableRecord {}
+//extension CommunicationChannel.DefaultNotificationState: @retroactive FetchableRecord {}
+//extension CommunicationChannel.UserNotificationState: @retroactive FetchableRecord {}
+extension CommunicationChannel.UserNotificationState: DatabaseValueConvertible { }
 
 extension TimeZone: DatabaseValueConvertible {
     public var databaseValue: DatabaseValue {
@@ -77,6 +79,14 @@ extension TimeZone: DatabaseValueConvertible {
     }
 }
 
+
+
+
+
+
+
+
+
 import Tagged
 import GRDB
 
@@ -85,7 +95,11 @@ import GRDB
 extension Tagged: @retroactive SQLExpressible where RawValue: SQLExpressible { }
 extension Tagged: @retroactive StatementBinding where RawValue: StatementBinding { }
 extension Tagged: @retroactive StatementColumnConvertible where RawValue: StatementColumnConvertible { }
-extension Tagged: @retroactive DatabaseValueConvertible where RawValue: DatabaseValueConvertible { }
+extension Tagged: DatabaseValueConvertible where RawValue: DatabaseValueConvertible {
+    public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Tagged<Tag, RawValue>? {
+        RawValue.fromDatabaseValue(dbValue).map { .init($0) }
+    }
+}
 
 
 extension ValueObservation {

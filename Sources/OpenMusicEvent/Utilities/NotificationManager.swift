@@ -44,10 +44,27 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
 
     public func applicationDidLaunch() async throws {
         #if os(Android)
-        
+        // Android handles push tokens automatically
         #else
+        // Register for remote notifications to get APNs token
         await UIApplication.shared.registerForRemoteNotifications()
         #endif
+    }
+    
+    // MARK: - APNs Token Handling
+    
+    public func didRegisterForRemoteNotificationsWithDeviceToken(_ deviceToken: Data) {
+        #if !os(Android)
+        let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+        print("APNs Token: \(tokenString)")
+
+        // Set APNs token for Firebase
+        Messaging.messaging().apnsToken = deviceToken
+        #endif
+    }
+    
+    public func didFailToRegisterForRemoteNotificationsWithError(_ error: Error) {
+        logger.error("Failed to register for remote notifications: \(error)")
     }
 
     private func loadStoredState() {
@@ -95,18 +112,19 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
         return hasRequestedPermission && !isAuthorized
     }
 
+
     // MARK: - Topic Management
-    
-    public func subscribeToTopic(_ topic: String) async throws {
-        try await Messaging.messaging().subscribe(toTopic: topic)
-        logger.info("Subscribed to topic: \(topic)")
+    public func updateTopicSubscription(_ topicID: CommunicationChannel.FirebaseTopicName, to state: CommunicationChannel.UserNotificationState) async throws {
+        switch state {
+        case .subscribed:
+            logger.debug("subscribe to topic \(topicID.rawValue)")
+            try await Messaging.messaging().subscribe(toTopic: topicID.rawValue)
+        case .unsubscribed:
+            logger.info("unsubscribed from topic \(topicID.rawValue)")
+            try await Messaging.messaging().unsubscribe(fromTopic: topicID.rawValue)
+        }
     }
-    
-    public func unsubscribeFromTopic(_ topic: String) async throws {
-        try await Messaging.messaging().unsubscribe(fromTopic: topic)
-        logger.info("Unsubscribed from topic: \(topic)")
-    }
-    
+
     // MARK: - MessagingDelegate
     public func messaging(_ messaging: Messaging, didReceiveRegistrationToken token: String?) {
         logger.info("FCM token received: \(token ?? "nil")")
@@ -120,6 +138,9 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
     
     public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let content = notification.request.content
+        
+        Messaging.messaging().appDidReceiveMessage(content.userInfo)
+
         logger.info("Will present notification: \(content.title): \(content.body)")
         
         return [.banner, .sound, .badge]
@@ -128,13 +149,36 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
     public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let content = response.notification.request.content
         logger.info("Notification tapped: \(content.title): \(content.body)")
-        
+
+        Messaging.messaging().appDidReceiveMessage(content.userInfo)
+
         // Handle deep linking
         if let channelId = content.userInfo["channelId"] as? String {
             await handleNotificationTap(channelId: channelId, userInfo: content.userInfo)
         }
     }
-    
+//
+//    func application(_ application: UIApplication,
+//                     didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async
+//      -> UIBackgroundFetchResult {
+//      // If you are receiving a notification message while your app is in the background,
+//      // this callback will not be fired till the user taps on the notification launching the application.
+//      // TODO: Handle data of notification
+//
+//      // With swizzling disabled you must let Messaging know about the message, for Analytics
+//      // Messaging.messaging().appDidReceiveMessage(userInfo)
+//
+//      // Print message ID.
+////      if let messageID = userInfo[gcmMessageIDKey] {
+////        print("Message ID: \(messageID)")
+////      }
+//
+//      // Print full message.
+//      print(userInfo)
+//
+//      return UIBackgroundFetchResult.newData
+//    }
+
     private func handleNotificationTap(channelId: String, userInfo: [AnyHashable: Any]) async {
         // TODO: Implement deep linking to specific communication channels
         logger.info("Handling notification tap for channel: \(channelId)")

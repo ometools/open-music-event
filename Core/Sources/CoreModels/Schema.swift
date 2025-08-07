@@ -802,6 +802,11 @@ extension Performance.Artists {
 public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
     public typealias ID = OmeID<CommunicationChannel>
     public var id: ID
+
+    public enum _FirebaseTopicNameTag {}
+    public typealias FirebaseTopicName = Tagged<_FirebaseTopicNameTag, String>
+    public var firebaseTopicName: FirebaseTopicName?
+
     public var musicEventID: MusicEvent.ID?
     public var name: String
     public var description: String
@@ -809,14 +814,20 @@ public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
     public var headerImageURL: URL?
     public var sortIndex: Int?
 
-    public var defaultNotificationState: NotificationState = .unsubscribed
-    public var userNotificationState: NotificationState = .unsubscribed
+    public var defaultNotificationState: DefaultNotificationState = .unsubscribed
+    public var userNotificationState: UserNotificationState?
+    public var notificationsRequired: Bool = false
 
-    public enum NotificationState: String, Sendable, Equatable, Codable, CaseIterable {
+    public var notificationState: UserNotificationState {
+        userNotificationState ?? defaultNotificationState
+    }
+
+    public typealias DefaultNotificationState = UserNotificationState
+
+    public enum UserNotificationState: String, Sendable, Equatable, Codable, CaseIterable {
         case subscribed
         case unsubscribed
     }
-
 
     public init(
         id: ID,
@@ -826,8 +837,9 @@ public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
         iconImageURL: URL? = nil,
         headerImageURL: URL? = nil,
         sortIndex: Int? = nil,
-        defaultNotificationState: NotificationState = .unsubscribed,
-        userNotificationState: NotificationState = .unsubscribed
+        defaultNotificationState: DefaultNotificationState = .unsubscribed,
+        userNotificationState: UserNotificationState? = nil,
+        notificationsRequired: Bool = false
     ) {
         self.id = id
         self.musicEventID = musicEventID
@@ -838,6 +850,7 @@ public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
         self.sortIndex = sortIndex
         self.defaultNotificationState = defaultNotificationState
         self.userNotificationState = userNotificationState
+        self.notificationsRequired = notificationsRequired
     }
 }
 
@@ -849,13 +862,15 @@ extension CommunicationChannel {
 
         public var id: ID?
         public var musicEventID: MusicEvent.ID?
+        public var firebaseTopicName: FirebaseTopicName?
         public var name: String
         public var description: String
         public var iconImageURL: URL?
         public var headerImageURL: URL?
         public var sortIndex: Int?
-        public var defaultNotificationState: NotificationState
-        public var userNotificationState: NotificationState
+        public var defaultNotificationState: DefaultNotificationState
+        public var userNotificationState: UserNotificationState?
+        public var notificationsRequired: Bool
 
         public static let tableName = CommunicationChannel.tableName
 
@@ -864,33 +879,39 @@ extension CommunicationChannel {
             self.musicEventID = other.musicEventID
             self.name = other.name
             self.description = other.description
+            self.firebaseTopicName = other.firebaseTopicName
             self.iconImageURL = other.iconImageURL
             self.headerImageURL = other.headerImageURL
             self.sortIndex = other.sortIndex
             self.defaultNotificationState = other.defaultNotificationState
             self.userNotificationState = other.userNotificationState
+            self.notificationsRequired = other.notificationsRequired
         }
 
         public init(
             id: ID? = nil,
             musicEventID: MusicEvent.ID? = nil,
+            firebaseTopicName: FirebaseTopicName? = nil,
             name: String,
             description: String,
             iconImageURL: URL? = nil,
             headerImageURL: URL? = nil,
             sortIndex: Int? = nil,
-            defaultNotificationState: NotificationState = .unsubscribed,
-            userNotificationState: NotificationState = .unsubscribed
+            defaultNotificationState: DefaultNotificationState = .unsubscribed,
+            userNotificationState: UserNotificationState? = nil,
+            notificationsRequired: Bool = false
         ) {
             self.id = id
             self.musicEventID = musicEventID
             self.name = name
             self.description = description
+            self.firebaseTopicName = firebaseTopicName
             self.iconImageURL = iconImageURL
             self.headerImageURL = headerImageURL
             self.sortIndex = sortIndex
             self.defaultNotificationState = defaultNotificationState
             self.userNotificationState = userNotificationState
+            self.notificationsRequired = notificationsRequired
         }
     }
 }

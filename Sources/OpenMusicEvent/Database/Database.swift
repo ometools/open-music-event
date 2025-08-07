@@ -17,6 +17,10 @@ private let logger = Logger(
     category: "Database"
 )
 
+extension Tagged {
+
+}
+
 func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any DatabaseWriter {
     print("Preparing Database")
     let database: any DatabaseWriter
@@ -37,21 +41,32 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             "handleChannelSubscriptionChanged",
             argumentCount: 3
           ) { dbValues in
-            // Arguments: channelID, oldState, newState
-            guard let channelID = String.fromDatabaseValue(dbValues[0]),
-                  let oldState = String.fromDatabaseValue(dbValues[1]),
-                  let newState = String.fromDatabaseValue(dbValues[2]) else {
-                return nil
-            }
-            
-            // Log the subscription change
-            logger.info("handleChannelSubscriptionChanged fired: \(channelID) notification state changed from \(oldState) to \(newState)")
-            
-            // Here you could trigger additional actions like:
-            // - Send analytics events
-            // - Schedule/cancel notifications
-            // - Update notification permission manager
-            
+            // Arguments: channelID, firebaseTopicName, oldState, newState, isRequired
+              guard let channelID = CommunicationChannel.ID.fromDatabaseValue(dbValues[0]),
+                    let newValue = CommunicationChannel.UserNotificationState.fromDatabaseValue(dbValues[1])
+              else {
+                  reportIssue("Failed to parse Database Values")
+                  return nil
+              }
+
+              if let topic = CommunicationChannel.FirebaseTopicName.fromDatabaseValue(dbValues[2]) {
+                  logger.log("""
+                  channelID: \(channelID),
+                  newValue: \(newValue.rawValue),
+                  topic: \(topic.rawValue)
+                  """)
+
+                  Task {
+                      @Dependency(\.notificationManager) var notificationManager
+
+                      await withErrorReporting {
+                          try await notificationManager.updateTopicSubscription(topic, to: newValue)
+                      }
+                  }
+              }
+
+
+
             return nil
           }
         )
@@ -188,7 +203,9 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             "headerImageURL" TEXT,
             "sortIndex" INTEGER,
             "defaultNotificationState" TEXT NOT NULL,
-            "userNotificationState" TEXT NOT NULL,
+            "userNotificationState" TEXT,
+            "notificationsRequired" INTEGER NOT NULL DEFAULT 0,
+            "firebaseTopicName" TEXT,
 
             FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
         ) STRICT;
@@ -212,9 +229,9 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         CREATE TRIGGER on_channel_subscription_changed
         AFTER UPDATE OF userNotificationState ON channels
         FOR EACH ROW
-        WHEN OLD.userNotificationState != NEW.userNotificationState
+        WHEN OLD.userNotificationState IS DISTINCT FROM NEW.userNotificationState
         BEGIN
-            SELECT handleChannelSubscriptionChanged(NEW.id, OLD.userNotificationState, NEW.userNotificationState);
+            SELECT handleChannelSubscriptionChanged(NEW.id, NEW.userNotificationState, NEW.firebaseTopicName);
         END;
         """).execute(db)
     }

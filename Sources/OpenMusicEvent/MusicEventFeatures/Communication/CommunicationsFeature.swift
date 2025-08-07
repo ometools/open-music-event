@@ -113,6 +113,7 @@ public struct CommunicationChannelView: View {
         }
 
         var channel: CommunicationChannel
+        
         var pinnedPosts: [CommunicationChannel.Post] = []
         var regularPosts: [CommunicationChannel.Post] = []
 
@@ -156,7 +157,7 @@ public struct CommunicationChannelView: View {
             updateNotificationState(.unsubscribed)
         }
         
-        private func updateNotificationState(_ state: CommunicationChannel.NotificationState) {
+        private func updateNotificationState(_ state: CommunicationChannel.UserNotificationState) {
             withErrorReporting {
                 try defaultDatabase.write { db in
                     try db.execute(
@@ -217,7 +218,7 @@ public struct CommunicationChannelView: View {
                     }
                     
                     Menu("Options", systemImage: "ellipsis") {
-                        switch store.channel.userNotificationState {
+                        switch store.channel.notificationState {
                         case .subscribed:
                             Button("Don't Notify Me For New Posts", systemImage: "bell.badge.slash") {
                                 store.didTapStopNotifyingMe()

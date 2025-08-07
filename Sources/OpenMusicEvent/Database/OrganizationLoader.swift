@@ -268,10 +268,9 @@ extension OrganizerConfiguration {
         info.url = url
 
         try await database.write { db in
-
             try db.execute(literal: """
-                DELETE FROM organizers WHERE url = \(url);
-                """)
+               DELETE FROM organizers WHERE url = \(url);
+            """)
 
             try self.info.save(db)
 

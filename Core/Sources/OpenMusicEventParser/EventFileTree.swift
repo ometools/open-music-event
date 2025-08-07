@@ -95,7 +95,6 @@ struct EventConversion: Conversion {
         typealias Output = EventConfiguration
 
         func apply(_ input: Input) throws -> EventConfiguration {
-
             let eventInfo = input.0
             let stageLineups = input.1
             let artists = input.3
@@ -104,14 +103,13 @@ struct EventConversion: Conversion {
 
             let resolvedSchedule = try input.2?.map { try $0.resolved(timeZone: timeZone) }
 
+
             return EventConfiguration(
                 info: CoreModels.MusicEvent.Draft(
                     name: eventInfo.name ?? "",
                     timeZone: timeZone,
-//                    startTime: eventInfo.startDate?.date,
-//                    endTime: eventInfo.endDate?.date,
-                    startTime: nil,
-                    endTime: nil,
+                    startTime: eventInfo.startDate?.resolveTime(.init()!, timeZone: timeZone),
+                    endTime: eventInfo.endDate?.resolveTime(.init()!, timeZone: timeZone),
                     iconImageURL: eventInfo.iconImageURL,
                     imageURL: eventInfo.imageURL,
                     siteMapImageURL: eventInfo.siteMapImageURL,

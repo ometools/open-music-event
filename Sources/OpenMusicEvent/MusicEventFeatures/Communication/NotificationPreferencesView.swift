@@ -17,14 +17,8 @@ public struct NotificationPreferencesView: View {
     public class Store {
         public init() {}
         
-        var channels: [ChannelSubscription] = []
+        var channels: [CommunicationChannel] = []
         var isLoading: Bool = false
-
-        struct ChannelSubscription: Identifiable {
-            var id: CommunicationChannel.ID
-            var channelName: String
-            var notificationState: CommunicationChannel.NotificationState
-        }
 
         @ObservationIgnored
         @Dependency(\.defaultDatabase) var defaultDatabase
@@ -36,44 +30,23 @@ public struct NotificationPreferencesView: View {
         @Dependency(\.notificationManager) var permissionManager
 
         func task() async {
-            isLoading = true
             let id = musicEventID
             
             let values = ValueObservation.tracking { db in
-                let sql = """
-                    SELECT 
-                        c.name as name,
-                        c.id as id,
-                        c.sortIndex as sortIndex,
-                        userNotificationState as state
-                    FROM channels c
-                    WHERE c.musicEventID = ?
-                    ORDER BY c.sortIndex, c.name
-                """
-                
-                return try Row.fetchAll(db, sql: sql, arguments: [id]).map { row in
-                    let state: String = row["state"] ?? "unsubscribed"
-                    return ChannelSubscription(
-                        id: OmeID(row["id"]),
-                        channelName: row["name"],
-                        notificationState: .init(rawValue: state)!
-                    )
-                }
+                try CommunicationChannel
+                    .filter(Column("musicEventID") == id)
+                    .fetchAll(db)
             }
             .values(in: defaultDatabase)
             
-            do {
+            await withErrorReporting {
                 for try await channels in values {
                     self.channels = channels
-                    self.isLoading = false
                 }
-            } catch {
-                reportIssue(error)
-                self.isLoading = false
             }
         }
 
-        subscript(notificationState channelID: CommunicationChannel.ID) -> CommunicationChannel.NotificationState {
+        subscript(notificationState channelID: CommunicationChannel.ID) -> CommunicationChannel.UserNotificationState {
             get {
                 self.channels.first(where: { $0.id == channelID })?.notificationState ?? .unsubscribed
             }
@@ -123,12 +96,18 @@ public struct NotificationPreferencesView: View {
                 Section {
                     ForEach(store.channels) { channel in
                         HStack {
-                            Text(channel.channelName)
+                            Text(channel.name)
 
                             Spacer()
 
                             NotificationToggle(state: $store[notificationState: channel.id])
+                                .disabled(channel.notificationsRequired)
                                 .disabled(!store.permissionManager.isAuthorized)
+
+                            if channel.notificationsRequired {
+                                Image(systemName: "warning")
+                                    .foregroundStyle(Color.yellow)
+                            }
                         }
                     }
                     
@@ -182,18 +161,18 @@ public struct NotificationPreferencesView: View {
 
 
 struct NotificationToggle: View {
-    @Binding var state: CommunicationChannel.NotificationState
+    @Binding var state: CommunicationChannel.UserNotificationState
 
     var body: some View {
         Picker("", selection: $state) {
-            ForEach(CommunicationChannel.NotificationState.allCases, id: \.self) {
+            ForEach(CommunicationChannel.UserNotificationState.allCases, id: \.self) {
                 Text($0.label)
             }
         }
     }
 }
 
-extension CommunicationChannel.NotificationState: PickableValue {
+extension CommunicationChannel.UserNotificationState: PickableValue {
     public var label: LocalizedStringKey {
         switch self {
         case .subscribed: "Subscribed"
