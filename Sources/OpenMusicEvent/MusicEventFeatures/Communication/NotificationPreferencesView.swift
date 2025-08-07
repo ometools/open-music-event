@@ -33,7 +33,7 @@ public struct NotificationPreferencesView: View {
         @Dependency(\.musicEventID) var musicEventID
 
         @ObservationIgnored
-        @Dependency(\.notificationPermissionManager) var permissionManager
+        @Dependency(\.notificationManager) var permissionManager
 
         func task() async {
             isLoading = true

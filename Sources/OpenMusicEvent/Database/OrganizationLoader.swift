@@ -302,7 +302,7 @@ extension OrganizerConfiguration {
                     var channel = channel
                     channel.info.id = OmeID(stabilizedBy: eventID.rawValue, channel.info.name)
                     channel.info.musicEventID = eventInfo.id
-                    channel.info.defaultNotificationState = channel.info.defaultNotificationState ?? .unsubscribed
+                    channel.info.defaultNotificationState = channel.info.defaultNotificationState
                     let channelID = try channel.info.saved(db).id!
 
                     for post in channel.posts {

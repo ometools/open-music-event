@@ -17,6 +17,15 @@ import IssueReporting
 import Nuke
 #endif
 
+
+#if os(Android)
+import SkipFirebaseCore
+import SkipFirebaseMessaging
+#else
+import FirebaseCore
+import FirebaseMessaging
+#endif
+
 // Step 1: Create a unique notification name
 extension Notification.Name {
     static let userSelectedToViewEvent = Notification.Name("requestedToViewEvent")
@@ -45,14 +54,20 @@ public enum OME {
         ImagePipeline.shared = ImagePipeline(configuration: .withDataCache)
         #endif
 
+        @Dependency(\.notificationManager) var notificationManager
 
+
+
+        FirebaseApp.configure()
+        Messaging.messaging().delegate = notificationManager
+        UNUserNotificationCenter.current().delegate = notificationManager
 //
-//        #if os(Android)
-//        prepareAndroidDependencies()
-//        #endif
     }
 
-
+    public static func onLaunch() async throws {
+        @Dependency(\.notificationManager) var notificationManager
+        try await notificationManager.applicationDidLaunch()
+    }
 
 }
 
