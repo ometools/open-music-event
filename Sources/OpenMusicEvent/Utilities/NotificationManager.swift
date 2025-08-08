@@ -43,6 +43,10 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
     static let shared = NotificationManager()
 
     public func applicationDidLaunch() async throws {
+        if !self.hasRequestedPermission {
+            try await self.requestPermission()
+        }
+        
         #if os(Android)
         // Android handles push tokens automatically
         #else

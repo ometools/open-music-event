@@ -44,7 +44,7 @@ class ArtistDetail {
 
         await withErrorReporting {
             for try await (artist, performances) in combinedQuery.values() {
-                logger.info("Selected Artist: \(artist.name)")
+                logger.info("Selected Artist: \(artist.name) with: \(performances)")
                 self.artist = artist
                 self.performances = performances
             }
