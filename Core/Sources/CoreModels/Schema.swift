@@ -301,6 +301,10 @@ public struct Stage: Identifiable, Equatable, Sendable, Codable {
     public var imageURL: URL?
     public var posterImageURL: URL?
 
+    public enum _CategoryTag {}
+    public typealias Category = Tagged<_CategoryTag, String>
+    public var category: Category?
+
 //    @Column(as: [Artist.ID]?.JSONRepresentation.self)
     public var lineup: [Artist.ID]?
 
@@ -634,6 +638,7 @@ extension Stage {
         public var id: ID?
         public let musicEventID: MusicEvent.ID?
         public let name: String
+        public var category: Stage.Category?
         public var sortIndex: Int?
         public var iconImageURL: URL?
         public var imageURL: URL?
@@ -647,6 +652,7 @@ extension Stage {
             self.id = other.id
             self.musicEventID = other.musicEventID
             self.name = other.name
+            self.category = other.category
             self.iconImageURL = other.iconImageURL
             self.imageURL = other.imageURL
             self.color = other.color
@@ -659,6 +665,7 @@ extension Stage {
             id: ID? = nil,
             musicEventID: MusicEvent.ID? = nil,
             name: String,
+            category: Stage.Category? = nil,
             sortIndex: Int?,
             iconImageURL: URL? = nil,
             imageURL: URL? = nil,
@@ -670,6 +677,7 @@ extension Stage {
             self.musicEventID = musicEventID
             self.name = name
             self.iconImageURL = iconImageURL
+            self.category = category
             self.sortIndex = sortIndex
             self.imageURL = imageURL
             self.color = color

@@ -402,6 +402,7 @@ extension OrganizerConfiguration {
                         id: stageID,
                         musicEventID: eventID,
                         name: stage.name,
+                        category: stage.category,
                         sortIndex: index,
                         iconImageURL: stage.iconImageURL,
                         imageURL: stage.imageURL,

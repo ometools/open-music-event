@@ -71,7 +71,6 @@ struct MusicEventViewer: View {
     var body: some View {
         ZStack {
             if let eventFeatures = store.eventFeatures {
-                Text("Hello World!")
                 MusicEventFeaturesView(store: eventFeatures)
             }
         }
@@ -104,42 +103,13 @@ public class MusicEventFeatures: Identifiable {
         case schedule, artists, contactInfo, communications, siteMap, location, explore, workshops, notifications, about, more
     }
 
-    public init(
-        _ event: MusicEvent,
-        artists: [Artist],
-        stages: [Stage],
-        schedules: [Schedule]
-    ) {
-        @Dependency(\.musicEventID) var musicEventID
-
-        self.artists = ArtistsList()
-        self.communications = CommunicationsFeatureView.Store()
-        self.notifications = NotificationPreferencesView.Store()
-
-        self.shouldShowArtistImages = true
-
-        if !schedules.isEmpty {
-            self.schedule = ScheduleFeature()
-        }
-
-        if !event.contactNumbers.isEmpty {
-            self.contactInfo = ContactInfoFeature()
-        }
-
-        if let location = event.location {
-            self.location = LocationFeature(location: location)
-        }
-
-
-        self.event = event
-    }
-
 
     var event: MusicEvent
     
     public var selectedFeature: Feature = .schedule
 
     public var schedule: ScheduleFeature?
+    public var workshopsSchedule: ScheduleFeature?
     public var artists: ArtistsList
     public var location: LocationFeature?
     public var contactInfo: ContactInfoFeature?
@@ -155,7 +125,40 @@ public class MusicEventFeatures: Identifiable {
 
     @ObservationIgnored
     @Dependency(\.defaultDatabase) var database
-    
+
+
+    public init(
+        _ event: MusicEvent,
+        artists: [Artist],
+        stages: [Stage],
+        schedules: [Schedule]
+    ) {
+        @Dependency(\.musicEventID) var musicEventID
+
+        self.artists = ArtistsList()
+        self.communications = CommunicationsFeatureView.Store()
+        self.notifications = NotificationPreferencesView.Store()
+
+        self.shouldShowArtistImages = true
+
+        if !schedules.isEmpty {
+            self.schedule = ScheduleFeature(category: nil)
+            self.workshopsSchedule = ScheduleFeature(category: "workshop")
+        }
+
+        if !event.contactNumbers.isEmpty {
+            self.contactInfo = ContactInfoFeature()
+        }
+
+        if let location = event.location {
+            self.location = LocationFeature(location: location)
+        }
+
+
+        self.event = event
+    }
+
+
     func onAppear() async {
         NotificationCenter.default.addObserver(
             forName: .userSelectedToViewArtist,
@@ -252,6 +255,16 @@ public struct MusicEventFeaturesView: View {
                 .tag(MusicEventFeatures.Feature.schedule)
             }
 
+            if let workshopsSchedule = store.workshopsSchedule {
+                NavigationStack {
+                    ScheduleView(store: workshopsSchedule)
+                }
+                .tabItem {
+                    Label("Workshops", systemImage: "figure.mind.and.body")
+                }
+                .tag(MusicEventFeatures.Feature.workshops)
+            }
+
             NavigationStack {
                 ArtistsListView(store: store.artists)
             }
@@ -285,20 +298,6 @@ public struct MusicEventFeaturesView: View {
                     }
                 }
                 .tag(MusicEventFeatures.Feature.communications)
-            }
-
-            if let location = store.location {
-                NavigationStack {
-                    LocationView(store: location)
-                }
-                .tabItem {
-                    #if os(iOS)
-                    Label("Location", systemImage: "mappin")
-                    #elseif os(Android)
-                    Label("Location", systemImage: "mappin.circle")
-                    #endif
-                }
-                .tag(MusicEventFeatures.Feature.location)
             }
 
             NavigationStack {
@@ -353,6 +352,18 @@ struct MoreView: View {
                     ContactInfoView(store: contactInfo)
                 } label: {
                     Label("Contact Info", systemImage: "phone")
+                }
+            }
+
+            if let location = store.location {
+                Feature(.location) {
+                    LocationView(store: location)
+                } label: {
+#if os(iOS)
+                    Label("Location", systemImage: "mappin")
+#elseif os(Android)
+                    Label("Location", systemImage: "mappin.circle")
+#endif
                 }
             }
 

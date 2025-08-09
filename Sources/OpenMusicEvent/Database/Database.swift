@@ -141,6 +141,7 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         CREATE TABLE stages(
             "id" TEXT PRIMARY KEY NOT NULL,
             "musicEventID" TEXT,
+            "category" TEXT,
             "sortIndex" TEXT NOT NULL,
             "name" TEXT NOT NULL,
             "iconImageURL" TEXT,

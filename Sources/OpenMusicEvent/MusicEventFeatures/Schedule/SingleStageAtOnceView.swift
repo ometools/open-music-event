@@ -36,28 +36,44 @@ private let logger = Logger(
 
 @Observable
 @MainActor
-class ScheduleState {
-    var selectedStage: Stage.ID?
+class GlobalScheduleState {
     var selectedSchedule: Schedule.ID?
 
-    static let shared = ScheduleState()
+    static let shared = GlobalScheduleState()
 }
+
+@Observable
+@MainActor
+class ScheduleState {
+    var selectedStage: Stage.ID?
+}
+
 
 public struct ScheduleSingleStageAtOnceView: View {
 
     @Observable @MainActor
-    class ViewModel {
-        var scheduleState: ScheduleState = .shared
+    class Store {
+        var scheduleState: ScheduleState
+        var globalScheduleState: GlobalScheduleState = .shared
 
         @ObservationIgnored
         @Dependency(\.musicEventID) var musicEventID
 
+        let category: Stage.Category?
         var stages: [Stage] = []
+
+        init(state: ScheduleState, category: Stage.Category?) {
+            self.category = category
+            self.scheduleState = state
+        }
 
         func task() async {
             let musicEventID = self.musicEventID
             let query = ValueObservation.tracking { db in
-                try Stage.filter(Column("musicEventID") == musicEventID).fetchAll(db)
+                try Stage
+                    .filter(Column("musicEventID") == musicEventID)
+                    .filter(Column("category") == self.category?.rawValue)
+                    .fetchAll(db)
             }
 
             await withErrorReporting {
@@ -72,7 +88,7 @@ public struct ScheduleSingleStageAtOnceView: View {
         }
     }
 
-    @Bindable var store: ViewModel
+    @Bindable var store: Store
     //        @Namespace var namespace
     @Environment(\.dayStartsAtNoon) var dayStartsAtNoon
     @Environment(\.scheduleHeight) var scheduleHeight
@@ -82,9 +98,12 @@ public struct ScheduleSingleStageAtOnceView: View {
             ScrollView {
                 HorizontalPageView(page: $store.scheduleState.selectedStage) {
                     ForEach(store.stages) { stage in
-                        StageSchedulePage(id: stage.id, selectedSchedule: store.scheduleState.selectedSchedule)
-                            .frame(width: geo.size.width)
-                            .tag(stage.id)
+                        StageSchedulePage(
+                            id: stage.id,
+                            selectedSchedule: store.globalScheduleState.selectedSchedule
+                        )
+                        .frame(width: geo.size.width)
+                        .tag(stage.id)
                     }
                 }
                 .frame(height: scheduleHeight)
@@ -100,7 +119,7 @@ public struct ScheduleSingleStageAtOnceView: View {
                 selectedStage: $store.scheduleState.selectedStage
             )
         }
-        .task { await store.task() }
+        .task(id: store.category) { await store.task() }
         .environment(\.dayStartsAtNoon, true)
         //            .scrollPosition($store.highlightedPerformance) { id, size in
         //                // TODO: Replace @Shared(.event) with proper state management
@@ -130,10 +149,10 @@ struct StageSchedulePage: View, Identifiable {
     var id: Stage.ID
     var selectedSchedule: Schedule.ID?
 
+    var globalScheduleState: GlobalScheduleState = .shared
+
     @State
     var performances: [PerformanceTimelineCard] = []
-
-    var scheduleState = ScheduleState.shared
 
     struct PerformanceTimelineCard: Identifiable, TimelineCard, Codable {
         var id: Performance.ID
@@ -149,7 +168,7 @@ struct StageSchedulePage: View, Identifiable {
     let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "StageSchedulePage")
 
     func task() async {
-        guard let selectedSchedule = scheduleState.selectedSchedule
+        guard let selectedSchedule = globalScheduleState.selectedSchedule
         else { return }
 
         let query = ValueObservation.tracking { db in

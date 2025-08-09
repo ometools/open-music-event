@@ -39,12 +39,19 @@ private let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "S
 @MainActor
 @Observable
 public class ScheduleFeature {
-    public init() {
-        
+    public init(category: Stage.Category?) {
+        self.category = category
+
+        let scheduleState = ScheduleState()
+        self.scheduleState = ScheduleState()
+        self.singleStageAtOnceFeature = .init(state: scheduleState, category: category)
     }
 
-    var singleStageAtOnceFeature = ScheduleSingleStageAtOnceView.ViewModel()
-    var scheduleState = ScheduleState.shared
+    var category: Stage.Category?
+    var singleStageAtOnceFeature: ScheduleSingleStageAtOnceView.Store
+    
+    var globalScheduleState: GlobalScheduleState = .shared
+    var scheduleState: ScheduleState
 
     public var schedules: [Schedule] = []
 
@@ -57,7 +64,7 @@ public class ScheduleFeature {
     var showTimeIndicator: Bool {
         @Dependency(\.date) var date
 
-        if let selectedDay = schedules.first(where: { $0.id == scheduleState.selectedSchedule }) {
+        if let selectedDay = schedules.first(where: { $0.id == globalScheduleState.selectedSchedule }) {
             if let startTime = selectedDay.startTime, let endTime = selectedDay.endTime {
                 return date() >= startTime && date() <= endTime
             } else {
@@ -86,14 +93,13 @@ public class ScheduleFeature {
                 self.schedules = schedules
                 logger.log("schedules: \(schedules)")
 
-                if scheduleState.selectedSchedule == nil {
-                    scheduleState.selectedSchedule = schedules.first?.id
+                if globalScheduleState.selectedSchedule == nil {
+                    globalScheduleState.selectedSchedule = schedules.first?.id
                 }
             }
         }
     }
 }
-
 
 
 public struct ScheduleView: View {
@@ -117,8 +123,6 @@ public struct ScheduleView: View {
 
     @State var visibleSchedule: ScheduleType = .singleStageAtOnce
 
-    @Bindable var scheduleState = ScheduleState.shared
-    
     public var body: some View {
         Group {
             switch visibleSchedule {
@@ -126,7 +130,7 @@ public struct ScheduleView: View {
                 ScheduleSingleStageAtOnceView(store: store.singleStageAtOnceFeature)
                     .modifier(
                         ScheduleSelectorModifier(
-                            selectedScheduleID: $scheduleState.selectedSchedule,
+                            selectedScheduleID: $store.globalScheduleState.selectedSchedule,
                             schedules: store.schedules
                         )
                     )
@@ -141,7 +145,6 @@ public struct ScheduleView: View {
 //            }
 //        }
         .task { await store.task() }
-        .environment(store.scheduleState)
         .environment(\.shouldShowTimeIndicator, store.showTimeIndicator)
     }
 
