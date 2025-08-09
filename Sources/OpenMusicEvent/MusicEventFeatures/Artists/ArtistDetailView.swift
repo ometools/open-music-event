@@ -58,7 +58,7 @@ class ArtistDetail {
 
 
 struct ArtistDetailView: View {
-    @State var store: ArtistDetail
+    var store: ArtistDetail
 
     var meshColors: [Color] {
         store.performances.map(\.stageColor.swiftUIColor)
@@ -100,7 +100,7 @@ struct ArtistDetailView: View {
             }
         )
         .listStyle(.plain)
-        .task { await self.store.task() }
+        .task(id: store.artist.id) { await self.store.task() }
         .id(store.artist.id)
 
     }

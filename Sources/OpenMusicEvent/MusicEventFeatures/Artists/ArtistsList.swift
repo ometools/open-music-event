@@ -29,6 +29,12 @@ public class ArtistsList {
     @ObservationIgnored
     @Dependency(\.musicEventID) var musicEventID
 
+    var destination: ArtistDetail?
+
+    func didTapArtist(_ id: Artist.ID) {
+        self.destination = ArtistDetail(artistID: id)
+    }
+
     func searchTextDidChange() async {
         let id = self.musicEventID
         let searchText = self.searchText
@@ -54,7 +60,9 @@ struct ArtistsListView: View {
 
     var body: some View {
         List(store.artists) { artist in
-            NavigationLink(value: artist.id) {
+            Button {
+                store.didTapArtist(artist.id)
+            } label: {
                 Row(artist: artist)
             }
         }
@@ -66,8 +74,8 @@ struct ArtistsListView: View {
         #endif
         .navigationTitle("Artists")
         .listStyle(.plain)
-        .navigationDestination(for: Artist.ID.self) {
-            ArtistDetailView(store: .init(artistID: $0))
+        .navigationDestination(item: $store.destination) {
+            ArtistDetailView(store: $0)
         }
     }
 

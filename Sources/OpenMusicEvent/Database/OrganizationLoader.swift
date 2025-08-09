@@ -492,7 +492,12 @@ extension OrganizerConfiguration {
                                 return !sourcePerformanceArtistIDs.contains(artistID)
                             }
                             if !performanceArtistsToDelete.isEmpty {
-                                try Performance.Artists.deleteAll(db, ids: performanceArtistsToDelete.map(\.id))
+                                for performanceArtist in performanceArtistsToDelete {
+                                    try db.execute(
+                                        sql: "DELETE FROM performanceArtists WHERE performanceID = ? AND artistID = ?",
+                                        arguments: [performanceArtist.performanceID, performanceArtist.artistID]
+                                    )
+                                }
                             }
 
                             for artistName in performance.artistNames {

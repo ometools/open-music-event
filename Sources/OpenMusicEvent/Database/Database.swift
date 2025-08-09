@@ -183,12 +183,12 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
 
         try sql("""
         CREATE TABLE performanceArtists (
-            "id" INTEGER PRIMARY KEY AUTOINCREMENT,
             "performanceID" TEXT NOT NULL,
-            "artistID" TEXT REFERENCES artists(id) ON DELETE CASCADE,
+            "artistID" TEXT,
             "anonymousArtistName" TEXT,
 
-            FOREIGN KEY("performanceID") REFERENCES "performances"("id") ON DELETE CASCADE
+            PRIMARY KEY("performanceID", "artistID"),
+            FOREIGN KEY("performanceID") REFERENCES "performances"("id") ON DELETE CASCADE,
             FOREIGN KEY("artistID") REFERENCES "artists"("id") ON DELETE CASCADE
         ) STRICT;
         """).execute(db)

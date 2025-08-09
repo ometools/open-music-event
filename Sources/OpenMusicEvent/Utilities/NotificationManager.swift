@@ -22,6 +22,8 @@ import FirebaseCore
 import FirebaseMessaging
 #endif
 
+
+
 /* SKIP @bridge */
 @Observable
 public final class NotificationManager: NSObject, @unchecked Sendable, MessagingDelegate, UNUserNotificationCenterDelegate {
@@ -156,9 +158,20 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
 
         Messaging.messaging().appDidReceiveMessage(content.userInfo)
 
-        // Handle deep linking
-        if let channelId = content.userInfo["channelId"] as? String {
-            await handleNotificationTap(channelId: channelId, userInfo: content.userInfo)
+        if let organizationURL = content.userInfo(for: "organizationURL").flatMap(URL.init(string:)),
+           let channelID = content.userInfo(for: "channelID").map(CommunicationChannel.ID.init(rawValue:)),
+           let postID = content.userInfo(for: "postID").map(CommunicationChannel.Post.ID.init(rawValue:)) {
+
+            await withErrorReporting {
+                try await downloadAndStoreOrganizer(from: .url(organizationURL))
+
+                NotificationCenter.default.post(
+                    name: .userSelectedToViewPost,
+                    object: nil,
+                    info: .viewPost(channelID: channelID, postID: postID)
+                )
+            }
+
         }
     }
 //
@@ -212,5 +225,11 @@ extension DependencyValues {
     public var notificationManager: NotificationManager {
         get { self[NotificationPermissionManagerDependencyKey.self] }
         set { self[NotificationPermissionManagerDependencyKey.self] = newValue }
+    }
+}
+
+extension UNNotificationContent {
+    func userInfo(for key: AnyHashable) -> String? {
+        self.userInfo[key] as? String
     }
 }

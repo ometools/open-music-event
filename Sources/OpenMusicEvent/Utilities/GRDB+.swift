@@ -58,7 +58,7 @@ extension Artist.Draft:  MutableIdentifiable, TableDraft {}
 extension Stage.Draft:  MutableIdentifiable, TableDraft {}
 extension Schedule.Draft: MutableIdentifiable, TableDraft {}
 extension Performance.Draft:  MutableIdentifiable, TableDraft {}
-extension Performance.Artists.Draft:  MutableIdentifiable, TableDraft {}
+extension Performance.Artists.Draft: TableDraft {}
 extension CommunicationChannel.Draft: MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Post.Draft: MutableIdentifiable, TableDraft {}
 

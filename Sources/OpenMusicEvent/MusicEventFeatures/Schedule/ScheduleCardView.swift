@@ -35,6 +35,14 @@ struct ScheduleCardView: View {
         }
     }
 
+    func didTapGoToArtist(_ artistID: Artist.ID) {
+        NotificationCenter.default.post(
+            name: .userSelectedToViewArtist,
+            object: nil,
+            info: .viewArtist(artistID: artistID)
+        )
+    }
+
     @State var performance: PerformanceDetail?
     @State var performingArtists: [Artist] = []
 
@@ -67,7 +75,7 @@ struct ScheduleCardView: View {
                     label: "\(artist.name)",
                     systemImage: "person"
                 ) {
-                    //
+                    self.didTapGoToArtist(artist.id)
                 }
             }
         }

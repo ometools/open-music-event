@@ -141,20 +141,22 @@ struct LabeledMenuButton: View {
         Button(action: action) {
             #if os(Android)
             HStack {
+                Image(systemName: systemImage)
+
                 VStack(alignment: .leading, spacing: 5) {
                     Text(title)
                     Text(label)
                         .foregroundStyle(.secondary)
                 }
-
-                Image(systemName: systemImage)
             }
             .padding(.horizontal)
             #else
-            Label(title, systemImage: systemImage)
-            Text(label)
+                Label(title, systemImage: systemImage)
+                Text(label)
             #endif
         }
+        #if os(Android)
         .buttonStyle(.plain)
+        #endif
     }
 }

@@ -21,11 +21,6 @@ import FirebaseCore
 import FirebaseMessaging
 #endif
 
-// Step 1: Create a unique notification name
-extension Notification.Name {
-    static let userSelectedToViewEvent = Notification.Name("requestedToViewEvent")
-    static let userRequestedToExitEvent = Notification.Name("requestedToExitEvent")
-}
 
 
 import OpenMusicEventParser
@@ -86,16 +81,20 @@ public struct OMEWhiteLabeledEntryPoint: View {
             self.organizerURL = organizerID
             self.organizerDetailStore = OrganizerDetailView.ViewModel(url: organizerID)
             
+            self.observeNotifications()
+        }
+
+        func observeNotifications() {
             NotificationCenter.default.addObserver(
                 forName: .userSelectedToViewEvent,
                 object: nil,
                 queue: .main
             ) { notification in
-                guard let eventID = notification.userInfo?["eventID"] as? OmeID<MusicEvent> else {
-                    reportIssue("Posted notification: selectedEventID did not contain eventID")
+                guard case .some(.viewEvent(let eventID)) = notification.info else {
+                    reportIssue("Posted notification: userSelectedToViewEvent did not contain valid eventID")
                     return
                 }
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self.handleSelectedEventIDNotification(eventID)
                 }
             }
@@ -180,8 +179,8 @@ public struct OMEAppEntryPoint: View {
                 object: nil,
                 queue: .main
             ) { notification in
-                guard let eventID = notification.userInfo?["eventID"] as? OmeID<MusicEvent> else {
-                    reportIssue("Posted notification: selectedEventID did not contain eventID")
+                guard case .some(.viewEvent(let eventID)) = notification.info else {
+                    reportIssue("Posted notification: userSelectedToViewEvent did not contain valid eventID")
                     return
                 }
                 MainActor.assumeIsolated {

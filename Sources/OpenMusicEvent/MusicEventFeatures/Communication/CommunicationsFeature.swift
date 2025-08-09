@@ -26,6 +26,12 @@ public struct CommunicationsFeatureView: View {
         @ObservationIgnored
         @Dependency(\.musicEventID) var musicEventID
 
+        var destination: CommunicationChannelView.Store?
+
+        func didTapChannel(_ channel: CommunicationChannel.ID) {
+            self.destination = .init(channel)
+        }
+
         func task() async {
             let id = musicEventID
             let values = ValueObservation.tracking { db in
@@ -45,23 +51,27 @@ public struct CommunicationsFeatureView: View {
         }
     }
 
-    let store: Store
+    @Bindable var store: Store
 
     public var body: some View {
         List {
             Section {
                 ForEach(store.channels) { channel in
-                    NavigationLink {
-                        CommunicationChannelView(store: .init(channel))
+                    NavigationLinkButton {
+                        store.didTapChannel(channel.id)
                     } label: {
                         Row(channel: channel)
                     }
+                    .buttonStyle(.plain)
                 }
             } header: {
                 Text("Channels")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+        }
+        .navigationDestination(item: $store.destination) {
+            CommunicationChannelView(store: $0)
         }
         .navigationTitle("Updates")
         .task { await store.task() }
@@ -107,22 +117,25 @@ public struct CommunicationsFeatureView: View {
 public struct CommunicationChannelView: View {
     @MainActor
     @Observable
-    class Store {
-        init(_ channel: CommunicationChannel) {
-            self.channel = channel
+    class Store: Identifiable {
+        init(_ channelID: CommunicationChannel.ID) {
+            self.id = channelID
         }
 
-        var channel: CommunicationChannel
-        
+        let id: CommunicationChannel.ID
+
+        var channel: CommunicationChannel = .placeholder
         var pinnedPosts: [CommunicationChannel.Post] = []
         var regularPosts: [CommunicationChannel.Post] = []
+
+        var destination: CommunicationChannel.Post?
 
         @ObservationIgnored
         @Dependency(\.defaultDatabase) var defaultDatabase
 
         func task() async {
-            let channelID = channel.id
-            
+            let channelID = id
+
             let postsObservation = ValueObservation.tracking { db in
                 let channel = try CommunicationChannel
                     .filter(Column("id") == channelID)
@@ -149,6 +162,10 @@ public struct CommunicationChannelView: View {
             }
         }
 
+        func didTapPost(_ post: CommunicationChannel.Post) {
+            self.destination = post
+        }
+
         func didTapNotifyMe() {
             updateNotificationState(.subscribed)
         }
@@ -156,7 +173,7 @@ public struct CommunicationChannelView: View {
         func didTapStopNotifyingMe() {
             updateNotificationState(.unsubscribed)
         }
-        
+
         private func updateNotificationState(_ state: CommunicationChannel.UserNotificationState) {
             withErrorReporting {
                 try defaultDatabase.write { db in
@@ -169,7 +186,7 @@ public struct CommunicationChannelView: View {
         }
     }
 
-    let store: Store
+    @Bindable var store: Store
 
     public var body: some View {
         List {
@@ -179,8 +196,8 @@ public struct CommunicationChannelView: View {
             if !store.pinnedPosts.isEmpty {
                 Section {
                     ForEach(store.pinnedPosts) { post in
-                        NavigationLink {
-                            PostDetailView(post: post)
+                        NavigationLinkButton {
+                            store.didTapPost(post)
                         } label: {
                             Row(post: post)
                         }
@@ -205,7 +222,6 @@ public struct CommunicationChannelView: View {
                 }
             }
         }
-        .listStyle(.plain)
         .task { await store.task() }
         .navigationTitle(store.channel.name)
         .toolbar {
@@ -231,6 +247,9 @@ public struct CommunicationChannelView: View {
                     }
                 }
             }
+        }
+        .navigationDestination(item: $store.destination) {
+            PostDetailView(post: $0)
         }
     }
 
@@ -342,3 +361,54 @@ extension Image {
 //    }
 //}
 //#endif
+
+extension View {
+    public func navigationDestination<D, C: View>(
+          item: Binding<D?>,
+          @ViewBuilder destination: @escaping (D) -> C
+        ) -> some View {
+          navigationDestination(isPresented: Binding(item)) {
+            if let item = item.wrappedValue {
+              destination(item)
+            }
+          }
+        }
+}
+  import IssueReporting
+  import SwiftUI
+
+  extension Binding {
+    /// Creates a binding by projecting the base optional value to a Boolean value.
+    ///
+    /// Writing `false` to the binding will `nil` out the base value. Writing `true` produces a
+    /// runtime warning.
+    ///
+    /// - Parameter base: A value to project to a Boolean value.
+    public init<V>(
+      _ base: Binding<V?>,
+    ) where Value == Bool {
+      self =
+        base[]
+    }
+  }
+
+  extension Optional {
+    fileprivate subscript() -> Bool {
+      get { self != nil }
+      set {
+        if newValue {
+          reportIssue(
+            """
+            Boolean presentation binding attempted to write 'true' to a generic 'Binding<Item?>' \
+            (i.e., 'Binding<\(Wrapped.self)?>').
+
+            This is not a valid thing to do, as there is no way to convert 'true' to a new \
+            instance of '\(Wrapped.self)'.
+            """
+          )
+        } else {
+          self = nil
+        }
+      }
+    }
+  }

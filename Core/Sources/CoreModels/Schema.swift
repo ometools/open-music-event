@@ -385,19 +385,16 @@ public struct Performance: Identifiable, Equatable, Sendable, TimelineRepresenta
 
     // A join table for the many-to-many relationship of Performance -> Artist
 //    @Table("performanceArtists")
-    public struct Artists: Equatable, Sendable, Identifiable, Codable {
-        public var id: OmeID<Performance.Artists>
+    public struct Artists: Hashable, Sendable, Codable {
         public let performanceID: Performance.ID
         public let artistID: Artist.ID?
         public let anonymousArtistName: String?
 
         public init(
-            id: OmeID<Performance.Artists>,
             performanceID: Performance.ID,
             artistID: Artist.ID?,
             anonymousArtistName: String?
         ) {
-            self.id = id
             self.performanceID = performanceID
             self.artistID = artistID
             self.anonymousArtistName = anonymousArtistName
@@ -771,7 +768,6 @@ extension Performance.Artists {
     public struct Draft {
         public typealias PrimaryTable = Performance.Artists
 
-        public var id: OmeID<Performance.Artists>?
         public let performanceID: Performance.ID
         public let artistID: Artist.ID?
         public let anonymousArtistName: String?
@@ -779,18 +775,15 @@ extension Performance.Artists {
         public static let tableName = Performance.Artists.tableName
 
         public init(_ other: Performance.Artists) {
-            self.id = other.id
             self.performanceID = other.performanceID
             self.artistID = other.artistID
             self.anonymousArtistName = other.anonymousArtistName
         }
         public init(
-            id: OmeID<Performance.Artists>? = nil,
             performanceID: Performance.ID,
             artistID: Artist.ID? = nil,
             anonymousArtistName: String? = nil
         ) {
-            self.id = id
             self.performanceID = performanceID
             self.artistID = artistID
             self.anonymousArtistName = anonymousArtistName
@@ -852,6 +845,8 @@ public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
         self.userNotificationState = userNotificationState
         self.notificationsRequired = notificationsRequired
     }
+
+    public static let placeholder = CommunicationChannel.init(id: "0", musicEventID: nil, name: "", description: "")
 }
 
 extension CommunicationChannel {

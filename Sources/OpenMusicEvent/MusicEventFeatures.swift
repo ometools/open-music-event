@@ -70,10 +70,8 @@ struct MusicEventViewer: View {
 
     var body: some View {
         ZStack {
-            AnimatedMeshView()
-                .ignoresSafeArea()
-
             if let eventFeatures = store.eventFeatures {
+                Text("Hello World!")
                 MusicEventFeaturesView(store: eventFeatures)
             }
         }
@@ -152,18 +150,38 @@ public class MusicEventFeatures: Identifiable {
     var isLoadingOrganizer: Bool = false
     var errorMessage: String?
 
+    @ObservationIgnored
+    @Dependency(\.musicEventID) var musicEventID
+
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var database
+    
     func onAppear() async {
         NotificationCenter.default.addObserver(
             forName: .userSelectedToViewArtist,
             object: nil,
             queue: .main
         ) { notification in
-            guard let artistID = notification.userInfo?["eventID"] as? Artist.ID else {
-                reportIssue("Posted notification: selectedEventID did not contain eventID")
+            guard case .some(.viewArtist(let artistID)) = notification.info else {
+                reportIssue("Posted notification: userSelectedToViewArtist did not contain valid artistID")
                 return
             }
             MainActor.assumeIsolated {
                 self.handleSelectedArtistIDNotification(artistID)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .userSelectedToViewPost,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard case .some(.viewPost(let channelID, let postID)) = notification.info else {
+                reportIssue("Posted notification: userSelectedToViewPost did not contain valid channelID and postID")
+                return
+            }
+            Task { @MainActor in
+                await self.handleSelectedPostNotification(channelID: channelID, postID: postID)
             }
         }
     }
@@ -195,14 +213,24 @@ public class MusicEventFeatures: Identifiable {
 
     private func handleSelectedArtistIDNotification(_ artistID: Artist.ID) {
         self.selectedFeature = .artists
+        self.artists.destination = .init(artistID: artistID)
+    }
+
+    private func handleSelectedPostNotification(channelID: CommunicationChannel.ID, postID: CommunicationChannel.Post.ID) async {
+        self.selectedFeature = .communications
+        self.communications?.destination = .init(channelID)
+
+        await withErrorReporting {
+            let post = try await database.read { db in
+                try CommunicationChannel.Post.fetchOne(db, key: postID)
+            }
+
+            self.communications?.destination?.destination = post
+        }
     }
 }
 
 
-// Step 1: Create a unique notification name
-extension Notification.Name {
-    static let userSelectedToViewArtist = Notification.Name("requestedToViewArtist")
-}
 
 
 public struct MusicEventFeaturesView: View {
@@ -302,7 +330,7 @@ public struct MusicEventFeaturesView: View {
 //            .tabItem { Label("Notifications", systemImage: Icons.notifications) }
 //            .tag(MusicEventFeatures.Feature.notifications)
         }
-        .onAppear { Task { await store.onAppear() }}
+        .task { await store.onAppear() }
         .environment(\.showArtistImages, store.shouldShowArtistImages)
     }
 }

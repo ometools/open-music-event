@@ -312,6 +312,9 @@
         }
       }
     },
+    "Hello World!" : {
+
+    },
     "Home" : {
       "comment" : "Tab bar item title for the Home tab",
       "extractionState" : "stale",
