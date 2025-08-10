@@ -122,7 +122,7 @@ struct LabeledMenuButton: View {
     init(
         title: String,
         label: String,
-        systemImage: String,
+        systemImage: Image,
         action: @escaping () -> Void,
 
     ) {
@@ -135,13 +135,13 @@ struct LabeledMenuButton: View {
     var action: () -> Void
     var label: String
     var title: String
-    var systemImage: String
+    var systemImage: Image
 
     var body: some View {
         Button(action: action) {
             #if os(Android)
             HStack {
-                Image(systemName: systemImage)
+                systemImage
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(title)
@@ -151,8 +151,12 @@ struct LabeledMenuButton: View {
             }
             .padding(.horizontal)
             #else
-                Label(title, systemImage: systemImage)
-                Text(label)
+            Label {
+                Text(title)
+            } icon: {
+                systemImage
+            }
+            Text(label)
             #endif
         }
         #if os(Android)

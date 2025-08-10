@@ -73,7 +73,7 @@ struct ScheduleCardView: View {
                 LabeledMenuButton(
                     title: "Go to Artist",
                     label: "\(artist.name)",
-                    systemImage: "person"
+                    systemImage: Icons.person
                 ) {
                     self.didTapGoToArtist(artist.id)
                 }

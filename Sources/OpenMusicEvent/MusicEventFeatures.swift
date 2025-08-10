@@ -246,7 +246,7 @@ public struct MusicEventFeaturesView: View {
                     ScheduleView(store: schedule)
                 }
                 .tabItem {
-                    Label("Schedule", systemImage: "calendar")
+                    Label("Schedule", image: Icons.calendar)
                 }
                 .tag(MusicEventFeatures.Feature.schedule)
             }
@@ -259,7 +259,7 @@ public struct MusicEventFeaturesView: View {
                     Label {
                         Text("Workshops")
                     } icon: {
-                        Image.Icons.selfImprovement
+                        Icons.selfImprovement
                     }
                 }
                 .tag(MusicEventFeatures.Feature.workshops)
@@ -272,11 +272,7 @@ public struct MusicEventFeaturesView: View {
                 Label {
                     Text("Artists")
                 } icon: {
-                    #if os(Android)
-                    Image("person.3", bundle: .module)
-                    #else
-                    Image(systemName: "person.3")
-                    #endif
+                    Icons.person3
                 }
             }
             .tag(MusicEventFeatures.Feature.artists)
@@ -289,11 +285,7 @@ public struct MusicEventFeaturesView: View {
                     Label {
                         Text("Updates")
                     } icon: {
-                        #if os(Android)
-                        Image("megaphone", bundle: .module)
-                        #else
-                        Image(systemName: "megaphone")
-                        #endif
+                        Icons.megaphone
                     }
                 }
                 .tag(MusicEventFeatures.Feature.communications)
@@ -302,7 +294,7 @@ public struct MusicEventFeaturesView: View {
             NavigationStack {
                 MoreView(store: store)
             }
-            .tabItem { Label("More", systemImage: "ellipsis") }
+            .tabItem { Label("More", image: Icons.ellipsis) }
             .tag(MusicEventFeatures.Feature.more)
 //            if let workshops = store.workshops {
 //                NavigationStack {
@@ -341,7 +333,7 @@ struct MoreView: View {
                 Feature(.notifications) {
                     NotificationPreferencesView(store: notifications)
                 } label: {
-                    Label("Notifications", systemImage: "bell")
+                    Label("Notifications", image: Icons.bell)
                 }
             }
             
@@ -349,7 +341,7 @@ struct MoreView: View {
                 Feature(.contactInfo) {
                     ContactInfoView(store: contactInfo)
                 } label: {
-                    Label("Contact Info", systemImage: "phone")
+                    Label("Contact Info", image: Icons.phone)
                 }
             }
 
@@ -358,9 +350,9 @@ struct MoreView: View {
                     LocationView(store: location)
                 } label: {
 #if os(iOS)
-                    Label("Location", systemImage: "mappin")
+                    Label("Location", image: Icons.mappin)
 #elseif os(Android)
-                    Label("Location", systemImage: "mappin.circle")
+                    Label("Location", image: Icons.mappinCircle)
 #endif
                 }
             }
@@ -368,7 +360,7 @@ struct MoreView: View {
             Feature(.about) {
                 AboutAppView(store: store)
             } label: {
-                Label("About", systemImage: "info.circle")
+                Label("About", image: Icons.infoCircle)
             }
 
         }
@@ -442,7 +434,7 @@ struct AboutAppView: View {
                 } label: {
                     VStack(alignment: .leading) {
                         HStack {
-                            Label("Update to the newest schedule", systemImage: "arrow.clockwise")
+                            Label("Update to the newest schedule", image: Icons.arrowClockwise)
                             Spacer()
                             if store.isLoadingOrganizer {
                                 ProgressView()
@@ -450,14 +442,16 @@ struct AboutAppView: View {
                         }
 
                         if let errorMessage = store.errorMessage {
-                            Label(errorMessage, systemImage: "exclamationmark.circle.fill")
+                            Label(errorMessage, image: Icons.exclamationmarkCircleFill)
                                 .foregroundStyle(.red)
                         }
                     }
                 }
 
-                Button("Exit and see previous events", systemImage: "door.left.hand.open") {
+                Button {
                     store.didTapExitEvent()
+                } label: {
+                    Label("Exit and see previous events", image: Icons.doorLeftHandOpen)
                 }
             }
 
@@ -471,15 +465,19 @@ struct AboutAppView: View {
                 """)
 
                 Link(destination: URL(string: "https://github.com/woodymelling/open-music-event")!) {
-                    Label("GitHub", image: "github")
+                    Label {
+                        Text("GitHub")
+                    } icon: {
+                        Icons.github.frame(square: 25)
+                    }
                 }
 
                 Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/issues/new")!) {
-                    Label("Report an Issue", systemImage: "exclamationmark.bubble")
+                    Label("Report an Issue", image: Icons.exclamationmarkBubble)
                 }
 
                 Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/discussions/new")!) {
-                    Label("Suggest a feature", systemImage: "plus.bubble")
+                    Label("Suggest a feature", image: Icons.plusBubble)
                 }
             }
         }

@@ -78,6 +78,7 @@ struct NavigationBarExtensionViewModifier<ExtensionContent: View>: ViewModifier 
             extensionContent
             content
         }
+        .toolbarBackground(.hidden, for: .navigationBar)
         #endif
     }
 }

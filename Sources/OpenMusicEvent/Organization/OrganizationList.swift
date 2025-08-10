@@ -129,7 +129,7 @@ struct OrganizerListView: View {
         .onAppear { Task { await store.onAppear() }}
         .navigationTitle("Organizations")
         .toolbar {
-            Button("Add Organization", systemImage: "plus") {
+            Button("Add Organization", image: Icons.plus) {
                 store.didTapAddOrganizerButton()
             }
         }

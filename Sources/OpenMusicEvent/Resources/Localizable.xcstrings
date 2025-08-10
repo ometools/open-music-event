@@ -711,9 +711,6 @@
         }
       }
     },
-    "View in Schedule" : {
-
-    },
     "Welcome" : {
       "comment" : "Tab bar item title for the Welcome tab",
       "extractionState" : "stale",

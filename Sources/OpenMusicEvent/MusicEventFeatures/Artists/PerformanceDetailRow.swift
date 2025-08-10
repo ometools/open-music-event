@@ -61,11 +61,11 @@ public struct PerformanceDetailRow: View {
         )
         .padding(.horizontal, 5)
         .frame(height: 60)
-        #if os(iOS)
-        .contextMenu {
-            Button("View in Schedule", systemImage: "calendar") { }
-        }
-        #endif
+//        #if os(iOS)
+//        .contextMenu {
+//            Button("View in Schedule", image: Icons.calendar) { }
+//        }
+//        #endif
     }
 }
 

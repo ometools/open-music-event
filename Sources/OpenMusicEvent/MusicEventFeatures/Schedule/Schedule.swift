@@ -146,6 +146,7 @@ public struct ScheduleView: View {
 //        }
         .task { await store.task() }
         .environment(\.shouldShowTimeIndicator, store.showTimeIndicator)
+        
     }
 
 
@@ -157,15 +158,15 @@ public struct ScheduleView: View {
                 Toggle(isOn: $store.filteringFavorites) {
                     Label(
                         "Favorites",
-                        systemImage:  store.isFiltering ? "heart.fill" : "heart"
+                        image: store.isFiltering ? Icons.heartFill : Icons.heart
                     )
                 }
             } label: {
                 Label(
                     "Filter",
-                    systemImage: store.isFiltering ?
-                    "line.3.horizontal.decrease.circle.fill" :
-                        "line.3.horizontal.decrease.circle"
+                    image: store.isFiltering ?
+                        Icons.line3HorizontalDecreaseCircleFill :
+                        Icons.line3HorizontalDecreaseCircle
                 )
             }
         }

@@ -104,7 +104,7 @@ public struct CommunicationsFeatureView: View {
                 Spacer()
 
                 if isSubscribed {
-                    Image(systemName: "bell.fill")
+                    Icons.bellFill
                         .foregroundStyle(.secondary)
                 }
             }
@@ -228,19 +228,19 @@ public struct CommunicationChannelView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 8) {
                     if store.channel.userNotificationState == .subscribed {
-                        Image(systemName: "bell.fill")
+                        Icons.bellFill
                             .foregroundStyle(Color.accentColor)
                             .font(.caption)
                     }
                     
-                    Menu("Options", systemImage: "ellipsis") {
+                    Menu("Options") {
                         switch store.channel.notificationState {
                         case .subscribed:
-                            Button("Don't Notify Me For New Posts", systemImage: "bell.badge.slash") {
+                            Button("Don't Notify Me For New Posts", image: Icons.bellBadgeSlash) {
                                 store.didTapStopNotifyingMe()
                             }
                         case .unsubscribed:
-                            Button("Notify Me For New Posts", systemImage: "bell.badge") {
+                            Button("Notify Me For New Posts", image: Icons.bellBadge) {
                                 store.didTapNotifyMe()
                             }
                         }
@@ -262,7 +262,7 @@ public struct CommunicationChannelView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             if post.isPinned {
-                                Image.pinSymbol
+                                Icons.pin
                                     .foregroundStyle(Color.accentColor)
                                     .font(.caption)
                             }
@@ -313,7 +313,7 @@ struct PostDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         if post.isPinned {
-                            Image.pinSymbol
+                            Icons.pin
                                 .foregroundStyle(Color.accentColor)
                         }
                         
@@ -338,15 +338,6 @@ struct PostDetailView: View {
     }
 }
 
-extension Image {
-    static var pinSymbol: Image {
-        #if os(Android)
-        Image("pin", bundle: .module)
-        #else
-        Image(systemName: "pin")
-        #endif
-    }
-}
 //
 //
 //
