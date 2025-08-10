@@ -158,7 +158,6 @@ public class MusicEventFeatures: Identifiable {
         self.event = event
     }
 
-
     func onAppear() async {
         NotificationCenter.default.addObserver(
             forName: .userSelectedToViewArtist,
@@ -233,9 +232,6 @@ public class MusicEventFeatures: Identifiable {
     }
 }
 
-
-
-
 public struct MusicEventFeaturesView: View {
     public init(store: MusicEventFeatures) {
         self.store = store
@@ -260,7 +256,11 @@ public struct MusicEventFeaturesView: View {
                     ScheduleView(store: workshopsSchedule)
                 }
                 .tabItem {
-                    Label("Workshops", systemImage: "figure.mind.and.body")
+                    Label {
+                        Text("Workshops")
+                    } icon: {
+                        Image.Icons.selfImprovement
+                    }
                 }
                 .tag(MusicEventFeatures.Feature.workshops)
             }
@@ -278,7 +278,6 @@ public struct MusicEventFeaturesView: View {
                     Image(systemName: "person.3")
                     #endif
                 }
-
             }
             .tag(MusicEventFeatures.Feature.artists)
 
@@ -305,7 +304,6 @@ public struct MusicEventFeaturesView: View {
             }
             .tabItem { Label("More", systemImage: "ellipsis") }
             .tag(MusicEventFeatures.Feature.more)
-
 //            if let workshops = store.workshops {
 //                NavigationStack {
 //                    Text("TODO: Workshops")
@@ -432,8 +430,6 @@ struct Feature<FeatureView: View, FeatureLabelView: View>: View {
     }
 }
 
-
-
 struct AboutAppView: View {
     let store: MusicEventFeatures
     var body: some View {
@@ -475,14 +471,14 @@ struct AboutAppView: View {
                 """)
 
                 Link(destination: URL(string: "https://github.com/woodymelling/open-music-event")!) {
-                    Label("GitHub", systemImage: "link")
+                    Label("GitHub", image: "github")
                 }
 
                 Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/issues/new")!) {
                     Label("Report an Issue", systemImage: "exclamationmark.bubble")
                 }
 
-                Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/issues/new")!) {
+                Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/discussions/new")!) {
                     Label("Suggest a feature", systemImage: "plus.bubble")
                 }
             }

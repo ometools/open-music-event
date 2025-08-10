@@ -44,10 +44,7 @@ public struct OrganizerDetailView: View {
             logger.info("didTapEvent: \(id.rawValue)")
             NotificationCenter.default.post(
                 name: .userSelectedToViewEvent,
-                object: nil,
-                userInfo: [
-                    "eventID": id
-                ]
+                info: .viewEvent(eventID: id)
             )
         }
 

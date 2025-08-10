@@ -296,6 +296,7 @@ public struct CommunicationChannelView: View {
     }
 }
 
+
 struct PostDetailView: View {
     let post: CommunicationChannel.Post
     

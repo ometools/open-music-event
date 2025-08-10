@@ -124,13 +124,9 @@ extension CoreModels.Schedule {
 
             func resolved(day: CalendarDate, timeZone: TimeZone) -> CoreModels.Schedule.StringlyTyped.Performance {
                 @Dependency(\.omeLogger) var logger
-                
-                logger.debug("Performance.resolved: '\(self.title)' startTime=\(startTime), endTime=\(endTime), day=\(day.description), timeZone=\(timeZone.identifier)")
-                
+
                 let startDate = day.resolveTime(startTime, timeZone: timeZone)
                 let endDate = day.resolveTime(endTime, timeZone: timeZone)
-                
-                logger.debug("Performance.resolved: '\(self.title)' resolved to startDate=\(startDate), endDate=\(endDate)")
 
                 return CoreModels.Schedule.StringlyTyped.Performance(
                     title: self.title,
