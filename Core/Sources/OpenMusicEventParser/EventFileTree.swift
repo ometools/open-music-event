@@ -264,6 +264,7 @@ extension ChannelConfiguration {
     }
     .convert {
         AnyConversion { info, posts in
+
             return EventConfiguration.ChannelConfiguration(
                 info: info,
                 posts: posts
@@ -316,6 +317,7 @@ public struct PostConversion: Conversion {
     public init() {}
 
     public struct PostFrontMatter: Codable, Equatable, Sendable {
+        public var title: String?
         public var headerImageURL: URL?
         public var timestamp: Date?
         public var isPinned: Bool?
@@ -337,17 +339,17 @@ public struct PostConversion: Conversion {
         public func apply(_ input: Input) throws -> Output {
             CoreModels.CommunicationChannel.Post.Draft(
                 channelID: nil,
-                title: input.fileName,
+                title: input.data.frontMatter?.title ?? input.fileName,
                 contents: input.data.body ?? "",
                 headerImageURL: input.data.frontMatter?.headerImageURL,
-                timestamp: input.data.frontMatter?.timestamp ?? Date(),
+                timestamp: input.data.frontMatter?.timestamp,
                 isPinned: input.data.frontMatter?.isPinned ?? false
             )
         }
 
         public func unapply(_ output: Output) throws -> Input {
             FileContent(
-                fileName: output.title,
+                fileName: output.id?.rawValue ?? output.title,
                 fileType: "md",
                 data: MarkdownWithFrontMatter(
                     frontMatter: PostFrontMatter(

@@ -259,7 +259,7 @@ public struct MusicEventFeaturesView: View {
             if let workshopsSchedule = store.workshopsSchedule {
                 NavigationStack {
                     ScheduleView(store: workshopsSchedule)
-                        .environment(\.dayStartsAtNoon, true)
+                        .environment(\.dayStartsAtNoon, false)
                 }
                 .tabItem {
                     Label {
@@ -310,13 +310,6 @@ public struct MusicEventFeaturesView: View {
 //                .tag(MusicEventFeatures.Feature.workshops)
 //            }
 //
-//            if let siteMap = store.siteMap {
-//                NavigationStack {
-//                    Text("TODO: Site Map")
-//                }
-//                .tabItem { Label("Site Map", systemImage: "map") }
-//                .tag(MusicEventFeatures.Feature.siteMap)
-//            }
 
 //
 //            NavigationStack {
@@ -368,6 +361,15 @@ struct MoreView: View {
             } label: {
                 Label("About", image: Icons.infoCircle)
             }
+
+            if let siteMapURL = store.event.siteMapImageURL {
+                NavigationStack {
+                    Text("TODO: Site Map")
+                }
+                .tabItem { Label("Site Map", systemImage: "map") }
+                .tag(MusicEventFeatures.Feature.siteMap)
+            }
+
 
         }
         .navigationTitle("More")

@@ -37,6 +37,7 @@ public struct CommunicationsFeatureView: View {
             let values = ValueObservation.tracking { db in
                 try CommunicationChannel
                     .filter(Column("musicEventID") == id)
+                    .order(Column("sortIndex"))
                     .fetchAll(db)
             }
             .values(in: defaultDatabase)
@@ -128,6 +129,10 @@ public struct CommunicationChannelView: View {
         var pinnedPosts: [CommunicationChannel.Post] = []
         var regularPosts: [CommunicationChannel.Post] = []
 
+        var shouldShowContentUnavailable: Bool {
+            pinnedPosts.isEmpty && regularPosts.isEmpty
+        }
+
         var destination: CommunicationChannel.Post?
 
         @ObservationIgnored
@@ -190,8 +195,14 @@ public struct CommunicationChannelView: View {
 
     public var body: some View {
         List {
-            Text(store.channel.description)
-                .font(.subheadline)
+            Section {
+                Text(store.channel.description)
+                    .font(.subheadline)
+            } footer: {
+                if store.shouldShowContentUnavailable {
+                    Text("There are no posts in this channel yet.")
+                }
+            }
 
             if !store.pinnedPosts.isEmpty {
                 Section {
@@ -221,9 +232,12 @@ public struct CommunicationChannelView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            
         }
         .task { await store.task() }
         .navigationTitle(store.channel.name)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 8) {
@@ -232,8 +246,8 @@ public struct CommunicationChannelView: View {
                             .foregroundStyle(Color.accentColor)
                             .font(.caption)
                     }
-                    
-                    Menu("Options") {
+
+                    Menu {
                         switch store.channel.notificationState {
                         case .subscribed:
                             Button("Don't Notify Me For New Posts", image: Icons.bellBadgeSlash) {
@@ -244,7 +258,10 @@ public struct CommunicationChannelView: View {
                                 store.didTapNotifyMe()
                             }
                         }
+                    } label: {
+                        Label("Options", systemImage: "ellipsis")
                     }
+                    .disabled(store.channel.notificationsRequired)
                 }
             }
         }
@@ -273,10 +290,11 @@ public struct CommunicationChannelView: View {
                             
                             Spacer()
 
-                            Text(post.timestamp, format: .relative(presentation: .named))
-                                .font(.caption)
-
-                                .foregroundStyle(.secondary)
+                            if let timestamp = post.timestamp {
+                                Text(timestamp, format: .relative(presentation: .named))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         
                     }
@@ -286,7 +304,7 @@ public struct CommunicationChannelView: View {
                 
                 Text(post.contents)
                     .font(.body)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(4)
             }
@@ -295,7 +313,6 @@ public struct CommunicationChannelView: View {
         }
     }
 }
-
 
 struct PostDetailView: View {
     let post: CommunicationChannel.Post
@@ -321,10 +338,13 @@ struct PostDetailView: View {
                             .font(.title2)
                             .fontWeight(.bold)
                     }
-                    
-                    Text(post.timestamp, format: .relative(presentation: .named))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+
+
+                    if let timeStamp = post.timestamp {
+                        Text(timeStamp, format: .relative(presentation: .named))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 MarkdownText(post.contents)

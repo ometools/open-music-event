@@ -257,9 +257,13 @@ public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringCo
 func downloadAndStoreOrganizer(from reference: OrganizationReference) async throws {
     @Dependency(\.organizationFetchingClient) var dataFetchingClient
     @Dependency(\.defaultDatabase) var defaultDatabase
+    @Dependency(\.notificationManager) var notificationManager
+
     let organizer: OrganizerConfiguration = try await dataFetchingClient.fetchOrganizer(reference)
 
     try await organizer.insert(url: reference.zipURL, into: defaultDatabase)
+
+    try await notificationManager.ensureTopicsAreSubscribed()
 }
 
 extension OrganizerConfiguration {
@@ -349,7 +353,12 @@ extension OrganizerConfiguration {
                     if let existingChannel = try CommunicationChannel.fetchOne(db, id: channelID) {
                         channelInfo.userNotificationState = existingChannel.userNotificationState
                     }
-                    
+
+                    // Ensure a default
+                    if channelInfo.userNotificationState == nil {
+                        channelInfo.userNotificationState = channelInfo.defaultNotificationState
+                    }
+
                     try channelInfo.upsert(db)
                     
                     // Handle selective deletion for posts within this channel
@@ -429,6 +438,7 @@ extension OrganizerConfiguration {
                         (schedule.metadata.customTitle ?? schedule.metadata.startTime.description)
                     )
                 })
+
                 let existingSchedules = try Schedule.filter(Column("musicEventID") == eventID).fetchAll(db)
                 let schedulesToDelete = existingSchedules.filter { !sourceScheduleIDs.contains($0.id) }
                 if !schedulesToDelete.isEmpty {
@@ -518,8 +528,9 @@ extension OrganizerConfiguration {
                         }
                     }
                 }
-
             }
+
+
 
         }
     }

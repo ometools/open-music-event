@@ -94,6 +94,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             isAuthorized = granted
             saveState()
+            try await self.ensureTopicsAreSubscribed()
             return granted
         } catch {
             isAuthorized = false
@@ -131,6 +132,22 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
         }
     }
 
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var defaultDatabase
+
+    func ensureTopicsAreSubscribed() async throws {
+        let channels = try await defaultDatabase.read { try CommunicationChannel.fetchAll($0) }
+
+        try await self.updateTopicSubscription("data-updates", to: .subscribed)
+
+        for channel in channels {
+            if let topic = channel.firebaseTopicName, let state = channel.userNotificationState {
+                try await self.updateTopicSubscription(topic, to: state)
+            }
+        }
+
+    }
+
     // MARK: - MessagingDelegate
     public func messaging(_ messaging: Messaging, didReceiveRegistrationToken token: String?) {
         logger.info("FCM token received: \(token ?? "nil")")
@@ -158,19 +175,15 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
 
         Messaging.messaging().appDidReceiveMessage(content.userInfo)
 
+
         if let organizationURL = content.userInfo(for: "organizationURL").flatMap(URL.init(string:)),
            let channelID = content.userInfo(for: "channelID").map(CommunicationChannel.ID.init(rawValue:)),
            let postID = content.userInfo(for: "postID").map(CommunicationChannel.Post.ID.init(rawValue:)) {
-
-            await withErrorReporting {
-                try await downloadAndStoreOrganizer(from: .url(organizationURL))
-
-                NotificationCenter.default.post(
-                    name: .userSelectedToViewPost,
-                    object: nil,
-                    info: .viewPost(channelID: channelID, postID: postID)
-                )
-            }
+            NotificationCenter.default.post(
+                name: .userSelectedToViewPost,
+                object: nil,
+                info: .viewPost(channelID: channelID, postID: postID)
+            )
 
         }
     }

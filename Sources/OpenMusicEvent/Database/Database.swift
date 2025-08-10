@@ -220,7 +220,7 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             "title" TEXT NOT NULL,
             "contents" TEXT NOT NULL,
             "headerImageURL" TEXT,
-            "timestamp" TEXT NOT NULL,
+            "timestamp" TEXT,
             "isPinned" INTEGER NOT NULL DEFAULT 0,
 
             FOREIGN KEY("channelID") REFERENCES "channels"("id") ON DELETE CASCADE

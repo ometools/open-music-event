@@ -21,7 +21,8 @@ extension EnvironmentValues {
 
 public struct SchedulePageView<
     Element: TimelineCard,
-    CardContent: View
+    CardContent: View,
+    EmptyContent: View
 >: View {
     
     @Environment(\.dayStartsAtNoon) var dayStartsAtNoon
@@ -29,17 +30,20 @@ public struct SchedulePageView<
 
     var cards: [Element]
     var cardContent: (Element) -> CardContent
+    var emptyContent: EmptyContent
     var groups: [Int]
     
     var groupMapping: [Int:Int] = [:]
     
     public init(
         _ cards: [Element],
-        @ViewBuilder cardContent: @escaping (Element) -> CardContent
+        @ViewBuilder cardContent: @escaping (Element) -> CardContent,
+        @ViewBuilder emptyContent: () -> EmptyContent
     ) {
         self.cards = cards
         self.cardContent = cardContent
-        
+        self.emptyContent = emptyContent()
+
         // Calculate distinct group numbers
         var groups = Set<Int>.init()
         for card in cards {
@@ -57,14 +61,17 @@ public struct SchedulePageView<
 
     public var body: some View {
         ScheduleGrid {
-
-            GeometryReader { geo in
-                ForEach(cards) { scheduleItem in
-                    let frame = frame(for: scheduleItem, in: .init(width: geo.size.width, height: scheduleHeight))
-                    cardContent(scheduleItem)
-                        .id(scheduleItem.id)
-                        .zIndex(0)
-                        .placement(frame)
+            if cards.isEmpty {
+                emptyContent
+            } else {
+                GeometryReader { geo in
+                    ForEach(cards) { scheduleItem in
+                        let frame = frame(for: scheduleItem, in: .init(width: geo.size.width, height: scheduleHeight))
+                        cardContent(scheduleItem)
+                            .id(scheduleItem.id)
+                            .zIndex(0)
+                            .placement(frame)
+                    }
                 }
             }
         }

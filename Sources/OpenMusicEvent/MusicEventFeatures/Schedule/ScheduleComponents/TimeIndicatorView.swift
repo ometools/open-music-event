@@ -88,10 +88,6 @@ struct TimeIndicatorView: View {
         }
     }
     
-    func shouldShowTimeIndicator(_ currentTime: Date) -> Bool {
-        return true
-    }
-
     var timeFormat: Date.FormatStyle {
         var format = Date.FormatStyle.dateTime.hour(.defaultDigits(amPM: .narrow)).minute()
         format.timeZone = NSTimeZone.default

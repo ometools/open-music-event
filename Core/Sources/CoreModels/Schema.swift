@@ -926,7 +926,7 @@ public extension CommunicationChannel {
         public var title: String
         public var contents: String
         public var headerImageURL: URL?
-        public var timestamp: Date
+        public var timestamp: Date?
         public var isPinned: Bool
 
         public init(
@@ -935,7 +935,7 @@ public extension CommunicationChannel {
             title: String,
             contents: String,
             headerImageURL: URL? = nil,
-            timestamp: Date = Date(),
+            timestamp: Date?,
             isPinned: Bool = false
         ) {
             self.id = id
@@ -960,7 +960,7 @@ extension CommunicationChannel.Post {
         public var title: String
         public var contents: String
         public var headerImageURL: URL?
-        public var timestamp: Date
+        public var timestamp: Date?
         public var isPinned: Bool
 
         public static let tableName = CommunicationChannel.Post.tableName
@@ -981,7 +981,7 @@ extension CommunicationChannel.Post {
             title: String,
             contents: String,
             headerImageURL: URL? = nil,
-            timestamp: Date = Date(),
+            timestamp: Date?,
             isPinned: Bool = false
         ) {
             self.id = id

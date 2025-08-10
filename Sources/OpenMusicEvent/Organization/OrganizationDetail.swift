@@ -238,7 +238,6 @@ public struct OrganizerDetailView: View {
                     if let eventDateString {
                         Text(eventDateString)
                             .lineLimit(1)
-                        
                             .font(.caption2)
                     }
                     if databaseDebugInfo.isEnabled {
@@ -250,6 +249,7 @@ public struct OrganizerDetailView: View {
 
                 Spacer()
             }
+            .foregroundStyle(.primary)
         }
     }
 }

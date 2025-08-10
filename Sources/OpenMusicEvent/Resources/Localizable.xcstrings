@@ -588,6 +588,9 @@
         }
       }
     },
+    "Site Map" : {
+
+    },
     "Subscribed" : {
 
     },
@@ -624,6 +627,9 @@
         }
       }
     },
+    "There are no posts in this channel yet." : {
+
+    },
     "Title" : {
       "comment" : "Label for the item editor form indicating the title of the item",
       "extractionState" : "stale",
@@ -653,6 +659,9 @@
           }
         }
       }
+    },
+    "TODO: Site Map" : {
+
     },
     "Unsubscribed" : {
 

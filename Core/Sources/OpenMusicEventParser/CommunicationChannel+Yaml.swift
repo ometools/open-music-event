@@ -62,7 +62,7 @@ extension CommunicationChannel.Yaml {
             headerImageURL: self.headerImageURL,
             sortIndex: self.sortIndex,
             defaultNotificationState: self.defaultNotificationState ?? .unsubscribed,
-            userNotificationState: self.userNotificationState ?? .unsubscribed,
+            userNotificationState: self.userNotificationState,
             notificationsRequired: self.notificationsRequired ?? false
         )
     }

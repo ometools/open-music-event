@@ -120,7 +120,6 @@ public struct ScheduleSingleStageAtOnceView: View {
             )
         }
         .task(id: store.category) { await store.task() }
-        .environment(\.dayStartsAtNoon, true)
         //            .scrollPosition($store.highlightedPerformance) { id, size in
         //                // TODO: Replace @Shared(.event) with proper state management
         //                // @Shared(.event) var event
@@ -142,6 +141,7 @@ public struct ScheduleSingleStageAtOnceView: View {
         //            }
 
         //            .navigationBarTitleDisplayMode(.inline)
+        
     }
 }
 
@@ -195,7 +195,8 @@ struct StageSchedulePage: View, Identifiable {
     var body: some View {
         SchedulePageView(performances) { performance in
             ScheduleCardView(id: performance.id)
-            
+        } emptyContent: {
+            EmptyView()
         }
         .tag(id)
         .task(id: selectedSchedule) {
