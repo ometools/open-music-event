@@ -8,19 +8,22 @@ import Foundation
 
 public extension Organizer {
     static let wickedWoods = Organizer(
-        url: Organizer.ID(string: "https://github.com/wicked-woods/wicked-woods-ome/archive/refs/heads/main.zip")!,
+        id: "wicked-woods",
+        url: URL(string: "https://github.com/wicked-woods/wicked-woods-ome/archive/refs/heads/main.zip")!,
         name: "Wicked Woods",
         imageURL: URL(string: "https://images.squarespace-cdn.com/content/v1/66eb917b86dbd460ad209478/5be5a6e6-c5ca-4271-acc3-55767c498061/WW-off_white.png?format=1500w")
     )
 
     static let shambhala = Organizer(
-        url: Organizer.ID(string: "https://github.com/woodymelling/shambhala-ome/archive/refs/heads/main.zip")!,
+        id: "shambhala",
+        url: URL(string: "https://github.com/woodymelling/shambhala-ome/archive/refs/heads/main.zip")!,
         name: "Shambhala Music Festival",
         iconImageURL: URL(string: "https://firebasestorage.googleapis.com/v0/b/festivl.appspot.com/o/userContent%2Flogo_small.png?alt=media&token=7766fa90-6591-4e25-92b4-2ff354cb970d")
     )
 
     static let omeTools = Organizer(
-        url: Organizer.ID(string: "https://github.com/ometools/test-ome-config/archive/refs/heads/main.zip")!,
+        id: "ometools",
+        url: URL(string: "https://github.com/ometools/test-ome-config/archive/refs/heads/main.zip")!,
         name: "Open Music Event",
         iconImageURL: nil
     )
@@ -29,7 +32,7 @@ public extension Organizer {
 public extension MusicEvent {
     static let placeholder = MusicEvent(
         id: "placeholder",
-        organizerURL: nil,
+        organizerID: .init(""),
         name: "",
         timeZone: .current,
         startTime: nil,
@@ -45,7 +48,7 @@ public extension MusicEvent {
 public extension MusicEvent {
     static let testival = MusicEvent(
         id: "testival-1",
-        organizerURL: Organizer.omeTools.url,
+        organizerID: Organizer.omeTools.id,
         name: "Testival",
         timeZone: .current,
         imageURL: nil,

@@ -271,6 +271,12 @@ extension OrganizerConfiguration {
             // Upsert organizer (preserves any local organizer state)
             try info.upsert(db)
 
+            guard let organizerID = info.id
+            else {
+                reportIssue("We must have an organizerID after upserting")
+                return
+            }
+
             // Handle selective deletion for events
             let sourceEventIDs = Set(self.events.map { event in
                 OmeID<MusicEvent>(stabilizedBy: url.absoluteString, event.info.name)
@@ -278,7 +284,7 @@ extension OrganizerConfiguration {
             
             // Find existing events that should be deleted (exist in DB but not in source)
             let existingEvents = try MusicEvent
-                .filter(Column("organizerURL") == url)
+                .filter(Column("organizerID") == url)
                 .fetchAll(db)
             let eventsToDelete = existingEvents.filter { !sourceEventIDs.contains($0.id) }
             
@@ -289,8 +295,8 @@ extension OrganizerConfiguration {
 
             for event in self.events {
                 var eventInfo = event.info
-                let eventID: MusicEvent.ID = OmeID(stabilizedBy: url.absoluteString, eventInfo.name)
-                eventInfo.organizerURL = url
+                let eventID: MusicEvent.ID = OmeID(stabilizedBy: organizerID.rawValue, eventInfo.name)
+                eventInfo.organizerID = organizerID
                 eventInfo.id = eventID
 
                 try eventInfo.upsert(db)
@@ -432,9 +438,8 @@ extension OrganizerConfiguration {
                 for schedule in event.schedule {
                     let scheduleID = Schedule.ID(
                         stabilizedBy: String(eventID.rawValue),
-                        (schedule.metadata.customTitle ?? schedule.metadata.startTime.description)
+                        (schedule.metadata.customTitle ?? schedule.metadata.startTime.formatted(.dateTime.weekday(.short)))
                     )
-
 
                     let scheduleDraft = Schedule.Draft(
                         id: scheduleID,

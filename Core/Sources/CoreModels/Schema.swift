@@ -92,20 +92,16 @@ extension Collection {
 public struct Organizer: Equatable, Identifiable, Sendable, Codable {
 //    @Column(primaryKey: true)
     public var url: URL
+    public var id: OmeID<Self>
 
-    public var id: ID {
-        get { self.url }
-        set { self.url = newValue }
-    }
-
-    public typealias ID = URL
 
     public var name: String
     public var imageURL: URL?
     public var iconImageURL: URL?
 
     public init(
-        url: Organizer.ID,
+        id: ID,
+        url: URL,
         name: String,
         imageURL: URL? = nil,
         iconImageURL: URL? = nil
@@ -114,16 +110,13 @@ public struct Organizer: Equatable, Identifiable, Sendable, Codable {
         self.name = name
         self.imageURL = imageURL
         self.iconImageURL = iconImageURL
+        self.id =  id
     }
 }
 
 
-extension Organizer.Draft: Identifiable, Equatable, Codable, Sendable {
-    public var id: URL? {
-        get { self.url }
-        set { self.url = newValue }
-    }
-}
+extension Organizer.Draft: Identifiable, Equatable, Codable, Sendable {}
+
 
 // MARK: Music Event
 // @Table
@@ -131,7 +124,7 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
     public typealias ID = OmeID<MusicEvent>
 
     public var id: MusicEvent.ID
-    public var organizerURL: Organizer.ID?
+    public var organizerID: Organizer.ID
 
     public let name: String  //
 
@@ -187,7 +180,7 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
 
     public init(
         id: MusicEvent.ID,
-        organizerURL: Organizer.ID?,
+        organizerID: Organizer.ID,
         name: String,
         timeZone: TimeZone,
         startTime: Date? = nil,
@@ -199,7 +192,7 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
         contactNumbers: [ContactNumber]
     ) {
         self.id = id
-        self.organizerURL = organizerURL
+        self.organizerID = organizerID
         self.name = name
         self.timeZone = timeZone
         self.startTime = startTime
@@ -490,6 +483,7 @@ extension Organizer {
     public static let tableName = "organizers"
     public struct Draft {
         public typealias PrimaryTable = Organizer
+        public var id: Organizer.ID?
         public var url: URL?
         public var name: String
         public var iconImageURL: URL?
@@ -498,6 +492,7 @@ extension Organizer {
         public static let tableName = Organizer.tableName
 
         public init(_ other: Organizer) {
+            self.id = other.id
             self.url = other.url
             self.name = other.name
             self.imageURL = other.imageURL
@@ -526,7 +521,7 @@ extension MusicEvent {
         public typealias PrimaryTable = MusicEvent
 
         public var id: MusicEvent.ID?
-        public var organizerURL: Organizer.ID?
+        public var organizerID: Organizer.ID?
         public var name: String
         public var timeZone: TimeZone
         public var startTime: Date?
@@ -541,7 +536,7 @@ extension MusicEvent {
 
         public init(_ other: MusicEvent) {
             self.id = other.id
-            self.organizerURL = other.organizerURL
+            self.organizerID = other.organizerID
             self.name = other.name
             self.timeZone = other.timeZone
             self.startTime = other.startTime
@@ -554,7 +549,7 @@ extension MusicEvent {
         }
         public init(
             id: MusicEvent.ID? = nil,
-            organizerURL: Organizer.ID? = nil,
+            organizerID: Organizer.ID? = nil,
             name: String,
             timeZone: TimeZone,
             startTime: Date? = nil,
@@ -566,7 +561,7 @@ extension MusicEvent {
             contactNumbers: [ContactNumber]
         ) {
             self.id = id
-            self.organizerURL = organizerURL
+            self.organizerID = organizerID
             self.name = name
             self.timeZone = timeZone
             self.startTime = startTime

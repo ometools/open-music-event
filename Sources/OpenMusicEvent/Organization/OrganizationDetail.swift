@@ -15,22 +15,21 @@ import CoreModels
 import IssueReporting
 
 public struct OrganizerDetailView: View {
-    public init(url: Organizer.ID) {
-        self.store = ViewModel(url: url)
+    public init(organizerID: Organizer.ID) {
+        self.store = Store(id: organizerID)
     }
 
-    public init(store: ViewModel) {
+    public init(store: Store) {
         self.store = store
     }
     
     @Observable
     @MainActor
-    public class ViewModel {
+    public class Store {
         let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "OrganizerDetails")
 
-        public init(url: Organizer.ID) {
-            self.id = url
-
+        public init(id: Organizer.ID) {
+            self.id = id
         }
 
         public let id: Organizer.ID
@@ -49,8 +48,14 @@ public struct OrganizerDetailView: View {
         }
 
         public func onPullToRefresh() async  {
+            guard let organizer
+            else {
+                reportIssue()
+                return
+            }
+
             await withErrorReporting {
-                try await downloadAndStoreOrganizer(from: .url(self.id))
+                try await downloadAndStoreOrganizer(from: .url(organizer.url))
             }
         }
 
@@ -65,13 +70,12 @@ public struct OrganizerDetailView: View {
                 let org = try Organizer.fetchOne(db, id: self.id)
 
                 let events = try MusicEvent
-                    .filter(Column("organizerURL") == self.id)
+                    .filter(Column("organizerID") == self.id)
                     .order(Column("startTime").desc)
                     .fetchAll(db)
 
                 return (org, events)
             }
-
 
             await withErrorReporting {
                 for try await (organizer, events) in query.values(in: database) {
@@ -82,7 +86,7 @@ public struct OrganizerDetailView: View {
         }
     }
 
-    @Bindable var store: ViewModel
+    @State var store: Store
     @Environment(\.loadingScreenImage) var loadingScreenImage
 
     @Environment(\.date) var date
@@ -120,70 +124,65 @@ public struct OrganizerDetailView: View {
 
     public var body: some View {
         Group {
-            ZStack {
-                if let organizer = store.organizer, !store.showingLoadingScreen {
-                    StretchyHeaderList(
-                        title: Text(organizer.name),
-                        stretchyContent: {
-                            OrganizerImageView(organizer: organizer)
-                        },
-                        listContent: {
-                            if !currentEvents.isEmpty {
-                                Section("Happening Now") {
-                                    ForEach(currentEvents) { event in
-                                        NavigationLinkButton {
-                                            store.didTapEvent(id: event.id)
-                                        } label: {
-                                            EventRowView(event: event)
-                                        }
-                                    }
-                                }
-                            }
-
-                            if !upcomingEvents.isEmpty {
-                                Section("Upcoming Events") {
-                                    ForEach(upcomingEvents) { event in
-                                        NavigationLinkButton {
-                                            store.didTapEvent(id: event.id)
-                                        } label: {
-                                            EventRowView(event: event)
-                                        }
-                                    }
-                                }
-                            }
-
-                            if !previousEvents.isEmpty {
-                                Section("Previous Events") {
-                                    ForEach(previousEvents) { event in
-                                        NavigationLinkButton {
-                                            store.didTapEvent(id: event.id)
-                                        } label: {
-                                            EventRowView(event: event)
-                                        }
+            if let organizer = store.organizer {
+                StretchyHeaderList(
+                    title: Text(organizer.name),
+                    stretchyContent: {
+                        OrganizerImageView(organizer: organizer)
+                    },
+                    listContent: {
+                        if !currentEvents.isEmpty {
+                            Section("Happening Now") {
+                                ForEach(currentEvents) { event in
+                                    NavigationLinkButton {
+                                        store.didTapEvent(id: event.id)
+                                    } label: {
+                                        EventRowView(event: event)
                                     }
                                 }
                             }
                         }
-                    )
-                    .refreshable { await store.onPullToRefresh() }
-                    .listStyle(.plain)
-                } else {
-                    if let image = loadingScreenImage, store.showingLoadingScreen {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(80)
-                    } else {
 
-                        ProgressView("Loading Organization...")
+                        if !upcomingEvents.isEmpty {
+                            Section("Upcoming Events") {
+                                ForEach(upcomingEvents) { event in
+                                    NavigationLinkButton {
+                                        store.didTapEvent(id: event.id)
+                                    } label: {
+                                        EventRowView(event: event)
+                                    }
+                                }
+                            }
+                        }
+
+                        if !previousEvents.isEmpty {
+                            Section("Previous Events") {
+                                ForEach(previousEvents) { event in
+                                    NavigationLinkButton {
+                                        store.didTapEvent(id: event.id)
+                                    } label: {
+                                        EventRowView(event: event)
+                                    }
+                                }
+                            }
+                        }
                     }
+                )
+                .refreshable { await store.onPullToRefresh() }
+                .listStyle(.plain)
+            } else {
+                if let image = loadingScreenImage, store.showingLoadingScreen {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(80)
+                } else {
 
+                    ProgressView("Loading Organization...")
                 }
 
-
             }
-            .foregroundStyle(Color.primary)
         }
         .task { await store.onAppear() }
         .animation(.default, value: store.organizer == nil)
@@ -193,8 +192,6 @@ public struct OrganizerDetailView: View {
     struct EventsListView: View {
         var events: [MusicEvent]
         var onTapEvent: (MusicEvent.ID) -> Void
-
-
 
         var body: some View {
 

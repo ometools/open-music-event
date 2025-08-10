@@ -24,7 +24,7 @@ struct OrganizerListView: View {
 
 
         enum Destination {
-            case organizerDetail(URL)
+            case organizerDetail(Organizer.ID)
             case addOrganization(OrganizationFormView.Model)
         }
 
@@ -67,7 +67,7 @@ struct OrganizerListView: View {
         }
 
         // These are needed because SwiftNavigation is not usable on Android at the moment
-        var organizerDetail: URL? {
+        var organizerDetail: Organizer.ID? {
             get {
                 if case let .organizerDetail(orgDetail) = destination {
                     return orgDetail
@@ -106,7 +106,7 @@ struct OrganizerListView: View {
                 List {
                     ForEach(store.organizers) { org in
                         NavigationLink {
-                            OrganizerDetailView(store: .init(url: org.url))
+                            OrganizerDetailView(store: .init(id: org.id))
                         } label: {
                             Row(org: org)
                         }

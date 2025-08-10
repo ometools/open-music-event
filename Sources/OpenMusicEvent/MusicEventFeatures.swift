@@ -37,8 +37,8 @@ struct MusicEventViewer: View {
                     try await withDependencies {
                         $0.musicEventID = musicEventID
                     } operation: { @MainActor in
-
-                        let (artists, stages, schedules) = try await database.read { db in
+                        let (organizer, artists, stages, schedules) = try await database.read { db in
+                            let organizer = try Organizer.fetchOne(db, id: event.organizerID)
                             let artists = try Current.artists.fetchAll(db)
                             let stages = try Current.stages.fetchAll(db)
                             let schedules = try Schedule
@@ -46,11 +46,15 @@ struct MusicEventViewer: View {
                                 .order(Column("startTime"))
                                 .fetchAll(db)
 
-                            return (artists, stages, schedules)
+                            return (organizer, artists, stages, schedules)
                         }
+
+                        guard let organizer
+                        else { reportIssue(); return }
 
                         self.eventFeatures = MusicEventFeatures(
                             event,
+                            organizer,
                             artists: artists,
                             stages: stages,
                             schedules: schedules
@@ -105,7 +109,8 @@ public class MusicEventFeatures: Identifiable {
 
 
     var event: MusicEvent
-    
+    var organizer: Organizer
+
     public var selectedFeature: Feature = .schedule
 
     public var schedule: ScheduleFeature?
@@ -129,11 +134,13 @@ public class MusicEventFeatures: Identifiable {
 
     public init(
         _ event: MusicEvent,
+        _ organizer: Organizer,
         artists: [Artist],
         stages: [Stage],
         schedules: [Schedule]
     ) {
         @Dependency(\.musicEventID) var musicEventID
+        self.organizer = organizer
 
         self.artists = ArtistsList()
         self.communications = CommunicationsFeatureView.Store()
@@ -189,14 +196,12 @@ public class MusicEventFeatures: Identifiable {
     }
 
     func didTapReloadOrganizer() async {
-        guard let currentOrganizerID = event.organizerURL
-        else { return }
         self.errorMessage = nil
 
         self.isLoadingOrganizer = true
 
         do {
-            try await downloadAndStoreOrganizer(from: .url(currentOrganizerID))
+            try await downloadAndStoreOrganizer(from: .url(organizer.url))
             self.isLoadingOrganizer = false
         } catch {
             self.errorMessage = error.localizedDescription
@@ -254,6 +259,7 @@ public struct MusicEventFeaturesView: View {
             if let workshopsSchedule = store.workshopsSchedule {
                 NavigationStack {
                     ScheduleView(store: workshopsSchedule)
+                        .environment(\.dayStartsAtNoon, true)
                 }
                 .tabItem {
                     Label {

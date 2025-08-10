@@ -60,12 +60,12 @@ public enum OME {
 }
 
 public struct OMEWhiteLabeledEntryPoint: View {
-    public init(url: Organizer.ID) {
+    public init(url: URL) {
         self.url = url
-        self.store = Model(organizerID: url)
+        self.store = Model(organizerURL: url)
     }
 
-    var url: Organizer.ID
+    var url: URL
     
     @State var store: Model
 
@@ -73,14 +73,12 @@ public struct OMEWhiteLabeledEntryPoint: View {
     @MainActor
     class Model {
         var musicEventViewer: MusicEventViewer.Model?
-        var organizerDetailStore: OrganizerDetailView.ViewModel
-        let organizerURL: Organizer.ID
+        var organizerDetailStore: OrganizerDetailView.Store?
+        let organizerURL: URL
         var isLoadingOrganizer: Bool = false
 
-        init(organizerID: Organizer.ID) {
-            self.organizerURL = organizerID
-            self.organizerDetailStore = OrganizerDetailView.ViewModel(url: organizerID)
-            
+        init(organizerURL: URL) {
+            self.organizerURL = organizerURL
             self.observeNotifications()
         }
 
@@ -114,17 +112,39 @@ public struct OMEWhiteLabeledEntryPoint: View {
         @ObservationIgnored
         @Dependency(\.defaultDatabase) var database
 
+
         func onAppear() async {
             let eventIDString: String? = UserDefaults.standard.string(forKey: "selectedMusicEventID")
 
             if let eventIDString {
                 self.musicEventViewer = .init(eventID: .init(eventIDString))
             }
+            let organizerURL = self.organizerURL
 
-            // Just download on launch if possible
-            // May not want to even report errors here, failure is expected if no service
-            await withErrorReporting {
-                try await downloadAndStoreOrganizer(from: .url(self.organizerURL))
+            await withTaskGroup {
+                $0.addTask {
+                    // Just download on launch if possible
+                    // May not want to even report errors here, failure is expected if no service
+                    await withErrorReporting {
+                        try await downloadAndStoreOrganizer(from: .url(organizerURL))
+                    }
+                }
+
+                $0.addTask {
+                    let query = ValueObservation.tracking { db in
+                        try Organizer
+                            .filter(Column("url") == organizerURL)
+                            .fetchOne(db)
+                    }
+
+                    await withErrorReporting { @MainActor in
+                        for try await organizer in query.values(in: self.database) {
+                            if let id = organizer?.id {
+                                self.organizerDetailStore = .init(id: id)
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -146,9 +166,11 @@ public struct OMEWhiteLabeledEntryPoint: View {
 
     public var body: some View {
         ZStack {
-            NavigationStack {
-                OrganizerDetailView(store: store.organizerDetailStore)
+            if let organizerDetailStore = store.organizerDetailStore {
 
+                NavigationStack {
+                    OrganizerDetailView(store: organizerDetailStore)
+                }
             }
 
             if let musicEventViewer = store.musicEventViewer {

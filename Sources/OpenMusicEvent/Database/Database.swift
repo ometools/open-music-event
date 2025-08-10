@@ -97,7 +97,8 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
     migrator.registerMigration("Create tables") { db in
         try sql("""
         CREATE TABLE organizers (
-            "url" TEXT PRIMARY KEY NOT NULL,
+            "id" TEXT PRIMARY KEY NOT NULL,
+            "url" TEXT,
             "name" TEXT NOT NULL,
             "imageURL" TEXT,
             "iconImageURL" TEXT
@@ -107,7 +108,7 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         try sql("""
         CREATE TABLE musicEvents(
             "id" TEXT PRIMARY KEY NOT NULL,
-            "organizerURL" TEXT,
+            "organizerID" TEXT,
             "name" TEXT NOT NULL,
             "startTime" TEXT,
             "endTime" TEXT,
@@ -118,7 +119,7 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             "location" TEXT,
             "contactNumbers" TEXT,
         
-            FOREIGN KEY("organizerURL") REFERENCES "organizers"("url") ON DELETE CASCADE
+            FOREIGN KEY("organizerID") REFERENCES "organizers"("id") ON DELETE CASCADE
         ) STRICT;
         """).execute(db)
 
