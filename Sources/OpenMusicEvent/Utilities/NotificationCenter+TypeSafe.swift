@@ -3,7 +3,7 @@ import CoreModels
 
 enum NotificationUserInfo {
     case viewArtist(artistID: Artist.ID)
-    case viewPost(channelID: CommunicationChannel.ID, postID: CommunicationChannel.Post.ID)
+    case viewPost(channelID: CommunicationChannel.ID, postID: CommunicationChannel.Post.Stub)
     case viewEvent(eventID: MusicEvent.ID)
 }
 

@@ -32,9 +32,11 @@ public struct PerformanceDetailRow: View {
 
     var performance: ArtistPerformance
 
+    @Environment(\.calendar) var calendar
+
     var timeIntervalLabel: String {
         (performance.startTime..<performance.endTime)
-            .formatted(.performanceTime)
+            .formatted(.performanceTime(calendar: calendar))
     }
 
     public var body: some View {

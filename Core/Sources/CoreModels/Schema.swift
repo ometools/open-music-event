@@ -922,6 +922,11 @@ public extension CommunicationChannel {
     public struct Post: Equatable, Identifiable, Sendable, Codable {
         public typealias ID = OmeID<CommunicationChannel.Post>
         public var id: ID
+
+        public enum _StubTag {}
+        public typealias Stub = Tagged<_StubTag, String>
+
+        public var stub: Stub
         public var channelID: CommunicationChannel.ID
         public var title: String
         public var contents: String
@@ -931,6 +936,7 @@ public extension CommunicationChannel {
 
         public init(
             id: ID,
+            stub: Stub,
             channelID: CommunicationChannel.ID,
             title: String,
             contents: String,
@@ -939,6 +945,7 @@ public extension CommunicationChannel {
             isPinned: Bool = false
         ) {
             self.id = id
+            self.stub = stub
             self.channelID = channelID
             self.title = title
             self.contents = contents
@@ -956,6 +963,7 @@ extension CommunicationChannel.Post {
         public typealias PrimaryTable = CommunicationChannel.Post
 
         public var id: ID?
+        public var stub: Stub
         public var channelID: CommunicationChannel.ID?
         public var title: String
         public var contents: String
@@ -967,6 +975,7 @@ extension CommunicationChannel.Post {
 
         public init(_ other: CommunicationChannel.Post) {
             self.id = other.id
+            self.stub = other.stub
             self.channelID = other.channelID
             self.title = other.title
             self.contents = other.contents
@@ -977,6 +986,7 @@ extension CommunicationChannel.Post {
 
         public init(
             id: ID? = nil,
+            stub: Stub,
             channelID: CommunicationChannel.ID?,
             title: String,
             contents: String,
@@ -991,6 +1001,7 @@ extension CommunicationChannel.Post {
             self.headerImageURL = headerImageURL
             self.timestamp = timestamp
             self.isPinned = isPinned
+            self.stub = stub
         }
     }
 }

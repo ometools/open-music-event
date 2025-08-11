@@ -132,6 +132,10 @@ public class MusicEventFeatures: Identifiable {
     @Dependency(\.defaultDatabase) var database
 
 
+    @ObservationIgnored
+    @Dependency(\.calendar) var calendar
+
+
     public init(
         _ event: MusicEvent,
         _ organizer: Organizer,
@@ -190,7 +194,7 @@ public class MusicEventFeatures: Identifiable {
                 return
             }
             Task { @MainActor in
-                await self.handleSelectedPostNotification(channelID: channelID, postID: postID)
+                await self.handleSelectedPostNotification(channelID: channelID, stub: postID)
             }
         }
     }
@@ -223,16 +227,23 @@ public class MusicEventFeatures: Identifiable {
         self.artists.destination = .init(artistID: artistID)
     }
 
-    private func handleSelectedPostNotification(channelID: CommunicationChannel.ID, postID: CommunicationChannel.Post.ID) async {
-        self.selectedFeature = .communications
-        self.communications?.destination = .init(channelID)
+    private func handleSelectedPostNotification(channelID: CommunicationChannel.ID, stub: CommunicationChannel.Post.Stub) async {
 
         await withErrorReporting {
             let post = try await database.read { db in
-                try CommunicationChannel.Post.fetchOne(db, key: postID)
+                try CommunicationChannel.Post
+                    .filter(Column("channelID") == channelID)
+                    .filter(Column("stub") == stub)
+                    .fetchOne(db)
             }
 
-            self.communications?.destination?.destination = post
+            await MainActor.run {
+                self.selectedFeature = .communications
+
+                self.communications?.destination = .init(channelID)
+
+                self.communications?.destination?.destination = post
+            }
         }
     }
 }
@@ -320,8 +331,15 @@ public struct MusicEventFeaturesView: View {
         }
         .task { await store.onAppear() }
         .environment(\.showArtistImages, store.shouldShowArtistImages)
+        .environment(\.calendar, {
+            var calendar = Calendar.current
+            calendar.timeZone = store.event.timeZone
+            return calendar
+        }())
     }
 }
+
+
 
 struct MoreView: View {
     let store: MusicEventFeatures
@@ -335,41 +353,45 @@ struct MoreView: View {
                     Label("Notifications", image: Icons.bell)
                 }
             }
-            
-            if let contactInfo = store.contactInfo {
-                Feature(.contactInfo) {
-                    ContactInfoView(store: contactInfo)
+
+            Section {
+                if let contactInfo = store.contactInfo {
+                    Feature(.contactInfo) {
+                        ContactInfoView(store: contactInfo)
+                    } label: {
+                        Label("Contact Info", image: Icons.phone)
+                    }
+                }
+
+                if let location = store.location {
+                    Feature(.location) {
+                        LocationView(store: location)
+                    } label: {
+    #if os(iOS)
+                        Label("Location", image: Icons.mappin)
+    #elseif os(Android)
+                        Label("Location", image: Icons.mappinCircle)
+    #endif
+                    }
+                }
+
+                if let siteMapURL = store.event.siteMapImageURL {
+                    Feature(.siteMap) {
+                        SiteMapImageView(siteMapURL: siteMapURL)
+                    } label: {
+                        Label("Site Map", image: Icons.map)
+                    }
+                }
+
+            }
+
+            Section {
+                Feature(.about) {
+                    AboutAppView(store: store)
                 } label: {
-                    Label("Contact Info", image: Icons.phone)
+                    Label("About", image: Icons.infoCircle)
                 }
             }
-
-            if let location = store.location {
-                Feature(.location) {
-                    LocationView(store: location)
-                } label: {
-#if os(iOS)
-                    Label("Location", image: Icons.mappin)
-#elseif os(Android)
-                    Label("Location", image: Icons.mappinCircle)
-#endif
-                }
-            }
-
-            Feature(.about) {
-                AboutAppView(store: store)
-            } label: {
-                Label("About", image: Icons.infoCircle)
-            }
-
-            if let siteMapURL = store.event.siteMapImageURL {
-                NavigationStack {
-                    Text("TODO: Site Map")
-                }
-                .tabItem { Label("Site Map", systemImage: "map") }
-                .tag(MusicEventFeatures.Feature.siteMap)
-            }
-
 
         }
         .navigationTitle("More")
@@ -383,10 +405,27 @@ enum FeatureLocation {
     case more
 }
 
+
+struct SiteMapImageView: View {
+    var siteMapURL: URL
+
+    var body: some View {
+        ZoomableContainer {
+            CachedAsyncImage(url: siteMapURL, contentMode: .fit)
+        }
+//            .toolbar(.hidden)
+    }
+}
+
+import SwiftUI
+
 enum FeatureLocationEnvironmentKey: EnvironmentKey {
     static let defaultValue: FeatureLocation = .tabBar
 }
 
+#if canImport(UIKit)
+
+#endif
 extension EnvironmentValues {
     var featureLocation: FeatureLocation {
         get {

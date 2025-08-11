@@ -338,6 +338,7 @@ public struct PostConversion: Conversion {
 
         public func apply(_ input: Input) throws -> Output {
             CoreModels.CommunicationChannel.Post.Draft(
+                stub: .init(input.fileName),
                 channelID: nil,
                 title: input.data.frontMatter?.title ?? input.fileName,
                 contents: input.data.body ?? "",

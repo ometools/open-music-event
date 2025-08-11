@@ -22,7 +22,9 @@ import FirebaseCore
 import FirebaseMessaging
 #endif
 
-
+struct Box<T>: @unchecked Sendable {
+    let rawValue: T
+}
 
 /* SKIP @bridge */
 @Observable
@@ -44,16 +46,14 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
 
     static let shared = NotificationManager()
 
+    @MainActor
     public func applicationDidLaunch() async throws {
-        if !self.hasRequestedPermission {
-            try await self.requestPermission()
-        }
-        
         #if os(Android)
         // Android handles push tokens automatically
         #else
         // Register for remote notifications to get APNs token
-        await UIApplication.shared.registerForRemoteNotifications()
+        UIApplication.shared.registerForRemoteNotifications()
+        _ = await self.requestPermission()
         #endif
     }
     
@@ -82,16 +82,15 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
         UserDefaults.standard.set(hasRequestedPermission, forKey: hasRequestedKey)
         UserDefaults.standard.set(isAuthorized, forKey: isAuthorizedKey)
     }
-    
+
+    @MainActor
     public func requestPermission() async -> Bool {
-        guard !hasRequestedPermission else {
-            return isAuthorized
-        }
-        
+
         hasRequestedPermission = true
         
         do {
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            print("RECEIVED: \(granted)")
             isAuthorized = granted
             saveState()
             try await self.ensureTopicsAreSubscribed()
@@ -168,26 +167,31 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
         
         return [.banner, .sound, .badge]
     }
-    
-    public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
         let content = response.notification.request.content
         logger.info("Notification tapped: \(content.title): \(content.body)")
 
-        Messaging.messaging().appDidReceiveMessage(content.userInfo)
+        nonisolated(unsafe) let userInfo = content.userInfo
 
+        _ = Messaging.messaging().appDidReceiveMessage(userInfo)
 
-        if let organizationURL = content.userInfo(for: "organizationURL").flatMap(URL.init(string:)),
-           let channelID = content.userInfo(for: "channelID").map(CommunicationChannel.ID.init(rawValue:)),
-           let postID = content.userInfo(for: "postID").map(CommunicationChannel.Post.ID.init(rawValue:)) {
-            NotificationCenter.default.post(
-                name: .userSelectedToViewPost,
-                object: nil,
-                info: .viewPost(channelID: channelID, postID: postID)
-            )
-
+        if let channelID = content.userInfo(for: "channel").map(CommunicationChannel.ID.init(rawValue:)),
+           let postID = content.userInfo(for: "post-stub").map(CommunicationChannel.Post.Stub.init(rawValue:)) {
+            Task { @MainActor in
+                NotificationCenter.default.post(
+                    name: .userSelectedToViewPost,
+                    object: nil,
+                    info: .viewPost(channelID: channelID, postID: postID)
+                )
+            }
         }
     }
-//
+
+//    #if os(iOS)
 //    func application(_ application: UIApplication,
 //                     didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async
 //      -> UIBackgroundFetchResult {
@@ -195,8 +199,10 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
 //      // this callback will not be fired till the user taps on the notification launching the application.
 //      // TODO: Handle data of notification
 //
+//
 //      // With swizzling disabled you must let Messaging know about the message, for Analytics
-//      // Messaging.messaging().appDidReceiveMessage(userInfo)
+//       Messaging.messaging().appDidReceiveMessage(userInfo)
+//
 //
 //      // Print message ID.
 ////      if let messageID = userInfo[gcmMessageIDKey] {
@@ -208,6 +214,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
 //
 //      return UIBackgroundFetchResult.newData
 //    }
+//    #endif
 
     private func handleNotificationTap(channelId: String, userInfo: [AnyHashable: Any]) async {
         // TODO: Implement deep linking to specific communication channels

@@ -50,6 +50,25 @@ enum Icons {
         Image(systemName: "megaphone")
         #endif
     }
+
+    static var notificationsEnabled: Image {
+        #if os(Android)
+        Image("notifications.active", bundle: .module)
+        #else
+        Icons.bellFill
+        #endif
+    }
+
+    static let enableNotifications: Image = Self.notificationsEnabled
+
+    static var disableNotifications: Image {
+        #if os(Android)
+        Image("notifications.off", bundle: .module)
+        #else
+        Icons.bellBadgeSlash
+        #endif
+    }
+
     static var bell: Image { Image(systemName: "bell") }
     static var bellFill: Image { Image(systemName: "bell.fill") }
     static var bellBadge: Image { Image(systemName: "bell.badge") }
@@ -64,6 +83,13 @@ enum Icons {
 
     // MARK: - Location & Navigation
     static var mappin: Image { Image(systemName: "mappin") }
+    static var map: Image {
+        #if os(Android)
+        Image("map", bundle: .module)
+        #else
+        Image(systemName: "map")
+        #endif
+    }
     static var mappinCircle: Image { Image(systemName: "mappin.circle") }
     static var chevronForward: Image { Image(systemName: "chevron.forward") }
 
@@ -84,7 +110,7 @@ enum Icons {
     static var exclamationmarkCircleFill: Image { Image(systemName: "exclamationmark.circle.fill") }
     static var exclamationmarkBubble: Image { Image(systemName: "exclamationmark.bubble") }
     static var plusBubble: Image { Image(systemName: "plus.bubble") }
-    static var warning: Image { Image(systemName: "warning") }
+    static var warning: Image { Image(systemName: "exlamationmark.triangle.fill") }
 
     // MARK: - Navigation & Exit
     static var doorLeftHandOpen: Image { Image(systemName: "door.left.hand.open") }

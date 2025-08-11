@@ -232,17 +232,15 @@ public struct CommunicationChannelView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-
-            
         }
-        .task { await store.task() }
+        .task(id: store.id) { await store.task() }
         .navigationTitle(store.channel.name)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 8) {
                     if store.channel.userNotificationState == .subscribed {
-                        Icons.bellFill
+                        Icons.notificationsEnabled
                             .foregroundStyle(Color.accentColor)
                             .font(.caption)
                     }
@@ -250,11 +248,11 @@ public struct CommunicationChannelView: View {
                     Menu {
                         switch store.channel.notificationState {
                         case .subscribed:
-                            Button("Don't Notify Me For New Posts", image: Icons.bellBadgeSlash) {
+                            Button("Don't Notify Me For New Posts", image: Icons.disableNotifications) {
                                 store.didTapStopNotifyingMe()
                             }
                         case .unsubscribed:
-                            Button("Notify Me For New Posts", image: Icons.bellBadge) {
+                            Button("Notify Me For New Posts", image: Icons.enableNotifications) {
                                 store.didTapNotifyMe()
                             }
                         }

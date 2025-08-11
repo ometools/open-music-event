@@ -5,6 +5,7 @@
 //  Created by Woodrow Melling on 5/23/23.
 //
 
+import Dependencies
 import SwiftUI
 import SkipFuse
 
@@ -76,10 +77,20 @@ public struct SchedulePageView<
             }
         }
     }
-    
+
+    @Environment(\.calendar) var calendar
+
     func frame(for timelineCard: Element, in size: CGSize) -> CGRect {
-        let frame = timelineCard.frame(in: size, groupMapping: self.groupMapping, dayStartsAtNoon: self.dayStartsAtNoon)
-        return frame
+        // Make sure the dependency matches the environment. We can't use the environment 'outside a SwiftUI View'
+        withDependencies {
+            $0.calendar = self.calendar
+        } operation: {
+            timelineCard.frame(
+                in: size,
+                groupMapping: self.groupMapping,
+                dayStartsAtNoon: self.dayStartsAtNoon
+            )
+        }
     }
 }
 //
@@ -143,13 +154,22 @@ public extension TimelineCard {
         return width
     }
     
-    func frame(in containerSize: CGSize, groupMapping: [Int:Int], dayStartsAtNoon: Bool) -> CGRect {
+    func frame(
+        in containerSize: CGSize,
+        groupMapping: [Int:Int],
+        dayStartsAtNoon: Bool
+    ) -> CGRect {
+        
         return CGRect(
             origin: CGPoint(
                 x: xOrigin(containerWidth: containerSize.width, groupMapping: groupMapping),
-                y: yOrigin(containerHeight: containerSize.height, dayStartsAtNoon: dayStartsAtNoon)
+                y: yOrigin(
+                    containerHeight: containerSize.height,
+                    dayStartsAtNoon: dayStartsAtNoon
+                )
             ),
-            size: size(in: containerSize, groupMapping: groupMapping))
+            size: size(in: containerSize, groupMapping: groupMapping)
+        )
     }
 }
 

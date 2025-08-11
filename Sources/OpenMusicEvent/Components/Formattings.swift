@@ -10,17 +10,26 @@ import Dependencies
 
 extension FormatStyle where Self == PerformanceTimeStyle {
     static var performanceTime: PerformanceTimeStyle {
-        PerformanceTimeStyle()
+        @Dependency(\.calendar) var calendar
+        return PerformanceTimeStyle(calendar: calendar)
+    }
+
+    static func performanceTime(calendar: Calendar) -> PerformanceTimeStyle {
+        return PerformanceTimeStyle(calendar: calendar)
     }
 }
 struct PerformanceTimeStyle: FormatStyle {
     typealias FormatInput = Range<Date>
     typealias FormatOutput = String
 
+    var calendar: Calendar
     func format(_ value: Range<Date>) -> String {
 
+
+
         var timeFormat = Date.FormatStyle.dateTime.hour(.defaultDigits(amPM: .abbreviated)).minute()
-        timeFormat.timeZone = NSTimeZone.default
+        timeFormat.calendar = calendar
+        timeFormat.timeZone = calendar.timeZone
 
         return "\(value.lowerBound.formatted(timeFormat)) - \(value.upperBound.formatted(timeFormat))"
     }

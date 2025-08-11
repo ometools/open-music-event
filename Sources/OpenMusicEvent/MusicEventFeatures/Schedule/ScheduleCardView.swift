@@ -48,6 +48,8 @@ struct ScheduleCardView: View {
 
     let isSelected: Bool = false
 
+    @Environment(\.calendar) var calendar
+
     public var body: some View {
         ScheduleCardBackground(
             color: performance?.stageColor.swiftUIColor ?? .clear,
@@ -59,7 +61,7 @@ struct ScheduleCardView: View {
                         Text(performance.title)
                             .font(.headline)
 
-                        Text(performance.startTime..<performance.endTime, format: .performanceTime)
+                        Text(performance.startTime..<performance.endTime, format: .performanceTime(calendar: self.calendar))
                             .font(.subheadline)
                     }
 

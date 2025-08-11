@@ -189,7 +189,6 @@ struct StageSchedulePage: View, Identifiable {
                 logger.log("PerformancesCount: \(performances.count)")
             }
         }
-
     }
 
     var body: some View {

@@ -7,6 +7,7 @@
 
 import Foundation
 import SkipFuse
+import Dependencies
 
 public extension Date {
     func startOfDay(dayStartsAtNoon: Bool) -> Date {
@@ -51,10 +52,7 @@ public extension Date {
 public extension Date {
     func toY(containerHeight: CGFloat, dayStartsAtNoon: Bool) -> CGFloat {
 
-        var calendar = Calendar.autoupdatingCurrent
-        calendar.timeZone = NSTimeZone.default
-
-
+        @Dependency(\.calendar) var calendar
         var hoursIntoTheDay = calendar.component(.hour, from: self)
         let minutesIntoTheHour = calendar.component(.minute, from: self)
 

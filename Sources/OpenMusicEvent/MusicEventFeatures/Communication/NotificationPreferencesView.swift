@@ -26,8 +26,12 @@ public struct NotificationPreferencesView: View {
         @ObservationIgnored
         @Dependency(\.musicEventID) var musicEventID
 
+
+
         @ObservationIgnored
-        @Dependency(\.notificationManager) var permissionManager
+        @Dependency(\.notificationManager) var notificationManager
+
+        var isAuthorized = false
 
         func task() async {
             let id = musicEventID
@@ -35,15 +39,26 @@ public struct NotificationPreferencesView: View {
             let values = ValueObservation.tracking { db in
                 try CommunicationChannel
                     .filter(Column("musicEventID") == id)
+                    .order(Column("sortIndex"))
                     .fetchAll(db)
             }
             .values(in: defaultDatabase)
-            
-            await withErrorReporting {
-                for try await channels in values {
-                    self.channels = channels
+
+            await withTaskGroup {
+                $0.addTask { @Sendable @MainActor in
+                    await withErrorReporting {
+                        for try await channels in values {
+                            self.channels = channels
+                        }
+                    }
+                }
+
+                $0.addTask { @Sendable @MainActor in
+                    _ = await self.notificationManager.requestPermission()
+                    self.isAuthorized = self.notificationManager.isAuthorized
                 }
             }
+
         }
 
         subscript(notificationState channelID: CommunicationChannel.ID) -> CommunicationChannel.UserNotificationState {
@@ -61,11 +76,7 @@ public struct NotificationPreferencesView: View {
         }
         
         func didTapEnableNotifications() async {
-            if permissionManager.shouldShowPermissionRequest {
-                _ = await permissionManager.requestPermission()
-            } else if permissionManager.shouldShowSettingsPrompt {
-                permissionManager.openSettings()
-            }
+            notificationManager.openSettings()
         }
 
     }
@@ -78,8 +89,7 @@ public struct NotificationPreferencesView: View {
     
     public var body: some View {
         List {
-
-            if store.permissionManager.shouldShowPermissionRequest || store.permissionManager.shouldShowSettingsPrompt {
+            if !store.isAuthorized {
                 HStack {
                     Text("Notifications are currently disabled.")
 
@@ -100,13 +110,14 @@ public struct NotificationPreferencesView: View {
 
                             Spacer()
 
-                            NotificationToggle(state: $store[notificationState: channel.id])
-                                .disabled(channel.notificationsRequired)
-                                .disabled(!store.permissionManager.isAuthorized)
-
                             if channel.notificationsRequired {
-                                Image(systemName: "warning")
+                                Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundStyle(Color.yellow)
+                            } else {
+                                NotificationToggle(state: $store[notificationState: channel.id])
+                                    .disabled(channel.notificationsRequired)
+                                    .disabled(!store.isAuthorized)
+
                             }
                         }
                     }
@@ -115,7 +126,7 @@ public struct NotificationPreferencesView: View {
                     Text("Communication Channels")
 
                 } footer: {
-                    if !store.permissionManager.isAuthorized {
+                    if !store.isAuthorized {
                         Text("Enable push notifications above to configure channel preferences.")
                             .font(.caption)
                             .foregroundStyle(.secondary)

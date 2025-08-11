@@ -35,12 +35,14 @@ struct TimeIndicatorView: View {
         }
     }
 
+    @Environment(\.calendar) var calendar
+
     var body: some View {
         CrossPlatformTimelineView(.periodic(by: 1)) { date in
             GeometryReader { geo in
-                if true {
+                if shouldShowTimeIndicator {
                     ZStack(alignment: .leading) {
-                        
+
                         // Current time text
                         Text(
                             date
@@ -79,7 +81,14 @@ struct TimeIndicatorView: View {
                             .frame(height: 1)
                             .offset(x: textWidth, y: 0)
                     }
-                    .position(x: geo.size.width / 2, y: date.toY(containerHeight: 1500, dayStartsAtNoon: dayStartsAtNoon))
+                    .position(
+                        x: geo.size.width / 2,
+                        y: withDependencies {
+                            $0.calendar = self.calendar
+                        } operation: {
+                            date.toY(containerHeight: 1500, dayStartsAtNoon: dayStartsAtNoon)
+                        }
+                    )
                 } else {
                     EmptyView()
                 }
@@ -90,7 +99,8 @@ struct TimeIndicatorView: View {
     
     var timeFormat: Date.FormatStyle {
         var format = Date.FormatStyle.dateTime.hour(.defaultDigits(amPM: .narrow)).minute()
-        format.timeZone = NSTimeZone.default
+        format.calendar = self.calendar
+        format.timeZone = calendar.timeZone
         return format
     }
 }

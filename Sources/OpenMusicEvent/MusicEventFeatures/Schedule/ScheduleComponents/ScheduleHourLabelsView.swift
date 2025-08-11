@@ -8,7 +8,7 @@
 import  SwiftUI; import SkipFuse
 
 struct DayStartsAtNoonEnvironmentKey: EnvironmentKey {
-    static let defaultValue = false
+    static let defaultValue = true
 }
 
 public extension EnvironmentValues {

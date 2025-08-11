@@ -216,6 +216,7 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         try sql("""
         CREATE TABLE posts (
             "id" TEXT PRIMARY KEY NOT NULL,
+            "stub" TEXT NOT NULL,
             "channelID" TEXT NOT NULL,
             "title" TEXT NOT NULL,
             "contents" TEXT NOT NULL,
@@ -279,10 +280,10 @@ extension Database {
             try channel.upsert(self)
         }
         
-        // Insert posts
-        for post in CommunicationChannel.Post.previewData {
-            try post.upsert(self)
-        }
+//        // Insert posts
+//        for post in CommunicationChannel.Post.previewData {
+//            try post.upsert(self)
+//        }
     }
 }
 #endif
