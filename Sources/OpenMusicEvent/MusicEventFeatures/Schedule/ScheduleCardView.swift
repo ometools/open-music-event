@@ -11,12 +11,14 @@ import GRDB
 import IssueReporting
 import Dependencies
 
+
 struct ScheduleCardView: View {
     init(id: Performance.ID) {
         self.id = id
     }
 
     let id: Performance.ID
+    @State var selectedPerformance: Performance.ID?
 
     @Dependency(\.defaultDatabase) var database
 
@@ -36,17 +38,36 @@ struct ScheduleCardView: View {
     }
 
     func didTapGoToArtist(_ artistID: Artist.ID) {
-        NotificationCenter.default.post(
-            name: .userSelectedToViewArtist,
-            object: nil,
-            info: .viewArtist(artistID: artistID)
-        )
+        self.artistDetail = ArtistDetail(artistID: artistID)
     }
+
+    func didTapGoToDetails() {
+        self.isShowingPerformanceDetail = true
+    }
+
+    @State var artistDetail: ArtistDetail?
+    @State var isShowingPerformanceDetail: Bool = false
 
     @State var performance: PerformanceDetail?
     @State var performingArtists: [Artist] = []
 
     let isSelected: Bool = false
+
+    var hasDetails: Bool {
+        guard let performance
+        else { return false }
+
+        if performance.description != nil {
+            return true
+        }
+
+        // Show a detail if there's an artist that isn't in the title
+        if !performingArtists.allSatisfy({ performance.title.contains($0.name) }) {
+            return true
+        }
+
+        return false
+    }
 
     @Environment(\.calendar) var calendar
 
@@ -71,6 +92,15 @@ struct ScheduleCardView: View {
             }
         }
         .omeContextMenu {
+            if self.hasDetails {
+
+                NavigationLinkButton {
+                    self.didTapGoToDetails()
+                } label: {
+                    Label("Go to Details", systemImage: "info.circle")
+                }
+            }
+
             ForEach(performingArtists) { artist in
                 LabeledMenuButton(
                     title: "Go to Artist",
@@ -84,6 +114,14 @@ struct ScheduleCardView: View {
         .id(id)
         .tag(id)
         .task(id: id) { await task() }
+        .navigationDestination(item: $artistDetail) {
+            ArtistDetailView(store: $0)
+        }
+        .navigationDestination(isPresented: $isShowingPerformanceDetail) {
+            if let performance = self.performance {
+                PerformanceDetailView(performance: performance, performingArtists: self.performingArtists)
+            }
+        }
     }
 }
 

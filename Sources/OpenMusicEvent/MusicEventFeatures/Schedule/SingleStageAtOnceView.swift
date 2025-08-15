@@ -148,7 +148,6 @@ public struct ScheduleSingleStageAtOnceView: View {
 struct StageSchedulePage: View, Identifiable {
     var id: Stage.ID
     var selectedSchedule: Schedule.ID?
-
     var globalScheduleState: GlobalScheduleState = .shared
 
     @State

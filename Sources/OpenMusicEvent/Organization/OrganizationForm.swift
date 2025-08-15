@@ -137,7 +137,7 @@ struct OrganizationFormView: View {
                 }
             }
         }
-        .onTrigger(of: store.dismiss) {
+        .onTrigger(of: store.dismiss) { @MainActor in
             dismiss()
         }
     }

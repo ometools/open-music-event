@@ -174,7 +174,7 @@ public struct StageLoader<Content: View>: View {
                 ProgressView()
             }
         }
-        .task {
+        .task(id: stageID) {
             let query = ValueObservation.tracking { db in
                 try Stage.fetchOne(db, id: stageID)
             }

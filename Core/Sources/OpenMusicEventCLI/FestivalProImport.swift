@@ -72,7 +72,7 @@ struct FestivalProImport: AsyncParsableCommand {
             let parsedArtist = CoreModels.Artist.Draft(
                 id: nil,
                 musicEventID: nil,
-                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                name: name,
                 bio: artist.artistBio.nilIfEmpty,
                 imageURL: artist.artistPressPhotoID.flatMap { URL(string: $0) },
                 logoURL: artist.artistLogoID.flatMap { URL(string: $0) },
@@ -101,11 +101,11 @@ struct FestivalProImport: AsyncParsableCommand {
         print("\n📝 Ready to write \(artists.count) artists to disk.")
         print("Continue? (y/N): ", terminator: "")
         
-        let response = readLine()?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard response == "y" || response == "yes" else {
-            print("❌ Import cancelled by user.")
-            return
-        }
+//        let response = readLine()?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+//        guard response == "y" || response == "yes" else {
+//            print("❌ Import cancelled by user.")
+//            return
+//        }
 
         // Write artists to filesystem
         try await writeArtistsToDisk(artists: artists, eventPath: eventPath)
@@ -140,24 +140,40 @@ struct FestivalProImport: AsyncParsableCommand {
         }
     }
 
-    private func writeArtistsToDisk(artists: [CoreModels.Artist.Draft], eventPath: String) async throws {
+    enum WriteError: Error {
+        case createDirectoryError(Error)
+        case failedWrite([(CoreModels.Artist.Draft, Error)])
+    }
+
+    private func writeArtistsToDisk(artists: [CoreModels.Artist.Draft], eventPath: String) async throws(WriteError) {
 
         let artistsDir = URL(filePath: eventPath).appendingPathComponent("artists")
 
         // Create artists directory if it doesn't exist
-        try FileManager.default.createDirectory(at: artistsDir, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: artistsDir, withIntermediateDirectories: true)
+        } catch {
+            throw .createDirectoryError(error)
+        }
 
         let conversion = ArtistConversion()
+        var failed: [(CoreModels.Artist.Draft, Error)] = []
 
-        let files: [FileContent<Data>] = try artists.map { try conversion.unapply($0) }
+        for artist in artists {
+            do {
+                let file = try conversion.unapply(artist)
 
-        for file in files {
-            print("✅ Writing \(file.fileName)")
-            if !dryRun {
-                try File.Many(withExtension: .markdown).write(files, to: artistsDir)
+                print("✅ Writing \(file.fileName)")
+                try File.Many(withExtension: .markdown).write([file], to: artistsDir)
+                print("✅ Wrote \(file.fileName)")
+            } catch {
+                failed.append((artist, error))
             }
-            print("✅ Wrote \(file.fileName)")
         }
+
+        guard failed.isEmpty
+        else { throw .failedWrite(failed) }
+
     }
 }
 

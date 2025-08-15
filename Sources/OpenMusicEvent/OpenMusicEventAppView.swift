@@ -33,8 +33,10 @@ public struct LoggingLogger: OMELogger {
     }
 }
 
+
+
 public enum OME {
-    public static func prepareDependencies() throws {
+    public static func prepareDependencies(enableFirebase: Bool = true) throws {
         try Dependencies.prepareDependencies {
             $0.defaultDatabase = try appDatabase()
             $0.omeLogger = LoggingLogger()
@@ -46,10 +48,13 @@ public enum OME {
 
         @Dependency(\.notificationManager) var notificationManager
 
-        FirebaseApp.configure()
-        Messaging.messaging().delegate = notificationManager
-        UNUserNotificationCenter.current().delegate = notificationManager
+
+        if enableFirebase {
+            FirebaseApp.configure()
+            Messaging.messaging().delegate = notificationManager
+        }
 //
+        UNUserNotificationCenter.current().delegate = notificationManager
     }
 
     @MainActor

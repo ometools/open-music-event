@@ -64,8 +64,7 @@ public struct EventFileTree: FileTreeReader {
             }
 
             Directory.Optional("artists") {
-                File.Many(withExtension: "md")
-                    .map(ArtistConversion())
+                Artist.file
             }
             
             CommunicationsConfiguration.fileTree
@@ -197,6 +196,9 @@ extension EventConfiguration {
     }
 }
 
+extension Artist {
+    public static let file = File.Many(withExtension: .markdown).map(ArtistConversion())
+}
 
 public struct ArtistConversion: Conversion {
     public init() {}
@@ -231,10 +233,29 @@ public struct ArtistConversion: Conversion {
                 links: (input.data.frontMatter?.links ?? []).map { .init(url: $0.url, type: $0.linkType )}
             )
         }
+        
+        private static func sanitizeFilename(_ filename: String) -> String {
+            let invalidCharacters = CharacterSet(charactersIn: "/\\:*?\"<>|.")
+                .union(.controlCharacters)
+            
+            let sanitized = filename.components(separatedBy: invalidCharacters).joined(separator: "")
+            
+            // Handle edge cases
+            let trimmed = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return "Unnamed Artist"
+            }
+            if trimmed == ".." || trimmed == "." {
+                return "Unnamed Artist"
+            }
+            
+            return trimmed
+        }
 
         public func unapply(_ output: Output) throws -> Input {
-            FileContent(
-                fileName: output.name,
+
+            try FileContent(
+                fileName: output.name.replacingOccurrences(of: "/", with: ""),
                 fileType: "md",
                 data: MarkdownWithFrontMatter(
                     frontMatter: ArtistInfoFrontMatter(
@@ -365,7 +386,7 @@ public struct PostConversion: Conversion {
         }
 
         public func unapply(_ output: Output) throws -> Input {
-            FileContent(
+            try FileContent(
                 fileName: output.id?.rawValue ?? output.title,
                 fileType: "md",
                 data: MarkdownWithFrontMatter(

@@ -21,6 +21,7 @@ extension CoreModels.Performance {
         var artists: [String]?
         var time: ScheduleTime
         var endTime: ScheduleTime?
+        var description: String?
 
 
         var startTime: ScheduleTime {
@@ -207,7 +208,8 @@ struct ScheduleConversion: Conversion {
                         artistNames: artistNames,
                         startTime: $0.0.startTime,
                         endTime: $0.endTime,
-                        stageName: key
+                        stageName: key,
+                        description: $0.0.description
                     )
                 }
             }

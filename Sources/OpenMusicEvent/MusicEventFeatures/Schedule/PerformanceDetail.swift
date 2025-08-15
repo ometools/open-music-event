@@ -40,43 +40,47 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
 
     public let startTime: Date
     public let endTime: Date
+    public let description: String?
 
     public let stageColor: OMEColor
     public let stageName: String
-    public let stageImageURL: URL?
-    
+    public let stageIconImageURL: URL?
+
     init(
         id: ID,
         title: String,
         stageID: Stage.ID,
         startTime: Date,
         endTime: Date,
+        description: String?,
         stageColor: OMEColor,
         stageName: String,
-        stageImageURL: URL?
+        stageIconImageURL: URL?
     ) {
         self.id = id
         self.title = title
         self.stageID = stageID
         self.startTime = startTime
         self.endTime = endTime
+        self.description = description
         self.stageColor = stageColor
         self.stageName = stageName
-        self.stageImageURL = stageImageURL
+        self.stageIconImageURL = stageIconImageURL
     }
     
     init(row: Row) throws {
-        let stageImageURLString: String? = row["stageImageURL"]
-        
+        let stageImageURLString: String? = row["stageIconImageURL"]
+
         self.init(
             id: OmeID(row["id"]),
             title: row["title"],
             stageID: OmeID(row["stageID"]),
             startTime: row["startTime"],
             endTime: row["endTime"],
+            description: row["description"],
             stageColor: OMEColor(rawValue: row["stageColor"]),
             stageName: row["stageName"],
-            stageImageURL: stageImageURLString.flatMap(URL.init(string:))
+            stageIconImageURL: stageImageURLString.flatMap(URL.init(string:))
         )
     }
 
@@ -91,63 +95,67 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         stageID: "",
         startTime: Date(),
         endTime: Date(),
+        description: nil,
         stageColor: .init(0),
         stageName: "",
-        stageImageURL: nil
+        stageIconImageURL: nil
     )
 
 
-    // TODO: Replace with GRDB query
-    // static let find = { @Sendable (id: Performance.ID) in
-    //     Performance
-    //         .find(id)
-    //         .join(Stage.all) { $0.stageID.eq($1.id) }
-    //         .select {
-    //             PerformanceDetail.Columns(
-    //                 id: $0.id,
-    //                 title: $0.title,
-    //                 stageID: $0.stageID,
-    //                 startTime: $0.startTime,
-    //                 endTime: $0.endTime,
-    //                 stageColor: $1.color,
-    //                 stageName: $1.name,
-    //                 stageImageURL: $1.iconImageURL
-    //             )
-    //         }
-    // }
+    static func find(id: Performance.ID) -> SQLRequest<PerformanceDetail> {
+        let sql = """
+            SELECT 
+                p.id,
+                p.title,
+                p.stageID,
+                p.startTime,
+                p.endTime,
+                p.description,
+                s.color as stageColor,
+                s.name as stageName,
+                s.iconImageURL as stageIconImageURL
+            FROM performances p
+            JOIN stages s ON p.stageID = s.id
+            WHERE p.id = ?
+        """
+        return SQLRequest<PerformanceDetail>(sql: sql, arguments: [id])
+    }
+    
+    static func findPerformingArtists(performanceID: Performance.ID) -> SQLRequest<Artist> {
+        let sql = """
+            SELECT a.*
+            FROM artists a
+            JOIN performanceArtists pa ON a.id = pa.artistID
+            WHERE pa.performanceID = ?
+        """
+        return SQLRequest<Artist>(sql: sql, arguments: [performanceID])
+    }
 }
 
-public struct PerformanceScheduleDetailView: View {
+public struct PerformancePeekView: View {
 
     init(performance: PerformanceDetail, performingArtists: [Artist]) {
         self.performance = performance
         self.performingArtists = performingArtists
+        self.performanceID = performance.id
     }
 
     init(id: Performance.ID) {
-        // TODO: Replace with GRDB queries
-        // self._performance = FetchOne(wrappedValue: .empty, PerformanceDetail.find(id))
-        // self._performingArtists = FetchAll(
-        //     Performance.find(id)
-        //         .join(Performance.Artists.all) { $0.id == $1.performanceID }
-        //         .join(Artist.all) { $1.artistID.eq($2.id) }
-        //         .select { $2 }
-        // )
+        self.performanceID = id
     }
 
-    // TODO: Replace @FetchOne with GRDB query
-    var performance: PerformanceDetail = .empty
-
-
-    // TODO: Replace @FetchAll with GRDB query
-    var performingArtists: [Artist] = []
+    let performanceID: Performance.ID
+    @State var performance: PerformanceDetail = .empty
+    @State var performingArtists: [Artist] = []
+    @Environment(\.calendar) var calendar
 
     var timeIntervalLabel: String {
         (performance.startTime..<performance.endTime)
-            .formatted(.performanceTime)
+            .formatted(.performanceTime(calendar: calendar))
     }
 
     public var body: some View {
+        
         VStack {
             Text(performance.title)
                 .scaledToFill()
@@ -160,18 +168,18 @@ public struct PerformanceScheduleDetailView: View {
                 .font(.largeTitle.weight(.bold))
 
             HStack {
-
-                if performingArtists.count == 1, let firstArtist = performingArtists.first {
-                    ArtistImageView(artist: firstArtist) {
-                        ProgressView()
-                    }
+                StageIconView(stageID: performance.stageID)
                     .frame(square: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
+                    .background {
+                        Circle()
+                            .fill(performance.stageColor.swiftUIColor)
+                            .shadow()
+                    }
+
 
                 VStack(alignment: .center, spacing: 16) {
 
-                    VStack {
+                    VStack(alignment: .leading) {
                         Text(performance.startTime.formatted(.daySegment))
                         //                            .font(.thin)
                             .fontWeight(.thin)
@@ -198,24 +206,180 @@ public struct PerformanceScheduleDetailView: View {
                 //                Spacer(minLength: 24)
 
 
-                StageIconView(stageID: performance.stageID)
-                    .frame(square: 60)
-                    .background {
-                        Circle()
-                            .fill(performance.stageColor.swiftUIColor)
-                            .shadow()
-                    }
+
+            }
+
+            if let description = performance.description, !description.isEmpty {
+                Text("Blah Blah Blah")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding()
-        .background(
-            AnimatedMeshView()
-            //                .overlay(Material.thinMaterial)
-                .opacity(0.25)
-        )
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .task {
+            @Dependency(\.defaultDatabase) var database
+            
+            do {
+                let loadedPerformance = try await database.read { db in
+                    try PerformanceDetail.find(id: performanceID).fetchOne(db)
+                }
+                let loadedArtists = try await database.read { db in
+                    try PerformanceDetail.findPerformingArtists(performanceID: performanceID).fetchAll(db)
+                }
+                
+                if let loadedPerformance {
+                    performance = loadedPerformance
+                }
+                performingArtists = loadedArtists
+            } catch {
+                print("Error loading performance data: \(error)")
+            }
+        }
     }
 }
+
+
+extension PerformanceDetailRow {
+    init(performance: PerformanceDetail) {
+        self.init(
+            performance: .init(
+                id: performance.id,
+                stageID: performance.stageID,
+                startTime: performance.startTime,
+                endTime: performance.endTime,
+                title: performance.title,
+                stageColor: performance.stageColor
+            )
+        )
+    }
+}
+
+public struct PerformanceDetailView: View {
+
+    init(performance: PerformanceDetail, performingArtists: [Artist]) {
+        self.performance = performance
+        self.performingArtists = performingArtists
+        self.performanceID = performance.id
+    }
+
+    init(id: Performance.ID) {
+        self.performanceID = id
+    }
+
+    let performanceID: Performance.ID
+    @State var performance: PerformanceDetail = .empty
+    @State var performingArtists: [Artist] = []
+
+
+    @Environment(\.calendar) var calendar
+    var timeIntervalLabel: String {
+        (performance.startTime..<performance.endTime)
+            .formatted(.performanceTime(calendar: calendar))
+    }
+
+    @Environment(\.dismiss) var dismiss
+    @State var artistDetail: ArtistDetail?
+
+    func didTapGoToArtist(_ id: Artist.ID) {
+        artistDetail = .init(artistID: id)
+    }
+
+    var hasUnnamedArtists: Bool {
+        !performingArtists.allSatisfy {
+            performance.title.contains($0.name)
+        }
+    }
+
+    public var body: some View {
+        StretchyHeaderList(title: Text(performance.title)) {
+            if let performerImageURL = performingArtists.first?.imageURL, performingArtists.count == 1 {
+                CachedAsyncImage(url: performerImageURL)
+            } else {
+                CachedAsyncImage(url: performance.stageIconImageURL)
+            }
+        } listContent: {
+            Section {
+                if let description = performance.description, !description.isEmpty {
+                    Section {
+                        MarkdownText(description)
+                            .font(.body)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    // Stage Icon
+                    StageIconView(stageID: performance.stageID)
+                        .frame(square: 60)
+                        .foregroundStyle(Color.white)
+                        .background {
+                            Circle()
+                                .fill(performance.stageColor.swiftUIColor)
+                                .shadow(radius: 3)
+                        }
+
+                    Text(performance.stageName)
+                }
+
+                HStack(spacing: 10) {
+                    Image(systemName: "clock")
+                        .frame(square: 60)
+
+                    VStack(alignment: .leading) {
+                        Text(timeIntervalLabel)
+                            .font(.body)
+                        Text(performance.startTime.formatted(.daySegment))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Section {
+                ForEach(performingArtists) { artist in
+                    NavigationLinkButton {
+                        didTapGoToArtist(artist.id)
+                    } label: {
+                        HStack(spacing: 10) {
+                            ArtistImageView(artist: artist) {
+                                Image(systemName: "person")
+                            }
+                            .frame(square: 60)
+                            .clipped()
+
+                            Text(artist.name)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationDestination(item: $artistDetail) {
+            ArtistDetailView(store: $0)
+        }
+        .task {
+            @Dependency(\.defaultDatabase) var database
+
+            do {
+                let loadedPerformance = try await database.read { db in
+                    try PerformanceDetail.find(id: performanceID).fetchOne(db)
+                }
+                let loadedArtists = try await database.read { db in
+                    try PerformanceDetail.findPerformingArtists(performanceID: performanceID).fetchAll(db)
+                }
+
+                if let loadedPerformance {
+                    performance = loadedPerformance
+                }
+                performingArtists = loadedArtists
+            } catch {
+                print("Error loading performance data: \(error)")
+            }
+        }
+        .listStyle(.plain)
+
+    }
+}
+
 
 //
 //#Preview("Context Menu") {
@@ -233,7 +397,7 @@ public struct PerformanceScheduleDetailView: View {
 //#Preview("Material Popover") {
 //    ZStack {
 //        Color.black.opacity(0.2).ignoresSafeArea()
-//        Performance.ScheduleDetailView(
+//        PerformancePeekView(
 //            performance: .preview,
 //            performingArtists: []
 //        )
@@ -247,13 +411,14 @@ extension PerformanceDetail {
     static var preview: PerformanceDetail {
         PerformanceDetail(
             id: "",
-            title: "Overgrowth",
+            title: "Overgrow",
             stageID: "1",
             startTime: Date(hour: 22, minute: 30)!,
             endTime: Date(hour: 23, minute: 30)!,
+            description: "An immersive electronic music experience blending organic soundscapes with cutting-edge production. Prepare for a journey through dense sonic forests where every beat pulses with life.",
             stageColor: 0,
             stageName: "The Hallow",
-            stageImageURL: Stage.previewValues.first?.iconImageURL
+            stageIconImageURL: Stage.previewValues.first?.iconImageURL
         )
     }
 }

@@ -16,7 +16,7 @@ private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", cate
     // SKIP @bridge
     public init() {
         if context == .live {
-            try! OME.prepareDependencies()
+            try! OME.prepareDependencies(enableFirebase: false)
         }
     }
 

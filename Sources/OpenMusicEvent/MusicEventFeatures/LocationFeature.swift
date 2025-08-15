@@ -119,9 +119,6 @@ public class LocationFeature {
         UIApplication.shared.open(url)
         #elseif canImport(AppKit)
         NSWorkspace.shared.open(url)
-        #elseif SKIP
-        let intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url.absoluteString))
-        ProcessInfo.processInfo.androidContext.startActivity(intent)
         #endif
     }
 
@@ -194,7 +191,10 @@ struct LocationView: View {
                     } label: {
                         Label("Open in Maps", systemImage: "arrow.up.right.square")
                     }
+
                 }
+
+
 
                 self.directions
             }
@@ -211,13 +211,13 @@ struct LocationView: View {
                         AddressView(address: address)
                     }
 
-                    Menu {
-                        Button("Google Maps", systemImage: "map") {
-                            store.didTapOpenInGoogleMaps()
-                        }
-                    } label: {
-                        Label("Open in Maps", systemImage: "arrow.up.right.square")
-                    }
+//                    Menu {
+//                        Button("Google Maps", image: "map") {
+//                            store.didTapOpenInGoogleMaps()
+//                        }
+//                    } label: {
+//                        Label("Open in Maps", systemImage: "open_in_new_open_in_new_symbol")
+//                    }
 
                     self.directions
                 }

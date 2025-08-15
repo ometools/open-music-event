@@ -493,7 +493,7 @@ extension OrganizerConfiguration {
                                 startTime: performance.startTime,
                                 endTime: performance.endTime,
                                 title: performance.title,
-                                description: nil
+                                description: performance.description
                             )
 
                             try draft.upsert(db)

@@ -73,7 +73,9 @@ struct ScheduleHeaderButton: View {
                 if isSelected {
                     Circle()
                         .fill(stage.color.swiftUIColor)
+                        .frame(square: 60)
                         .shadow()
+
                 }
             }
             .scaleEffect(press ? 0.8 : 1)
