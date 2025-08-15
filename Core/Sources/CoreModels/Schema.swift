@@ -160,6 +160,8 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
         public let address: String?
         public let directions: String?
         public let coordinates: Coordinates?
+        public let appleMapsLink: URL?
+        public let googleMapsLink: URL?
 
         public struct Coordinates: Equatable, Sendable, Codable {
             public let latitude: Double
@@ -171,10 +173,12 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
             }
         }
 
-        public init(address: String?, directions: String?, coordinates: Coordinates?) {
+        public init(address: String?, directions: String?, coordinates: Coordinates?, appleMapsLink: URL? = nil, googleMapsLink: URL? = nil) {
             self.address = address
             self.directions = directions
             self.coordinates = coordinates
+            self.appleMapsLink = appleMapsLink
+            self.googleMapsLink = googleMapsLink
         }
     }
 

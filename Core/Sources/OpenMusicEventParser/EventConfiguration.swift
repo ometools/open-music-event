@@ -63,7 +63,6 @@ extension EventConfiguration {
 
     public struct ChannelConfiguration: Equatable, Sendable {
         public init(info: CoreModels.CommunicationChannel.Draft, posts: [CoreModels.CommunicationChannel.Post.Draft]) {
-            print("CCINFO: \(info)")
             self.info = info
             self.posts = posts
         }

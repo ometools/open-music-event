@@ -203,7 +203,7 @@ public struct OrganizerDetailView: View {
 
         static let intervalFormatter = {
             let f = DateIntervalFormatter()
-            f.dateStyle = .short
+            f.dateStyle = .long
             f.timeStyle = .none
             return f
         }()
@@ -225,6 +225,7 @@ public struct OrganizerDetailView: View {
         }
 
         @Environment(\.databaseDebugInformation) var databaseDebugInfo
+        @Environment(\.date) var date
 
         var body: some View {
             HStack(spacing: 10) {
@@ -233,17 +234,19 @@ public struct OrganizerDetailView: View {
 //                    .foregroundColor(.label)
 //                .invertForLightMode()
 
-                VStack(alignment: .leading) {
-                    Text(event.name)
-                    if let eventDateString {
-                        Text(eventDateString)
-                            .lineLimit(1)
-                            .font(.caption2)
-                    }
-                    if databaseDebugInfo.isEnabled {
-                        Text(String(event.id.rawValue))
-                            .font(.caption2)
-//                            .foregroundStyle(.tertiary)
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(event.name)
+                        if let eventDateString {
+                            Text(eventDateString)
+                                .lineLimit(1)
+                                .font(.caption2)
+                        }
+                        if databaseDebugInfo.isEnabled {
+                            Text(String(event.id.rawValue))
+                                .font(.caption2)
+    //                            .foregroundStyle(.tertiary)
+                        }
                     }
                 }
 

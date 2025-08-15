@@ -52,6 +52,7 @@ public enum OME {
 //
     }
 
+    @MainActor
     public static func onLaunch() async throws {
         @Dependency(\.notificationManager) var notificationManager
         try await notificationManager.applicationDidLaunch()
@@ -61,12 +62,13 @@ public enum OME {
 
 public struct OMEWhiteLabeledEntryPoint: View {
     public init(url: URL) {
-        self.url = url
-        self.store = Model(organizerURL: url)
+        self.init(.url(url))
     }
 
-    var url: URL
-    
+    public init(_ organizationReference: OrganizationReference) {
+        self.store = .init(organization: organizationReference)
+    }
+
     @State var store: Model
 
     @Observable
@@ -74,11 +76,11 @@ public struct OMEWhiteLabeledEntryPoint: View {
     class Model {
         var musicEventViewer: MusicEventViewer.Model?
         var organizerDetailStore: OrganizerDetailView.Store?
-        let organizerURL: URL
+        let organizationReference: OrganizationReference
         var isLoadingOrganizer: Bool = false
 
-        init(organizerURL: URL) {
-            self.organizerURL = organizerURL
+        init(organization: OrganizationReference) {
+            self.organizationReference = organization
             self.observeNotifications()
         }
 
@@ -119,21 +121,20 @@ public struct OMEWhiteLabeledEntryPoint: View {
             if let eventIDString {
                 self.musicEventViewer = .init(eventID: .init(eventIDString))
             }
-            let organizerURL = self.organizerURL
 
             await withTaskGroup {
                 $0.addTask {
                     // Just download on launch if possible
                     // May not want to even report errors here, failure is expected if no service
                     await withErrorReporting {
-                        try await downloadAndStoreOrganizer(from: .url(organizerURL))
+                        try await downloadAndStoreOrganizer(from: self.organizationReference)
                     }
                 }
 
                 $0.addTask {
                     let query = ValueObservation.tracking { db in
                         try Organizer
-                            .filter(Column("url") == organizerURL)
+                            .filter(Column("url") == self.organizationReference.zipURL)
                             .fetchOne(db)
                     }
 
@@ -176,6 +177,8 @@ public struct OMEWhiteLabeledEntryPoint: View {
             if let musicEventViewer = store.musicEventViewer {
                 MusicEventViewer(store: musicEventViewer)
             }
+
+
 
         }
         .onAppear { Task { await store.onAppear() } }

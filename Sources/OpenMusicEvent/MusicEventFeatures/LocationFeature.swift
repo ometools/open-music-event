@@ -5,7 +5,7 @@
 //  Created by Woodrow Melling on 2/23/25.
 //
 
-import  SwiftUI; import SkipFuse
+import SwiftUI; import SkipFuse
 import CoreModels
 
 #if canImport(MapKit)
@@ -28,6 +28,8 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import android.location.Address
 import android.location.Geocoder
+import android.content.Intent
+import android.net.Uri
 #endif
 
 // SKIP @bridge
@@ -75,6 +77,52 @@ public class LocationFeature {
         } else if let address = location.address {
             self.coordinates = await geocodeAddress(address: address)
         }
+    }
+
+    public func didTapOpenInAppleMaps() {
+        // Use direct Apple Maps link if available
+        if let appleMapsLink = location.appleMapsLink {
+            openURL(appleMapsLink)
+            return
+        }
+        
+        // Fallback to constructed URL if coordinates are available
+        guard let coordinates = coordinates else { return }
+        
+        #if canImport(MapKit)
+        let placemark = MKPlacemark(coordinate: coordinates.clLocationCoordinates)
+        let mapItem = MKMapItem(placemark: placemark)
+        mapItem.name = location.address
+        mapItem.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+        #endif
+    }
+
+    public func didTapOpenInGoogleMaps() {
+        // Use direct Google Maps link if available
+        if let googleMapsLink = location.googleMapsLink {
+            openURL(googleMapsLink)
+            return
+        }
+        
+        // Fallback to constructed URL if coordinates are available
+        guard let coordinates = coordinates else { return }
+        
+        let urlString = "https://www.google.com/maps/dir/?api=1&destination=\(coordinates.latitude),\(coordinates.longitude)"
+        
+        if let url = URL(string: urlString) {
+            openURL(url)
+        }
+    }
+    
+    private func openURL(_ url: URL) {
+        #if canImport(UIKit)
+        UIApplication.shared.open(url)
+        #elseif canImport(AppKit)
+        NSWorkspace.shared.open(url)
+        #elseif SKIP
+        let intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url.absoluteString))
+        ProcessInfo.processInfo.androidContext.startActivity(intent)
+        #endif
     }
 
     public init(location: MusicEvent.Location) {
@@ -133,6 +181,19 @@ struct LocationView: View {
                     if let address = store.location.address {
                         AddressView(address: address)
                     }
+
+                    Menu {
+                        #if os(iOS)
+                        Button("Apple Maps", systemImage: "location") {
+                            store.didTapOpenInAppleMaps()
+                        }
+                        #endif
+                        Button("Google Maps", systemImage: "map") {
+                            store.didTapOpenInGoogleMaps()
+                        }
+                    } label: {
+                        Label("Open in Maps", systemImage: "arrow.up.right.square")
+                    }
                 }
 
                 self.directions
@@ -148,6 +209,14 @@ struct LocationView: View {
                 List {
                     if let address = store.location.address {
                         AddressView(address: address)
+                    }
+
+                    Menu {
+                        Button("Google Maps", systemImage: "map") {
+                            store.didTapOpenInGoogleMaps()
+                        }
+                    } label: {
+                        Label("Open in Maps", systemImage: "arrow.up.right.square")
                     }
 
                     self.directions
@@ -172,16 +241,6 @@ struct LocationView: View {
                     #endif
 
                 Spacer()
-
-                Button {
-                    #if os(iOS)
-                    UIPasteboard.general.string = address
-                    #elseif os(macOS)
-                    NSPasteboard.general.setString(address, forType: .string)
-                    #endif
-                } label: {
-                    Image(systemName: "document.on.document")
-                }
             }
         }
     }

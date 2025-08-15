@@ -61,11 +61,13 @@ struct FestivalProImport: AsyncParsableCommand {
         print("Found \(festivalProArtists.values.count) artists in FestivalPro export")
 
         // Parse all artists first
-        let artists = try festivalProArtists.map { contact, artist in
+        let artists: [CoreModels.Artist.Draft]  = try festivalProArtists.compactMap { contact, artist in
             if verbose {
                 print("Parsing: \(contact)")
             }
-            let name = try artist.companyName.nilIfEmpty.required
+
+            guard let name = try artist.companyName.nilIfEmpty
+            else { return nil }
 
             let parsedArtist = CoreModels.Artist.Draft(
                 id: nil,

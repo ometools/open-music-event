@@ -204,7 +204,7 @@ public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringCo
         public var zipURL: URL {
             switch version {
             case .branch(let name):
-                return baseURL.appendingPathComponent("archive/refs/heads/\(name).zip")
+                return baseURL.appendingPathComponent("archive/heads/\(name).zip")
             case .version(let version):
                 return baseURL.appendingPathComponent("archive/refs/tags/\(version).zip")
             }

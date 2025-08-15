@@ -103,7 +103,6 @@ struct EventConversion: Conversion {
 
             let resolvedSchedule = try input.2?.map { try $0.resolved(timeZone: timeZone) }
 
-
             return EventConfiguration(
                 info: CoreModels.MusicEvent.Draft(
                     name: eventInfo.name ?? "",
@@ -115,8 +114,10 @@ struct EventConversion: Conversion {
                     siteMapImageURL: eventInfo.siteMapImageURL,
                     location: .init(
                         address: eventInfo.address,
-                        directions: nil,
-                        coordinates: nil
+                        directions: eventInfo.directions,
+                        coordinates: eventInfo.coordinates,
+                        appleMapsLink: eventInfo.appleMapsLink,
+                        googleMapsLink: eventInfo.googleMapsLink
                     ),
                     contactNumbers: (eventInfo.contactNumbers ?? []).map {
                         .init(
@@ -167,7 +168,22 @@ extension EventConfiguration {
     struct EventInfoYaml: Codable, Equatable {
         var name: String?
         var address: String?
+        var directions: String?
         var timeZone: String?
+        var latitude: String?
+        var longitude: String?
+        var appleMapsLink: URL?
+        var googleMapsLink: URL?
+
+        var coordinates: MusicEvent.Location.Coordinates? {
+            guard let latitude, let longitude else { return nil }
+
+            guard let latitude = Double(latitude),
+                  let longitude = Double(longitude)
+            else { return nil }
+
+            return .init(latitude: latitude, longitude: longitude)
+        }
 
         var iconImageURL: URL?
         var imageURL: URL?

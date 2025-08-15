@@ -159,9 +159,11 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
     // MARK: - UNUserNotificationCenterDelegate
     
     public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        let content = notification.request.content
-        
-        Messaging.messaging().appDidReceiveMessage(content.userInfo)
+        nonisolated(unsafe) let content = notification.request.content
+
+        await MainActor.run {
+            _ = Messaging.messaging().appDidReceiveMessage(content.userInfo)
+        }
 
         logger.info("Will present notification: \(content.title): \(content.body)")
         
@@ -172,23 +174,22 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let content = response.notification.request.content
+        nonisolated(unsafe) let content = response.notification.request.content
         logger.info("Notification tapped: \(content.title): \(content.body)")
 
-        nonisolated(unsafe) let userInfo = content.userInfo
-
-        _ = Messaging.messaging().appDidReceiveMessage(userInfo)
-
-        if let channelID = content.userInfo(for: "channel").map(CommunicationChannel.ID.init(rawValue:)),
-           let postID = content.userInfo(for: "post-stub").map(CommunicationChannel.Post.Stub.init(rawValue:)) {
-            Task { @MainActor in
-                NotificationCenter.default.post(
-                    name: .userSelectedToViewPost,
-                    object: nil,
-                    info: .viewPost(channelID: channelID, postID: postID)
-                )
-            }
+        await MainActor.run {
+            _ = Messaging.messaging().appDidReceiveMessage(content.userInfo)
+//
+//            if let channelID = content.userInfo(for: "channel").map(CommunicationChannel.ID.init(rawValue:)),
+//               let postID = content.userInfo(for: "post-stub").map(CommunicationChannel.Post.Stub.init(rawValue:)) {
+//                    NotificationCenter.default.post(
+//                        name: .userSelectedToViewPost,
+//                        object: nil,
+//                        info: .viewPost(channelID: channelID, postID: postID)
+//                    )
+//            }
         }
+
     }
 
 //    #if os(iOS)

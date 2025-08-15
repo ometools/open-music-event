@@ -105,6 +105,9 @@
         }
       }
     },
+    "Apple Maps" : {
+
+    },
     "Artists" : {
 
     },
@@ -277,6 +280,9 @@
 
     },
     "Go to Artist" : {
+
+    },
+    "Google Maps" : {
 
     },
     "Happening Now" : {
@@ -463,6 +469,9 @@
 
     },
     "OME (Open Music Event) is designed to help festival attendees effortlessly get access to information that they need during an event. The main goal of this project is to give concert and festival goers a simple, intuitive way to get information about events they are attending.\n\nThe secondary goal is providing a free and open source way for event organizers to create, maintain and update information about their event.\n\nIf you have any suggestions or discover any issues, please start a discussion and they will be addressed as soon as possible." : {
+
+    },
+    "Open in Maps" : {
 
     },
     "Open Music Event" : {
