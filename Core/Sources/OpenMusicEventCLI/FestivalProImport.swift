@@ -10,7 +10,6 @@ import CoreModels
 import OpenMusicEventParser
 import Dependencies
 import Foundation
-import OSLog
 import CustomDump
 
 struct FestivalProImport: AsyncParsableCommand {
@@ -32,24 +31,24 @@ struct FestivalProImport: AsyncParsableCommand {
     var dryRun: Bool = false
 
     func run() async throws {
-        Logger.cli.info("Importing artists from FestivalPro JSON: \(jsonPath)")
-        Logger.cli.info("Target event directory: \(eventPath)")
+        print("Importing artists from FestivalPro JSON: \(jsonPath)")
+        print("Target event directory: \(eventPath)")
 
         guard FileManager.default.fileExists(atPath: jsonPath) else {
-            Logger.cli.error("❌ JSON file not found at path: \(jsonPath)")
+            print("❌ JSON file not found at path: \(jsonPath)")
             throw ExitCode.failure
         }
 
         guard FileManager.default.fileExists(atPath: eventPath) else {
-            Logger.cli.error("❌ Event directory not found at path: \(eventPath)")
+            print("❌ Event directory not found at path: \(eventPath)")
             throw ExitCode.failure
         }
 
         do {
             try await importArtistsFromFestivalPro(jsonPath: jsonPath, eventPath: eventPath)
-            Logger.cli.info("✅ Artists imported successfully! 🎉")
+            print("✅ Artists imported successfully! 🎉")
         } catch {
-            Logger.cli.error("❌ Failed to import artists: \(error.localizedDescription)")
+            print("❌ Failed to import artists: \(error.localizedDescription)")
             throw error
         }
     }

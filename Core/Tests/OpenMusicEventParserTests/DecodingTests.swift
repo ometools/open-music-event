@@ -43,7 +43,12 @@ struct YamlCodingTests {
             EventConfiguration.EventInfoYaml(
               name: "Testival",
               address: "123 Festival Road, Music City",
+              directions: nil,
               timeZone: "America/Seattle",
+              latitude: nil,
+              longitude: nil,
+              appleMapsLink: nil,
+              googleMapsLink: nil,
               iconImageURL: nil,
               imageURL: URL(http://example.com/event-image.jpg),
               siteMapImageURL: URL(http://example.com/site-map.jpg),
@@ -79,6 +84,7 @@ struct YamlCodingTests {
                 id: nil,
                 musicEventID: nil,
                 name: "Mystic Grove",
+                category: nil,
                 sortIndex: nil,
                 iconImageURL: nil,
                 imageURL: URL(http://example.com/mystic-grove.jpg),
@@ -90,6 +96,7 @@ struct YamlCodingTests {
                 id: nil,
                 musicEventID: nil,
                 name: "Bass Haven",
+                category: nil,
                 sortIndex: nil,
                 iconImageURL: nil,
                 imageURL: URL(http://example.com/bass-haven.jpg),
@@ -101,6 +108,7 @@ struct YamlCodingTests {
                 id: nil,
                 musicEventID: nil,
                 name: "Tranquil Meadow",
+                category: nil,
                 sortIndex: nil,
                 iconImageURL: nil,
                 imageURL: nil,
@@ -208,7 +216,8 @@ struct YamlCodingTests {
                       hour: 22,
                       minute: 0
                     ),
-                    endTime: nil
+                    endTime: nil,
+                    description: nil
                   ),
                   [1]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: "Subsonic B2B Sylvan",
@@ -221,7 +230,8 @@ struct YamlCodingTests {
                       hour: 23,
                       minute: 30
                     ),
-                    endTime: nil
+                    endTime: nil,
+                    description: nil
                   ),
                   [2]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: nil,
@@ -234,7 +244,8 @@ struct YamlCodingTests {
                     endTime: ScheduleTime(
                       hour: 2,
                       minute: 0
-                    )
+                    ),
+                    description: nil
                   )
                 ],
                 "Mystic Grove": [
@@ -246,7 +257,8 @@ struct YamlCodingTests {
                       hour: 16,
                       minute: 30
                     ),
-                    endTime: nil
+                    endTime: nil,
+                    description: nil
                   ),
                   [1]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: nil,
@@ -256,7 +268,8 @@ struct YamlCodingTests {
                       hour: 18,
                       minute: 30
                     ),
-                    endTime: nil
+                    endTime: nil,
+                    description: nil
                   ),
                   [2]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: nil,
@@ -266,7 +279,8 @@ struct YamlCodingTests {
                       hour: 22,
                       minute: 30
                     ),
-                    endTime: nil
+                    endTime: nil,
+                    description: nil
                   ),
                   [3]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: nil,
@@ -279,7 +293,8 @@ struct YamlCodingTests {
                     endTime: ScheduleTime(
                       hour: 4,
                       minute: 0
-                    )
+                    ),
+                    description: nil
                   )
                 ],
                 "Tranquil Meadow": [
@@ -291,7 +306,8 @@ struct YamlCodingTests {
                       hour: 15,
                       minute: 0
                     ),
-                    endTime: nil
+                    endTime: nil,
+                    description: nil
                   ),
                   [1]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: nil,
@@ -301,7 +317,8 @@ struct YamlCodingTests {
                       hour: 16,
                       minute: 30
                     ),
-                    endTime: nil
+                    endTime: nil,
+                    description: nil
                   ),
                   [2]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: nil,
@@ -314,7 +331,8 @@ struct YamlCodingTests {
                     endTime: ScheduleTime(
                       hour: 18,
                       minute: 0
-                    )
+                    ),
+                    description: nil
                   ),
                   [3]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: "The Wind Down",
@@ -327,7 +345,8 @@ struct YamlCodingTests {
                     endTime: ScheduleTime(
                       hour: 2,
                       minute: 0
-                    )
+                    ),
+                    description: nil
                   )
                 ]
               ]
