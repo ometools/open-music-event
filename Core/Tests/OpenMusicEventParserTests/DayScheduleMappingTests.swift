@@ -85,7 +85,8 @@ struct DayScheduleConversionTests {
                            hour: 18,
                            minute: 30
                          ),
-                         stageName: "Bass Haven"
+                         stageName: "Bass Haven",
+                         description: nil
                        ),
                        [1]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                          title: "Phantom Groove",
@@ -101,7 +102,8 @@ struct DayScheduleConversionTests {
                            hour: 20,
                            minute: 0
                          ),
-                         stageName: "Bass Haven"
+                         stageName: "Bass Haven",
+                         description: nil
                        ),
                        [2]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                          title: "Caribou State",
@@ -117,7 +119,8 @@ struct DayScheduleConversionTests {
                            hour: 21,
                            minute: 30
                          ),
-                         stageName: "Bass Haven"
+                         stageName: "Bass Haven",
+                         description: nil
                        )
                      ],
                      "Main Stage": [
@@ -135,7 +138,8 @@ struct DayScheduleConversionTests {
                            hour: 22,
                            minute: 0
                          ),
-                         stageName: "Main Stage"
+                         stageName: "Main Stage",
+                         description: nil
                        ),
                        [1]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                          title: "Rhythmbox",
@@ -151,7 +155,8 @@ struct DayScheduleConversionTests {
                            hour: 23,
                            minute: 30
                          ),
-                         stageName: "Main Stage"
+                         stageName: "Main Stage",
+                         description: nil
                        )
                      ]
                    ]
@@ -211,7 +216,8 @@ struct DayScheduleConversionTests {
                       hour: 22,
                       minute: 30
                     ),
-                    stageName: "Bass Haven"
+                    stageName: "Bass Haven",
+                    description: nil
                   ),
                   [1]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                     title: "Phantom Groove",
@@ -227,7 +233,8 @@ struct DayScheduleConversionTests {
                       hour: 24,
                       minute: 30
                     ),
-                    stageName: "Bass Haven"
+                    stageName: "Bass Haven",
+                    description: nil
                   ),
                   [2]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                     title: "Oaktrail",
@@ -243,7 +250,8 @@ struct DayScheduleConversionTests {
                       hour: 28,
                       minute: 0
                     ),
-                    stageName: "Bass Haven"
+                    stageName: "Bass Haven",
+                    description: nil
                   ),
                   [3]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                     title: "Rhythmbox",
@@ -259,7 +267,8 @@ struct DayScheduleConversionTests {
                       hour: 31,
                       minute: 30
                     ),
-                    stageName: "Bass Haven"
+                    stageName: "Bass Haven",
+                    description: nil
                   )
                 ]
               ]

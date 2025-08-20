@@ -10,13 +10,8 @@ import ArgumentParser
 import OpenMusicEventParser
 import Dependencies
 import Foundation
-import OSLog
 import CustomDump
 
-
-extension Logger {
-    static let cli = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "CLI")
-}
 
 //extension Logger {
 //    init(subsystem: String, category: String) {

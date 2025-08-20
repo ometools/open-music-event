@@ -54,7 +54,8 @@ struct StageScheduleDayMappingTests {
                     hour: 16,
                     minute: 30
                   ),
-                  endTime: nil
+                  endTime: nil,
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 18,
@@ -70,7 +71,8 @@ struct StageScheduleDayMappingTests {
                     hour: 18,
                     minute: 30
                   ),
-                  endTime: nil
+                  endTime: nil,
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 20,
@@ -86,7 +88,8 @@ struct StageScheduleDayMappingTests {
                     hour: 20,
                     minute: 0
                   ),
-                  endTime: nil
+                  endTime: nil,
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 22,
@@ -105,7 +108,8 @@ struct StageScheduleDayMappingTests {
                   endTime: ScheduleTime(
                     hour: 23,
                     minute: 30
-                  )
+                  ),
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 23,
@@ -152,7 +156,8 @@ struct StageScheduleDayMappingTests {
                     hour: 22,
                     minute: 30
                   ),
-                  endTime: nil
+                  endTime: nil,
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 24,
@@ -168,7 +173,8 @@ struct StageScheduleDayMappingTests {
                     hour: 24,
                     minute: 30
                   ),
-                  endTime: nil
+                  endTime: nil,
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 26,
@@ -184,7 +190,8 @@ struct StageScheduleDayMappingTests {
                     hour: 26,
                     minute: 0
                   ),
-                  endTime: nil
+                  endTime: nil,
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 28,
@@ -203,7 +210,8 @@ struct StageScheduleDayMappingTests {
                   endTime: ScheduleTime(
                     hour: 5,
                     minute: 30
-                  )
+                  ),
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 29,
@@ -247,7 +255,8 @@ struct StageScheduleDayMappingTests {
                   endTime: ScheduleTime(
                     hour: 17,
                     minute: 30
-                  )
+                  ),
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 17,
@@ -266,7 +275,8 @@ struct StageScheduleDayMappingTests {
                   endTime: ScheduleTime(
                     hour: 18,
                     minute: 30
-                  )
+                  ),
+                  description: nil
                 ),
                 endTime: ScheduleTime(
                   hour: 18,
@@ -322,7 +332,8 @@ struct StageScheduleDayMappingTests {
                     endTime: ScheduleTime(
                       hour: 5,
                       minute: 30
-                    )
+                    ),
+                    description: nil
                   ),
                   (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: nil,
@@ -335,7 +346,8 @@ struct StageScheduleDayMappingTests {
                     endTime: ScheduleTime(
                       hour: 6,
                       minute: 30
-                    )
+                    ),
+                    description: nil
                   )
                 )
                 """
@@ -375,7 +387,8 @@ struct StageScheduleDayMappingTests {
                     endTime: ScheduleTime(
                       hour: 0,
                       minute: 30
-                    )
+                    ),
+                    description: nil
                   ),
                   (extension in OpenMusicEventParser):Performance.YamlRepresentation(
                     title: nil,
@@ -388,7 +401,8 @@ struct StageScheduleDayMappingTests {
                     endTime: ScheduleTime(
                       hour: 1,
                       minute: 30
-                    )
+                    ),
+                    description: nil
                   )
                 )
                 """
@@ -427,7 +441,8 @@ struct StageScheduleDayMappingTests {
                       hour: 20,
                       minute: 0
                     ),
-                    endTime: nil
+                    endTime: nil,
+                    description: nil
                   )
                 )
                 """
