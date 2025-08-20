@@ -80,3 +80,5 @@ Carthage/Build/
 **/fastlane/screenshots/**/*.png
 **/fastlane/metadata/android/*/images/**/*.png
 **/fastlane/test_output
+
+.claude/

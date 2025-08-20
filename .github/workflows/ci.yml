@@ -1,0 +1,61 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-linux:
+    name: Core (Linux)
+    strategy:
+      matrix:
+        swift: [ '6.1' ]
+    runs-on: ubuntu-latest
+    container: swift:${{ matrix.swift }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SQLite
+        run: apt update && apt -y install libsqlite3-dev
+
+      - name: Run Core Tests
+        run: |
+          cd Core
+          swift test --enable-test-discovery --parallel
+      - name: Build CLI release binary
+        run: |
+          cd Core
+          swift build -c release --product open-music-event
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-music-event-linux-${{ matrix.swift }}
+          path: Core/.build/release/open-music-event
+
+      - name: Install dependencies and GitHub CLI
+        run: |
+          apt-get update
+          apt-get install -y curl gnupg lsb-release
+          # Add GitHub CLI GPG key
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+          # Add GitHub CLI apt repo
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          apt-get update
+          apt-get install -y gh
+      - name: Upload file to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global --add safe.directory /__w/open-music-event/open-music-event
+          TAG=$(gh release view --json tagName -q .tagName)
+          gh release upload $TAG Core/.build/release/open-music-event --clobber
