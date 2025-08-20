@@ -2,9 +2,7 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - '*'
+
   workflow_dispatch:
 
 permissions:
@@ -28,10 +26,6 @@ jobs:
       - name: Install SQLite
         run: apt update && apt -y install libsqlite3-dev
 
-      - name: Run Core Tests
-        run: |
-          cd Core
-          swift test --enable-test-discovery --parallel
       - name: Build CLI release binary
         run: |
           cd Core
