@@ -146,7 +146,7 @@ extension EnvironmentValues {
         get {
             self[ShowTimeIndicatorEnvironmentKey.self]
         } set {
-            self[ShowTimeIndicatorEnvironmentKey.self] = true
+            self[ShowTimeIndicatorEnvironmentKey.self] = newValue
         }
     }
 }
