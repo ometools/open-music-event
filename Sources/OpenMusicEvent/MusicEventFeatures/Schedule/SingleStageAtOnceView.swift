@@ -38,6 +38,7 @@ private let logger = Logger(
 @MainActor
 class GlobalScheduleState {
     var selectedSchedule: Schedule.ID?
+    var filteringFavorites: Bool = false
 
     static let shared = GlobalScheduleState()
 }

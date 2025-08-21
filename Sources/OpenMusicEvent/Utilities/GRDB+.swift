@@ -52,6 +52,8 @@ extension Performance: Table {}
 extension Performance.Artists: Table {}
 extension CommunicationChannel: Table {}
 extension CommunicationChannel.Post: Table {}
+extension Artist.Preferences: Table {}
+extension Performance.Preferences: Table {}
 extension Organizer.Draft:  MutableIdentifiable, TableDraft {}
 extension MusicEvent.Draft:  MutableIdentifiable, TableDraft {}
 extension Artist.Draft:  MutableIdentifiable, TableDraft {}
@@ -61,6 +63,7 @@ extension Performance.Draft:  MutableIdentifiable, TableDraft {}
 extension Performance.Artists.Draft: TableDraft {}
 extension CommunicationChannel.Draft: MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Post.Draft: MutableIdentifiable, TableDraft {}
+
 
 //extension CommunicationChannel.DefaultNotificationState: @retroactive FetchableRecord {}
 //extension CommunicationChannel.UserNotificationState: @retroactive FetchableRecord {}

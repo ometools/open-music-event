@@ -9,6 +9,7 @@ import  SwiftUI; import SkipFuse
 // import SharingGRDB
 import GRDB
 import CoreModels
+import Dependencies
 
 public struct PerformanceDetailRow: View {
 //    @Selection
@@ -24,6 +25,7 @@ public struct PerformanceDetailRow: View {
         public let title: String
 
         public let stageColor: OMEColor
+        public let isSeen: Bool
     }
 
     init(performance: ArtistPerformance) {
@@ -33,10 +35,19 @@ public struct PerformanceDetailRow: View {
     var performance: ArtistPerformance
 
     @Environment(\.calendar) var calendar
+    @Dependency(\.defaultDatabase) var database
 
     var timeIntervalLabel: String {
         (performance.startTime..<performance.endTime)
             .formatted(.performanceTime(calendar: calendar))
+    }
+    
+    func toggleSeen() async {
+        await withErrorReporting {
+            try await database.write { db in
+                try Performance.Preferences.toggleSeen(for: performance.id, in: db)
+            }
+        }
     }
 
     public var body: some View {
@@ -57,17 +68,29 @@ public struct PerformanceDetailRow: View {
             }
 
             Spacer()
+            
+            if performance.isSeen {
+                Icons.seenOn
+                    .foregroundColor(.secondary)
+                    .padding(.trailing)
+            }
         }
         .listRowBackground(
             AnimatedMeshView()
         )
         .padding(.horizontal, 5)
         .frame(height: 60)
-//        #if os(iOS)
-//        .contextMenu {
-//            Button("View in Schedule", image: Icons.calendar) { }
-//        }
-//        #endif
+        .foregroundStyle(Color.primary)
+        .omeContextMenu {
+            Button {
+                Task { await toggleSeen() }
+            } label: {
+                Label(
+                    performance.isSeen ? "Mark as Not Seen" : "Mark as Seen",
+                    image: performance.isSeen ? Icons.seenToggleOff : Icons.seenOff
+                )
+            }
+        }
     }
 }
 

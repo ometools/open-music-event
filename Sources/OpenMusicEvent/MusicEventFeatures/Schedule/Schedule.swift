@@ -55,10 +55,10 @@ public class ScheduleFeature {
 
     public var schedules: [Schedule] = []
 
-    public var filteringFavorites: Bool = false
+
     var isFiltering: Bool {
         // For future filters
-        return filteringFavorites
+        return globalScheduleState.filteringFavorites
     }
 
     var showTimeIndicator: Bool {
@@ -138,12 +138,11 @@ public struct ScheduleView: View {
                 AllStagesAtOnceView(store: store)
             }
         }
-
-//        .toolbar {
-//            ToolbarItem {
-//                FilterMenu(store: store)
-//            }
-//        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                FilterMenu(store: store)
+            }
+        }
         .task { await store.task() }
         .environment(\.shouldShowTimeIndicator, store.showTimeIndicator)
         
@@ -154,20 +153,34 @@ public struct ScheduleView: View {
         @Bindable var store: ScheduleFeature
 
         var body: some View {
+
             Menu {
-                Toggle(isOn: $store.filteringFavorites) {
-                    Label(
-                        "Favorites",
-                        image: store.isFiltering ? Icons.heartFill : Icons.heart
-                    )
+                Section {
+                    Button {
+                        store.globalScheduleState.filteringFavorites.toggle()
+                    } label: {
+                        Label {
+                            Text("Favorites")
+                        } icon: {
+                            store.globalScheduleState.filteringFavorites ? Icons.heartFill : Icons.heart
+                        }
+                    }
+                } header: {
+                    Text("Filters")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
                 }
             } label: {
-                Label(
-                    "Filter",
-                    image: store.isFiltering ?
-                        Icons.line3HorizontalDecreaseCircleFill :
-                        Icons.line3HorizontalDecreaseCircle
-                )
+                Label {
+                    Text("Filters")
+                } icon: {
+                    if store.isFiltering {
+                        Icons.listFiltersOn
+                            .foregroundStyle(Color.accentColor)
+                    } else {
+                        Icons.listFiltersOff
+                    }
+                }
             }
         }
     }

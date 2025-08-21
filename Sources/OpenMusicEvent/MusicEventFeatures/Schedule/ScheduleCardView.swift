@@ -24,15 +24,22 @@ struct ScheduleCardView: View {
 
     func task() async {
         let combinedQuery = ValueObservation.tracking { db in
-            let performanceDetail = try Queries.performanceDetailQuery(for: id).fetchOne(db)
-            let artists = try Queries.performanceArtistsQuery(for: id).fetchAll(db)
-            return (performanceDetail, artists)
+            let performanceDetail = try Queries.performanceDetailQuery(for: self.id).fetchOne(db)
+            let artists = try Queries.performanceArtistsQuery(for: self.id).fetchAll(db)
+            let hasFavoriteArtists = try Bool.fetchOne(db, sql: """
+                SELECT COUNT(*) > 0
+                FROM performanceArtists pa
+                JOIN artistPreferences ap ON pa.artistID = ap.artistID
+                WHERE pa.performanceID = ? AND ap.isFavorite = 1
+                """, arguments: [self.id]) ?? false
+            return (performanceDetail, artists, hasFavoriteArtists)
         }
 
         await withErrorReporting {
-            for try await (performanceDetail, artists) in combinedQuery.values(in: database) {
+            for try await (performanceDetail, artists, hasFavorite) in combinedQuery.values(in: database) {
                 self.performance = performanceDetail
                 self.performingArtists = artists
+                self.isFavorite = hasFavorite
             }
         }
     }
@@ -44,9 +51,18 @@ struct ScheduleCardView: View {
     func didTapGoToDetails() {
         self.isShowingPerformanceDetail = true
     }
+    
+    func toggleSeen() async {
+        await withErrorReporting {
+            try await database.write { db in
+                try Performance.Preferences.toggleSeen(for: id, in: db)
+            }
+        }
+    }
 
     @State var artistDetail: ArtistDetail?
     @State var isShowingPerformanceDetail: Bool = false
+    @State var isFavorite: Bool = false
 
     @State var performance: PerformanceDetail?
     @State var performingArtists: [Artist] = []
@@ -70,6 +86,20 @@ struct ScheduleCardView: View {
     }
 
     @Environment(\.calendar) var calendar
+    @Environment(\.colorScheme) var colorScheme
+
+    let scheduleState = GlobalScheduleState.shared
+
+    var isDimmed: Bool {
+        scheduleState.filteringFavorites && !isFavorite
+    }
+
+    var isSeen: Bool {
+        guard let performance
+        else { return false }
+
+        return performance.isSeen
+    }
 
     public var body: some View {
         ScheduleCardBackground(
@@ -79,21 +109,55 @@ struct ScheduleCardView: View {
             if let performance = performance {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading) {
-                        Text(performance.title)
-                            .font(.headline)
+                        HStack {
+                            Text(performance.title)
+                                .font(.headline)
+                        }
 
                         Text(performance.startTime..<performance.endTime, format: .performanceTime(calendar: self.calendar))
                             .font(.subheadline)
                     }
 
                     Spacer()
+
+                    HStack {
+                        if performance.isSeen {
+                            Icons.seenOn
+                        }
+                        
+                        if isFavorite {
+                            Image(systemName: "heart.fill")
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing)
                 }
                 .padding(.top, 2)
             }
         }
+        .overlay {
+            if isDimmed {
+                switch colorScheme {
+                case .dark:
+                    Color.black.opacity(0.7)
+                case .light:
+                    Color.white.opacity(0.7)
+                @unknown default:
+                    Color.black.opacity(0.7)
+                }
+            }
+        }
         .omeContextMenu {
+            Button {
+                Task { await toggleSeen() }
+            } label: {
+                Label(
+                    isSeen ? "Mark as Not Seen" : "Mark as Seen",
+                    image: isSeen ? Icons.seenToggleOff : Icons.seenOff
+                )
+            }
+            
             if self.hasDetails {
-
                 NavigationLinkButton {
                     self.didTapGoToDetails()
                 } label: {
@@ -111,6 +175,8 @@ struct ScheduleCardView: View {
                 }
             }
         }
+        .animation(.default, value: isDimmed)
+        .animation(.default, value: isSeen)
         .id(id)
         .tag(id)
         .task(id: id) { await task() }
@@ -119,7 +185,7 @@ struct ScheduleCardView: View {
         }
         .navigationDestination(isPresented: $isShowingPerformanceDetail) {
             if let performance = self.performance {
-                PerformanceDetailView(performance: performance, performingArtists: self.performingArtists)
+                PerformanceDetailView(id: performance.id)
             }
         }
     }

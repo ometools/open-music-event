@@ -33,8 +33,6 @@ public struct LoggingLogger: OMELogger {
     }
 }
 
-
-
 public enum OME {
     public static func prepareDependencies(enableFirebase: Bool = true) throws {
         try Dependencies.prepareDependencies {
@@ -172,8 +170,9 @@ public struct OMEWhiteLabeledEntryPoint: View {
 
     public var body: some View {
         ZStack {
+            Text("Unable to load")
+            
             if let organizerDetailStore = store.organizerDetailStore {
-
                 NavigationStack {
                     OrganizerDetailView(store: organizerDetailStore)
                 }
@@ -182,8 +181,6 @@ public struct OMEWhiteLabeledEntryPoint: View {
             if let musicEventViewer = store.musicEventViewer {
                 MusicEventViewer(store: musicEventViewer)
             }
-
-
 
         }
         .onAppear { Task { await store.onAppear() } }

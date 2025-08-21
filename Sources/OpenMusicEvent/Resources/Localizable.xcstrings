@@ -111,9 +111,6 @@
     "Artists" : {
 
     },
-    "Blah Blah Blah" : {
-
-    },
     "branch" : {
 
     },
@@ -273,7 +270,7 @@
     "Favorites" : {
 
     },
-    "Filter" : {
+    "Filters" : {
 
     },
     "GitHub" : {
@@ -394,6 +391,12 @@
 
     },
     "Location" : {
+
+    },
+    "Mark as Not Seen" : {
+
+    },
+    "Mark as Seen" : {
 
     },
     "More" : {
@@ -674,6 +677,9 @@
           }
         }
       }
+    },
+    "Unable to load" : {
+
     },
     "Unsubscribed" : {
 

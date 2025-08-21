@@ -39,14 +39,26 @@ class ArtistDetail {
         let combinedQuery = ValueObservation.tracking { db in
             let artist = try Artist.find(db, id: self.artistID)
             let performances = try Queries.fetchPerformances(for: self.artistID, from: db)
-            return (artist, performances)
+            let preferences = try Artist.Preferences.fetchOne(db, key: self.artistID)
+            return (artist, performances, preferences)
         }
 
         await withErrorReporting {
-            for try await (artist, performances) in combinedQuery.values() {
+            for try await (artist, performances, preferences) in combinedQuery.values() {
                 logger.info("Selected Artist: \(artist.name) with: \(performances)")
                 self.artist = artist
                 self.performances = performances
+                self.isFavorite = preferences?.isFavorite ?? false
+            }
+        }
+    }
+    
+    func toggleFavorite() async {
+        @Dependency(\.defaultDatabase) var database
+        
+        await withErrorReporting {
+            try await database.write { db in
+                try Artist.Preferences.toggleFavorite(for: self.artistID, in: db)
             }
         }
     }
@@ -54,6 +66,7 @@ class ArtistDetail {
     let artistID: Artist.ID
     var artist: Artist = .placeholder
     var performances: [PerformanceDetailRow.ArtistPerformance] = []
+    var isFavorite: Bool = false
 }
 
 
@@ -102,6 +115,16 @@ struct ArtistDetailView: View {
         .listStyle(.plain)
         .task(id: store.artist.id) { await self.store.task() }
         .id(store.artist.id)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task { await store.toggleFavorite() }
+                } label: {
+                    Image(systemName: store.isFavorite ? "heart.fill" : "heart")
+                        .foregroundStyle(store.isFavorite ? .red : .primary)
+                }
+            }
+        }
 
     }
 

@@ -19,10 +19,12 @@ struct Queries {
                 p.startTime as startTime,
                 p.endTime as endTime,
                 p.title as title,
-                s.color as stageColor
+                s.color as stageColor,
+                COALESCE(pp.seen, 0) as isSeen
             FROM performanceArtists pa
             JOIN performances p ON pa.performanceID = p.id
             JOIN stages s ON p.stageID = s.id
+            LEFT JOIN performancePreferences pp ON p.id = pp.performanceID
             WHERE pa.artistID = ?
             ORDER BY p.startTime ASC
         """
@@ -35,7 +37,8 @@ struct Queries {
                 startTime: row["startTime"] as Date,
                 endTime: row["endTime"] as Date,
                 title: row["title"],
-                stageColor: OMEColor(rawValue: row["stageColor"])
+                stageColor: OMEColor(rawValue: row["stageColor"]),
+                isSeen: row["isSeen"] ?? false
             )
         }
     }
@@ -80,13 +83,20 @@ struct Queries {
                     p.endTime as endTime,
                     s.color as stageColor,
                     s.name as stageName,
-                    s.iconImageURL as stageImageURL
+                    s.iconImageURL as stageIconImageURL,
+                    COALESCE(pp.seen, 0) as isSeen
                 FROM performances p
                 JOIN stages s ON p.stageID = s.id
+                LEFT JOIN performancePreferences pp ON p.id = pp.performanceID
                 WHERE p.id = ?
             """,
             arguments: [performanceID.rawValue]
         )
+    }
+    
+    static func performanceSeenStatusQuery(for performanceID: Performance.ID) -> QueryInterfaceRequest<Performance.Preferences> {
+        return Performance.Preferences
+            .filter(Column("performanceID") == performanceID.rawValue)
     }
     
     static func performanceArtistsQuery(for performanceID: Performance.ID) -> SQLRequest<Artist> {

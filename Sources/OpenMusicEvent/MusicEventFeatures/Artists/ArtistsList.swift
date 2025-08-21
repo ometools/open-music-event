@@ -82,11 +82,18 @@ struct ArtistsListView: View {
     struct Row: View {
         init(artist: Artist) {
             self.artist = artist
+            self.id = artist.id
+        }
+        init(id: Artist.ID) {
+            self.id = id
         }
 
-        var artist: Artist
-        
+        var id: Artist.ID
+
+        @State var artist: Artist?
+
         @State var performanceStages: [Stage] = []
+        @State var isFavorite: Bool = false
 
         private var imageSize: CGFloat = 60
 
@@ -95,11 +102,37 @@ struct ArtistsListView: View {
         @Environment(\.showArtistImages)
         var showArtistImages
 
+        private func loadArtistData() async {
+            let query = ValueObservation.tracking { db in
+                let artist = try Artist.fetchOne(db, id: self.id)
+                let stages = try Queries.fetchPerformanceStages(for: self.id, from: db)
+                let isFavorite = try Artist.Preferences.fetchOne(db, key: self.id)?.isFavorite ?? false
+                return (artist, stages, isFavorite)
+            }
+
+            await withErrorReporting {
+                for try await (artist, stages, favorite) in query.values() {
+                    self.artist = artist
+                    self.performanceStages = stages
+                    self.isFavorite = favorite
+                }
+            }
+        }
+
+        private func toggleFavorite() async {
+            await withErrorReporting {
+                try await database.write { db in
+                    try Artist.Preferences.toggleFavorite(for: self.id, in: db)
+                }
+            }
+        }
+
         var body: some View {
+
             HStack(spacing: 10) {
                 Group {
-                    if artist.imageURL != nil && showArtistImages {
-                        ArtistImageView(artist: artist) {
+                    if let imageURL = artist?.imageURL, showArtistImages {
+                        CachedAsyncImage(url: imageURL) {
                             if let stage = performanceStages.first {
                                 StageIconView(stageID: stage.id)
                             }
@@ -117,41 +150,52 @@ struct ArtistsListView: View {
                 StageIndicatorView(colors: performanceStages.map(\.color))
                     .frame(width: 5, height: 60)
 
-                Text(artist.name)
+                Text(artist?.name ?? "")
                     .lineLimit(1)
 
                 Spacer()
 
-//                if favoriteArtists[artist.id] {
-//                    Image(systemName: "heart.fill")
-//                        .resizable()
-//                        .renderingMode(.template)
-//                        .aspectRatio(contentMode: .fit)
-//                        .frame(square: 15)
-//                        .foregroundColor(.accentColor)
-//                        .padding(.trailing)
-//                }
+                if isFavorite {
+                    Image(systemName: "heart.fill")
+                        .resizable()
+                        .renderingMode(.template)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(square: 15)
+                        .padding(.trailing)
+                }
             }
             .foregroundStyle(.primary)
             .task {
-                await loadPerformanceStages()
+                await loadArtistData()
             }
         }
-        
-        private func loadPerformanceStages() async {
-            let artistID = artist.id
-            let query = ValueObservation.tracking { db in
-                try Queries.fetchPerformanceStages(for: artistID, from: db)
-            }
-            
-            await withErrorReporting {
-                for try await stages in query.values() {
-                    self.performanceStages = stages
-                    print("Artist \(artist.name): \(stages.count) stages")
-                    print("Colors: \(stages.map(\.color))")
-                }
-            }
-        }
+
+    }
+}
+
+extension Artist.Preferences {
+    static func toggleFavorite(for artistID: Artist.ID, in db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO artistPreferences (artistID, isFavorite)
+            VALUES (?, 1)
+            ON CONFLICT(artistID) DO UPDATE SET
+            isFavorite = 1 - isFavorite
+            """,
+           arguments: [artistID]
+        )
+    }
+}
+
+extension Performance.Preferences {
+    static func toggleSeen(for performanceID: Performance.ID, in db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO performancePreferences (performanceID, seen)
+            VALUES (?, 1)
+            ON CONFLICT(performanceID) DO UPDATE SET
+            seen = 1 - seen
+            """,
+           arguments: [performanceID]
+        )
     }
 }
 

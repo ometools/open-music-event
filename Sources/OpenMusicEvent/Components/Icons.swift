@@ -31,6 +31,28 @@ enum Icons {
     static var clock: Image { Image(systemName: "clock") }
     static var heart: Image { Image(systemName: "heart") }
     static var heartFill: Image { Image(systemName: "heart.fill") }
+    static var seenOn: Image {
+        #if os(Android)
+        Image("seen_on", bundle: .module)
+        #else
+        Image(systemName: "eye.fill")
+        #endif
+    }
+    static var seenOff: Image {
+        #if os(Android)
+        Image("seen_off", bundle: .module)
+        #else
+        Image(systemName: "eye")
+        #endif
+    }
+    static var seenToggleOff: Image {
+        #if os(Android)
+        Image("seen_toggle_off", bundle: .module)
+        #else
+        Image(systemName: "eye.slash")
+        #endif
+    }
+
 
     // MARK: - People & Artists
     static var person: Image { Image(systemName: "person") }
@@ -100,6 +122,23 @@ enum Icons {
     static var documentOnDocument: Image { Image(systemName: "document.on.document") }
     static var line3HorizontalDecreaseCircle: Image { Image(systemName: "line.3.horizontal.decrease.circle") }
     static var line3HorizontalDecreaseCircleFill: Image { Image(systemName: "line.3.horizontal.decrease.circle.fill") }
+
+
+    static var listFiltersOff: Image {
+        #if os(Android)
+        Image("filter_list", bundle: .module)
+        #else
+        Image(systemName: "line.3.horizontal.decrease.circle")
+        #endif
+    }
+
+    static var listFiltersOn: Image {
+        #if os(Android)
+        Image("filter_list", bundle: .module)
+        #else
+        Image(systemName: "line.3.horizontal.decrease.circle.fill")
+        #endif
+    }
 
     // MARK: - Contact & Communication
     static var phone: Image { Image(systemName: "phone") }
