@@ -45,7 +45,7 @@ class GlobalScheduleState {
         case allStagesAtOnce
     }
 
-    var scheduleKind: ScheduleType = .allStagesAtOnce
+    var scheduleKind: ScheduleType = .singleStageAtOnce
 
     static let shared = GlobalScheduleState()
 }

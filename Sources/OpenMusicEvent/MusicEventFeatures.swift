@@ -6,6 +6,7 @@ import Dependencies
 import IssueReporting
 
 
+
 struct MusicEventViewer: View {
     @Observable
     @MainActor
@@ -423,18 +424,73 @@ enum FeatureLocation {
 }
 
 
+
+#if SKIP
+
+#endif
+
 struct SiteMapImageView: View {
     var siteMapURL: URL
 
     var body: some View {
-        ZoomableContainer {
+        ZStack {
+            #if os(Android)
+            ComposeView { SiteMapComposer(siteMapURL: siteMapURL) }
+                .background {
+                    Color.black
+                }
+            #else
             CachedAsyncImage(url: siteMapURL, contentMode: .fit)
+                ._zoomable()
+                .background {
+                    Color.black
+                }
+            #endif
         }
-//            .toolbar(.hidden)
     }
 }
 
-import SwiftUI
+#if SKIP
+import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
+import coil3.request.ImageRequest
+import coil3.request.CachePolicy
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxSize
+
+struct SiteMapComposer : ContentComposer {
+    let siteMapURL: URL
+
+    // SKIP @nobridge
+    let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "SiteMap")
+
+    @Composable func Compose(context: ComposeContext) {
+        let context = LocalContext.current
+        let imageRequest = ImageRequest.Builder(context)
+            .data(siteMapURL.absoluteString)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .listener(
+                onStart = { _ in
+                    logger.info("Loading site map image: \(siteMapURL.absoluteString)")
+                },
+                onSuccess = { _, _ in 
+                    logger.info("Site map image loaded successfully")
+                },
+                onError = { _, error in
+                    logger.error("Site map image load error: \(error.throwable.message ?? "Unknown error")")
+                }
+            )
+            .build()
+        
+        ZoomableAsyncImage(
+            model: imageRequest,
+            contentDescription: "Site Map",
+            modifier: Modifier.fillMaxSize()
+        )
+    }
+}
+#endif
 
 enum FeatureLocationEnvironmentKey: EnvironmentKey {
     static let defaultValue: FeatureLocation = .tabBar

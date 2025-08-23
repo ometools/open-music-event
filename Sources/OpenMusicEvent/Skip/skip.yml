@@ -6,6 +6,15 @@ build:
         - 'implementation("com.google.maps.android:maps-compose:6.4.1")'
         
         - 'implementation("androidx.emoji2:emoji2:1.5.0")'
+        
+        # Telephoto library for zoomable images
+        - 'implementation("me.saket.telephoto:zoomable:0.16.0")'
+
+        - 'implementation("me.saket.telephoto:zoomable-image-coil3:0.16.0")'
+
+        # Coil for image loading (required by telephoto)
+        - 'implementation("io.coil-kt:coil-compose:2.7.0")'
+
 
 # this is a natively-compiled module
 skip:

@@ -93,7 +93,7 @@ public class ScheduleFeature {
                 self.schedules = schedules
                 logger.log("schedules: \(schedules)")
 
-                if globalScheduleState.selectedSchedule == nil {
+                if globalScheduleState.selectedSchedule == nil || !schedules.contains(where: { $0.id == globalScheduleState.selectedSchedule }) {
                     globalScheduleState.selectedSchedule = schedules.first?.id
                 }
             }
