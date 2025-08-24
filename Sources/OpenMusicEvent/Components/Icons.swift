@@ -29,6 +29,20 @@ enum Icons {
     // MARK: - Schedule & Time
     static var calendar: Image { Image(systemName: "calendar") }
     static var clock: Image { Image(systemName: "clock") }
+    static var singleStageSchedule: Image {
+        #if os(Android)
+        Image("view_day_symbol", bundle: .module)
+        #else
+        Image(systemName: "calendar.day.timeline.leading")
+        #endif
+    }
+    static var multiStageSchedule: Image {
+        #if os(Android)
+        Image("view_week_view_week_symbol", bundle: .module)
+        #else
+        Image(systemName: "rectangle.split.3x1")
+        #endif
+    }
     static var heart: Image { Image(systemName: "heart") }
     static var heartFill: Image { Image(systemName: "heart.fill") }
     static var seenOn: Image {

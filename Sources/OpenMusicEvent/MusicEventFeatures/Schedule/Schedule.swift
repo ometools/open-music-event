@@ -116,36 +116,49 @@ public struct ScheduleView: View {
     #endif
 
 
-    enum ScheduleType {
-        case singleStageAtOnce
-        case allStagesAtOnce
-    }
-
-    @State var visibleSchedule: ScheduleType = .singleStageAtOnce
 
     public var body: some View {
         Group {
-            switch visibleSchedule {
+            switch store.globalScheduleState.scheduleKind {
             case .singleStageAtOnce:
                 ScheduleSingleStageAtOnceView(store: store.singleStageAtOnceFeature)
-                    .modifier(
-                        ScheduleSelectorModifier(
-                            selectedScheduleID: $store.globalScheduleState.selectedSchedule,
-                            schedules: store.schedules
-                        )
-                    )
+
             case .allStagesAtOnce:
-                AllStagesAtOnceView(store: store)
+                ManyStagesAtOnceView(store: self.store)
             }
         }
+        .animation(.default, value: store.globalScheduleState.scheduleKind)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ScheduleKindMenu(store: store)
+
                 FilterMenu(store: store)
             }
         }
+        .modifier(
+            ScheduleSelectorModifier(
+                selectedScheduleID: $store.globalScheduleState.selectedSchedule,
+                schedules: store.schedules
+            )
+        )
         .task { await store.task() }
         .environment(\.shouldShowTimeIndicator, store.showTimeIndicator)
-        
+    }
+
+    struct ScheduleKindMenu: View {
+        @Bindable var store: ScheduleFeature
+
+        var body: some View {
+            Picker(selection: $store.globalScheduleState.scheduleKind) {
+                Label("Single Stage", image: Icons.singleStageSchedule)
+                    .tag(GlobalScheduleState.ScheduleType.singleStageAtOnce)
+
+                Label("Multi Stage", image: Icons.multiStageSchedule)
+                    .tag(GlobalScheduleState.ScheduleType.allStagesAtOnce)
+            } label: {
+                Text("Schedule Kind")
+            }
+        }
     }
 
 

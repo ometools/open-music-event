@@ -40,6 +40,13 @@ class GlobalScheduleState {
     var selectedSchedule: Schedule.ID?
     var filteringFavorites: Bool = false
 
+    enum ScheduleType {
+        case singleStageAtOnce
+        case allStagesAtOnce
+    }
+
+    var scheduleKind: ScheduleType = .allStagesAtOnce
+
     static let shared = GlobalScheduleState()
 }
 

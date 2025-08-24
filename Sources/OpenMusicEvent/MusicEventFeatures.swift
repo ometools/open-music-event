@@ -16,7 +16,7 @@ struct MusicEventViewer: View {
 
         var id: MusicEvent.ID
         var eventFeatures: MusicEventFeatures?
-        var isLoading: Bool { eventFeatures == nil }
+        var isLoading: Bool = false
 
         @ObservationIgnored
         @Dependency(\.imagePrefetchClient) var imagePrefetchClient
@@ -25,7 +25,7 @@ struct MusicEventViewer: View {
         func onAppear() async {
             @Dependency(\.defaultDatabase) var database
             self.eventFeatures = nil
-
+            self.isLoading = true
             let musicEventID = self.id
             do {
                 // Load MusicEvent from database using GRDB
@@ -59,11 +59,16 @@ struct MusicEventViewer: View {
                             stages: stages,
                             schedules: schedules
                         )
+                        self.isLoading = false
                     }
                 }
             } catch {
                 reportIssue(error)
             }
+        }
+
+        func didTapReload() async {
+            await self.onAppear()
         }
     }
 
@@ -74,8 +79,20 @@ struct MusicEventViewer: View {
 
     var body: some View {
         ZStack {
-            if let eventFeatures = store.eventFeatures {
+            if store.isLoading {
+                ProgressView()
+            } else if let eventFeatures = store.eventFeatures {
                 MusicEventFeaturesView(store: eventFeatures)
+            } else {
+                VStack {
+                    Text("Failed to Load...")
+                    Button("Try Again") {
+                        Task {
+                            await store.didTapReload()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             }
         }
         .animation(.default, value: store.isLoading)

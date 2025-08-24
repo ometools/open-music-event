@@ -170,8 +170,6 @@ public struct OMEWhiteLabeledEntryPoint: View {
 
     public var body: some View {
         ZStack {
-            Text("Unable to load")
-            
             if let organizerDetailStore = store.organizerDetailStore {
                 NavigationStack {
                     OrganizerDetailView(store: organizerDetailStore)

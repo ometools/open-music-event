@@ -237,6 +237,9 @@
     "Exit and see previous events" : {
 
     },
+    "Failed to Load..." : {
+
+    },
     "Favorite" : {
       "comment" : "Item editor title label for marking the item as a favorite",
       "extractionState" : "stale",
@@ -400,6 +403,9 @@
 
     },
     "More" : {
+
+    },
+    "Multi Stage" : {
 
     },
     "Name" : {
@@ -573,6 +579,9 @@
     "Schedule" : {
 
     },
+    "Schedule Kind" : {
+
+    },
     "ScrollVisibility" : {
 
     },
@@ -605,6 +614,9 @@
           }
         }
       }
+    },
+    "Single Stage" : {
+
     },
     "Site Map" : {
 
@@ -678,7 +690,7 @@
         }
       }
     },
-    "Unable to load" : {
+    "Try Again" : {
 
     },
     "Unsubscribed" : {

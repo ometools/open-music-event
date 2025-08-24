@@ -7,56 +7,93 @@
 
 // import SharingGRDB
 import GRDB
-import  SwiftUI
+import SwiftUI
 import SkipFuse
+import IssueReporting
 
-extension ScheduleView {
+struct ManyStagesAtOnceView: View {
+    var store: ScheduleFeature
+    var globalScheduleState: GlobalScheduleState = .shared
 
-    struct AllStagesAtOnceView: View {
-        let store: ScheduleFeature
+    @State
+    var performances: [PerformanceTimelineCard] = []
 
-//        var schedule: [TimelineWrapper<Performance>] {
-//            // TODO: Replace @SharedReader(.event) with proper state management
-//            // @SharedReader(.event) var event
-//
-//            let orderedStageIndexes: [Stage.ID : Int] = Stages.enumerated().reduce(into: [:]) {
-//                $0[$1.element.id] = $1.offset
-//            }
-//
-//            guard let stageSchedules = store.event.schedule[day: store.selectedDay]?.stageSchedules
-//            else { return [] }
-//
-//            let performancesWithColumns: [(Int, [Performance])] = stageSchedules.compactMap { stageID, performances in
-//                guard let column: Int = orderedStageIndexes[stageID]
-//                else { return nil }
-//
-//                return (column, performances)
-//            }
-//
-//            return performancesWithColumns.flatMap { column, performances in
-//                return performances.map {
-//                    TimelineWrapper(
-//                        groupWidth: column..<column,
-//                        item: $0
-//                    )
-//                }
-//            }
-//        }
+    struct PerformanceTimelineCard: Identifiable, TimelineCard, Codable, FetchableRecord {
+        var id: Performance.ID
 
-        var body: some View {
-            ScrollView {
-//                SchedulePageView([]) { performance in
-//                    ScheduleCardView(
-//                        performance.item,
-//                        isSelected: false,
-//                        isFavorite: false
-//                    )
-////                    .onTapGesture { store.send(.didTapCard(performance.id)) }
-//                    .tag(performance.id)
-//                }
-//                .frame(height: 1500)
+        var startTime: Date
+        var endTime: Date
+        var sortIndex: Int
+
+        var groupWidth: Range<Int> {
+            sortIndex..<sortIndex
+        }
+
+        var dateInterval: DateInterval {
+            DateInterval(start: startTime, end: endTime)
+        }
+
+        init(id: Performance.ID, startTime: Date, endTime: Date, sortIndex: Int) {
+            self.id = id
+            self.startTime = startTime
+            self.endTime = endTime
+            self.sortIndex = sortIndex
+        }
+
+        init(row: Row) throws {
+            self.init(
+                id: Performance.ID(row["id"]),
+                startTime: row["startTime"],
+                endTime: row["endTime"],
+                sortIndex: row["sortIndex"]
+            )
+        }
+    }
+
+    let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "StageSchedulePage")
+
+    func task() async {
+        guard let selectedSchedule = globalScheduleState.selectedSchedule
+        else { return }
+
+        let category = store.category
+        let query = ValueObservation.tracking { db in
+            try SQLRequest<PerformanceTimelineCard>(
+                sql: """
+                    SELECT 
+                        p.id as id,
+                        p.startTime as startTime,
+                        p.endTime as endTime,
+                        s.sortIndex as sortIndex
+                    FROM performances p
+                    JOIN stages s ON p.stageID = s.id
+                    WHERE p.scheduleID = ? AND (? IS NULL AND s.category IS NULL OR s.category = ?) 
+                """,
+                arguments: [selectedSchedule.rawValue, category?.rawValue, category?.rawValue]
+            )
+            .fetchAll(db)
+        }
+
+        await withErrorReporting {
+            for try await performances in query.values() {
+                self.performances = performances
             }
-//            .zoomable()
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            SchedulePageView(performances) { performance in
+                ScheduleCardView(id: performance.id)
+            } emptyContent: {
+                EmptyView()
+            }
+            .frame(height: 1500)
+        }
+        .task(id: globalScheduleState.selectedSchedule) {
+            await withErrorReporting {
+                await self.task()
+            }
         }
     }
 }

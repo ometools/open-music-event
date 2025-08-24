@@ -107,32 +107,19 @@ struct ScheduleCardView: View {
             isSelected: isSelected
         ) {
             if let performance = performance {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading) {
-                        HStack {
-                            Text(performance.title)
-                                .font(.headline)
-                        }
-
-                        Text(performance.startTime..<performance.endTime, format: .performanceTime(calendar: self.calendar))
-                            .font(.subheadline)
-                    }
-
-                    Spacer()
-
-                    HStack {
-                        if performance.isSeen {
-                            Icons.seenOn
-                        }
-                        
-                        if isFavorite {
-                            Image(systemName: "heart.fill")
-                        }
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.trailing)
+                #if os(Android)
+                switch scheduleState.scheduleKind {
+                case .singleStageAtOnce:
+                    LargePerformanceView(performance: performance, hasFavoriteArtist: self.isFavorite)
+                case .allStagesAtOnce:
+                    TinyPerformanceView(performance: performance)
                 }
-                .padding(.top, 2)
+                #else
+                ViewThatFits {
+                    LargePerformanceView(performance: performance, hasFavoriteArtist: self.isFavorite)
+                    TinyPerformanceView(performance: performance)
+                }
+                #endif
             }
         }
         .overlay {
@@ -191,6 +178,66 @@ struct ScheduleCardView: View {
     }
 }
 
+struct LargePerformanceView: View {
+    var performance: PerformanceDetail
+    var hasFavoriteArtist: Bool
+    @Environment(\.calendar) var calendar
+
+    var body: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading) {
+                HStack {
+                    Text(performance.title)
+                        .font(.headline)
+//                        .minimumScaleFactor(0.5)
+                }
+
+                Text(performance.startTime..<performance.endTime, format: .performanceTime(calendar: self.calendar))
+                    .font(.subheadline)
+//                    .minimumScaleFactor(0.5)
+            }
+
+            Spacer()
+
+            HStack {
+                if performance.isSeen {
+                    Icons.seenOn
+                }
+
+                if hasFavoriteArtist {
+                    Image(systemName: "heart.fill")
+                }
+            }
+            .foregroundStyle(.secondary)
+            .padding(.trailing)
+
+        }
+        .padding(.top, 2)
+    }
+}
+
+struct TinyPerformanceView: View {
+    var performance: PerformanceDetail
+
+    @Environment(\.calendar) var calendar
+
+    var body: some View {
+        HStack(alignment: .top) {
+
+            VStack(alignment: .leading) {
+                HStack {
+                    Text(performance.title)
+                        .font(.caption)
+                }
+
+                Text(performance.startTime, format: Date.FormatStyle.dateTime.hour(.defaultDigits(amPM: .abbreviated)).minute())
+                    .font(.caption2)
+            }
+
+            Spacer()
+        }
+    }
+}
 
 //#if SKIP
 //extension View {
