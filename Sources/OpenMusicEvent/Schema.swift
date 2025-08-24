@@ -22,7 +22,7 @@ extension Artist {
     }
 }
 
-extension Artist.Preferences.Draft: Sendable, Equatable {}
+extension Artist.Preferences.Draft: Sendable, Equatable, Codable {}
 
 
 extension Performance {
@@ -41,14 +41,19 @@ extension Performance {
 }
 
 
-extension Performance.Preferences.Draft: Sendable, Equatable {}
+extension Performance.Preferences.Draft: Sendable, Equatable, Codable {}
 
 
 extension Artist.Preferences {
     public struct Draft {
         public typealias PrimaryTable = Artist.Preferences
 
-        public let artistID: Artist.ID
+
+        public var id: Artist.ID {
+            get { artistID }
+            set { artistID = newValue }
+        }
+        public var artistID: Artist.ID
         public var isFavorite: Bool
 
         public static let tableName = Artist.Preferences.tableName
@@ -68,8 +73,11 @@ extension Artist.Preferences {
 extension Performance.Preferences {
     public struct Draft {
         public typealias PrimaryTable = Performance.Preferences
-
-        public let performanceID: Performance.ID
+        public var id: Performance.ID {
+            get { performanceID }
+            set { performanceID = newValue }
+        }
+        public var performanceID: Performance.ID
         public var seen: Bool
 
         public static let tableName = Performance.Preferences.tableName

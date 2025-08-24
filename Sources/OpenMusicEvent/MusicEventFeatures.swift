@@ -447,7 +447,9 @@ struct SiteMapImageView: View {
                 }
             #endif
         }
+        .toolbarBackground(.hidden, for: .navigationBar)
     }
+
 }
 
 #if SKIP
