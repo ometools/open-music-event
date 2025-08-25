@@ -111,9 +111,6 @@
     "Artists" : {
 
     },
-    "Blah Blah Blah" : {
-
-    },
     "branch" : {
 
     },
@@ -240,6 +237,9 @@
     "Exit and see previous events" : {
 
     },
+    "Failed to Load..." : {
+
+    },
     "Favorite" : {
       "comment" : "Item editor title label for marking the item as a favorite",
       "extractionState" : "stale",
@@ -273,7 +273,7 @@
     "Favorites" : {
 
     },
-    "Filter" : {
+    "Filters" : {
 
     },
     "GitHub" : {
@@ -396,7 +396,16 @@
     "Location" : {
 
     },
+    "Mark as Not Seen" : {
+
+    },
+    "Mark as Seen" : {
+
+    },
     "More" : {
+
+    },
+    "Multi Stage" : {
 
     },
     "Name" : {
@@ -570,6 +579,9 @@
     "Schedule" : {
 
     },
+    "Schedule Kind" : {
+
+    },
     "ScrollVisibility" : {
 
     },
@@ -602,6 +614,9 @@
           }
         }
       }
+    },
+    "Single Stage" : {
+
     },
     "Site Map" : {
 
@@ -674,6 +689,9 @@
           }
         }
       }
+    },
+    "Try Again" : {
+
     },
     "Unsubscribed" : {
 

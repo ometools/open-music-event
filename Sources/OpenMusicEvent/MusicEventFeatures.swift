@@ -6,6 +6,7 @@ import Dependencies
 import IssueReporting
 
 
+
 struct MusicEventViewer: View {
     @Observable
     @MainActor
@@ -16,7 +17,7 @@ struct MusicEventViewer: View {
 
         var id: MusicEvent.ID
         var eventFeatures: MusicEventFeatures?
-        var isLoading: Bool { eventFeatures == nil }
+        var isLoading: Bool = false
 
         @ObservationIgnored
         @Dependency(\.imagePrefetchClient) var imagePrefetchClient
@@ -25,7 +26,7 @@ struct MusicEventViewer: View {
         func onAppear() async {
             @Dependency(\.defaultDatabase) var database
             self.eventFeatures = nil
-
+            self.isLoading = true
             let musicEventID = self.id
             do {
                 // Load MusicEvent from database using GRDB
@@ -59,11 +60,16 @@ struct MusicEventViewer: View {
                             stages: stages,
                             schedules: schedules
                         )
+                        self.isLoading = false
                     }
                 }
             } catch {
                 reportIssue(error)
             }
+        }
+
+        func didTapReload() async {
+            await self.onAppear()
         }
     }
 
@@ -74,8 +80,20 @@ struct MusicEventViewer: View {
 
     var body: some View {
         ZStack {
-            if let eventFeatures = store.eventFeatures {
+            if store.isLoading {
+                ProgressView()
+            } else if let eventFeatures = store.eventFeatures {
                 MusicEventFeaturesView(store: eventFeatures)
+            } else {
+                VStack {
+                    Text("Failed to Load...")
+                    Button("Try Again") {
+                        Task {
+                            await store.didTapReload()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             }
         }
         .animation(.default, value: store.isLoading)
@@ -406,18 +424,75 @@ enum FeatureLocation {
 }
 
 
+
+#if SKIP
+
+#endif
+
 struct SiteMapImageView: View {
     var siteMapURL: URL
 
     var body: some View {
-        ZoomableContainer {
+        ZStack {
+            #if os(Android)
+            ComposeView { SiteMapComposer(siteMapURL: siteMapURL) }
+                .background {
+                    Color.black
+                }
+            #else
             CachedAsyncImage(url: siteMapURL, contentMode: .fit)
+                ._zoomable()
+                .background {
+                    Color.black
+                }
+            #endif
         }
-//            .toolbar(.hidden)
+        .toolbarBackground(.hidden, for: .navigationBar)
     }
+
 }
 
-import SwiftUI
+#if SKIP
+import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
+import coil3.request.ImageRequest
+import coil3.request.CachePolicy
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxSize
+
+struct SiteMapComposer : ContentComposer {
+    let siteMapURL: URL
+
+    // SKIP @nobridge
+    let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "SiteMap")
+
+    @Composable func Compose(context: ComposeContext) {
+        let context = LocalContext.current
+        let imageRequest = ImageRequest.Builder(context)
+            .data(siteMapURL.absoluteString)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .listener(
+                onStart = { _ in
+                    logger.info("Loading site map image: \(siteMapURL.absoluteString)")
+                },
+                onSuccess = { _, _ in 
+                    logger.info("Site map image loaded successfully")
+                },
+                onError = { _, error in
+                    logger.error("Site map image load error: \(error.throwable.message ?? "Unknown error")")
+                }
+            )
+            .build()
+        
+        ZoomableAsyncImage(
+            model: imageRequest,
+            contentDescription: "Site Map",
+            modifier: Modifier.fillMaxSize()
+        )
+    }
+}
+#endif
 
 enum FeatureLocationEnvironmentKey: EnvironmentKey {
     static let defaultValue: FeatureLocation = .tabBar

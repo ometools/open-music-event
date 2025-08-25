@@ -9,9 +9,6 @@ import Foundation
 import Dependencies
 
 extension FormatStyle where Self == PerformanceTimeStyle {
-
-
-
     static func performanceTime(calendar: Calendar) -> PerformanceTimeStyle {
         return PerformanceTimeStyle(calendar: calendar)
     }

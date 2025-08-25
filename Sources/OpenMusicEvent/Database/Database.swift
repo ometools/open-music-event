@@ -58,7 +58,6 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
 
                   Task {
                       @Dependency(\.notificationManager) var notificationManager
-
                       await withErrorReporting {
                           try await notificationManager.updateTopicSubscription(topic, to: newValue)
                       }
@@ -227,17 +226,30 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             FOREIGN KEY("channelID") REFERENCES "channels"("id") ON DELETE CASCADE
         ) STRICT;
         """).execute(db)
-        
-        try sql("""
-        CREATE TRIGGER on_channel_subscription_changed
-        AFTER UPDATE OF userNotificationState ON channels
-        FOR EACH ROW
-        WHEN OLD.userNotificationState IS DISTINCT FROM NEW.userNotificationState
-        BEGIN
-            SELECT handleChannelSubscriptionChanged(NEW.id, NEW.userNotificationState, NEW.firebaseTopicName);
-        END;
-        """).execute(db)
     }
+
+    migrator.registerMigration("Create preferences tables") { db in
+        try sql("""
+        CREATE TABLE artistPreferences(
+            "artistID" TEXT PRIMARY KEY NOT NULL,
+            "isFavorite" INTEGER NOT NULL DEFAULT 0,
+        
+            FOREIGN KEY("artistID") REFERENCES "artists" ON DELETE CASCADE
+        ) STRICT;
+        """)
+        .execute(db)
+
+        try sql("""
+        CREATE TABLE performancePreferences(
+            "performanceID" TEXT PRIMARY KEY NOT NULL,
+            "seen" INTEGER NOT NULL DEFAULT 0,
+        
+            FOREIGN KEY("performanceID") REFERENCES "performances" ON DELETE CASCADE
+        ) STRICT;
+        """)
+        .execute(db)
+    }
+
 
 
     #if DEBUG
@@ -249,6 +261,19 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
     #endif
 
     try migrator.migrate(database)
+
+    // MARK: Triggers
+    try database.write { db in
+        try sql("""
+        CREATE TEMPORARY TRIGGER on_channel_subscription_changed
+        AFTER UPDATE OF userNotificationState ON channels
+        FOR EACH ROW
+        WHEN OLD.userNotificationState IS DISTINCT FROM NEW.userNotificationState
+        BEGIN
+            SELECT handleChannelSubscriptionChanged(NEW.id, NEW.userNotificationState, NEW.firebaseTopicName);
+        END;
+        """).execute(db)
+    }
 
     return database
 }

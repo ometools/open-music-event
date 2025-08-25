@@ -39,14 +39,26 @@ class ArtistDetail {
         let combinedQuery = ValueObservation.tracking { db in
             let artist = try Artist.find(db, id: self.artistID)
             let performances = try Queries.fetchPerformances(for: self.artistID, from: db)
-            return (artist, performances)
+            let preferences = try Artist.Preferences.fetchOne(db, key: self.artistID)
+            return (artist, performances, preferences)
         }
 
         await withErrorReporting {
-            for try await (artist, performances) in combinedQuery.values() {
+            for try await (artist, performances, preferences) in combinedQuery.values() {
                 logger.info("Selected Artist: \(artist.name) with: \(performances)")
                 self.artist = artist
                 self.performances = performances
+                self.isFavorite = preferences?.isFavorite ?? false
+            }
+        }
+    }
+    
+    func toggleFavorite() async {
+        @Dependency(\.defaultDatabase) var database
+        
+        await withErrorReporting {
+            try await database.write { db in
+                try Artist.Preferences.toggleFavorite(for: self.artistID, in: db)
             }
         }
     }
@@ -54,6 +66,7 @@ class ArtistDetail {
     let artistID: Artist.ID
     var artist: Artist = .placeholder
     var performances: [PerformanceDetailRow.ArtistPerformance] = []
+    var isFavorite: Bool = false
 }
 
 
@@ -89,22 +102,63 @@ struct ArtistDetailView: View {
                 if !store.artist.links.isEmpty {
                     Section("Links") {
                         ForEach(store.artist.links, id: \.url) { link in
-                            Link(link.url.absoluteString, destination: link.url)
-                                #if os(iOS)
-                                .foregroundStyle(.tint)
-                                #endif
+                            ArtistLinkView(link: link)
                         }
                     }
-                    
                 }
             }
         )
         .listStyle(.plain)
         .task(id: store.artist.id) { await self.store.task() }
         .id(store.artist.id)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task { await store.toggleFavorite() }
+                } label: {
+                    Image(systemName: store.isFavorite ? "heart.fill" : "heart")
+                        .foregroundStyle(store.isFavorite ? .red : .primary)
+                }
+            }
+        }
 
     }
 
+}
+
+
+struct ArtistLinkView: View {
+    var link: Artist.Link
+    @Environment(\.openURL) var openURL
+
+    var body: some View {
+        Button {
+            var urlToOpen = link.url
+            if urlToOpen.scheme == nil {
+                urlToOpen = URL(string: "https://\(urlToOpen.absoluteString)")!
+            }
+            self.openURL(urlToOpen)
+        } label: {
+            HStack(spacing: 12) {
+                link.icon
+                    .resizable()
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(.secondary)
+
+                Text(link.displayName)
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Icons.externalLink
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+//                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+//        .contentShape(Rectangle())
+    }
 }
 //
 //#Preview {

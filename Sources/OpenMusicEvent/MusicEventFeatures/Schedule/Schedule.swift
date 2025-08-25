@@ -55,10 +55,10 @@ public class ScheduleFeature {
 
     public var schedules: [Schedule] = []
 
-    public var filteringFavorites: Bool = false
+
     var isFiltering: Bool {
         // For future filters
-        return filteringFavorites
+        return globalScheduleState.filteringFavorites
     }
 
     var showTimeIndicator: Bool {
@@ -93,7 +93,7 @@ public class ScheduleFeature {
                 self.schedules = schedules
                 logger.log("schedules: \(schedules)")
 
-                if globalScheduleState.selectedSchedule == nil {
+                if globalScheduleState.selectedSchedule == nil || !schedules.contains(where: { $0.id == globalScheduleState.selectedSchedule }) {
                     globalScheduleState.selectedSchedule = schedules.first?.id
                 }
             }
@@ -116,37 +116,49 @@ public struct ScheduleView: View {
     #endif
 
 
-    enum ScheduleType {
-        case singleStageAtOnce
-        case allStagesAtOnce
-    }
-
-    @State var visibleSchedule: ScheduleType = .singleStageAtOnce
 
     public var body: some View {
         Group {
-            switch visibleSchedule {
+            switch store.globalScheduleState.scheduleKind {
             case .singleStageAtOnce:
                 ScheduleSingleStageAtOnceView(store: store.singleStageAtOnceFeature)
-                    .modifier(
-                        ScheduleSelectorModifier(
-                            selectedScheduleID: $store.globalScheduleState.selectedSchedule,
-                            schedules: store.schedules
-                        )
-                    )
+
             case .allStagesAtOnce:
-                AllStagesAtOnceView(store: store)
+                ManyStagesAtOnceView(store: self.store)
             }
         }
+        .animation(.default, value: store.globalScheduleState.scheduleKind)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ScheduleKindMenu(store: store)
 
-//        .toolbar {
-//            ToolbarItem {
-//                FilterMenu(store: store)
-//            }
-//        }
+                FilterMenu(store: store)
+            }
+        }
+        .modifier(
+            ScheduleSelectorModifier(
+                selectedScheduleID: $store.globalScheduleState.selectedSchedule,
+                schedules: store.schedules
+            )
+        )
         .task { await store.task() }
         .environment(\.shouldShowTimeIndicator, store.showTimeIndicator)
-        
+    }
+
+    struct ScheduleKindMenu: View {
+        @Bindable var store: ScheduleFeature
+
+        var body: some View {
+            Picker(selection: $store.globalScheduleState.scheduleKind) {
+                Label("Single Stage", image: Icons.singleStageSchedule)
+                    .tag(GlobalScheduleState.ScheduleType.singleStageAtOnce)
+
+                Label("Multi Stage", image: Icons.multiStageSchedule)
+                    .tag(GlobalScheduleState.ScheduleType.allStagesAtOnce)
+            } label: {
+                Text("Schedule Kind")
+            }
+        }
     }
 
 
@@ -154,20 +166,34 @@ public struct ScheduleView: View {
         @Bindable var store: ScheduleFeature
 
         var body: some View {
+
             Menu {
-                Toggle(isOn: $store.filteringFavorites) {
-                    Label(
-                        "Favorites",
-                        image: store.isFiltering ? Icons.heartFill : Icons.heart
-                    )
+                Section {
+                    Button {
+                        store.globalScheduleState.filteringFavorites.toggle()
+                    } label: {
+                        Label {
+                            Text("Favorites")
+                        } icon: {
+                            store.globalScheduleState.filteringFavorites ? Icons.heartFill : Icons.heart
+                        }
+                    }
+                } header: {
+                    Text("Filters")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
                 }
             } label: {
-                Label(
-                    "Filter",
-                    image: store.isFiltering ?
-                        Icons.line3HorizontalDecreaseCircleFill :
-                        Icons.line3HorizontalDecreaseCircle
-                )
+                Label {
+                    Text("Filters")
+                } icon: {
+                    if store.isFiltering {
+                        Icons.listFiltersOn
+                            .foregroundStyle(Color.accentColor)
+                    } else {
+                        Icons.listFiltersOff
+                    }
+                }
             }
         }
     }

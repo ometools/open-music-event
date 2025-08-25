@@ -1,24 +1,52 @@
+
+let maxAllowedScale = 4.0
 import SwiftUI
+import SkipFuse
 
-fileprivate let maxAllowedScale = 4.0
-
-#if os(Android)
-struct ZoomableContainer<Content: View>: View {
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-    var content: Content
-
-    var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            content
-        }
+extension View {
+    func _zoomable() -> some View {
+        #if os(Android)
+        self.zoom()
+        #else
+        ZoomableContainer { self }
+        #endif
     }
 }
 
-#elseif canImport(UIKit)
+
+#if SKIP
+import me.saket.telephoto.zoomable.__
+import androidx.compose.ui.Modifier
+import androidx.compose.runtime.Composable
+
+
+
+//struct ZoomableViewModifier : ContentModifier {
+//    func modify(view: any View) -> any View {
+//        view.composeModifier {
+//            $0.zoomable(rememberZoomableState())
+//        }
+//    }
+//}
+#endif
+
+extension View {
+    public func zoom() -> some View {
+        #if SKIP
+        return ModifiedContent(content: self, modifier: RenderModifier { renderable, context in
+            let modifier = context.modifier.zoomable(rememberZoomableState())
+            let contentContext = context.content()
+            renderable.Render(context: contentContext.with(modifier: modifier))
+        })
+        #else
+        return self
+        #endif
+    }
+}
+
+#if canImport(UIKit)
 struct ZoomableContainer<Content: View>: View {
+
     let content: Content
 
     @State var currentScale: CGFloat = 1.0

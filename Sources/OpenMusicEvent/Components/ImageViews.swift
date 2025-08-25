@@ -44,19 +44,29 @@ struct EventIconImageView: View {
 }
 
 struct ArtistImageView<P>: View {
-    var artist: Artist
     var placeholder: P
 
     init(
         artist: Artist,
         @ViewBuilder placeholder: () -> P
     ) {
-        self.artist = artist
+        self.imageURL = artist.imageURL
         self.placeholder = placeholder()
     }
 
+
+    init(
+        imageURL: URL?,
+        @ViewBuilder placeholder: () -> P
+    ) {
+        self.imageURL = imageURL
+        self.placeholder = placeholder()
+    }
+
+    var imageURL: URL?
+
     var body: some View {
-        CachedAsyncImage(url: artist.imageURL)
+        CachedAsyncImage(url: imageURL)
     }
 }
 

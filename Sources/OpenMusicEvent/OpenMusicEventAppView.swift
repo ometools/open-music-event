@@ -33,8 +33,6 @@ public struct LoggingLogger: OMELogger {
     }
 }
 
-
-
 public enum OME {
     public static func prepareDependencies(enableFirebase: Bool = true) throws {
         try Dependencies.prepareDependencies {
@@ -127,6 +125,7 @@ public struct OMEWhiteLabeledEntryPoint: View {
                 self.musicEventViewer = .init(eventID: .init(eventIDString))
             }
 
+
             await withTaskGroup {
                 $0.addTask {
                     // Just download on launch if possible
@@ -172,19 +171,14 @@ public struct OMEWhiteLabeledEntryPoint: View {
 
     public var body: some View {
         ZStack {
-            if let organizerDetailStore = store.organizerDetailStore {
 
+            if let musicEventViewer = store.musicEventViewer {
+                MusicEventViewer(store: musicEventViewer)
+            } else if let organizerDetailStore = store.organizerDetailStore {
                 NavigationStack {
                     OrganizerDetailView(store: organizerDetailStore)
                 }
             }
-
-            if let musicEventViewer = store.musicEventViewer {
-                MusicEventViewer(store: musicEventViewer)
-            }
-
-
-
         }
         .onAppear { Task { await store.onAppear() } }
     }

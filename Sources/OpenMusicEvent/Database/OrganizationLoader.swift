@@ -281,6 +281,10 @@ extension OrganizerConfiguration {
                 return
             }
 
+            // Preserve performance preferences before any deletions
+            let allExistingPreferences = try Performance.Preferences.fetchAll(db)
+            let preferencesByPerformanceID = Dictionary(grouping: allExistingPreferences) { $0.performanceID }
+            
             // Handle selective deletion for events
             let sourceEventIDs = Set(self.events.map { event in
                 OmeID<MusicEvent>(stabilizedBy: url.absoluteString, event.info.name)
@@ -497,6 +501,11 @@ extension OrganizerConfiguration {
                             )
 
                             try draft.upsert(db)
+                            
+                            // Restore performance preferences if they existed before
+                            if let existingPreferences = preferencesByPerformanceID[performanceID]?.first {
+                                try Performance.Preferences.Draft(existingPreferences).upsert(db)
+                            }
                             
                             // Handle selective deletion for performance artists
                             let sourcePerformanceArtistIDs = Set(performance.artistNames.compactMap { artistName in

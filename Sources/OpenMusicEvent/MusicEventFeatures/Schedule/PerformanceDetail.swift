@@ -13,10 +13,23 @@ import CoreModels
 
 extension Artist {
 //    @Selection
-    struct Simple: Codable {
+    struct Simple: Codable, FetchableRecord {
         var id: Artist.ID
         var name: String
         var imageURL: URL?
+        var isFavorite: Bool
+
+
+        init(row: Row) throws {
+            id = OmeID(row["id"])
+            name = row["name"]
+            if let urlString: String = row["imageURL"] {
+                imageURL = URL(string: urlString)
+            } else {
+                imageURL = nil
+            }
+            self.isFavorite = row["isFavorite"]
+        }
     }
 
 
@@ -45,6 +58,7 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
     public let stageColor: OMEColor
     public let stageName: String
     public let stageIconImageURL: URL?
+    public let isSeen: Bool
 
     init(
         id: ID,
@@ -55,7 +69,8 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         description: String?,
         stageColor: OMEColor,
         stageName: String,
-        stageIconImageURL: URL?
+        stageIconImageURL: URL?,
+        isSeen: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -66,6 +81,7 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         self.stageColor = stageColor
         self.stageName = stageName
         self.stageIconImageURL = stageIconImageURL
+        self.isSeen = isSeen
     }
     
     init(row: Row) throws {
@@ -80,7 +96,8 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
             description: row["description"],
             stageColor: OMEColor(rawValue: row["stageColor"]),
             stageName: row["stageName"],
-            stageIconImageURL: stageImageURLString.flatMap(URL.init(string:))
+            stageIconImageURL: stageImageURLString.flatMap(URL.init(string:)),
+            isSeen: row["isSeen"] ?? false
         )
     }
 
@@ -98,7 +115,8 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         description: nil,
         stageColor: .init(0),
         stageName: "",
-        stageIconImageURL: nil
+        stageIconImageURL: nil,
+        isSeen: false
     )
 
 
@@ -113,9 +131,11 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
                 p.description,
                 s.color as stageColor,
                 s.name as stageName,
-                s.iconImageURL as stageIconImageURL
+                s.iconImageURL as stageIconImageURL,
+                COALESCE(pp.seen, 0) as isSeen
             FROM performances p
             JOIN stages s ON p.stageID = s.id
+            LEFT JOIN performancePreferences pp ON p.id = pp.performanceID
             WHERE p.id = ?
         """
         return SQLRequest<PerformanceDetail>(sql: sql, arguments: [id])
@@ -130,115 +150,22 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         """
         return SQLRequest<Artist>(sql: sql, arguments: [performanceID])
     }
-}
-
-public struct PerformancePeekView: View {
-
-    init(performance: PerformanceDetail, performingArtists: [Artist]) {
-        self.performance = performance
-        self.performingArtists = performingArtists
-        self.performanceID = performance.id
-    }
-
-    init(id: Performance.ID) {
-        self.performanceID = id
-    }
-
-    let performanceID: Performance.ID
-    @State var performance: PerformanceDetail = .empty
-    @State var performingArtists: [Artist] = []
-    @Environment(\.calendar) var calendar
-
-    var timeIntervalLabel: String {
-        (performance.startTime..<performance.endTime)
-            .formatted(.performanceTime(calendar: calendar))
-    }
-
-    public var body: some View {
-        
-        VStack {
-            Text(performance.title)
-                .scaledToFill()
-#if os(iOS)
-                .minimumScaleFactor(0.5)
-#endif
-                .frame(maxWidth: .infinity)
-                .lineLimit(nil)
-                .multilineTextAlignment(.center)
-                .font(.largeTitle.weight(.bold))
-
-            HStack {
-                StageIconView(stageID: performance.stageID)
-                    .frame(square: 60)
-                    .background {
-                        Circle()
-                            .fill(performance.stageColor.swiftUIColor)
-                            .shadow()
-                    }
-
-
-                VStack(alignment: .center, spacing: 16) {
-
-                    VStack(alignment: .leading) {
-                        Text(performance.startTime.formatted(.daySegment))
-                        //                            .font(.thin)
-                            .fontWeight(.thin)
-
-                        Label {
-                            Text(timeIntervalLabel)
-                                .textCase(.lowercase)
-                                .fontWeight(.bold)
-                        } icon: {
-                            Image(systemName: "clock")
-                        }
-
-                        Text(performance.stageName)
-                            .fontWeight(.thin)
-                    }
-
-                    //                        .offset(x: 30)
-
-                    //                            .font(.title)
-                    //                            .font(.)
-                    //                            .fontWeight(.thin)
-                }
-
-                //                Spacer(minLength: 24)
-
-
-
-            }
-
-            if let description = performance.description, !description.isEmpty {
-                Text("Blah Blah Blah")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding()
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .task {
-            @Dependency(\.defaultDatabase) var database
-            
-            do {
-                let loadedPerformance = try await database.read { db in
-                    try PerformanceDetail.find(id: performanceID).fetchOne(db)
-                }
-                let loadedArtists = try await database.read { db in
-                    try PerformanceDetail.findPerformingArtists(performanceID: performanceID).fetchAll(db)
-                }
-                
-                if let loadedPerformance {
-                    performance = loadedPerformance
-                }
-                performingArtists = loadedArtists
-            } catch {
-                print("Error loading performance data: \(error)")
-            }
-        }
+    
+    static func findPerformingArtistsWithFavorites(performanceID: Performance.ID) -> SQLRequest<Artist.Simple> {
+        let sql = """
+            SELECT 
+                a.id,
+                a.name,
+                a.imageURL,
+                COALESCE(ap.isFavorite, 0) as isFavorite
+            FROM artists a
+            JOIN performanceArtists pa ON a.id = pa.artistID
+            LEFT JOIN artistPreferences ap ON a.id = ap.artistID
+            WHERE pa.performanceID = ?
+        """
+        return SQLRequest<Artist.Simple>(sql: sql, arguments: [performanceID])
     }
 }
-
 
 extension PerformanceDetailRow {
     init(performance: PerformanceDetail) {
@@ -249,7 +176,8 @@ extension PerformanceDetailRow {
                 startTime: performance.startTime,
                 endTime: performance.endTime,
                 title: performance.title,
-                stageColor: performance.stageColor
+                stageColor: performance.stageColor,
+                isSeen: performance.isSeen
             )
         )
     }
@@ -257,7 +185,7 @@ extension PerformanceDetailRow {
 
 public struct PerformanceDetailView: View {
 
-    init(performance: PerformanceDetail, performingArtists: [Artist]) {
+    init(performance: PerformanceDetail, performingArtists: [Artist.Simple]) {
         self.performance = performance
         self.performingArtists = performingArtists
         self.performanceID = performance.id
@@ -269,7 +197,7 @@ public struct PerformanceDetailView: View {
 
     let performanceID: Performance.ID
     @State var performance: PerformanceDetail = .empty
-    @State var performingArtists: [Artist] = []
+    @State var performingArtists: [Artist.Simple] = []
 
 
     @Environment(\.calendar) var calendar
@@ -280,14 +208,45 @@ public struct PerformanceDetailView: View {
 
     @Environment(\.dismiss) var dismiss
     @State var artistDetail: ArtistDetail?
+    
+    @Dependency(\.defaultDatabase) var database
 
     func didTapGoToArtist(_ id: Artist.ID) {
         artistDetail = .init(artistID: id)
+    }
+    
+    func toggleSeen() async {
+        await withErrorReporting {
+            try await database.write { db in
+                try Performance.Preferences.toggleSeen(for: performanceID, in: db)
+            }
+        }
     }
 
     var hasUnnamedArtists: Bool {
         !performingArtists.allSatisfy {
             performance.title.contains($0.name)
+        }
+    }
+    
+    var hasFavoriteArtists: Bool {
+        performingArtists.contains { $0.isFavorite }
+    }
+
+    func task() async {
+        let query = ValueObservation.tracking { db in
+            let loadedPerformance = try PerformanceDetail.find(id: self.performanceID).fetchOne(db)
+            let loadedArtists = try PerformanceDetail.findPerformingArtistsWithFavorites(performanceID: self.performanceID).fetchAll(db)
+            return (loadedPerformance, loadedArtists)
+        }
+        
+        await withErrorReporting {
+            for try await (loadedPerformance, loadedArtists) in query.values() {
+                if let loadedPerformance {
+                    performance = loadedPerformance
+                }
+                performingArtists = loadedArtists
+            }
         }
     }
 
@@ -336,19 +295,11 @@ public struct PerformanceDetailView: View {
             }
 
             Section {
-                ForEach(performingArtists) { artist in
+                ForEach(performingArtists, id: \.id) { artist in
                     NavigationLinkButton {
                         didTapGoToArtist(artist.id)
                     } label: {
-                        HStack(spacing: 10) {
-                            ArtistImageView(artist: artist) {
-                                Image(systemName: "person")
-                            }
-                            .frame(square: 60)
-                            .clipped()
-
-                            Text(artist.name)
-                        }
+                        ArtistsListView.Row(id: artist.id)
                     }
                 }
             }
@@ -356,28 +307,21 @@ public struct PerformanceDetailView: View {
         .navigationDestination(item: $artistDetail) {
             ArtistDetailView(store: $0)
         }
-        .task {
-            @Dependency(\.defaultDatabase) var database
-
-            do {
-                let loadedPerformance = try await database.read { db in
-                    try PerformanceDetail.find(id: performanceID).fetchOne(db)
+        .task { await task() }
+        .listStyle(.plain)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await toggleSeen() }
+                } label: {
+                    performance.isSeen ? Icons.seenOn : Icons.seenOff
                 }
-                let loadedArtists = try await database.read { db in
-                    try PerformanceDetail.findPerformingArtists(performanceID: performanceID).fetchAll(db)
-                }
-
-                if let loadedPerformance {
-                    performance = loadedPerformance
-                }
-                performingArtists = loadedArtists
-            } catch {
-                print("Error loading performance data: \(error)")
             }
         }
-        .listStyle(.plain)
-
     }
+
+
+
 }
 
 
@@ -418,7 +362,8 @@ extension PerformanceDetail {
             description: "An immersive electronic music experience blending organic soundscapes with cutting-edge production. Prepare for a journey through dense sonic forests where every beat pulses with life.",
             stageColor: 0,
             stageName: "The Hallow",
-            stageIconImageURL: Stage.previewValues.first?.iconImageURL
+            stageIconImageURL: Stage.previewValues.first?.iconImageURL,
+            isSeen: false
         )
     }
 }
