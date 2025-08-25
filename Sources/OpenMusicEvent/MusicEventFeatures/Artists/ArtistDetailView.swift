@@ -102,13 +102,9 @@ struct ArtistDetailView: View {
                 if !store.artist.links.isEmpty {
                     Section("Links") {
                         ForEach(store.artist.links, id: \.url) { link in
-                            Link(link.url.absoluteString, destination: link.url)
-                                #if os(iOS)
-                                .foregroundStyle(.tint)
-                                #endif
+                            ArtistLinkView(link: link)
                         }
                     }
-                    
                 }
             }
         )
@@ -128,6 +124,41 @@ struct ArtistDetailView: View {
 
     }
 
+}
+
+
+struct ArtistLinkView: View {
+    var link: Artist.Link
+    @Environment(\.openURL) var openURL
+
+    var body: some View {
+        Button {
+            var urlToOpen = link.url
+            if urlToOpen.scheme == nil {
+                urlToOpen = URL(string: "https://\(urlToOpen.absoluteString)")!
+            }
+            self.openURL(urlToOpen)
+        } label: {
+            HStack(spacing: 12) {
+                link.icon
+                    .resizable()
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(.secondary)
+
+                Text(link.displayName)
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Icons.externalLink
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+//                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+//        .contentShape(Rectangle())
+    }
 }
 //
 //#Preview {

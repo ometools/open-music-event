@@ -177,9 +177,96 @@ enum Icons {
         #endif
     }
 
+    // MARK: - Social Media
+    static var soundcloud: Image { Image("soundcloud.logo", bundle: .module) }
+    static var youtube: Image { Image("youtube.logo", bundle: .module) }
+    static var facebook: Image { Image("facebook.logo", bundle: .module) }
+    static var spotify: Image { Image("spotify.logo", bundle: .module) }
+    static var instagram: Image { Image("instagram.logo", bundle: .module) }
+    static var twitter: Image { Image("twitter.logo", bundle: .module) }
+    static var tiktok: Image { Image("tiktok.logo", bundle: .module) }
+    static var bandcamp: Image { Image("bandcamp.logo", bundle: .module) }
+    static var website: Image {
+        #if os(Android)
+        Image("globe", bundle: .module)
+        #else
+        Image(systemName: "globe")
+        #endif
+    }
+    static var genericLink: Image { Image(systemName: "link") }
+    static var externalLink: Image {
+        #if os(Android)
+        Image("open_link", bundle: .module)
+        #else
+        Image(systemName: "arrow.up.right")
+        #endif
+    }
+
     // MARK: - Custom Assets
     static var github: Image { Image("github", bundle: .module).resizable() }
 }
+
+// MARK: - Social Links Extensions
+import CoreModels
+
+extension Artist.Link {
+    var icon: Image {
+        guard let linkType = linkType else {
+            return Icons.genericLink
+        }
+        
+        let label = linkType.label.lowercased()
+        
+        if label.contains("soundcloud") {
+            return Icons.soundcloud
+        } else if label.contains("youtube") {
+            return Icons.youtube
+        } else if label.contains("facebook") {
+            return Icons.facebook
+        } else if label.contains("spotify") {
+            return Icons.spotify
+        } else if label.contains("instagram") {
+            return Icons.instagram
+        }  else if label.contains("bandcamp") {
+            return Icons.bandcamp
+        } else if label.contains("github") {
+            return Icons.github
+        } else if label.contains("website") {
+            return Icons.website
+        } else {
+            return Icons.genericLink
+        }
+    }
+    
+    var displayName: String {
+        guard let linkType = linkType else {
+            return "Link"
+        }
+        
+        let label = linkType.label.lowercased()
+        
+        if label.contains("soundcloud") {
+            return "SoundCloud"
+        } else if label.contains("youtube") {
+            return "YouTube"
+        } else if label.contains("facebook") {
+            return "Facebook"
+        } else if label.contains("spotify") {
+            return "Spotify"
+        } else if label.contains("instagram") {
+            return "Instagram"
+        } else if label.contains("bandcamp") {
+            return "Bandcamp"
+        } else if label.contains("github") {
+            return "GitHub"
+        } else if label.contains("website") {
+            return "Website"
+        } else {
+            return linkType.label.capitalized
+        }
+    }
+}
+
 extension Image {
 
 }

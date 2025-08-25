@@ -24,7 +24,6 @@ extension Artist {
 
 extension Artist.Preferences.Draft: Sendable, Equatable, Codable {}
 
-
 extension Performance {
     public struct Preferences: Identifiable, Equatable, Sendable, Codable {
         public var id: Performance.ID { performanceID }
