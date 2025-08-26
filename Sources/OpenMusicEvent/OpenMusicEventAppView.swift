@@ -21,8 +21,6 @@ import FirebaseCore
 import FirebaseMessaging
 #endif
 
-
-
 import OpenMusicEventParser
 
 public struct LoggingLogger: OMELogger {
@@ -30,6 +28,29 @@ public struct LoggingLogger: OMELogger {
 
     public func log(_ message: String, level: LogLevel, file: String, line: Int) {
         logger.log(level: .debug, "\(message)")
+    }
+}
+
+@Observable
+class InMemoryIssueReporter: IssueReporter, @unchecked Sendable {
+    var issues: [Issue] = []
+
+    struct Issue: Identifiable {
+        var id = UUID()
+        var message: String
+    }
+    static let shared = InMemoryIssueReporter()
+
+    func reportIssue(
+        _ message: @autoclosure () -> String?,
+        fileID: StaticString,
+        filePath: StaticString,
+        line: UInt,
+        column: UInt
+    ) {
+        if let message = message() {
+            self.issues.append(.init(message: message))
+        }
     }
 }
 
@@ -51,6 +72,8 @@ public enum OME {
             FirebaseApp.configure()
             Messaging.messaging().delegate = notificationManager
         }
+
+        IssueReporters.current = IssueReporters.current + [InMemoryIssueReporter.shared, .breakpoint]
 //
         UNUserNotificationCenter.current().delegate = notificationManager
     }
@@ -64,12 +87,12 @@ public enum OME {
 }
 
 public struct OMEWhiteLabeledEntryPoint: View {
-    public init(url: URL) {
-        self.init(.url(url))
+    public init(id: Organizer.ID, url: URL) {
+        self.init(id: id, reference: .url(url))
     }
 
-    public init(_ organizationReference: OrganizationReference) {
-        self.store = .init(organization: organizationReference)
+    public init(id: Organizer.ID, reference: OrganizationReference) {
+        self.store = .init(id: id, organization: reference)
     }
 
     @State var store: Model
@@ -78,12 +101,15 @@ public struct OMEWhiteLabeledEntryPoint: View {
     @MainActor
     class Model {
         var musicEventViewer: MusicEventViewer.Model?
-        var organizerDetailStore: OrganizerDetailView.Store?
+        var organizerDetailStore: OrganizerDetailView.Store
         let organizationReference: OrganizationReference
         var isLoadingOrganizer: Bool = false
+        var organizerLoadError: String?
 
-        init(organization: OrganizationReference) {
+        init(id: Organizer.ID, organization: OrganizationReference) {
+            self.organizerDetailStore = .init(id: id)
             self.organizationReference = organization
+
             self.observeNotifications()
         }
 
@@ -125,28 +151,21 @@ public struct OMEWhiteLabeledEntryPoint: View {
                 self.musicEventViewer = .init(eventID: .init(eventIDString))
             }
 
+            self.isLoadingOrganizer = true
+            self.organizerLoadError = nil
 
             await withTaskGroup {
                 $0.addTask {
-                    // Just download on launch if possible
-                    // May not want to even report errors here, failure is expected if no service
                     await withErrorReporting {
-                        try await downloadAndStoreOrganizer(from: self.organizationReference)
-                    }
-                }
+                        do {
 
-                $0.addTask {
-                    let query = ValueObservation.tracking { db in
-                        try Organizer
-                            .filter(Column("url") == self.organizationReference.zipURL)
-                            .fetchOne(db)
-                    }
+                            try await downloadAndStoreOrganizer(from: self.organizationReference)
+                        } catch {
+                            let e = error
+                        }
 
-                    await withErrorReporting { @MainActor in
-                        for try await organizer in query.values(in: self.database) {
-                            if let id = organizer?.id {
-                                self.organizerDetailStore = .init(id: id)
-                            }
+                        await MainActor.run {
+                            self.isLoadingOrganizer = false
                         }
                     }
                 }
@@ -168,16 +187,18 @@ public struct OMEWhiteLabeledEntryPoint: View {
             self.musicEventViewer = nil
         }
     }
+    
 
     public var body: some View {
         ZStack {
+            NavigationStack {
+                OrganizerDetailView(store: store.organizerDetailStore)
+            }
 
             if let musicEventViewer = store.musicEventViewer {
                 MusicEventViewer(store: musicEventViewer)
-            } else if let organizerDetailStore = store.organizerDetailStore {
-                NavigationStack {
-                    OrganizerDetailView(store: organizerDetailStore)
-                }
+            } else if store.isLoadingOrganizer {
+                LoadingScreen()
             }
         }
         .onAppear { Task { await store.onAppear() } }

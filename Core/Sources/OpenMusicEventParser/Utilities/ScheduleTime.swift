@@ -30,10 +30,13 @@ public struct ScheduleTime: Codable, Sendable {
     }
 
     init?(from timeString: String, using formatter: DateFormatter) {
+        // Ensure timezone is set before parsing
+        formatter.timeZone = .init(secondsFromGMT: 0)!
+        
         guard let date = formatter.date(from: timeString) else {
             return nil
         }
-        formatter.timeZone = .init(secondsFromGMT: 0)!
+        
         var calendar = Calendar.autoupdatingCurrent
         calendar.timeZone = .init(secondsFromGMT: 0)!
         let components = calendar.dateComponents([.hour, .minute, .second], from: date)

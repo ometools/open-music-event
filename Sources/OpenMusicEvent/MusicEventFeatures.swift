@@ -80,23 +80,16 @@ struct MusicEventViewer: View {
 
     var body: some View {
         ZStack {
-            if store.isLoading {
-                ProgressView()
-            } else if let eventFeatures = store.eventFeatures {
+            if let eventFeatures = store.eventFeatures {
                 MusicEventFeaturesView(store: eventFeatures)
-            } else {
-                VStack {
-                    Text("Failed to Load...")
-                    Button("Try Again") {
-                        Task {
-                            await store.didTapReload()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+            }
+
+            if store.isLoading {
+                LoadingScreen()
+                    .transition(.opacity)
             }
         }
-        .animation(.default, value: store.isLoading)
+        .animation(.easeIn(duration: 0.5), value: store.eventFeatures == nil)
         .task(id: store.id) {
             await store.onAppear()
         }
@@ -544,68 +537,7 @@ struct Feature<FeatureView: View, FeatureLabelView: View>: View {
     }
 }
 
-struct AboutAppView: View {
-    let store: MusicEventFeatures
-    var body: some View {
-        List {
-            Section(store.event.name) {
-                Button {
-                    Task {
-                        await store.didTapReloadOrganizer()
-                    }
-                } label: {
-                    VStack(alignment: .leading) {
-                        HStack {
-                            Label("Update to the newest schedule", image: Icons.arrowClockwise)
-                            Spacer()
-                            if store.isLoadingOrganizer {
-                                ProgressView()
-                            }
-                        }
 
-                        if let errorMessage = store.errorMessage {
-                            Label(errorMessage, image: Icons.exclamationmarkCircleFill)
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-
-                Button {
-                    store.didTapExitEvent()
-                } label: {
-                    Label("Exit and see previous events", image: Icons.doorLeftHandOpen)
-                }
-            }
-
-            Section("Open Music Event") {
-                Text("""
-                OME (Open Music Event) is designed to help festival attendees effortlessly get access to information that they need during an event. The main goal of this project is to give concert and festival goers a simple, intuitive way to get information about events they are attending.
-                
-                The secondary goal is providing a free and open source way for event organizers to create, maintain and update information about their event.
-                
-                If you have any suggestions or discover any issues, please start a discussion and they will be addressed as soon as possible.
-                """)
-
-                Link(destination: URL(string: "https://github.com/woodymelling/open-music-event")!) {
-                    Label {
-                        Text("GitHub")
-                    } icon: {
-                        Icons.github.frame(square: 25)
-                    }
-                }
-
-                Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/issues/new")!) {
-                    Label("Report an Issue", image: Icons.exclamationmarkBubble)
-                }
-
-                Link(destination: URL(string: "https://github.com/woodymelling/open-music-event/discussions/new")!) {
-                    Label("Suggest a feature", image: Icons.plusBubble)
-                }
-            }
-        }
-        .navigationTitle("About")
-    }
-}
 
 //
 //#Preview("About App") {

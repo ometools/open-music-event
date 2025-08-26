@@ -49,16 +49,10 @@ extension CoreModels.Schedule {
         init(from decoder: Decoder) throws {
             let container = try decoder.singleValueContainer()
 
-            do {
-                let keyedContainer = try decoder.container(keyedBy: CodingKeys.self)
-                self.date = try? keyedContainer.decode(CalendarDate.self, forKey: .date)
-                self.customTitle = try? keyedContainer.decode(String.self, forKey: .customTitle)
-                self.performances = try keyedContainer.decode([String: [Performance.YamlRepresentation]].self, forKey: .performances)
-            } catch {
-                self.performances = try container.decode([String: [Performance.YamlRepresentation]].self)
-                self.customTitle = nil
-                self.date = nil
-            }
+            let keyedContainer = try decoder.container(keyedBy: CodingKeys.self)
+            self.date = try? keyedContainer.decode(CalendarDate.self, forKey: .date)
+            self.customTitle = try? keyedContainer.decode(String.self, forKey: .customTitle)
+            self.performances = try keyedContainer.decode([String: [Performance.YamlRepresentation]].self, forKey: .performances)
         }
 
         enum CodingKeys: String, CodingKey {

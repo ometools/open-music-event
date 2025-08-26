@@ -64,8 +64,6 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
                   }
               }
 
-
-
             return nil
           }
         )
@@ -250,15 +248,14 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         .execute(db)
     }
 
-
-
-    #if DEBUG
-//    if context == .preview {
-        migrator.registerMigration("Seed sample data") { db in
-            try db.seedSampleData()
-        }
-//    }
-    #endif
+//
+//    #if DEBUG
+////    if context == .preview {
+//        migrator.registerMigration("Seed sample data") { db in
+//            try db.seedSampleData()
+//        }
+////    }
+//    #endif
 
     try migrator.migrate(database)
 
