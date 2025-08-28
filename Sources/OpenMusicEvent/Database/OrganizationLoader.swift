@@ -211,6 +211,8 @@ public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringCo
         }
     }
 
+    
+
     public var zipURL: URL {
         switch self {
         case .repository(let repository):
@@ -253,7 +255,6 @@ public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringCo
     }
 }
 
-
 func downloadAndStoreOrganizer(from reference: OrganizationReference) async throws {
     @Dependency(\.organizationFetchingClient) var dataFetchingClient
     @Dependency(\.defaultDatabase) var defaultDatabase
@@ -262,7 +263,7 @@ func downloadAndStoreOrganizer(from reference: OrganizationReference) async thro
     let organizer: OrganizerConfiguration = try await dataFetchingClient.fetchOrganizer(reference)
 
     try await organizer.insert(url: reference.zipURL, into: defaultDatabase)
-
+    
     try await notificationManager.ensureTopicsAreSubscribed()
 }
 

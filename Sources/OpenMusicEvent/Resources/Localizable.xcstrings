@@ -162,6 +162,9 @@
     "Content Unavailable" : {
 
     },
+    "Copy issues" : {
+
+    },
     "Dark" : {
       "comment" : "Menu item indicating that the appearance should be in dark mode",
       "extractionState" : "stale",
@@ -235,9 +238,6 @@
 
     },
     "Exit and see previous events" : {
-
-    },
-    "Failed to Load..." : {
 
     },
     "Favorite" : {
@@ -357,6 +357,9 @@
     "Invalid Repository URL" : {
 
     },
+    "Issues" : {
+
+    },
     "Light" : {
       "comment" : "Menu item indicating that the appearance should be in light mode",
       "extractionState" : "stale",
@@ -390,10 +393,16 @@
     "Links" : {
 
     },
+    "Loading" : {
+
+    },
     "Loading Organization..." : {
 
     },
     "Location" : {
+
+    },
+    "Logs" : {
 
     },
     "Mark as Not Seen" : {
@@ -502,6 +511,9 @@
 
     },
     "Organizations" : {
+
+    },
+    "Please copy these issues and report it if you're having problems. Github will be the best place for me to track it, but you can also send me an email at woodymelling@gmail.com" : {
 
     },
     "Powered by [Skip](https://skip.tools)" : {
@@ -689,9 +701,6 @@
           }
         }
       }
-    },
-    "Try Again" : {
-
     },
     "Unsubscribed" : {
 

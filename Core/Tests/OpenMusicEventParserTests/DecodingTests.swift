@@ -8,6 +8,8 @@ import SnapshotTestingCustomDump
 import InlineSnapshotTesting
 import CoreModels
 import FileTree
+import Dependencies
+
 
 func expect<C: Conversion>(
     _ data: C.Input,
@@ -154,58 +156,66 @@ struct YamlCodingTests {
     @Test
     func decodeSimpleSchedule() throws {
         let yaml = Data("""
-        Bass Haven:
-          - time: 10:00 PM
-            artist: "Prism Sound"
+        date: '2025-08-23'
+        performances:
+            Bass Haven:
+              - time: 10:00 PM
+                artist: "Prism Sound"
 
-          - time: 11:30 PM
-            title: "Subsonic B2B Sylvan"
-            artists:
-               - "Subsonic"
-               - "Sylvan Beats"
+              - time: 11:30 PM
+                title: "Subsonic B2B Sylvan"
+                artists:
+                   - "Subsonic"
+                   - "Sylvan Beats"
 
-          - time: "12:30 AM"
-            endTime: "2:00 AM"
-            artist: "Space Chunk"
+              - time: "12:30 AM"
+                endTime: "2:00 AM"
+                artist: "Space Chunk"
 
-        Mystic Grove:
-          - time: "4:30 PM"
-            artist: "Sunspear"
+            Mystic Grove:
+              - time: "4:30 PM"
+                artist: "Sunspear"
 
-          - time: "6:30 PM"
-            artist: "Phantom Groove"
+              - time: "6:30 PM"
+                artist: "Phantom Groove"
 
-          - time: "10:30 PM"
-            artist: "Oaktrail"
+              - time: "10:30 PM"
+                artist: "Oaktrail"
 
-          - time: "12:00 AM"
-            endTime: "4:00 AM"
-            artist: "Rhythmbox"
+              - time: "12:00 AM"
+                endTime: "4:00 AM"
+                artist: "Rhythmbox"
 
-        Tranquil Meadow:
-          - time: "3:00 PM"
-            artist: "Float On"
+            Tranquil Meadow:
+              - time: "3:00 PM"
+                artist: "Float On"
 
-          - time: "4:30 PM"
-            artist: "Floods"
+              - time: "4:30 PM"
+                artist: "Floods"
 
-          - time: "04:00 PM"
-            endTime: "6:00 PM"
-            artist: "Overgrowth"
+              - time: "04:00 PM"
+                endTime: "6:00 PM"
+                artist: "Overgrowth"
 
-          - time: "1:00 AM"
-            endTime: "2:00 AM"
-            artist: "The Sleepies"
-            title: "The Wind Down"
+              - time: "1:00 AM"
+                endTime: "2:00 AM"
+                artist: "The Sleepies"
+                title: "The Wind Down"
         """.utf8)
 
-        let result = try YMLConversion<Schedule.YamlRepresentation>().apply(yaml)
+
+        let result = try withDependencies {
+            $0.calendar = .autoupdatingCurrent
+        } operation: {
+            try YMLConversion<Schedule.YamlRepresentation>().apply(yaml)
+        }
+
 
         assertInlineSnapshot(of: result, as: .customDump) {
             """
             (extension in OpenMusicEventParser):Schedule.YamlRepresentation(
               customTitle: nil,
-              date: nil,
+              date: 8/23/2025,
               performances: [
                 "Bass Haven": [
                   [0]: (extension in OpenMusicEventParser):Performance.YamlRepresentation(

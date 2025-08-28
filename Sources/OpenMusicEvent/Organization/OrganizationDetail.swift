@@ -14,6 +14,67 @@ import GRDB
 import CoreModels
 import IssueReporting
 
+
+
+struct LoadingScreen: View {
+    init() {}
+    @Environment(\.loadingScreenImage) var loadingScreenImage
+
+    @State var showingProgressView: Bool = false
+    @State var showingLogViewLink: Bool = false
+    @State var showingLogView: Bool = false
+
+    var body: some View {
+        Group {
+            VStack {
+                if let image = loadingScreenImage {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .padding(80)
+                } else {
+                    ProgressView("Loading Organization...")
+                }
+
+                if showingProgressView {
+                    ProgressView("Loading")
+                }
+
+                if showingLogViewLink {
+                    Button("Logs") {
+                        self.showingLogView = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+
+        }
+        .sheet(isPresented: $showingLogView) {
+            NavigationStack {
+                LogsView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+        #if os(Android)
+        .background(.black)
+        #else
+        .background(Material.regular)
+        #endif
+        .task {
+            let delay = 5
+            try? await Task.sleep(for: .seconds(delay))
+            withAnimation {
+                self.showingProgressView = true
+            }
+            try? await Task.sleep(for: .seconds(delay))
+            withAnimation {
+                self.showingLogViewLink = true
+            }
+        }
+    }
+}
+
 public struct OrganizerDetailView: View {
     public init(organizerID: Organizer.ID) {
         self.store = Store(id: organizerID)
@@ -87,7 +148,6 @@ public struct OrganizerDetailView: View {
     }
 
     @State var store: Store
-    @Environment(\.loadingScreenImage) var loadingScreenImage
 
     @Environment(\.date) var date
 
@@ -171,17 +231,8 @@ public struct OrganizerDetailView: View {
                 .refreshable { await store.onPullToRefresh() }
                 .listStyle(.plain)
             } else {
-                if let image = loadingScreenImage, store.showingLoadingScreen {
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(80)
-                } else {
 
-                    ProgressView("Loading Organization...")
-                }
-
+                LoadingScreen()
             }
         }
         .task { await store.onAppear() }
@@ -189,14 +240,6 @@ public struct OrganizerDetailView: View {
         .animation(.default, value: store.showingLoadingScreen)
     }
 
-    struct EventsListView: View {
-        var events: [MusicEvent]
-        var onTapEvent: (MusicEvent.ID) -> Void
-
-        var body: some View {
-
-        }
-    }
 
     struct EventRowView: View {
         var event: MusicEvent
