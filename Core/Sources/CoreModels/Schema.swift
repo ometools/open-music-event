@@ -1012,4 +1012,102 @@ extension CommunicationChannel.Post {
 
 extension CommunicationChannel.Post.Draft: Codable, Sendable, Equatable {}
 
+// MARK: - Artist Preferences
+
+// @Table("artistPreferences")
+public struct ArtistPreferences: Identifiable, Equatable, Sendable, Codable {
+    public typealias ID = OmeID<ArtistPreferences>?
+    public var id: ID
+    public var artistID: Artist.ID
+    public var isFavorite: Bool
+    
+    public init(id: ID = nil, artistID: Artist.ID, isFavorite: Bool) {
+        self.id = id
+        self.artistID = artistID
+        self.isFavorite = isFavorite
+    }
+}
+
+import Tagged
+
+// @Table("performancePreferences")  
+public struct PerformancePreferences: Identifiable, Equatable, Sendable, Codable {
+    public typealias ID = OmeID<PerformancePreferences>?
+    public var id: ID
+    public var performanceID: Performance.ID
+    public var seen: Bool
+    
+    public init(id: ID = nil, performanceID: Performance.ID, seen: Bool) {
+        self.id = id
+        self.performanceID = performanceID
+        self.seen = seen
+    }
+}
+
+// MARK: - Preferences Extensions
+
+extension ArtistPreferences {
+    public static let tableName = "artistPreferences"
+    
+    public struct Draft {
+        public typealias PrimaryTable = ArtistPreferences
+        
+        public var id: ID?
+        public var artistID: Artist.ID
+        public var isFavorite: Bool
+        
+        public static let tableName = ArtistPreferences.tableName
+        
+        public init(_ other: ArtistPreferences) {
+            self.id = other.id
+            self.artistID = other.artistID
+            self.isFavorite = other.isFavorite
+        }
+        
+        public init(id: ID? = nil, artistID: Artist.ID, isFavorite: Bool) {
+            self.id = id
+            self.artistID = artistID
+            self.isFavorite = isFavorite
+        }
+    }
+}
+
+extension PerformancePreferences {
+    public static let tableName = "performancePreferences"
+    
+    public struct Draft {
+        public typealias PrimaryTable = PerformancePreferences
+        
+        public var id: ID?
+        public var performanceID: Performance.ID
+        public var seen: Bool
+        
+        public static let tableName = PerformancePreferences.tableName
+        
+        public init(_ other: PerformancePreferences) {
+            self.id = other.id
+            self.performanceID = other.performanceID
+            self.seen = other.seen
+        }
+        
+        public init(id: ID? = nil, performanceID: Performance.ID, seen: Bool) {
+            self.id = id
+            self.performanceID = performanceID
+            self.seen = seen
+        }
+    }
+}
+
+extension ArtistPreferences.Draft: Codable, Sendable, Equatable {}
+extension PerformancePreferences.Draft: Codable, Sendable, Equatable {}
+
+// Add nested type extensions for compatibility
+extension Artist {
+    public typealias Preferences = ArtistPreferences
+}
+
+extension Performance {
+    public typealias Preferences = PerformancePreferences
+}
+
 
