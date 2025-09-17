@@ -28,15 +28,15 @@ public struct EventConfiguration: Equatable, Sendable {
     public var info: CoreModels.MusicEvent.Draft
     public var artists: [CoreModels.Artist.Draft]
     public var stages: [CoreModels.Stage.Draft]
-    public var schedule: [Schedule.StringlyTyped]
+    public var schedule: [ScheduleConfiguration]
     public var stageLineups: StageLineups?
     public var channels: CommunicationsConfiguration
 
     public init(
         info: CoreModels.MusicEvent.Draft,
-        artists: [CoreModels.Artist.Draft],
-        stages: [CoreModels.Stage.Draft],
-        schedule: [Schedule.StringlyTyped],
+        artists: [ArtistConfiguration],
+        stages: [StageConfiguration],
+        schedule: [ScheduleConfiguration],
         stageLineups: StageLineups?,
         communications: CommunicationsConfiguration
     ) {
@@ -58,6 +58,12 @@ extension EventConfiguration {
 }
 
 public typealias CommunicationsConfiguration = [EventConfiguration.ChannelConfiguration]
+public typealias ScheduleConfiguration = CoreModels.Schedule.StringlyTyped
+public typealias StageConfiguration = Stage.Draft
+public typealias ArtistConfiguration = Artist.Draft
+public typealias StageLineupConfiguration = EventConfiguration.StageLineup
+public typealias ChannelConfiguration = EventConfiguration.ChannelConfiguration
+public typealias PerformanceConfiguration = ScheduleConfiguration.Performance
 
 extension EventConfiguration {
 

@@ -17,7 +17,7 @@ public struct NotificationPreferencesView: View {
     public class Store {
         public init() {}
         
-        var channels: [CommunicationChannel] = []
+        var channels: [CommunicationChannel.ChannelUserInfo] = []
         var isLoading: Bool = false
 
         @ObservationIgnored
@@ -35,22 +35,38 @@ public struct NotificationPreferencesView: View {
 
         func task() async {
             let id = musicEventID
-            
-            let values = ValueObservation.tracking { db in
-                try CommunicationChannel
-                    .filter(Column("musicEventID") == id)
-                    .order(Column("sortIndex"))
-                    .fetchAll(db)
-            }
-            .values(in: defaultDatabase)
+
+//
+//
+//            let values = ValueObservation.tracking { db in
+//                return try GRDB.Row.fetchAll(db, sql: """
+//                    SELECT 
+//                        c.title,
+//                        c.description,
+//                        c.userNotificationState,
+//                        c.notificationsRequired
+//                        cp.userNotificationState
+//                
+//                    FROM channels c
+//                    LEFT JOIN channelPreferences cp ON c.id = cp.channelID
+//                    WHERE c.musicEventID = \(id)
+//                """)
+//            }
+//            .values(in: defaultDatabase)
 
             await withTaskGroup {
                 $0.addTask { @Sendable @MainActor in
                     await withErrorReporting {
-                        for try await channels in values {
-                            self.channels = channels
-                        }
-                    }
+//
+//                        for row in channelData {
+//                            if let topicName: String = row["firebaseTopicName"] {
+//                                let notificationState: String = row["userNotificationState"]
+//                                let topic = CommunicationChannel.FirebaseTopicName(rawValue: topicName)
+//                                let state = CommunicationChannel.UserNotificationState(rawValue: notificationState)
+//                                try await self.updateTopicSubscription(topic, to: state ?? .unsubscribed)
+//                            }
+//                        }
+                   }
                 }
 
                 $0.addTask { @Sendable @MainActor in
@@ -58,18 +74,26 @@ public struct NotificationPreferencesView: View {
                     self.isAuthorized = self.notificationManager.isAuthorized
                 }
             }
+                
 
         }
 
         subscript(notificationState channelID: CommunicationChannel.ID) -> CommunicationChannel.UserNotificationState {
             get {
+
                 self.channels.first(where: { $0.id == channelID })?.notificationState ?? .unsubscribed
             }
 
             set {
                 withErrorReporting {
                     try defaultDatabase.write { db in
-                        try db.execute(sql: "UPDATE \(CoreModels.CommunicationChannel.tableName) SET userNotificationState = ? WHERE id = ?", arguments: [newValue.rawValue, channelID])
+                        try db.execute(
+                            sql: """
+                                UPDATE \(CommunicationChannel.Preferences.tableName)
+                                SET userNotificationState = ? WHERE channelID = ?
+                            """,
+                            arguments: [newValue.rawValue, channelID]
+                        )
                     }
                 }
             }
@@ -117,7 +141,6 @@ public struct NotificationPreferencesView: View {
                                 NotificationToggle(state: $store[notificationState: channel.id])
                                     .disabled(channel.notificationsRequired)
                                     .disabled(!store.isAuthorized)
-
                             }
                         }
                     }

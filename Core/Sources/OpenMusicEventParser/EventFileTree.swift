@@ -35,7 +35,14 @@ extension OrganizerConfiguration {
         .convert(
             AnyConversion(
                 apply: { info, events in
-                    OrganizerConfiguration(info: info, events: events.map(\.components))
+                    OrganizerConfiguration(
+                        info: info,
+                        events: events.map {
+                            var configuration = $0.components
+                            configuration.info.id = MusicEvent.ID($0.directoryName)
+                            return configuration
+                        }
+                    )
                 },
                 unapply: { _ in
                     fatalError()
@@ -281,7 +288,6 @@ extension CommunicationsConfiguration {
 }
 
 
-typealias ChannelConfiguration = EventConfiguration.ChannelConfiguration
 
 extension FileTree: @unchecked Sendable {}
 

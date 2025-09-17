@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import Dependencies
+import GRDB
 #if canImport(UserNotifications)
 import UserNotifications
 #endif
@@ -135,16 +136,27 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
     @Dependency(\.defaultDatabase) var defaultDatabase
 
     func ensureTopicsAreSubscribed() async throws {
-        let channels = try await defaultDatabase.read { try CommunicationChannel.fetchAll($0) }
+        let channelData = try defaultDatabase.read { db in
+            // Fetch the results using a JOIN to get both channel info and preferences
+            return try Row.fetchAll(db, sql: """
+                SELECT 
+                    c.firebaseTopicName,
+                    cp.userNotificationState
+                FROM channels c
+                LEFT JOIN channelPreferences cp ON c.id = cp.channelID
+                WHERE c.firebaseTopicName IS NOT NULL
+            """)
+        }
 
-        try await self.updateTopicSubscription("data-updates", to: .subscribed)
 
-        for channel in channels {
-            if let topic = channel.firebaseTopicName, let state = channel.userNotificationState {
+        for row in channelData {
+            if let topic: CommunicationChannel.FirebaseTopicName = row["firebaseTopicName"],
+               let state: CommunicationChannel.UserNotificationState = row["userNotificationState"] {
                 try await self.updateTopicSubscription(topic, to: state)
             }
         }
 
+        try await self.updateTopicSubscription("data-updates", to: .subscribed)
     }
 
     // MARK: - MessagingDelegate

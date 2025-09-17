@@ -10,6 +10,48 @@ import CoreModels
 import GRDB
 import Dependencies
 
+
+extension CommunicationChannel {
+//    @Selection
+    struct ChannelUserInfo: Identifiable, Equatable, FetchableRecord {
+        var id: CommunicationChannel.ID
+        var name: String
+        var description: String
+        var notificationsRequired: Bool
+        var notificationState: CommunicationChannel.UserNotificationState?
+
+        init(
+            id: CommunicationChannel.ID,
+            name: String,
+            description: String,
+            notificationsRequired: Bool,
+            notificationState: CommunicationChannel.UserNotificationState?
+        ) {
+            self.id = id
+            self.name = name
+            self.description = description
+            self.notificationsRequired = notificationsRequired
+            self.notificationState = notificationState
+        }
+
+        static let placeholder = ChannelUserInfo(id: "", name: "", description: "", notificationsRequired: false, notificationState: nil)
+
+        init(row: Row) throws {
+            self.id = row["id"]
+            self.name = row["name"]
+            self.description = row["description"]
+            self.notificationsRequired = row["notificationsRequired"]
+            
+            // Parse the notification state from the raw value if it exists
+            if let rawValue: String = row["userNotificationState"] {
+                self.notificationState = CommunicationChannel.UserNotificationState(rawValue: rawValue)
+            } else {
+                self.notificationState = nil
+            }
+        }
+    }
+}
+
 public struct CommunicationsFeatureView: View {
 
     @Observable
@@ -18,7 +60,7 @@ public struct CommunicationsFeatureView: View {
 
         public init() {}
 
-        var channels: [CommunicationChannel] = []
+        var channels: [CommunicationChannel.ChannelUserInfo] = []
 
         @ObservationIgnored
         @Dependency(\.defaultDatabase) var defaultDatabase
@@ -29,25 +71,26 @@ public struct CommunicationsFeatureView: View {
         var destination: CommunicationChannelView.Store?
 
         func didTapChannel(_ channel: CommunicationChannel.ID) {
-            self.destination = .init(channel)
+            withDependencies(from: self) {
+                self.destination = .init(channel)
+            }
         }
 
         func task() async {
             let id = musicEventID
-            let values = ValueObservation.tracking { db in
-                try CommunicationChannel
-                    .filter(Column("musicEventID") == id)
-                    .order(Column("sortIndex"))
-                    .fetchAll(db)
-            }
-            .values(in: defaultDatabase)
-
-            do {
-                for try await channels in values {
-                    self.channels = channels
+            await withErrorReporting {
+                let values = ValueObservation.tracking { db in
+                    try Queries.communicationChannelUserInfoQuery(for: id).fetchAll(db)
                 }
-            } catch {
-                reportIssue(error)
+                .values(in: defaultDatabase)
+    //
+                do {
+                    for try await rows in values {
+                        self.channels = rows
+                    }
+                } catch {
+                    reportIssue(error)
+                }
             }
         }
     }
@@ -79,10 +122,10 @@ public struct CommunicationsFeatureView: View {
     }
 
     struct Row: View {
-        var channel: CommunicationChannel
+        var channel: CommunicationChannel.ChannelUserInfo
 
         var isSubscribed: Bool {
-            channel.userNotificationState == .subscribed
+            channel.notificationState == .subscribed
         }
 
         var body: some View {
@@ -125,7 +168,8 @@ public struct CommunicationChannelView: View {
 
         let id: CommunicationChannel.ID
 
-        var channel: CommunicationChannel = .placeholder
+        var channel: CommunicationChannel.ChannelUserInfo = .placeholder
+
         var pinnedPosts: [CommunicationChannel.Post] = []
         var regularPosts: [CommunicationChannel.Post] = []
 
@@ -138,13 +182,30 @@ public struct CommunicationChannelView: View {
         @ObservationIgnored
         @Dependency(\.defaultDatabase) var defaultDatabase
 
+        @ObservationIgnored
+        @Dependency(\.musicEventID) var musicEventID
+
         func task() async {
             let channelID = id
+            let musicEventID = musicEventID
 
             let postsObservation = ValueObservation.tracking { db in
-                let channel = try CommunicationChannel
-                    .filter(Column("id") == channelID)
-                    .fetchOne(db)
+                let channel = try SQLRequest<CommunicationChannel.ChannelUserInfo>(
+                    sql: """
+                        SELECT 
+                            c.id,
+                            c.name,
+                            c.description,
+                            c.notificationsRequired,
+                            COALESCE(cp.userNotificationState, c.defaultNotificationState) as userNotificationState
+                        
+                        FROM channels c
+                        LEFT JOIN channelPreferences cp ON c.id = cp.channelID
+                        WHERE c.id = ?
+                        """,
+                    arguments: [channelID]
+                )
+                .fetchOne(db)
 
                 let posts = try CommunicationChannel.Post
                     .filter(Column("channelID") == channelID)
@@ -183,8 +244,8 @@ public struct CommunicationChannelView: View {
             withErrorReporting {
                 try defaultDatabase.write { db in
                     try db.execute(
-                        sql: "UPDATE \(CommunicationChannel.tableName) SET userNotificationState = ? WHERE id = ?", 
-                        arguments: [state.rawValue, channel.id.rawValue]
+                        sql: "INSERT INTO \(CommunicationChannel.Preferences.tableName) (channelID, userNotificationState) VALUES (?, ?) ON CONFLICT(channelID) DO UPDATE SET userNotificationState = excluded.userNotificationState",
+                        arguments: [channel.id.rawValue, state.rawValue]
                     )
                 }
             }
@@ -195,12 +256,14 @@ public struct CommunicationChannelView: View {
 
     public var body: some View {
         List {
-            Section {
-                Text(store.channel.description)
-                    .font(.subheadline)
-            } footer: {
-                if store.shouldShowContentUnavailable {
-                    Text("There are no posts in this channel yet.")
+            if !store.channel.description.isEmpty {
+                Section {
+                    Text(store.channel.description)
+                        .font(.subheadline)
+                } footer: {
+                    if store.shouldShowContentUnavailable {
+                        Text("There are no posts in this channel yet.")
+                    }
                 }
             }
 
@@ -239,7 +302,7 @@ public struct CommunicationChannelView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 8) {
-                    if store.channel.userNotificationState == .subscribed {
+                    if store.channel.notificationState == .subscribed {
                         Icons.notificationsEnabled
                             .foregroundStyle(Color.accentColor)
                             .font(.caption)
@@ -251,7 +314,7 @@ public struct CommunicationChannelView: View {
                             Button("Don't Notify Me For New Posts", image: Icons.disableNotifications) {
                                 store.didTapStopNotifyingMe()
                             }
-                        case .unsubscribed:
+                        case .unsubscribed, .none:
                             Button("Notify Me For New Posts", image: Icons.enableNotifications) {
                                 store.didTapNotifyMe()
                             }

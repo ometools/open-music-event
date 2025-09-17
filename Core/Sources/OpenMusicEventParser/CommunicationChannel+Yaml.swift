@@ -19,7 +19,6 @@ extension CommunicationChannel {
         public var headerImageURL: URL?
         public var sortIndex: Int?
         public var defaultNotificationState: CommunicationChannel.DefaultNotificationState?
-        public var userNotificationState: CommunicationChannel.UserNotificationState?
         public var notificationsRequired: Bool?
 
         public init(
@@ -32,7 +31,6 @@ extension CommunicationChannel {
             headerImageURL: URL? = nil,
             sortIndex: Int? = nil,
             defaultNotificationState: CommunicationChannel.DefaultNotificationState? = nil,
-            userNotificationState: CommunicationChannel.UserNotificationState? = nil,
             notificationsRequired: Bool? = nil
         ) {
             self.id = id
@@ -44,7 +42,6 @@ extension CommunicationChannel {
             self.headerImageURL = headerImageURL
             self.sortIndex = sortIndex
             self.defaultNotificationState = defaultNotificationState
-            self.userNotificationState = userNotificationState
             self.notificationsRequired = notificationsRequired
         }
     }
@@ -62,7 +59,6 @@ extension CommunicationChannel.Yaml {
             headerImageURL: self.headerImageURL,
             sortIndex: self.sortIndex,
             defaultNotificationState: self.defaultNotificationState ?? .unsubscribed,
-            userNotificationState: self.userNotificationState,
             notificationsRequired: self.notificationsRequired ?? false
         )
     }
@@ -80,7 +76,6 @@ extension CommunicationChannel.Draft {
             headerImageURL: self.headerImageURL,
             sortIndex: self.sortIndex,
             defaultNotificationState: self.defaultNotificationState,
-            userNotificationState: self.userNotificationState,
             notificationsRequired: self.notificationsRequired
         )
     }

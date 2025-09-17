@@ -89,163 +89,45 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
 
     var migrator = DatabaseMigrator()
     #if DEBUG
-    migrator.eraseDatabaseOnSchemaChange = true
+//    migrator.eraseDatabaseOnSchemaChange = true
     #endif
-    migrator.registerMigration("Create tables") { db in
+
+    migrator.registerShippedMigrations()
+
+    migrator.registerMigration("Migrate channel subscription state to preferences") { db in
         try sql("""
-        CREATE TABLE organizers (
-            "id" TEXT PRIMARY KEY NOT NULL,
-            "url" TEXT,
-            "name" TEXT NOT NULL,
-            "imageURL" TEXT,
-            "iconImageURL" TEXT
-        ) STRICT;
-        """).execute(db)
-
-        try sql("""
-        CREATE TABLE musicEvents(
-            "id" TEXT PRIMARY KEY NOT NULL,
-            "organizerID" TEXT,
-            "name" TEXT NOT NULL,
-            "startTime" TEXT,
-            "endTime" TEXT,
-            "timeZone" TEXT,
-            "imageURL" TEXT,
-            "iconImageURL" TEXT,
-            "siteMapImageURL" TEXT,
-            "location" TEXT,
-            "contactNumbers" TEXT,
-        
-            FOREIGN KEY("organizerID") REFERENCES "organizers"("id") ON DELETE CASCADE
-        ) STRICT;
-        """).execute(db)
-
-        try sql("""
-        CREATE TABLE artists(
-            "id" TEXT PRIMARY KEY NOT NULL,
-            "musicEventID" TEXT,
-            "name" TEXT NOT NULL,
-            "bio" TEXT,
-            "imageURL" TEXT,
-            "logoURL" TEXT,
-            "kind" TEXT,
-            "links" TEXT,
-        
-            FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
-        ) STRICT;
-        """).execute(db)
-
-        try sql("""
-        CREATE TABLE stages(
-            "id" TEXT PRIMARY KEY NOT NULL,
-            "musicEventID" TEXT,
-            "category" TEXT,
-            "sortIndex" TEXT NOT NULL,
-            "name" TEXT NOT NULL,
-            "iconImageURL" TEXT,
-            "imageURL" TEXT,
-            "posterImageURL" TEXT,
-            "color" INTEGER NOT NULL,
-            "lineup" TEXT,
-        
-            FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
-        ) STRICT;
-        """).execute(db)
-
-
-        try sql("""
-        CREATE TABLE schedules(
-            "id" TEXT PRIMARY KEY NOT NULL,
-            "musicEventID" TEXT,
-            "startTime" TEXT,
-            "endTime" TEXT,
-            "customTitle" TEXT,
-        
-            FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
-        ) STRICT;
-        """).execute(db)
-
-        try sql("""
-        CREATE TABLE performances(
-            "id" TEXT PRIMARY KEY NOT NULL,
-            "stageID" TEXT NOT NULL,
-            "scheduleID" TEXT,
-            "title" TEXT NOT NULL,
-            "description" TEXT,
-            "startTime" TEXT NOT NULL,
-            "endTime" TEXT NOT NULL,
-        
-            FOREIGN KEY("stageID") REFERENCES "stages"("id") ON DELETE CASCADE,
-            FOREIGN KEY("scheduleID") REFERENCES "schedules"("id") ON DELETE CASCADE
-        ) STRICT;
-        """).execute(db)
-
-        try sql("""
-        CREATE TABLE performanceArtists (
-            "performanceID" TEXT NOT NULL,
-            "artistID" TEXT,
-            "anonymousArtistName" TEXT,
-
-            PRIMARY KEY("performanceID", "artistID"),
-            FOREIGN KEY("performanceID") REFERENCES "performances"("id") ON DELETE CASCADE,
-            FOREIGN KEY("artistID") REFERENCES "artists"("id") ON DELETE CASCADE
-        ) STRICT;
-        """).execute(db)
-
-        try sql("""
-        CREATE TABLE channels (
-            "id" TEXT PRIMARY KEY NOT NULL,
-            "musicEventID" TEXT,
-            "name" TEXT NOT NULL,
-            "description" TEXT NOT NULL,
-            "iconImageURL" TEXT,
-            "headerImageURL" TEXT,
-            "sortIndex" INTEGER,
-            "defaultNotificationState" TEXT NOT NULL,
+        CREATE TABLE channelPreferences(
+            "channelID" TEXT PRIMARY KEY NOT NULL,
             "userNotificationState" TEXT,
-            "notificationsRequired" INTEGER NOT NULL DEFAULT 0,
-            "firebaseTopicName" TEXT,
-
-            FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
+        
+            FOREIGN KEY("channelID") REFERENCES "channels" ON DELETE CASCADE
         ) STRICT;
-        """).execute(db)
+        """)
+        .execute(db)
 
         try sql("""
-        CREATE TABLE posts (
-            "id" TEXT PRIMARY KEY NOT NULL,
-            "stub" TEXT NOT NULL,
-            "channelID" TEXT NOT NULL,
-            "title" TEXT NOT NULL,
-            "contents" TEXT NOT NULL,
-            "headerImageURL" TEXT,
-            "timestamp" TEXT,
-            "isPinned" INTEGER NOT NULL DEFAULT 0,
-
-            FOREIGN KEY("channelID") REFERENCES "channels"("id") ON DELETE CASCADE
-        ) STRICT;
-        """).execute(db)
-    }
-
-    migrator.registerMigration("Create preferences tables") { db in
-        try sql("""
-        CREATE TABLE artistPreferences(
-            "artistID" TEXT PRIMARY KEY NOT NULL,
+        CREATE TABLE postPreferences(
+            "postID" TEXT PRIMARY KEY NOT NULL,
+            "isRead" INTEGER NOT NULL DEFAULT 0,
             "isFavorite" INTEGER NOT NULL DEFAULT 0,
         
-            FOREIGN KEY("artistID") REFERENCES "artists" ON DELETE CASCADE
+            FOREIGN KEY("postID") REFERENCES "posts" ON DELETE CASCADE
         ) STRICT;
         """)
         .execute(db)
 
+        // Migrate existing subscription states to the new preferences table
         try sql("""
-        CREATE TABLE performancePreferences(
-            "performanceID" TEXT PRIMARY KEY NOT NULL,
-            "seen" INTEGER NOT NULL DEFAULT 0,
-        
-            FOREIGN KEY("performanceID") REFERENCES "performances" ON DELETE CASCADE
-        ) STRICT;
-        """)
-        .execute(db)
+        INSERT INTO channelPreferences (channelID, userNotificationState)
+        SELECT id, userNotificationState
+        FROM channels
+        WHERE userNotificationState IS NOT NULL;
+        """).execute(db)
+
+        try sql("""
+            ALTER TABLE channels
+            DROP COLUMN userNotificationState;
+        """).execute(db)
     }
 
 //
@@ -263,11 +145,15 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
     try database.write { db in
         try sql("""
         CREATE TEMPORARY TRIGGER on_channel_subscription_changed
-        AFTER UPDATE OF userNotificationState ON channels
+        AFTER UPDATE OF userNotificationState ON channelPreferences
         FOR EACH ROW
         WHEN OLD.userNotificationState IS DISTINCT FROM NEW.userNotificationState
         BEGIN
-            SELECT handleChannelSubscriptionChanged(NEW.id, NEW.userNotificationState, NEW.firebaseTopicName);
+            SELECT handleChannelSubscriptionChanged(
+                NEW.channelID, 
+                NEW.userNotificationState,
+                (SELECT firebaseTopicName FROM channels WHERE id = NEW.channelID)
+            );
         END;
         """).execute(db)
     }

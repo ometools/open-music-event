@@ -54,6 +54,8 @@ extension CommunicationChannel: Table {}
 extension CommunicationChannel.Post: Table {}
 extension Artist.Preferences: Table {}
 extension Performance.Preferences: Table {}
+extension CommunicationChannel.Preferences: Table {}
+extension CommunicationChannel.Post.Preferences: Table {}
 extension Organizer.Draft:  MutableIdentifiable, TableDraft {}
 extension MusicEvent.Draft:  MutableIdentifiable, TableDraft {}
 extension Artist.Draft:  MutableIdentifiable, TableDraft {}
@@ -63,6 +65,8 @@ extension Performance.Draft: MutableIdentifiable, TableDraft {}
 extension Performance.Artists.Draft: TableDraft {}
 extension Artist.Preferences.Draft: MutableIdentifiable, TableDraft {}
 extension Performance.Preferences.Draft: MutableIdentifiable, TableDraft {}
+extension CommunicationChannel.Preferences.Draft: MutableIdentifiable, TableDraft {}
+extension CommunicationChannel.Post.Preferences.Draft: MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Draft: MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Post.Draft: MutableIdentifiable, TableDraft {}
 

@@ -814,12 +814,7 @@ public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
     public var sortIndex: Int?
 
     public var defaultNotificationState: DefaultNotificationState = .unsubscribed
-    public var userNotificationState: UserNotificationState?
     public var notificationsRequired: Bool = false
-
-    public var notificationState: UserNotificationState {
-        userNotificationState ?? defaultNotificationState
-    }
 
     public typealias DefaultNotificationState = UserNotificationState
 
@@ -837,7 +832,6 @@ public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
         headerImageURL: URL? = nil,
         sortIndex: Int? = nil,
         defaultNotificationState: DefaultNotificationState = .unsubscribed,
-        userNotificationState: UserNotificationState? = nil,
         notificationsRequired: Bool = false
     ) {
         self.id = id
@@ -848,7 +842,6 @@ public struct CommunicationChannel: Equatable, Identifiable, Sendable, Codable {
         self.headerImageURL = headerImageURL
         self.sortIndex = sortIndex
         self.defaultNotificationState = defaultNotificationState
-        self.userNotificationState = userNotificationState
         self.notificationsRequired = notificationsRequired
     }
 
@@ -870,7 +863,6 @@ extension CommunicationChannel {
         public var headerImageURL: URL?
         public var sortIndex: Int?
         public var defaultNotificationState: DefaultNotificationState
-        public var userNotificationState: UserNotificationState?
         public var notificationsRequired: Bool
 
         public static let tableName = CommunicationChannel.tableName
@@ -885,7 +877,6 @@ extension CommunicationChannel {
             self.headerImageURL = other.headerImageURL
             self.sortIndex = other.sortIndex
             self.defaultNotificationState = other.defaultNotificationState
-            self.userNotificationState = other.userNotificationState
             self.notificationsRequired = other.notificationsRequired
         }
 
@@ -899,7 +890,6 @@ extension CommunicationChannel {
             headerImageURL: URL? = nil,
             sortIndex: Int? = nil,
             defaultNotificationState: DefaultNotificationState = .unsubscribed,
-            userNotificationState: UserNotificationState? = nil,
             notificationsRequired: Bool = false
         ) {
             self.id = id
@@ -911,7 +901,6 @@ extension CommunicationChannel {
             self.headerImageURL = headerImageURL
             self.sortIndex = sortIndex
             self.defaultNotificationState = defaultNotificationState
-            self.userNotificationState = userNotificationState
             self.notificationsRequired = notificationsRequired
         }
     }

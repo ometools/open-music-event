@@ -1,8 +1,30 @@
 //
-//  OrganizerLoader.swift
+//  OrganizationLoader.swift
 //  open-music-event
 //
 //  Created by Woodrow Melling on 5/7/25.
+//
+//  ORGANIZATION DATABASE INSERTION COMPLEXITY - CURRENT ASSUMPTIONS:
+//
+//  ## CRITICAL ASSUMPTIONS (These should be no user data stored in org tables):
+//  1. Organization tables contain ONLY source data from organization configuration files
+//  2. User preferences/state are stored in separate "Preferences" tables (artistPreferences, performancePreferences, etc.)
+//  3. Any user-generated data must NOT be stored alongside organization data
+//
+//  ## CURRENT COMPLEXITY ISSUES:
+//  1. Manual selective deletion for each entity level (events, artists, stages, schedules, performances, posts)
+//  2. Complex ID generation using stabilizedBy pattern that's brittle and hard to debug
+//  3. Nested loops with error-prone foreign key relationships
+//  4. Preservation logic for user preferences scattered throughout insertion
+//  5. No clear separation between user data and organization data
+//  6. Inefficient: queries existing data multiple times for each entity type
+//
+//  ## PROPOSED SIMPLIFICATION STRATEGY:
+//  1. Create clear separation between organization data and user data
+//  2. Use transaction-based full replacement with preference preservation
+//  3. Simplify ID generation with consistent, debuggable patterns
+//  4. Extract insertion logic into dedicated service classes
+//  5. Add comprehensive validation and error handling
 //
 
 import OpenMusicEventParser
@@ -11,9 +33,12 @@ import DependenciesMacros
 import  SwiftUI; import SkipFuse
 import IssueReporting
 
+
+
+
 @DependencyClient
 struct DataFetchingClient {
-    var fetchOrganizer: @Sendable (_ from: OrganizationReference) async throws -> OpenMusicEventParser.OrganizerConfiguration
+    var fetchOrganizer: @Sendable (_ from: OrganizationReference) async throws -> OrganizerConfiguration
 }
 
 
@@ -263,286 +288,352 @@ func downloadAndStoreOrganizer(from reference: OrganizationReference) async thro
     let organizer: OrganizerConfiguration = try await dataFetchingClient.fetchOrganizer(reference)
 
     try await organizer.insert(url: reference.zipURL, into: defaultDatabase)
-    
-    try await notificationManager.ensureTopicsAreSubscribed()
+
+    Task {
+        try await notificationManager.ensureTopicsAreSubscribed()
+    }
 }
 
+// MARK: - Simplified Organization Insertion Service
+/// Service responsible for inserting organization data into the database
+/// Follows the principle: NO USER DATA should be stored in organization tables
+enum OrganizationInsertionService {
+
+    /// Inserts organization configuration into database with simplified, more maintainable approach
+    /// - Preserves user preferences by backing them up and restoring after insertion
+    /// - Uses full replacement strategy within transactions for data integrity
+    /// - Separates concerns between organization data and user preferences
+    static func insert(_ config: OrganizerConfiguration, url: URL, into database: any DatabaseWriter) async throws {
+        
+        try await database.write { db in
+            
+            // STEP 1: Preserve all user preferences (the only user data we care about)
+            let userPreferences = try preserveUserPreferences(from: db)
+            
+            // STEP 2: Clean insert of organization data (simple full replacement)
+            try insertOrganizationData(config, url: url, into: db)
+            
+            // STEP 3: Restore user preferences that still have valid references
+            try restoreUserPreferences(userPreferences, into: db)
+        }
+    }
+    
+    /// Preserves all user preference data before organization data replacement
+    private static func preserveUserPreferences(from db: Database) throws -> UserPreferences {
+        UserPreferences(
+            artistPreferences: try Artist.Preferences.fetchAll(db),
+            performancePreferences: try Performance.Preferences.fetchAll(db),
+            channelPreferences: try CommunicationChannel.Preferences.fetchAll(db),
+            postPreferences: try CommunicationChannel.Post.Preferences.fetchAll(db)
+        )
+    }
+    
+    /// Inserts organization data using simplified full-replacement approach
+    private static func insertOrganizationData(_ config: OrganizerConfiguration, url: URL, into db: Database) throws {
+        
+        // Insert organizer info
+        var organizerInfo = config.info
+        organizerInfo.url = url
+        
+        guard let organizerID = organizerInfo.id else {
+            struct MissingOrganizerIDError: Error {}
+            throw MissingOrganizerIDError()
+        }
+
+        try Organizer.deleteOne(db, id: organizerID)
+        try organizerInfo.upsert(db)
+
+        // Insert all events and their related data
+        for event in config.events {
+            try insertEvent(event, organizerID: organizerID, into: db)
+        }
+    }
+    
+    /// Inserts a single event and all its related data
+    private static func insertEvent(_ event: EventConfiguration, organizerID: Organizer.ID, into db: Database) throws {
+        
+        // Generate stable event ID
+        let eventID = generateEventID(organizerID: organizerID, eventName: event.info.name)
+        
+        // Insert event
+        var eventInfo = event.info
+        eventInfo.id = eventID
+        eventInfo.organizerID = organizerID
+        try eventInfo.upsert(db)
+        
+        // Create artist mapping for later reference
+        let artistMapping = try insertArtists(event.artists, eventID: eventID, into: db)
+        
+        // Insert other entities
+        try insertChannels(event.channels, eventID: eventID, into: db)
+        let stageMapping = try insertStages(event.stages, eventID: eventID, stageLineups: event.stageLineups, artistMapping: artistMapping, into: db)
+        try insertSchedulesAndPerformances(event.schedule, eventID: eventID, stageMapping: stageMapping, artistMapping: artistMapping, into: db)
+    }
+    
+    /// Inserts artists and returns name->ID mapping
+    private static func insertArtists(
+        _ artists: [Artist.Draft],
+        eventID: MusicEvent.ID,
+        into db: Database
+    ) throws -> [String: Artist.ID] {
+        var mapping: [String: Artist.ID] = [:]
+        
+        for artist in artists {
+            let artistID = generateArtistID(eventID: eventID, artistName: artist.name)
+            let artistDraft = Artist.Draft(
+                id: artistID,
+                musicEventID: eventID,
+                name: artist.name,
+                bio: artist.bio,
+                imageURL: artist.imageURL,
+                links: artist.links
+            )
+            
+            try artistDraft.upsert(db)
+            mapping[artist.name] = artistID
+        }
+        
+        return mapping
+    }
+    
+    /// Inserts communication channels and their posts
+    private static func insertChannels(_ channels: [EventConfiguration.ChannelConfiguration], eventID: MusicEvent.ID, into db: Database) throws {
+        for channel in channels {
+            let channelID = generateChannelID(eventID: eventID, channelName: channel.info.name)
+            
+            var channelInfo = channel.info
+            channelInfo.id = channelID
+            channelInfo.musicEventID = eventID
+            try channelInfo.upsert(db)
+            
+            // Insert posts
+            for post in channel.posts {
+                var postDraft = post
+                postDraft.id = generatePostID(channelID: channelID, postTitle: post.title)
+                postDraft.channelID = channelID
+                try postDraft.upsert(db)
+            }
+        }
+    }
+    
+    /// Inserts stages and returns name->ID mapping
+    private static func insertStages(
+        _ stages: [StageConfiguration], 
+        eventID: MusicEvent.ID, 
+        stageLineups: [String: StageLineupConfiguration]?, 
+        artistMapping: [String: Artist.ID], 
+        into db: Database
+    ) throws -> [String: Stage.ID] {
+        var mapping: [String: Stage.ID] = [:]
+        
+        for (index, stage) in stages.enumerated() {
+            let stageID = generateStageID(eventID: eventID, stageName: stage.name)
+            
+            // Get lineup artist IDs
+            let lineup = stageLineups?[stage.name]
+            let artistIDs = lineup?.artists.compactMap { artistMapping[$0] }
+            
+            let stageDraft = Stage.Draft(
+                id: stageID,
+                musicEventID: eventID,
+                name: stage.name,
+                category: stage.category,
+                sortIndex: index,
+                iconImageURL: stage.iconImageURL,
+                imageURL: stage.imageURL,
+                posterImageURL: stage.posterImageURL,
+                color: stage.color,
+                lineup: artistIDs
+            )
+            
+            try stageDraft.upsert(db)
+            mapping[stage.name] = stageID
+        }
+        
+        return mapping
+    }
+    
+    /// Inserts schedules and their performances
+    private static func insertSchedulesAndPerformances(
+        _ schedules: [ScheduleConfiguration],
+        eventID: MusicEvent.ID,
+        stageMapping: [String: Stage.ID],
+        artistMapping: [String: Artist.ID],
+        into db: Database
+    ) throws {
+        
+        for schedule in schedules {
+            let scheduleID = generateScheduleID(eventID: eventID, schedule: schedule)
+            
+            let scheduleDraft = Schedule.Draft(
+                id: scheduleID,
+                musicEventID: eventID,
+                startTime: schedule.metadata.startTime,
+                endTime: schedule.metadata.endTime,
+                customTitle: schedule.metadata.customTitle
+            )
+            
+            try scheduleDraft.upsert(db)
+            
+            // Insert performances for this schedule
+            for (stageName, performances) in schedule.stageSchedules {
+                guard let stageID = stageMapping[stageName] else {
+                    reportIssue("Missing stage ID for stage: \(stageName)")
+                    continue
+                }
+                
+                for performance in performances {
+                    try insertPerformance(
+                        performance,
+                        eventID: eventID,
+                        scheduleID: scheduleID,
+                        stageID: stageID,
+                        artistMapping: artistMapping,
+                        into: db
+                    )
+                }
+            }
+        }
+    }
+    
+    /// Inserts a single performance and its artist relationships
+    private static func insertPerformance(
+        _ performance: PerformanceConfiguration,
+        eventID: MusicEvent.ID,
+        scheduleID: Schedule.ID,
+        stageID: Stage.ID,
+        artistMapping: [String: Artist.ID],
+        into db: Database
+    ) throws {
+        
+        let performanceID = generatePerformanceID(scheduleID: scheduleID, stageID: stageID, performance: performance)
+        
+        let performanceDraft = Performance.Draft(
+            id: performanceID,
+            stageID: stageID,
+            scheduleID: scheduleID,
+            startTime: performance.startTime,
+            endTime: performance.endTime,
+            title: performance.title,
+            description: performance.description
+        )
+        
+        try performanceDraft.upsert(db)
+        
+        // Insert performance-artist relationships
+        for artistName in performance.artistNames {
+            if let artistID = artistMapping[artistName] {
+                let performanceArtistDraft = Performance.Artists.Draft(
+                    performanceID: performanceID,
+                    artistID: artistID
+                )
+                try performanceArtistDraft.upsert(db)
+            } else {
+                // Create missing artist on-the-fly
+                let artistID = generateArtistID(eventID: eventID, artistName: artistName)
+                let artistDraft = Artist.Draft(
+                    id: artistID,
+                    musicEventID: eventID,
+                    name: artistName,
+                    links: []
+                )
+                try artistDraft.upsert(db)
+                
+                let performanceArtistDraft = Performance.Artists.Draft(
+                    performanceID: performanceID,
+                    artistID: artistID
+                )
+                try performanceArtistDraft.upsert(db)
+            }
+        }
+    }
+    
+    /// Restores user preferences that still have valid entity references
+    private static func restoreUserPreferences(_ preferences: UserPreferences, into db: Database) throws {
+        
+        // Restore artist preferences
+        for pref in preferences.artistPreferences {
+            // Only restore if artist still exists
+            if try Artist.fetchOne(db, id: pref.artistID) != nil {
+                try Artist.Preferences.Draft(pref).upsert(db)
+            }
+        }
+        
+        // Restore performance preferences  
+        for pref in preferences.performancePreferences {
+            // Only restore if performance still exists
+            if try Performance.fetchOne(db, id: pref.performanceID) != nil {
+                try Performance.Preferences.Draft(pref).upsert(db)
+            }
+        }
+        
+        // Restore channel preferences
+        for pref in preferences.channelPreferences {
+            // Only restore if channel still exists
+            if try CommunicationChannel.fetchOne(db, id: pref.channelID) != nil {
+                try CommunicationChannel.Preferences.Draft(pref).upsert(db)
+            }
+        }
+        
+        // Restore post preferences
+        for pref in preferences.postPreferences {
+            // Only restore if post still exists
+            if try CommunicationChannel.Post.fetchOne(db, id: pref.postID) != nil {
+                try CommunicationChannel.Post.Preferences.Draft(pref).upsert(db)
+            }
+        }
+    }
+}
+
+// MARK: - ID Generation Utilities
+/// Centralized, consistent ID generation with clear debugging information
+extension OrganizationInsertionService {
+    
+    static func generateEventID(organizerID: Organizer.ID, eventName: String) -> MusicEvent.ID {
+        MusicEvent.ID(stabilizedBy: organizerID.rawValue, eventName)
+    }
+    
+    static func generateArtistID(eventID: MusicEvent.ID, artistName: String) -> Artist.ID {
+        Artist.ID(stabilizedBy: eventID.rawValue, artistName)
+    }
+    
+    static func generateChannelID(eventID: MusicEvent.ID, channelName: String) -> CommunicationChannel.ID {
+        CommunicationChannel.ID(stabilizedBy: eventID.rawValue, channelName)
+    }
+    
+    static func generatePostID(channelID: CommunicationChannel.ID, postTitle: String) -> CommunicationChannel.Post.ID {
+        CommunicationChannel.Post.ID(stabilizedBy: channelID.rawValue, postTitle)
+    }
+    
+    static func generateStageID(eventID: MusicEvent.ID, stageName: String) -> Stage.ID {
+        Stage.ID(stabilizedBy: eventID.rawValue, stageName)
+    }
+    
+    static func generateScheduleID(eventID: MusicEvent.ID, schedule: ScheduleConfiguration) -> Schedule.ID {
+        let identifier = schedule.metadata.customTitle ?? schedule.metadata.startTime.formatted(.dateTime.weekday(.short))
+        return Schedule.ID(stabilizedBy: eventID.rawValue, identifier)
+    }
+    
+    static func generatePerformanceID(scheduleID: Schedule.ID, stageID: Stage.ID, performance: PerformanceConfiguration) -> Performance.ID {
+        // Extract stage name from stage ID for uniqueness
+        let stageIdentifier = stageID.rawValue.components(separatedBy: "/").last ?? "unknown-stage"
+        return Performance.ID(stabilizedBy: scheduleID.rawValue, stageIdentifier, performance.title)
+    }
+}
+
+// MARK: - User Preferences Data Structure
+/// Container for all user preference data that needs to be preserved during organization updates
+private struct UserPreferences {
+    let artistPreferences: [Artist.Preferences]
+    let performancePreferences: [Performance.Preferences]
+    let channelPreferences: [CommunicationChannel.Preferences]
+    let postPreferences: [CommunicationChannel.Post.Preferences]
+}
+
+// MARK: - Updated Extension Using New Service
 extension OrganizerConfiguration {
     func insert(url: URL, into database: any DatabaseWriter) async throws {
-        var info = self.info
-        info.url = url
-
-        try await database.write { [info] db in
-            // Upsert organizer (preserves any local organizer state)
-            try info.upsert(db)
-
-            guard let organizerID = info.id
-            else {
-                reportIssue("We must have an organizerID after upserting")
-                return
-            }
-
-            // Preserve performance preferences before any deletions
-            let allExistingPreferences = try Performance.Preferences.fetchAll(db)
-            let preferencesByPerformanceID = Dictionary(grouping: allExistingPreferences) { $0.performanceID }
-            
-            // Handle selective deletion for events
-            let sourceEventIDs = Set(self.events.map { event in
-                OmeID<MusicEvent>(stabilizedBy: url.absoluteString, event.info.name)
-            })
-            
-            // Find existing events that should be deleted (exist in DB but not in source)
-            let existingEvents = try MusicEvent
-                .filter(Column("organizerID") == url)
-                .fetchAll(db)
-            let eventsToDelete = existingEvents.filter { !sourceEventIDs.contains($0.id) }
-            
-            // Delete orphaned events (CASCADE will handle related data)
-            if !eventsToDelete.isEmpty {
-                try MusicEvent.deleteAll(db, ids: eventsToDelete.map(\.id))
-            }
-
-            for event in self.events {
-                var eventInfo = event.info
-                let eventID: MusicEvent.ID = OmeID(stabilizedBy: organizerID.rawValue, eventInfo.name)
-                eventInfo.organizerID = organizerID
-                eventInfo.id = eventID
-
-                try eventInfo.upsert(db)
-                
-                // Handle selective deletion for artists within this event
-                let sourceArtistIDs = Set(event.artists.map { artist in
-                    Artist.ID(stabilizedBy: String(eventID.rawValue), artist.name)
-                })
-                let existingArtists = try Artist.filter(Column("musicEventID") == eventID).fetchAll(db)
-                let artistsToDelete = existingArtists.filter { !sourceArtistIDs.contains($0.id) }
-                if !artistsToDelete.isEmpty {
-                    try Artist.deleteAll(db, ids: artistsToDelete.map(\.id))
-                }
-                
-                var artistNameIDMapping: [String: Artist.ID] = [:]
-
-                for artist in event.artists {
-                    let artistID = Artist.ID(stabilizedBy: String(eventID.rawValue), artist.name)
-                    let artistDraft = Artist.Draft(
-                        id: artistID,
-                        musicEventID: eventID,
-                        name: artist.name,
-                        bio: artist.bio,
-                        imageURL: artist.imageURL,
-                        links: artist.links
-                    )
-
-                    try artistDraft.upsert(db)
-
-                    artistNameIDMapping[artist.name] = artistID
-                }
-
-                // Handle selective deletion for channels within this event
-                let sourceChannelIDs = Set(event.channels.map { channel in
-                    CommunicationChannel.ID(stabilizedBy: eventID.rawValue, channel.info.name)
-                })
-                let existingChannels = try CommunicationChannel.filter(Column("musicEventID") == eventID).fetchAll(db)
-                let channelsToDelete = existingChannels.filter { !sourceChannelIDs.contains($0.id) }
-                if !channelsToDelete.isEmpty {
-                    try CommunicationChannel.deleteAll(db, ids: channelsToDelete.map(\.id))
-                }
-
-                for channel in event.channels {
-                    var channelInfo = channel.info
-                    let channelID = CommunicationChannel.ID(stabilizedBy: eventID.rawValue, channelInfo.name)
-                    channelInfo.id = channelID
-                    channelInfo.musicEventID = eventID
-                    
-                    // Preserve user notification state if channel already exists
-                    if let existingChannel = try CommunicationChannel.fetchOne(db, id: channelID) {
-                        channelInfo.userNotificationState = existingChannel.userNotificationState
-                    }
-
-                    // Ensure a default
-                    if channelInfo.userNotificationState == nil {
-                        channelInfo.userNotificationState = channelInfo.defaultNotificationState
-                    }
-
-                    try channelInfo.upsert(db)
-                    
-                    // Handle selective deletion for posts within this channel
-                    let sourcePostIDs = Set(channel.posts.map { post in
-                        CommunicationChannel.Post.ID(stabilizedBy: channelID.rawValue, post.title)
-                    })
-                    let existingPosts = try CommunicationChannel.Post.filter(Column("channelID") == channelID).fetchAll(db)
-                    let postsToDelete = existingPosts.filter { !sourcePostIDs.contains($0.id) }
-                    if !postsToDelete.isEmpty {
-                        try CommunicationChannel.Post.deleteAll(db, ids: postsToDelete.map(\.id))
-                    }
-
-                    for post in channel.posts {
-                        var post = post
-                        post.id = OmeID(stabilizedBy: channelID.rawValue, post.title)
-                        post.channelID = channelID
-                        try post.upsert(db)
-                    }
-                }
-
-                func getOrCreateArtist(withName artistName: Artist.Name) throws -> Artist.ID {
-                    if let artistID = artistNameIDMapping[artistName] {
-                        return artistID
-                    } else {
-
-                        let artistID = Artist.ID(stabilizedBy: eventID.rawValue.lowercased(), artistName)
-                        let draft = Artist.Draft(
-                            id: artistID,
-                            musicEventID: eventID,
-                            name: artistName,
-                            links: []
-                        )
-
-                        try draft.upsert(db)
-                        return artistID
-                    }
-                }
-
-                // Handle selective deletion for stages within this event
-                let sourceStageIDs = Set(event.stages.map { stage in
-                    Stage.ID(stabilizedBy: eventID.rawValue, stage.name)
-                })
-                let existingStages = try Stage.filter(Column("musicEventID") == eventID).fetchAll(db)
-                let stagesToDelete = existingStages.filter { !sourceStageIDs.contains($0.id) }
-                if !stagesToDelete.isEmpty {
-                    try Stage.deleteAll(db, ids: stagesToDelete.map(\.id))
-                }
-
-                var stageNameIDMapping: [String: Stage.ID] = [:]
-
-                for (index, stage) in event.stages.enumerated() {
-                    let lineup = event.stageLineups?[stage.name]
-                    let artistIDs = try lineup?.artists.compactMap { try getOrCreateArtist(withName: $0) }
-                    let stageID = Stage.ID(stabilizedBy: eventID.rawValue, stage.name)
-                    let stage = Stage.Draft(
-                        id: stageID,
-                        musicEventID: eventID,
-                        name: stage.name,
-                        category: stage.category,
-                        sortIndex: index,
-                        iconImageURL: stage.iconImageURL,
-                        imageURL: stage.imageURL,
-                        posterImageURL: stage.posterImageURL,
-                        color: stage.color,
-                        lineup: artistIDs
-                    )
-
-                    try stage.upsert(db)
-
-                    stageNameIDMapping[stage.name] = stageID
-                }
-
-                // Handle selective deletion for schedules within this event
-                let sourceScheduleIDs = Set(event.schedule.map { schedule in
-                    Schedule.ID(
-                        stabilizedBy: String(eventID.rawValue),
-                        (schedule.metadata.customTitle ?? schedule.metadata.startTime.description)
-                    )
-                })
-
-                let existingSchedules = try Schedule.filter(Column("musicEventID") == eventID).fetchAll(db)
-                let schedulesToDelete = existingSchedules.filter { !sourceScheduleIDs.contains($0.id) }
-                if !schedulesToDelete.isEmpty {
-                    try Schedule.deleteAll(db, ids: schedulesToDelete.map(\.id))
-                }
-
-                for schedule in event.schedule {
-                    let scheduleID = Schedule.ID(
-                        stabilizedBy: String(eventID.rawValue),
-                        (schedule.metadata.customTitle ?? schedule.metadata.startTime.formatted(.dateTime.weekday(.short)))
-                    )
-
-                    let scheduleDraft = Schedule.Draft(
-                        id: scheduleID,
-                        musicEventID: eventID,
-                        startTime: schedule.metadata.startTime,
-                        endTime: schedule.metadata.endTime,
-                        customTitle: schedule.metadata.customTitle
-                    )
-
-                    try scheduleDraft.upsert(db)
-                    
-                    // Handle selective deletion for performances within this schedule
-                    let sourcePerformanceIDs = Set(schedule.stageSchedules.flatMap { stageSchedule in
-                        stageSchedule.value.map { performance in
-                            Performance.ID(
-                                stabilizedBy: String(scheduleID.rawValue),
-                                stageSchedule.key,
-                                performance.title
-                            )
-                        }
-                    })
-                    let existingPerformances = try Performance.filter(Column("scheduleID") == scheduleID).fetchAll(db)
-                    let performancesToDelete = existingPerformances.filter { !sourcePerformanceIDs.contains($0.id) }
-                    if !performancesToDelete.isEmpty {
-                        try Performance.deleteAll(db, ids: performancesToDelete.map(\.id))
-                    }
-
-                    for stageSchedule in schedule.stageSchedules {
-                        for performance in stageSchedule.value {
-                            let performanceID = Performance.ID(
-                                stabilizedBy: String(scheduleID.rawValue),
-                                stageSchedule.key,
-                                performance.title
-                            )
-                            let draft = Performance.Draft(
-                                // Stable for each performance **BUT*** will fail if an artist has two performances on the same stage on the same day
-                                // Maybe we increment a counter if there are multiple?
-                                id: performanceID,
-                                stageID: stageNameIDMapping[stageSchedule.key]!,
-                                scheduleID: scheduleID,
-                                startTime: performance.startTime,
-                                endTime: performance.endTime,
-                                title: performance.title,
-                                description: performance.description
-                            )
-
-                            try draft.upsert(db)
-                            
-                            // Restore performance preferences if they existed before
-                            if let existingPreferences = preferencesByPerformanceID[performanceID]?.first {
-                                try Performance.Preferences.Draft(existingPreferences).upsert(db)
-                            }
-                            
-                            // Handle selective deletion for performance artists
-                            let sourcePerformanceArtistIDs = Set(performance.artistNames.compactMap { artistName in
-                                try? getOrCreateArtist(withName: artistName)
-                            })
-                            let existingPerformanceArtists = try Performance.Artists.filter(Column("performanceID") == performanceID).fetchAll(db)
-                            let performanceArtistsToDelete = existingPerformanceArtists.filter { performanceArtist in
-                                guard let artistID = performanceArtist.artistID else { return false }
-                                return !sourcePerformanceArtistIDs.contains(artistID)
-                            }
-                            if !performanceArtistsToDelete.isEmpty {
-                                for performanceArtist in performanceArtistsToDelete {
-                                    try db.execute(
-                                        sql: "DELETE FROM performanceArtists WHERE performanceID = ? AND artistID = ?",
-                                        arguments: [performanceArtist.performanceID, performanceArtist.artistID]
-                                    )
-                                }
-                            }
-
-                            for artistName in performance.artistNames {
-                                let artistID = try getOrCreateArtist(withName: artistName)
-                                let draft = Performance.Artists.Draft(
-                                    performanceID: performanceID,
-                                    artistID: artistID
-                                )
-
-                                let _ = try draft.upsert(db)
-                            }
-                        }
-                    }
-                }
-            }
-
-
-
-        }
+        try await OrganizationInsertionService.insert(self, url: url, into: database)
     }
 }
 

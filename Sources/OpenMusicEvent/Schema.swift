@@ -42,6 +42,45 @@ extension Performance {
 
 extension Performance.Preferences.Draft: Sendable, Equatable, Codable {}
 
+extension CommunicationChannel {
+    public struct Preferences: Identifiable, Equatable, Sendable, Codable {
+        public var id: CommunicationChannel.ID { channelID }
+        public let channelID: CommunicationChannel.ID
+        public var userNotificationState: CommunicationChannel.UserNotificationState
+
+        public static let tableName = "channelPreferences"
+
+        public init(
+            channelID: CommunicationChannel.ID,
+            userNotificationState: CommunicationChannel.UserNotificationState
+        ) {
+            self.channelID = channelID
+            self.userNotificationState = userNotificationState
+        }
+    }
+}
+
+extension CommunicationChannel.Preferences.Draft: Sendable, Equatable, Codable {}
+
+extension CommunicationChannel.Post {
+    public struct Preferences: Identifiable, Equatable, Sendable, Codable {
+        public var id: CommunicationChannel.Post.ID { postID }
+        public let postID: CommunicationChannel.Post.ID
+        public var isRead: Bool
+        public var isFavorite: Bool
+
+        public static let tableName = "postPreferences"
+
+        public init(postID: CommunicationChannel.Post.ID, isRead: Bool = false, isFavorite: Bool = false) {
+            self.postID = postID
+            self.isRead = isRead
+            self.isFavorite = isFavorite
+        }
+    }
+}
+
+extension CommunicationChannel.Post.Preferences.Draft: Sendable, Equatable, Codable {}
+
 
 extension Artist.Preferences {
     public struct Draft {
@@ -89,6 +128,62 @@ extension Performance.Preferences {
         public init(performanceID: Performance.ID, seen: Bool = false) {
             self.performanceID = performanceID
             self.seen = seen
+        }
+    }
+}
+
+extension CommunicationChannel.Preferences {
+    public struct Draft {
+        public typealias PrimaryTable = CommunicationChannel.Preferences
+
+        public var id: CommunicationChannel.ID {
+            get { channelID }
+            set { channelID = newValue }
+        }
+        public var channelID: CommunicationChannel.ID
+        public var userNotificationState: CommunicationChannel.UserNotificationState
+
+        public static let tableName = CommunicationChannel.Preferences.tableName
+
+        public init(_ other: CommunicationChannel.Preferences) {
+            self.channelID = other.channelID
+            self.userNotificationState = other.userNotificationState
+        }
+
+        public init(
+            channelID: CommunicationChannel.ID,
+            userNotificationState: CommunicationChannel.UserNotificationState
+        ) {
+            self.channelID = channelID
+            self.userNotificationState = userNotificationState
+        }
+    }
+}
+
+extension CommunicationChannel.Post.Preferences {
+    public struct Draft {
+        public typealias PrimaryTable = CommunicationChannel.Post.Preferences
+
+        public var id: CommunicationChannel.Post.ID {
+            get { postID }
+            set { postID = newValue }
+        }
+        public var postID: CommunicationChannel.Post.ID
+        public var isRead: Bool
+        public var isFavorite: Bool
+
+        public static let tableName = CommunicationChannel.Post.Preferences.tableName
+
+        public init(_ other: CommunicationChannel.Post.Preferences) {
+            self.postID = other.postID
+            self.isRead = other.isRead
+            self.isFavorite = other.isFavorite
+        }
+
+        public init(postID: CommunicationChannel.Post.ID, isRead: Bool = false, isFavorite: Bool = false) {
+            self.postID = postID
+            self.isRead = isRead
+            self.isFavorite = isFavorite
         }
     }
 }

@@ -117,5 +117,41 @@ struct Queries {
             arguments: [performanceID.rawValue]
         )
     }
+
+    static func communicationChannelUserInfoQuery(for musicEventID: MusicEvent.ID) -> SQLRequest<CommunicationChannel.ChannelUserInfo> {
+        return SQLRequest<CommunicationChannel.ChannelUserInfo>(
+            sql: """
+                SELECT 
+                    c.id,
+                    c.name,
+                    c.description,
+                    c.notificationsRequired,
+                    COALESCE(cp.userNotificationState, c.defaultNotificationState) as userNotificationState
+                
+                FROM channels c
+                LEFT JOIN channelPreferences cp ON c.id = cp.channelID
+                WHERE c.musicEventID = ?
+                """,
+            arguments: [musicEventID]
+        )
+    }
+
+    static func communicationChannelUserInfoQuery(for channelID: CommunicationChannel.ID) -> SQLRequest<CommunicationChannel.ChannelUserInfo> {
+        return SQLRequest<CommunicationChannel.ChannelUserInfo>(
+            sql: """
+                SELECT 
+                    c.id,
+                    c.name,
+                    c.description,
+                    c.notificationsRequired,
+                    COALESCE(cp.userNotificationState, c.defaultNotificationState) as userNotificationState
+                
+                FROM channels c
+                LEFT JOIN channelPreferences cp ON c.id = cp.channelID
+                WHERE c.channelID = ?
+                """,
+            arguments: [channelID]
+        )
+    }
 }
 
