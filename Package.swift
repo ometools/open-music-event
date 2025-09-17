@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 // This is a Skip (https://skip.tools) package.
 import PackageDescription
 
@@ -22,7 +22,7 @@ let package = Package(
         .package(url: "https://github.com/woodymelling/skip-ui", branch: "main"),
         .package(url: "https://github.com/woodymelling/skip-fuse-ui", branch: "main"),
         .package(url: "https://source.skip.tools/skip-firebase.git", "0.9.0"..<"2.0.0"),
-        .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0"),
+        .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"]),
 
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/swift-case-paths", from: "1.0.0"),

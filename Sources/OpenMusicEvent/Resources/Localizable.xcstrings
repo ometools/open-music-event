@@ -75,6 +75,9 @@
     "Add Organization" : {
 
     },
+    "All Stages At Once" : {
+
+    },
     "Appearance" : {
       "comment" : "Settings select label for the interface style of the controls (light, dark, or default)",
       "extractionState" : "stale",
@@ -414,9 +417,6 @@
     "More" : {
 
     },
-    "Multi Stage" : {
-
-    },
     "Name" : {
       "comment" : "Placeholder title for the Name field in a form",
       "extractionState" : "stale",
@@ -591,9 +591,6 @@
     "Schedule" : {
 
     },
-    "Schedule Kind" : {
-
-    },
     "ScrollVisibility" : {
 
     },
@@ -627,7 +624,7 @@
         }
       }
     },
-    "Single Stage" : {
+    "Single Stage At Once" : {
 
     },
     "Site Map" : {

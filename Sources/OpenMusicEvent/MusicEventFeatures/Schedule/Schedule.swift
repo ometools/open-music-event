@@ -129,8 +129,12 @@ public struct ScheduleView: View {
         }
         .animation(.default, value: store.globalScheduleState.scheduleKind)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                ScheduleKindMenu(store: store)
+            if #available(iOS 26, *) {
+                ToolbarSpacer(.flexible)
+            }
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                ScheduleTypeMenu(selection: $store.globalScheduleState.scheduleKind)
 
                 FilterMenu(store: store)
             }
@@ -145,19 +149,11 @@ public struct ScheduleView: View {
         .environment(\.shouldShowTimeIndicator, store.showTimeIndicator)
     }
 
-    struct ScheduleKindMenu: View {
-        @Bindable var store: ScheduleFeature
+    struct ScheduleTypeMenu: View {
+        @Binding var selection: GlobalScheduleState.ScheduleType
 
         var body: some View {
-            Picker(selection: $store.globalScheduleState.scheduleKind) {
-                Label("Single Stage", image: Icons.singleStageSchedule)
-                    .tag(GlobalScheduleState.ScheduleType.singleStageAtOnce)
-
-                Label("Multi Stage", image: Icons.multiStageSchedule)
-                    .tag(GlobalScheduleState.ScheduleType.allStagesAtOnce)
-            } label: {
-                Text("Schedule Kind")
-            }
+            MenuPicker(value: $selection)
         }
     }
 
@@ -166,7 +162,6 @@ public struct ScheduleView: View {
         @Bindable var store: ScheduleFeature
 
         var body: some View {
-
             Menu {
                 Section {
                     Button {

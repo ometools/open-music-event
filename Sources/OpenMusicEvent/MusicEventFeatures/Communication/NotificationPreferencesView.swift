@@ -192,15 +192,3 @@ extension CommunicationChannel.UserNotificationState: PickableValue {
     }
 }
 
-import SwiftUI
-
-/**
- A protocol that defines an value that can be selected in a picker view. This should only be used with enum types
-
- Conforming types must provide a label property, which is `LocalizedStringKey`. The label property describes the title of the pickable value in the picker view. Values conforming to this type also comform to CaseIterable, which allows the declaration order of enum cases to drive the ordering of elements in the picker view.
- */
-public protocol PickableValue: CaseIterable, LabeledValue { }
-
-public protocol LabeledValue: Hashable {
-    var label: LocalizedStringKey { get }
-}

@@ -40,9 +40,25 @@ class GlobalScheduleState {
     var selectedSchedule: Schedule.ID?
     var filteringFavorites: Bool = false
 
-    enum ScheduleType {
+    enum ScheduleType: PickableValue {
         case singleStageAtOnce
         case allStagesAtOnce
+
+        var label: LocalizedStringKey {
+            switch self {
+            case .singleStageAtOnce:
+                "Single Stage At Once"
+            case .allStagesAtOnce:
+                "All Stages At Once"
+            }
+        }
+
+        var icon: Image? {
+            switch self {
+            case .singleStageAtOnce: Icons.singleStageSchedule
+            case .allStagesAtOnce: Icons.multiStageSchedule
+            }
+        }
     }
 
     var scheduleKind: ScheduleType = .singleStageAtOnce
