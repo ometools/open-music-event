@@ -18,6 +18,9 @@ struct ManyStagesAtOnceView: View {
     @State
     var performances: [PerformanceTimelineCard] = []
 
+    @State
+    var stages: [Stage] = []
+
     struct PerformanceTimelineCard: Identifiable, TimelineCard, Codable, FetchableRecord {
         var id: Performance.ID
 
@@ -56,9 +59,11 @@ struct ManyStagesAtOnceView: View {
         guard let selectedSchedule = globalScheduleState.selectedSchedule
         else { return }
 
+        let musicEventID = store.musicEventID
         let category = store.category
+
         let query = ValueObservation.tracking { db in
-            try SQLRequest<PerformanceTimelineCard>(
+            let performances = try SQLRequest<PerformanceTimelineCard>(
                 sql: """
                     SELECT 
                         p.id as id,
@@ -72,14 +77,24 @@ struct ManyStagesAtOnceView: View {
                 arguments: [selectedSchedule.rawValue, category?.rawValue, category?.rawValue]
             )
             .fetchAll(db)
+
+            let stages = try Stage
+                .filter(Column("musicEventID") == musicEventID)
+                .filter(Column("category") == category?.rawValue)
+                .fetchAll(db)
+
+            return (performances, stages)
         }
 
         await withErrorReporting {
-            for try await performances in query.values() {
+            for try await (performances, stages) in query.values() {
                 self.performances = performances
+                self.stages = stages
             }
         }
     }
+
+    
 
     var body: some View {
         ScrollView {
@@ -89,6 +104,13 @@ struct ManyStagesAtOnceView: View {
                 EmptyView()
             }
             .frame(height: 1500)
+            
+        }
+        .navigationBarExtension {
+            ScheduleStageSelector(
+                stages: stages,
+                selectedStage: .constant(nil)
+            )
         }
         .task(id: globalScheduleState.selectedSchedule) {
             await withErrorReporting {
