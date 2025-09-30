@@ -13,24 +13,40 @@ struct ScheduleStageSelector: View {
     @Binding var selectedStage: Stage.ID?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            HStack {
+        if #available(iOS 26, *) {
+            LiquidGlassSegmentedPicker(selection: $selectedStage.animation()) {
                 ForEach(stages) { stage in
-                    Spacer()
-                    ScheduleHeaderButton(
-                        stage: stage,
-                        isSelected: selectedStage == stage.id,
-                        onSelect: {
-                            selectedStage = $0
-                        }
-                    )
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .shadow()
-        }
+                    StageIconView(stageID: stage.id)
+                        .padding(4)
+                        .pickerItemColor(stage.color.swiftUIColor)
 
+                        .frame(maxWidth: 70, maxHeight: 70)
+                    #if os(iOS)
+                        .contentShape(Circle())
+                    #endif
+                        .tag(stage.id)
+                }
+            }
+            .sensoryFeedback(.selection, trigger: selectedStage)
+        } else {
+            ZStack(alignment: .bottom) {
+                HStack {
+                    ForEach(stages) { stage in
+                        Spacer()
+                        ScheduleHeaderButton(
+                            stage: stage,
+                            isSelected: selectedStage == stage.id,
+                            onSelect: {
+                                selectedStage = $0
+                            }
+                        )
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .shadow()
+            }
+        }
     }
 }
 
@@ -50,6 +66,7 @@ struct FestivlShadowViewModifier: ViewModifier {
         }
     }
 }
+
 
 
 struct ScheduleHeaderButton: View {

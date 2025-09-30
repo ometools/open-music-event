@@ -221,7 +221,7 @@ struct HorizontalPageView<Content: View, ID: Hashable>: View {
         }
         .scrollTargetLayout()
         .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $page)
+        .scrollPosition(id: $page.animation(.default))
         .scrollIndicators(.never, axes: .horizontal)
         #elseif os(Android)
         TabView(selection: $page) {

@@ -35,7 +35,12 @@ struct NavigationBarExtensionViewModifier<ExtensionContent: View>: ViewModifier 
 
     func body(content: Content) -> some View {
         #if os(iOS)
-        if #available(iOS 18.0, *) {
+        if #available(iOS 26.0, *) {
+            content.safeAreaBar(edge: .top) {
+                extensionContent
+            }
+//            .scrollEdgeEffectStyle(.soft, for: .top)
+        } else if #available(iOS 18.0, *) {
 
             innerBody(content: content)
                 .onScrollGeometryChange(
@@ -67,10 +72,15 @@ struct NavigationBarExtensionViewModifier<ExtensionContent: View>: ViewModifier 
     func innerBody(content: Content) -> some View {
         #if os(iOS)
         content.safeAreaInset(edge: .top) {
-            extensionContent
-                .frame(maxWidth: .infinity)
-                .background(Material.bar.opacity(min(1, max(0, yPosition))))
-                .offset(dragsWithScroll ? CGSize(width: 0, height: max(0, -yPosition)) : .zero)
+            if #available(iOS 26, *) {
+                extensionContent
+                
+            } else {
+                extensionContent
+                    .frame(maxWidth: .infinity)
+                    .background(Material.bar.opacity(min(1, max(0, yPosition))))
+                    .offset(dragsWithScroll ? CGSize(width: 0, height: max(0, -yPosition)) : .zero)
+            }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         #else
