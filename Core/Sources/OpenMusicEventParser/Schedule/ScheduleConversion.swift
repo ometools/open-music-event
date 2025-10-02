@@ -22,6 +22,7 @@ extension CoreModels.Performance {
         var time: ScheduleTime
         var endTime: ScheduleTime?
         var description: String?
+        var performanceRecordings: [ExternalAsset]?
 
 
         var startTime: ScheduleTime {
@@ -203,7 +204,8 @@ struct ScheduleConversion: Conversion {
                         startTime: $0.0.startTime,
                         endTime: $0.endTime,
                         stageName: key,
-                        description: $0.0.description
+                        description: $0.0.description,
+                        performanceRecordings: $0.0.performanceRecordings ?? []
                     )
                 }
             }

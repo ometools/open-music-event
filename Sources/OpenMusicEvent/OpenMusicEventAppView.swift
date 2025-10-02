@@ -178,6 +178,8 @@ public struct OMEWhiteLabeledEntryPoint: View {
 }
 
 // MARK: OMEAppEntryPoint
+
+
 public struct OMEAppEntryPoint: View {
     public init() {}
 
@@ -203,7 +205,6 @@ public struct OMEAppEntryPoint: View {
             if let store = store.organizationViewer.musicEventViewer {
                 MusicEventViewer(store: store)
             }
-
         }
         .onAppear { Task { await store.onAppear() } }
     }

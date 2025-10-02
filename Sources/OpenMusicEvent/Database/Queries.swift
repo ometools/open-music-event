@@ -81,6 +81,7 @@ struct Queries {
                     p.stageID as stageID,
                     p.startTime as startTime,
                     p.endTime as endTime,
+                    p.performanceRecordings as performanceRecordings,
                     s.color as stageColor,
                     s.name as stageName,
                     s.iconImageURL as stageIconImageURL,

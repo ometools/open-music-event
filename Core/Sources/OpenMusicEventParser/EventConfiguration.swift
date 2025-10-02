@@ -128,6 +128,7 @@ extension CoreModels.Schedule {
             public var endTime: ScheduleTime
             public var stageName: String
             public var description: String?
+            public var performanceRecordings: [ExternalAsset]?
 
             func resolved(day: CalendarDate, timeZone: TimeZone) -> CoreModels.Schedule.StringlyTyped.Performance {
                 @Dependency(\.omeLogger) var logger
@@ -142,7 +143,8 @@ extension CoreModels.Schedule {
                     startTime: startDate,
                     endTime: endDate,
                     stageName: self.stageName,
-                    description: self.description
+                    description: self.description,
+                    performanceRecordings: self.performanceRecordings ?? []
                 )
             }
 
@@ -174,6 +176,7 @@ extension CoreModels.Schedule {
             public var endTime: Date
             public var stageName: String
             public var description: String?
+            public var performanceRecordings: [ExternalAsset]?
         }
 
         public struct Metadata: Equatable, Hashable, Sendable {

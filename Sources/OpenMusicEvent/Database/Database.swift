@@ -94,6 +94,12 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
 
     migrator.registerShippedMigrations()
 
+    migrator.registerMigration("Add performanceRecordings to performances") { db in
+        try sql("""
+        ALTER TABLE performances ADD COLUMN "performanceRecordings" TEXT;
+        """).execute(db)
+    }
+
     migrator.registerMigration("Migrate channel subscription state to preferences") { db in
         try sql("""
         CREATE TABLE channelPreferences(

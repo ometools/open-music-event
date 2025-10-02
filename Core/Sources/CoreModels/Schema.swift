@@ -384,6 +384,9 @@ public struct Performance: Identifiable, Equatable, Sendable, TimelineRepresenta
 
     public let description: String?
 
+//    @Column(as: [ExternalAsset].JSONRepresentation.self)
+    public var performanceRecordings: [ExternalAsset]? = []
+
     // A join table for the many-to-many relationship of Performance -> Artist
 //    @Table("performanceArtists")
     public struct Artists: Hashable, Sendable, Codable {
@@ -402,7 +405,7 @@ public struct Performance: Identifiable, Equatable, Sendable, TimelineRepresenta
         }
     }
 
-    public init(id: ID, stageID: Stage.ID, scheduleID: Schedule.ID?, startTime: Date, endTime: Date, title: String, description: String?) {
+    public init(id: ID, stageID: Stage.ID, scheduleID: Schedule.ID?, startTime: Date, endTime: Date, title: String, description: String?, performanceRecordings: [ExternalAsset] = []) {
         self.id = id
         self.stageID = stageID
         self.scheduleID = scheduleID
@@ -410,6 +413,7 @@ public struct Performance: Identifiable, Equatable, Sendable, TimelineRepresenta
         self.endTime = endTime
         self.title = title
         self.description = description
+        self.performanceRecordings = performanceRecordings
     }
 }
 
@@ -736,6 +740,7 @@ extension Performance {
         public let endTime: Date
         public let title: String
         public let description: String?
+        public let performanceRecordings: [ExternalAsset]?
 
         public static let tableName = Performance.tableName
 
@@ -747,6 +752,7 @@ extension Performance {
             self.endTime = other.endTime
             self.title = other.title
             self.description = other.description
+            self.performanceRecordings = other.performanceRecordings
         }
         public init(
             id: ID? = nil,
@@ -755,7 +761,8 @@ extension Performance {
             startTime: Date,
             endTime: Date,
             title: String,
-            description: String? = nil
+            description: String? = nil,
+            performanceRecordings: [ExternalAsset] = []
         ) {
             self.id = id
             self.stageID = stageID
@@ -764,6 +771,7 @@ extension Performance {
             self.endTime = endTime
             self.title = title
             self.description = description
+            self.performanceRecordings = performanceRecordings
         }
     }
 }

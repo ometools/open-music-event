@@ -59,6 +59,7 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
     public let stageName: String
     public let stageIconImageURL: URL?
     public let isSeen: Bool
+    public let performanceRecordings: [ExternalAsset]?
 
     init(
         id: ID,
@@ -70,7 +71,8 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         stageColor: OMEColor,
         stageName: String,
         stageIconImageURL: URL?,
-        isSeen: Bool = false
+        isSeen: Bool = false,
+        performanceRecordings: [ExternalAsset] = []
     ) {
         self.id = id
         self.title = title
@@ -82,10 +84,19 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         self.stageName = stageName
         self.stageIconImageURL = stageIconImageURL
         self.isSeen = isSeen
+        self.performanceRecordings = performanceRecordings
     }
     
     init(row: Row) throws {
         let stageImageURLString: String? = row["stageIconImageURL"]
+        let performanceRecordingsData: Data? = row["performanceRecordings"]
+        let performanceRecordings: [ExternalAsset]
+        
+        if let data = performanceRecordingsData {
+            performanceRecordings = (try? JSONDecoder().decode([ExternalAsset].self, from: data)) ?? []
+        } else {
+            performanceRecordings = []
+        }
 
         self.init(
             id: OmeID(row["id"]),
@@ -97,7 +108,8 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
             stageColor: OMEColor(rawValue: row["stageColor"]),
             stageName: row["stageName"],
             stageIconImageURL: stageImageURLString.flatMap(URL.init(string:)),
-            isSeen: row["isSeen"] ?? false
+            isSeen: row["isSeen"] ?? false,
+            performanceRecordings: performanceRecordings
         )
     }
 
@@ -116,7 +128,8 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         stageColor: .init(0),
         stageName: "",
         stageIconImageURL: nil,
-        isSeen: false
+        isSeen: false,
+        performanceRecordings: []
     )
 
 
@@ -129,6 +142,7 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
                 p.startTime,
                 p.endTime,
                 p.description,
+                p.performanceRecordings,
                 s.color as stageColor,
                 s.name as stageName,
                 s.iconImageURL as stageIconImageURL,
@@ -303,6 +317,11 @@ public struct PerformanceDetailView: View {
                     }
                 }
             }
+
+            ExternalAssetsSection(
+                assets: performance.performanceRecordings ?? [],
+                title: "Recordings"
+            )
         }
         .navigationDestination(item: $artistDetail) {
             ArtistDetailView(store: $0)
@@ -363,7 +382,19 @@ extension PerformanceDetail {
             stageColor: 0,
             stageName: "The Hallow",
             stageIconImageURL: Stage.previewValues.first?.iconImageURL,
-            isSeen: false
+            isSeen: false,
+            performanceRecordings: [
+                ExternalAsset(
+                    url: URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ")!,
+                    type: .video(.init(durationSeconds: 3600)),
+                    title: "Full Set Recording"
+                ),
+                ExternalAsset(
+                    url: URL(string: "https://soundcloud.com/artist/live-set")!,
+                    type: .audio(.init(durationSeconds: 3600)),
+                    title: "Audio Recording"
+                )
+            ]
         )
     }
 }
