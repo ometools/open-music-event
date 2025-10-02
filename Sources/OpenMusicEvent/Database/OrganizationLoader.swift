@@ -294,6 +294,28 @@ func downloadAndStoreOrganizer(from reference: OrganizationReference) async thro
     }
 }
 
+func loadAndStoreLocalOrganizer(from folderURL: URL) async throws {
+    @Dependency(\.defaultDatabase) var defaultDatabase
+    @Dependency(\.notificationManager) var notificationManager
+
+    var organizerData = try withDependencies {
+        var utcCalendar = Calendar.current
+        utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+        $0.calendar = utcCalendar
+    } operation: {
+        try OrganizerConfiguration.fileTree.read(from: folderURL)
+    }
+
+    // Use a local file URL as the organizer URL
+    organizerData.info.url = folderURL
+
+    try await organizerData.insert(url: folderURL, into: defaultDatabase)
+
+    Task {
+        try await notificationManager.ensureTopicsAreSubscribed()
+    }
+}
+
 // MARK: - Simplified Organization Insertion Service
 /// Service responsible for inserting organization data into the database
 /// Follows the principle: NO USER DATA should be stored in organization tables

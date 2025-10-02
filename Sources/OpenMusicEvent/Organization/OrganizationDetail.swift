@@ -231,7 +231,6 @@ public struct OrganizerDetailView: View {
                 .refreshable { await store.onPullToRefresh() }
                 .listStyle(.plain)
             } else {
-
                 LoadingScreen()
             }
         }

@@ -240,6 +240,9 @@
     "Enable push notifications above to configure channel preferences." : {
 
     },
+    "Error loading event" : {
+
+    },
     "Exit and see previous events" : {
 
     },
@@ -326,6 +329,9 @@
           }
         }
       }
+    },
+    "Hello World!" : {
+
     },
     "Home" : {
       "comment" : "Tab bar item title for the Home tab",
