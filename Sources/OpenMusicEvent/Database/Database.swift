@@ -63,25 +63,6 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             return nil
           }
         )
-
-        db.add(
-          function: DatabaseFunction(
-            "detectExternalPlatform",
-            argumentCount: 1,
-            pure: true
-          ) { dbValues in
-            // Argument: URL string
-            guard let urlString = String.fromDatabaseValue(dbValues[0]),
-                  let url = URL(string: urlString)
-            else {
-                return nil
-            }
-
-            let platform = ExternalPlatform.detectPlatform(from: url)
-            return platform?.rawValue
-          }
-        )
-
     }
 
     @Dependency(\.context) var context
@@ -194,30 +175,6 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
                 NEW.userNotificationState,
                 (SELECT firebaseTopicName FROM channels WHERE id = NEW.channelID)
             );
-        END;
-        """).execute(db)
-
-        try sql("""
-        CREATE TEMPORARY TRIGGER auto_detect_platform_on_insert
-        AFTER INSERT ON externalAssetPreferences
-        FOR EACH ROW
-        WHEN NEW.platform IS NULL
-        BEGIN
-            UPDATE externalAssetPreferences
-            SET platform = detectExternalPlatform(NEW.assetURL)
-            WHERE assetURL = NEW.assetURL;
-        END;
-        """).execute(db)
-
-        try sql("""
-        CREATE TEMPORARY TRIGGER auto_detect_platform_on_update
-        AFTER UPDATE OF assetURL ON externalAssetPreferences
-        FOR EACH ROW
-        WHEN NEW.platform IS NULL OR OLD.assetURL != NEW.assetURL
-        BEGIN
-            UPDATE externalAssetPreferences
-            SET platform = detectExternalPlatform(NEW.assetURL)
-            WHERE assetURL = NEW.assetURL;
         END;
         """).execute(db)
 

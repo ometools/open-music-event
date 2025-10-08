@@ -33,7 +33,7 @@ public struct ExternalAssetsSection: View {
         let asset: ExternalPlatform.Asset
 
         @Dependency(\.defaultDatabase) var database
-        @Dependency(\.externalAssetMetadataFetcher) var metadataFetcher
+        @Dependency(\.oembedClient) var oembedClient
         @Dependency(\.date) var date
         @State var preferences: ExternalPlatform.Asset.Preferences?
         @State var isLoadingMetadata = false
@@ -47,7 +47,9 @@ public struct ExternalAssetsSection: View {
                 HStack(spacing: 12) {
                     // Platform icon
                     if let platform = preferences?.platform {
-                        platform.icon
+                        platform.icon?
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
                             .foregroundColor(platform.color)
                             .frame(width: 24, height: 24)
                     }
@@ -64,28 +66,19 @@ public struct ExternalAssetsSection: View {
                                 .lineLimit(1)
                         }
 
-                        HStack {
-                            if let platform = preferences?.platform {
-                                Text(platform.name)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            if let durationText = durationText {
-                                Text("• \(durationText)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            if isLoadingMetadata {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                            }
+                        if let durationText = durationText {
+                            Text("• \(durationText)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
 
                     Spacer()
 
+                    if isLoadingMetadata {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    }
                     Image(systemName: "arrow.up.right")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -123,7 +116,15 @@ public struct ExternalAssetsSection: View {
                         arguments: [asset.url.absoluteString]
                     )
 
-                    // Fetch it (platform will be auto-detected by trigger)
+                    // Detect and update platform from URL
+                    if let detectedPlatform = ExternalPlatform.detectPlatform(from: asset.url) {
+                        try db.execute(
+                            sql: "UPDATE externalAssetPreferences SET platform = ? WHERE assetURL = ?",
+                            arguments: [detectedPlatform.rawValue, asset.url.absoluteString]
+                        )
+                    }
+
+                    // Fetch it
                     return try ExternalPlatform.Asset.Preferences
                         .filter(Column("assetURL") == asset.url.absoluteString)
                         .fetchOne(db)
@@ -147,7 +148,7 @@ public struct ExternalAssetsSection: View {
                 defer { isLoadingMetadata = false }
 
                 do {
-                    let metadata = try await metadataFetcher.fetch(asset.url, prefs.platform)
+                    let metadata = try await oembedClient.fetch(asset.url, prefs.platform)
 
                     // Update database with fetched metadata
                     try await database.write { db in
