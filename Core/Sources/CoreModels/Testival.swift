@@ -85,8 +85,8 @@ public extension Artist {
             logoURL: nil,
             kind: "DJ",
             links: [
-                Artist.Link(url: URL(string: "https://soundcloud.com/cantos_music")!),
-                Artist.Link(url: URL(string: "https://www.instagram.com/cantos/")!)
+                ExternalPlatform.Link(url: URL(string: "https://soundcloud.com/cantos_music")!),
+                ExternalPlatform.Link(url: URL(string: "https://www.instagram.com/cantos/")!)
             ]
         ),
         Artist(
@@ -158,7 +158,7 @@ public extension Artist {
             logoURL: nil,
             kind: "Producer",
             links: [
-                .init(url: URL(string: "https://soundcloud.com/spacechunk")!, type: .soundcloud)
+                .init(url: URL(string: "https://soundcloud.com/spacechunk")!)
             ]
         ),
         Artist(
@@ -190,7 +190,7 @@ public extension Artist {
             logoURL: nil,
             kind: "DJ",
             links: [
-                .init(url: URL(string: "https://soundcloud.com/overgrowthmusic")!, type: .soundcloud)
+                ExternalPlatform.Link(url: URL(string: "https://soundcloud.com/overgrowthmusic")!, platform: .soundcloud)
             ]
         ),
     ]

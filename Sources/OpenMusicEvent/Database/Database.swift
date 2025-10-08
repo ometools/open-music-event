@@ -17,10 +17,6 @@ private let logger = Logger(
     category: "Database"
 )
 
-extension Tagged {
-
-}
-
 func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any DatabaseWriter {
     print("Preparing Database")
     let database: any DatabaseWriter
@@ -67,6 +63,25 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             return nil
           }
         )
+
+        db.add(
+          function: DatabaseFunction(
+            "detectExternalPlatform",
+            argumentCount: 1,
+            pure: true
+          ) { dbValues in
+            // Argument: URL string
+            guard let urlString = String.fromDatabaseValue(dbValues[0]),
+                  let url = URL(string: urlString)
+            else {
+                return nil
+            }
+
+            let platform = ExternalPlatform.detectPlatform(from: url)
+            return platform?.rawValue
+          }
+        )
+
     }
 
     @Dependency(\.context) var context
@@ -105,7 +120,7 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         CREATE TABLE channelPreferences(
             "channelID" TEXT PRIMARY KEY NOT NULL,
             "userNotificationState" TEXT,
-        
+
             FOREIGN KEY("channelID") REFERENCES "channels" ON DELETE CASCADE
         ) STRICT;
         """)
@@ -116,7 +131,7 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             "postID" TEXT PRIMARY KEY NOT NULL,
             "isRead" INTEGER NOT NULL DEFAULT 0,
             "isFavorite" INTEGER NOT NULL DEFAULT 0,
-        
+
             FOREIGN KEY("postID") REFERENCES "posts" ON DELETE CASCADE
         ) STRICT;
         """)
@@ -134,6 +149,25 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
             ALTER TABLE channels
             DROP COLUMN userNotificationState;
         """).execute(db)
+    }
+
+    migrator.registerMigration("Add externalAssetPreferences table") { db in
+        try sql("""
+        CREATE TABLE externalAssetPreferences(
+            "assetURL" TEXT PRIMARY KEY NOT NULL,
+            "platform" TEXT,
+            "cachedTitle" TEXT,
+            "cachedDescription" TEXT,
+            "cachedThumbnailURL" TEXT,
+            "cachedDurationSeconds" INTEGER,
+            "lastMetadataFetchAttemptAt" TEXT,
+            "isWatched" INTEGER NOT NULL DEFAULT 0,
+            "isFavorite" INTEGER NOT NULL DEFAULT 0,
+            "lastAccessedAt" TEXT,
+            "playbackPositionSeconds" INTEGER
+        ) STRICT;
+        """)
+        .execute(db)
     }
 
 //
@@ -156,12 +190,37 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         WHEN OLD.userNotificationState IS DISTINCT FROM NEW.userNotificationState
         BEGIN
             SELECT handleChannelSubscriptionChanged(
-                NEW.channelID, 
+                NEW.channelID,
                 NEW.userNotificationState,
                 (SELECT firebaseTopicName FROM channels WHERE id = NEW.channelID)
             );
         END;
         """).execute(db)
+
+        try sql("""
+        CREATE TEMPORARY TRIGGER auto_detect_platform_on_insert
+        AFTER INSERT ON externalAssetPreferences
+        FOR EACH ROW
+        WHEN NEW.platform IS NULL
+        BEGIN
+            UPDATE externalAssetPreferences
+            SET platform = detectExternalPlatform(NEW.assetURL)
+            WHERE assetURL = NEW.assetURL;
+        END;
+        """).execute(db)
+
+        try sql("""
+        CREATE TEMPORARY TRIGGER auto_detect_platform_on_update
+        AFTER UPDATE OF assetURL ON externalAssetPreferences
+        FOR EACH ROW
+        WHEN NEW.platform IS NULL OR OLD.assetURL != NEW.assetURL
+        BEGIN
+            UPDATE externalAssetPreferences
+            SET platform = detectExternalPlatform(NEW.assetURL)
+            WHERE assetURL = NEW.assetURL;
+        END;
+        """).execute(db)
+
     }
 
     return database

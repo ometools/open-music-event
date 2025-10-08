@@ -209,60 +209,21 @@ enum Icons {
 // MARK: - Social Links Extensions
 import CoreModels
 
-extension Artist.Link {
-    var icon: Image {
-        guard let linkType = linkType else {
-            return Icons.genericLink
-        }
-        
-        let label = linkType.label.lowercased()
-        
-        if label.contains("soundcloud") {
-            return Icons.soundcloud
-        } else if label.contains("youtube") {
-            return Icons.youtube
-        } else if label.contains("facebook") {
-            return Icons.facebook
-        } else if label.contains("spotify") {
-            return Icons.spotify
-        } else if label.contains("instagram") {
-            return Icons.instagram
-        }  else if label.contains("bandcamp") {
-            return Icons.bandcamp
-        } else if label.contains("github") {
-            return Icons.github
-        } else if label.contains("website") {
-            return Icons.website
-        } else {
-            return Icons.genericLink
-        }
-    }
-    
-    var displayName: String {
-        guard let linkType = linkType else {
-            return "Link"
-        }
-        
-        let label = linkType.label.lowercased()
-        
-        if label.contains("soundcloud") {
-            return "SoundCloud"
-        } else if label.contains("youtube") {
-            return "YouTube"
-        } else if label.contains("facebook") {
-            return "Facebook"
-        } else if label.contains("spotify") {
-            return "Spotify"
-        } else if label.contains("instagram") {
-            return "Instagram"
-        } else if label.contains("bandcamp") {
-            return "Bandcamp"
-        } else if label.contains("github") {
-            return "GitHub"
-        } else if label.contains("website") {
-            return "Website"
-        } else {
-            return linkType.label.capitalized
+extension ExternalPlatform {
+    var icon: Image? {
+        switch self {
+        case .youtube: Icons.youtube
+        case .soundcloud: Icons.soundcloud
+        case .spotify: Icons.spotify
+        case .bandcamp: Icons.bandcamp
+        case .instagram: Icons.instagram
+        case .facebook: Icons.facebook
+        case .twitter: Icons.twitter
+        case .tiktok: Icons.tiktok
+        case .website: Icons.website
+        case .mixcloud, .twitch, .appleMusic: nil
+        @unknown default:
+            Icons.genericLink
         }
     }
 }

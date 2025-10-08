@@ -59,7 +59,7 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
     public let stageName: String
     public let stageIconImageURL: URL?
     public let isSeen: Bool
-    public let performanceRecordings: [ExternalAsset]?
+    public let performanceRecordings: [ExternalPlatform.Asset]?
 
     init(
         id: ID,
@@ -72,7 +72,7 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
         stageName: String,
         stageIconImageURL: URL?,
         isSeen: Bool = false,
-        performanceRecordings: [ExternalAsset] = []
+        performanceRecordings: [ExternalPlatform.Asset] = []
     ) {
         self.id = id
         self.title = title
@@ -90,10 +90,10 @@ struct PerformanceDetail: Identifiable, FetchableRecord {
     init(row: Row) throws {
         let stageImageURLString: String? = row["stageIconImageURL"]
         let performanceRecordingsData: Data? = row["performanceRecordings"]
-        let performanceRecordings: [ExternalAsset]
+        let performanceRecordings: [ExternalPlatform.Asset]
         
         if let data = performanceRecordingsData {
-            performanceRecordings = (try? JSONDecoder().decode([ExternalAsset].self, from: data)) ?? []
+            performanceRecordings = (try? JSONDecoder().decode([ExternalPlatform.Asset].self, from: data)) ?? []
         } else {
             performanceRecordings = []
         }
@@ -384,15 +384,11 @@ extension PerformanceDetail {
             stageIconImageURL: Stage.previewValues.first?.iconImageURL,
             isSeen: false,
             performanceRecordings: [
-                ExternalAsset(
+                ExternalPlatform.Asset(
                     url: URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ")!,
-                    type: .video(.init(durationSeconds: 3600)),
-                    title: "Full Set Recording"
                 ),
-                ExternalAsset(
+                ExternalPlatform.Asset(
                     url: URL(string: "https://soundcloud.com/artist/live-set")!,
-                    type: .audio(.init(durationSeconds: 3600)),
-                    title: "Audio Recording"
                 )
             ]
         )

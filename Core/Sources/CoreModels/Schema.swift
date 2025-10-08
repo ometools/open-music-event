@@ -114,9 +114,7 @@ public struct Organizer: Equatable, Identifiable, Sendable, Codable {
     }
 }
 
-
 extension Organizer.Draft: Identifiable, Equatable, Codable, Sendable {}
-
 
 // MARK: Music Event
 // @Table
@@ -233,29 +231,9 @@ public struct Artist: Identifiable, Equatable, Sendable, Codable {
         }
     }
 //    @Column(as: [Link].JSONRepresentation.self)
-    public let links: [Link]
+    public let links: [ExternalPlatform.Link]
 
-    public struct Link: Equatable, Codable, Sendable {
-        public var url: URL
-        public var linkType: LinkType?
 
-        public struct LinkType: Sendable, Equatable, Codable {
-            public let label: String
-            public let iconImage: URL?
-
-            public static let soundcloud = LinkType(label: "soundcloud", iconImage: nil)
-            public static let youtube = LinkType(label: "youtube", iconImage: nil)
-            public static let facebook = LinkType(label: "facebook", iconImage: nil)
-            public static let spotify = LinkType(label: "spotify", iconImage: nil)
-            public static let instagram = LinkType(label: "instagram", iconImage: nil)
-            public static let website = LinkType(label: "website", iconImage: nil)
-        }
-
-        public init(url: URL, type: LinkType? = nil) {
-            self.url = url
-            self.linkType = type
-        }
-    }
 
     public init(
         id: OmeID<Artist>,
@@ -265,7 +243,7 @@ public struct Artist: Identifiable, Equatable, Sendable, Codable {
         imageURL: URL?,
         logoURL: URL?,
         kind: Artist.Kind?,
-        links: [Link]
+        links: [ExternalPlatform.Link]
     ) {
         self.id = id
         self.musicEventID = musicEventID
@@ -384,8 +362,8 @@ public struct Performance: Identifiable, Equatable, Sendable, TimelineRepresenta
 
     public let description: String?
 
-//    @Column(as: [ExternalAsset].JSONRepresentation.self)
-    public var performanceRecordings: [ExternalAsset]? = []
+//    @Column(as: [ExternalPlatform.Asset].JSONRepresentation.self)
+    public var performanceRecordings: [ExternalPlatform.Asset]? = []
 
     // A join table for the many-to-many relationship of Performance -> Artist
 //    @Table("performanceArtists")
@@ -405,7 +383,7 @@ public struct Performance: Identifiable, Equatable, Sendable, TimelineRepresenta
         }
     }
 
-    public init(id: ID, stageID: Stage.ID, scheduleID: Schedule.ID?, startTime: Date, endTime: Date, title: String, description: String?, performanceRecordings: [ExternalAsset] = []) {
+    public init(id: ID, stageID: Stage.ID, scheduleID: Schedule.ID?, startTime: Date, endTime: Date, title: String, description: String?, performanceRecordings: [ExternalPlatform.Asset] = []) {
         self.id = id
         self.stageID = stageID
         self.scheduleID = scheduleID
@@ -595,7 +573,7 @@ extension Artist {
         public let imageURL: URL?
         public let logoURL: URL?
         public let kind: Kind?
-        public let links: [Link]
+        public let links: [ExternalPlatform.Link]
 
         public static let tableName = Artist.tableName
 
@@ -617,7 +595,7 @@ extension Artist {
             imageURL: URL? = nil,
             logoURL: URL? = nil,
             kind: Kind? = nil,
-            links: [Link]
+            links: [ExternalPlatform.Link]
         ) {
             self.id = id
             self.musicEventID = musicEventID
@@ -740,7 +718,7 @@ extension Performance {
         public let endTime: Date
         public let title: String
         public let description: String?
-        public let performanceRecordings: [ExternalAsset]?
+        public let performanceRecordings: [ExternalPlatform.Asset]?
 
         public static let tableName = Performance.tableName
 
@@ -762,7 +740,7 @@ extension Performance {
             endTime: Date,
             title: String,
             description: String? = nil,
-            performanceRecordings: [ExternalAsset] = []
+            performanceRecordings: [ExternalPlatform.Asset] = []
         ) {
             self.id = id
             self.stageID = stageID

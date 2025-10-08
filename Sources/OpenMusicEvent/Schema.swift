@@ -81,6 +81,59 @@ extension CommunicationChannel.Post {
 
 extension CommunicationChannel.Post.Preferences.Draft: Sendable, Equatable, Codable {}
 
+import Foundation
+
+extension ExternalPlatform.Asset {
+    public struct Preferences: Identifiable, Equatable, Sendable, Codable {
+        public var id: String { assetURL.absoluteString }
+        public let assetURL: URL
+        public var platform: ExternalPlatform?
+
+        // Cached metadata
+        public var cachedTitle: String?
+        public var cachedDescription: String?
+        public var cachedThumbnailURL: URL?
+        public var cachedDurationSeconds: Int?
+        public var lastMetadataFetchAttemptAt: Date?
+
+        // User preferences
+        public var isWatched: Bool
+        public var isFavorite: Bool
+        public var lastAccessedAt: Date?
+        public var playbackPositionSeconds: Int?
+
+        public static let tableName = "externalAssetPreferences"
+
+        public init(
+            assetURL: URL,
+            platform: ExternalPlatform? = nil,
+            cachedTitle: String? = nil,
+            cachedDescription: String? = nil,
+            cachedThumbnailURL: URL? = nil,
+            cachedDurationSeconds: Int? = nil,
+            lastMetadataFetchAttemptAt: Date? = nil,
+            isWatched: Bool = false,
+            isFavorite: Bool = false,
+            lastAccessedAt: Date? = nil,
+            playbackPositionSeconds: Int? = nil
+        ) {
+            self.assetURL = assetURL
+            self.platform = platform
+            self.cachedTitle = cachedTitle
+            self.cachedDescription = cachedDescription
+            self.cachedThumbnailURL = cachedThumbnailURL
+            self.cachedDurationSeconds = cachedDurationSeconds
+            self.lastMetadataFetchAttemptAt = lastMetadataFetchAttemptAt
+            self.isWatched = isWatched
+            self.isFavorite = isFavorite
+            self.lastAccessedAt = lastAccessedAt
+            self.playbackPositionSeconds = playbackPositionSeconds
+        }
+    }
+}
+
+extension ExternalPlatform.Asset.Preferences.Draft: Sendable, Equatable, Codable {}
+
 
 extension Artist.Preferences {
     public struct Draft {
@@ -184,6 +237,73 @@ extension CommunicationChannel.Post.Preferences {
             self.postID = postID
             self.isRead = isRead
             self.isFavorite = isFavorite
+        }
+    }
+}
+
+extension ExternalPlatform.Asset.Preferences {
+    public struct Draft {
+        public typealias PrimaryTable = ExternalPlatform.Asset.Preferences
+
+        public var id: String {
+            get { assetURL.absoluteString }
+        }
+        public var assetURL: URL
+        public var platform: ExternalPlatform?
+
+        // Cached metadata
+        public var cachedTitle: String?
+        public var cachedDescription: String?
+        public var cachedThumbnailURL: URL?
+        public var cachedDurationSeconds: Int?
+        public var lastMetadataFetchAttemptAt: Date?
+
+        // User preferences
+        public var isWatched: Bool
+        public var isFavorite: Bool
+        public var lastAccessedAt: Date?
+        public var playbackPositionSeconds: Int?
+
+        public static let tableName = ExternalPlatform.Asset.Preferences.tableName
+
+        public init(_ other: ExternalPlatform.Asset.Preferences) {
+            self.assetURL = other.assetURL
+            self.platform = other.platform
+            self.cachedTitle = other.cachedTitle
+            self.cachedDescription = other.cachedDescription
+            self.cachedThumbnailURL = other.cachedThumbnailURL
+            self.cachedDurationSeconds = other.cachedDurationSeconds
+            self.lastMetadataFetchAttemptAt = other.lastMetadataFetchAttemptAt
+            self.isWatched = other.isWatched
+            self.isFavorite = other.isFavorite
+            self.lastAccessedAt = other.lastAccessedAt
+            self.playbackPositionSeconds = other.playbackPositionSeconds
+        }
+
+        public init(
+            assetURL: URL,
+            platform: ExternalPlatform? = nil,
+            cachedTitle: String? = nil,
+            cachedDescription: String? = nil,
+            cachedThumbnailURL: URL? = nil,
+            cachedDurationSeconds: Int? = nil,
+            lastMetadataFetchAttemptAt: Date? = nil,
+            isWatched: Bool = false,
+            isFavorite: Bool = false,
+            lastAccessedAt: Date? = nil,
+            playbackPositionSeconds: Int? = nil
+        ) {
+            self.assetURL = assetURL
+            self.platform = platform
+            self.cachedTitle = cachedTitle
+            self.cachedDescription = cachedDescription
+            self.cachedThumbnailURL = cachedThumbnailURL
+            self.cachedDurationSeconds = cachedDurationSeconds
+            self.lastMetadataFetchAttemptAt = lastMetadataFetchAttemptAt
+            self.isWatched = isWatched
+            self.isFavorite = isFavorite
+            self.lastAccessedAt = lastAccessedAt
+            self.playbackPositionSeconds = playbackPositionSeconds
         }
     }
 }

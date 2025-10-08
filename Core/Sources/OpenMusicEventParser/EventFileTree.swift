@@ -214,7 +214,7 @@ public struct ArtistConversion: Conversion {
         public var imageURL: URL?
         public var logoURL: URL?
         public var kind: CoreModels.Artist.Kind?
-        public var links: [CoreModels.Artist.Link]
+        public var links: [ExternalPlatform.Link]
     }
 
     public var body: some Conversion<FileContent<Data>, CoreModels.Artist.Draft> {
@@ -237,7 +237,7 @@ public struct ArtistConversion: Conversion {
                 imageURL: input.data.frontMatter?.imageURL,
                 logoURL: input.data.frontMatter?.logoURL,
                 kind: input.data.frontMatter?.kind,
-                links: (input.data.frontMatter?.links ?? []).map { .init(url: $0.url, type: $0.linkType )}
+                links: (input.data.frontMatter?.links ?? []).map(\.withDetectedPlatform)
             )
         }
         

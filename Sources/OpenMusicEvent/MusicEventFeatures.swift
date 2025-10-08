@@ -216,7 +216,7 @@ public class MusicEventFeatures: Identifiable {
         self.isLoadingOrganizer = true
 
         do {
-            try await downloadAndStoreOrganizer(from: .url(organizer.url))
+            try await downloadAndStoreOrganizer(from: .zipURL(organizer.url))
             self.isLoadingOrganizer = false
         } catch {
             self.errorMessage = error.localizedDescription

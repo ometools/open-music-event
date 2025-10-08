@@ -56,6 +56,7 @@ extension Artist.Preferences: Table {}
 extension Performance.Preferences: Table {}
 extension CommunicationChannel.Preferences: Table {}
 extension CommunicationChannel.Post.Preferences: Table {}
+extension ExternalPlatform.Asset.Preferences: Table {}
 extension Organizer.Draft:  MutableIdentifiable, TableDraft {}
 extension MusicEvent.Draft:  MutableIdentifiable, TableDraft {}
 extension Artist.Draft:  MutableIdentifiable, TableDraft {}
@@ -67,6 +68,7 @@ extension Artist.Preferences.Draft: MutableIdentifiable, TableDraft {}
 extension Performance.Preferences.Draft: MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Preferences.Draft: MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Post.Preferences.Draft: MutableIdentifiable, TableDraft {}
+extension ExternalPlatform.Asset.Preferences.Draft: TableDraft {}
 extension CommunicationChannel.Draft: MutableIdentifiable, TableDraft {}
 extension CommunicationChannel.Post.Draft: MutableIdentifiable, TableDraft {}
 
@@ -74,6 +76,7 @@ extension CommunicationChannel.Post.Draft: MutableIdentifiable, TableDraft {}
 //extension CommunicationChannel.DefaultNotificationState: @retroactive FetchableRecord {}
 //extension CommunicationChannel.UserNotificationState: @retroactive FetchableRecord {}
 extension CommunicationChannel.UserNotificationState: DatabaseValueConvertible { }
+extension ExternalPlatform: DatabaseValueConvertible { }
 
 extension TimeZone: DatabaseValueConvertible {
     public var databaseValue: DatabaseValue {
@@ -87,14 +90,6 @@ extension TimeZone: DatabaseValueConvertible {
         return TimeZone(identifier: identifier)
     }
 }
-
-
-
-
-
-
-
-
 
 import Tagged
 import GRDB
@@ -110,6 +105,58 @@ extension Tagged: DatabaseValueConvertible where RawValue: DatabaseValueConverti
     }
 }
 
+
+// MARK: - ExternalPlatform.Asset Database Support
+extension ExternalPlatform.Asset: DatabaseValueConvertible {
+    public var databaseValue: DatabaseValue {
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(self)
+            return data.databaseValue
+        } catch {
+            return DatabaseValue.null
+        }
+    }
+    
+    public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> ExternalPlatform.Asset? {
+        guard let data = Data.fromDatabaseValue(dbValue) else {
+            return nil
+        }
+        
+        do {
+            let decoder = JSONDecoder()
+            return try decoder.decode(ExternalPlatform.Asset.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+}
+
+// MARK: - Array<ExternalPlatform.Asset> Database Support
+//extension Array: DatabaseValueConvertible where Element == ExternalPlatform.Asset {
+//    public var databaseValue: DatabaseValue {
+//        do {
+//            let encoder = JSONEncoder()
+//            let data = try encoder.encode(self)
+//            return data.databaseValue
+//        } catch {
+//            return DatabaseValue.null
+//        }
+//    }
+//    
+//    public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> [ExternalPlatform.Asset]? {
+//        guard let data = Data.fromDatabaseValue(dbValue) else {
+//            return nil
+//        }
+//        
+//        do {
+//            let decoder = JSONDecoder()
+//            return try decoder.decode([ExternalPlatform.Asset].self, from: data)
+//        } catch {
+//            return nil
+//        }
+//    }
+//}
 
 extension ValueObservation {
     public func values(

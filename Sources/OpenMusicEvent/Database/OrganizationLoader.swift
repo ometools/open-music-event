@@ -41,12 +41,22 @@ struct DataFetchingClient {
     var fetchOrganizer: @Sendable (_ from: OrganizationReference) async throws -> OrganizerConfiguration
 }
 
-
 struct FailedToLoadOrganizerError: Error {}
 extension DataFetchingClient: DependencyKey {
     static let liveValue = DataFetchingClient { orgReference in
+        switch orgReference {
+        case .repository(let repository):
+            return try await downloadAndParseZip(from: repository.zipURL, originalReference: orgReference)
+        case .zipURL(let zipURL):
+            return try await downloadAndParseZip(from: zipURL, originalReference: orgReference)
+        case .bundledDirectory(let directoryURL):
+            return try await parseOrganizerFromDirectory(directoryURL, originalReference: orgReference)
+        }
+    }
+    
+    private static func downloadAndParseZip(from zipURL: URL, originalReference: OrganizationReference) async throws -> OrganizerConfiguration {
         // Create a safe directory name using the URL's hash
-        let urlHash = String(orgReference.zipURL.absoluteString.stableHash)
+        let urlHash = String(zipURL.absoluteString.stableHash)
         
         #if os(iOS)
         let unzippedURL = URL.documentsDirectory
@@ -59,15 +69,13 @@ extension DataFetchingClient: DependencyKey {
             .appending(path: urlHash)
         #endif
 
-        
-        let targetZipURL = orgReference.zipURL
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: unzippedURL, withIntermediateDirectories: true)
         try fileManager.clearDirectory(unzippedURL)
 
-        let (downloadURL, response) = try await URLSession.shared.download(from: targetZipURL)
+        let (downloadURL, response) = try await URLSession.shared.download(from: zipURL)
 
-        logger.info("Downloading from: \(targetZipURL)")
+        logger.info("Downloading from: \(zipURL)")
         logger.info("Response: \((response as! HTTPURLResponse).statusCode), to url: \(downloadURL)")
 
         if (response as! HTTPURLResponse).statusCode != 200 {
@@ -86,19 +94,37 @@ extension DataFetchingClient: DependencyKey {
         logger.info("Contents of \(unzippedURL) after unzipping: \(contents)")
 
         let finalDestination = try getUnzippedDirectory(from: unzippedURL)
-        logger.info("Parsing organizer from directory: \(finalDestination)")
+        
+        defer {
+            // Clean up temporary directory
+            logger.info("Clearing temporary directory")
+            try? FileManager.default.clearDirectory(unzippedURL)
+        }
+        
+        return try await parseOrganizerFromDirectory(finalDestination, originalReference: originalReference)
+    }
+    
+    private static func parseOrganizerFromDirectory(_ directoryURL: URL, originalReference: OrganizationReference) async throws -> OrganizerConfiguration {
+        logger.info("Parsing organizer from directory: \(directoryURL)")
 
         var organizerData = try withDependencies {
             var utcCalendar = Calendar.current
             utcCalendar.timeZone = TimeZone(identifier: "UTC")!
             $0.calendar = utcCalendar
         } operation: {
-            try OrganizerConfiguration.fileTree.read(from: finalDestination)
+            try OrganizerConfiguration.fileTree.read(from: directoryURL)
         }
-        organizerData.info.url = orgReference.zipURL
-
-        logger.info("Clearing temporary directory")
-        try FileManager.default.clearDirectory(unzippedURL)
+        
+        // Set the URL based on the original reference
+        switch originalReference {
+        case .repository(let repository):
+            organizerData.info.url = repository.zipURL
+        case .zipURL(let zipURL):
+            organizerData.info.url = zipURL
+        case .bundledDirectory:
+            // For bundled directories, we might want to set a custom URL or leave it as is
+            organizerData.info.url = directoryURL
+        }
 
         return organizerData
     }
@@ -210,7 +236,8 @@ extension OmeID where RawValue == String {
 
 public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringConvertible {
     case repository(Repository)
-    case url(URL)
+    case zipURL(URL)
+    case bundledDirectory(URL)
 
     public struct Repository: Hashable, Codable, Sendable {
         public init(baseURL: URL, version: Version) {
@@ -242,8 +269,10 @@ public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringCo
         switch self {
         case .repository(let repository):
             return repository.zipURL
-        case .url(let url):
+        case .zipURL(let url):
             return url
+        case .bundledDirectory(let url):
+            return url // For bundled directories, we just return the directory URL
         }
     }
 
@@ -274,7 +303,9 @@ public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringCo
         switch self {
         case .repository(let repo):
             return repo.zipURL.absoluteString
-        case .url(let url):
+        case .zipURL(let url):
+            return url.absoluteString
+        case .bundledDirectory(let url):
             return url.absoluteString
         }
     }
@@ -537,7 +568,8 @@ enum OrganizationInsertionService {
             startTime: performance.startTime,
             endTime: performance.endTime,
             title: performance.title,
-            description: performance.description
+            description: performance.description,
+            performanceRecordings: performance.performanceRecordings ?? []
         )
         
         try performanceDraft.upsert(db)

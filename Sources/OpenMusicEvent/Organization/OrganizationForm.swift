@@ -56,7 +56,7 @@ struct OrganizationFormView: View {
                 guard let version = SemanticVersion(versionText) else { return nil }
                 return .repository(OrganizationReference.Repository(baseURL: cleanedURL, version: .version(version)))
             case .url:
-                return OrganizationReference.url(url)
+                return OrganizationReference.zipURL(url)
             }
         }
 

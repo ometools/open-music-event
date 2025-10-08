@@ -139,7 +139,7 @@ public struct CommunicationsFeatureView: View {
 
                     }
                     
-                    Text(channel.description)
+                    MarkdownText(channel.description)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -363,7 +363,7 @@ public struct CommunicationChannelView: View {
                     Spacer()
                 }
                 
-                Text(post.contents)
+                MarkdownText(post.contents)
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)

@@ -121,14 +121,12 @@ struct ArtistDetailView: View {
                 }
             }
         }
-
     }
-
 }
 
 
 struct ArtistLinkView: View {
-    var link: Artist.Link
+    var link: ExternalPlatform.Link
     @Environment(\.openURL) var openURL
 
     var body: some View {
@@ -140,13 +138,15 @@ struct ArtistLinkView: View {
             self.openURL(urlToOpen)
         } label: {
             HStack(spacing: 12) {
-                link.icon
-                    .resizable()
-                    .frame(width: 24, height: 24)
-                    .foregroundStyle(.secondary)
+                if let platform = link.platform {
+                    platform.icon?
+                        .resizable()
+                        .frame(width: 24, height: 24)
+                        .foregroundStyle(.secondary)
 
-                Text(link.displayName)
-                    .foregroundStyle(.primary)
+                    Text(platform.name)
+                        .foregroundStyle(.primary)
+                }
 
                 Spacer()
 
@@ -155,6 +155,7 @@ struct ArtistLinkView: View {
                     .foregroundStyle(.secondary)
 //                    .foregroundStyle(.tertiary)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
 //        .contentShape(Rectangle())

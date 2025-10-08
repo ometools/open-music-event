@@ -22,7 +22,7 @@ extension CoreModels.Performance {
         var time: ScheduleTime
         var endTime: ScheduleTime?
         var description: String?
-        var performanceRecordings: [ExternalAsset]?
+        var performanceRecordings: [ExternalPlatform.Asset]?
 
 
         var startTime: ScheduleTime {

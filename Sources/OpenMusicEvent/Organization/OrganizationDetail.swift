@@ -116,7 +116,7 @@ public struct OrganizerDetailView: View {
             }
 
             await withErrorReporting {
-                try await downloadAndStoreOrganizer(from: .url(organizer.url))
+                try await downloadAndStoreOrganizer(from: .zipURL(organizer.url))
             }
         }
 

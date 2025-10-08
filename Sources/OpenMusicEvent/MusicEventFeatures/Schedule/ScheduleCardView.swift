@@ -69,21 +69,6 @@ struct ScheduleCardView: View {
 
     let isSelected: Bool = false
 
-    var hasDetails: Bool {
-        guard let performance
-        else { return false }
-
-        if performance.description != nil {
-            return true
-        }
-
-        // Show a detail if there's an artist that isn't in the title
-        if !performingArtists.allSatisfy({ performance.title.contains($0.name) }) {
-            return true
-        }
-
-        return false
-    }
 
     @Environment(\.calendar) var calendar
     @Environment(\.colorScheme) var colorScheme
@@ -144,12 +129,10 @@ struct ScheduleCardView: View {
                 )
             }
             
-            if self.hasDetails {
-                NavigationLinkButton {
-                    self.didTapGoToDetails()
-                } label: {
-                    Label("Go to Details", systemImage: "info.circle")
-                }
+            NavigationLinkButton {
+                self.didTapGoToDetails()
+            } label: {
+                Label("Go to Details", systemImage: "info.circle")
             }
 
             ForEach(performingArtists) { artist in

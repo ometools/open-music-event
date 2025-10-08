@@ -111,7 +111,7 @@ class OrganizationViewer {
 // MARK: WhiteLabledEntryPoint
 public struct OMEWhiteLabeledEntryPoint: View {
     public init(id: Organizer.ID, url: URL) {
-        self.init(id: id, reference: .url(url))
+        self.init(id: id, reference: .zipURL(url))
     }
 
     public init(id: Organizer.ID, reference: OrganizationReference) {
@@ -146,11 +146,7 @@ public struct OMEWhiteLabeledEntryPoint: View {
             await withTaskGroup {
                 $0.addTask {
                     await withErrorReporting {
-                        do {
-                            try await downloadAndStoreOrganizer(from: self.organizationReference)
-                        } catch {
-                            let e = error
-                        }
+                        try await downloadAndStoreOrganizer(from: self.organizationReference)
 
                         await MainActor.run {
                             self.isLoadingOrganizer = false
