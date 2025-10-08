@@ -23,6 +23,7 @@ extension CoreModels.Performance {
         var endTime: ScheduleTime?
         var description: String?
         var performanceRecordings: [ExternalPlatform.Asset]?
+        var performanceRecording: URL?
 
 
         var startTime: ScheduleTime {
@@ -197,6 +198,13 @@ struct ScheduleConversion: Conversion {
                         title = artistNames.joined(separator: ", ")
                     }
 
+                    var performanceRecordings = $0.0.performanceRecordings ?? []
+                    if let url = $0.0.performanceRecording {
+                        performanceRecordings.append(
+                            ExternalPlatform.Asset(url: url)
+                        )
+                    }
+
                     return Schedule.WithUnresolvedTimes.Performance(
                         title: title,
                         subtitle: nil,
@@ -205,7 +213,7 @@ struct ScheduleConversion: Conversion {
                         endTime: $0.endTime,
                         stageName: key,
                         description: $0.0.description,
-                        performanceRecordings: $0.0.performanceRecordings ?? []
+                        performanceRecordings: performanceRecordings
                     )
                 }
             }

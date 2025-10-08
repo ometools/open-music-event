@@ -10,27 +10,10 @@ import CoreModels
 import Dependencies
 import GRDB
 
-public struct ExternalAssetsSection: View {
-    let assets: [ExternalPlatform.Asset]
-    let title: String
 
-    public init(assets: [ExternalPlatform.Asset], title: String) {
-        self.assets = assets
-        self.title = title
-    }
-    
-    public var body: some View {
-        if !assets.isEmpty {
-            Section(title) {
-                ForEach(assets.indices, id: \.self) { index in
-                    Row(asset: assets[index])
-                }
-            }
-        }
-    }
-
-    public struct Row: View {
-        let asset: ExternalPlatform.Asset
+extension ExternalPlatform {
+    public struct RowView: View {
+        let asset: Asset
 
         @Dependency(\.defaultDatabase) var database
         @Dependency(\.oembedClient) var oembedClient
@@ -43,16 +26,9 @@ public struct ExternalAssetsSection: View {
         }
 
         public var body: some View {
-            Link(destination: asset.url) {
+            SwiftUI.Link(destination: asset.url) {
                 HStack(spacing: 12) {
-                    // Platform icon
-                    if let platform = preferences?.platform {
-                        platform.icon?
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .foregroundColor(platform.color)
-                            .frame(width: 24, height: 24)
-                    }
+                    Thumbnail(preferences: preferences)
 
                     VStack(alignment: .leading, spacing: 2) {
                         if let title = preferences?.cachedTitle {
@@ -79,14 +55,38 @@ public struct ExternalAssetsSection: View {
                         ProgressView()
                             .scaleEffect(0.7)
                     }
+
                     Image(systemName: "arrow.up.right")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
-            .buttonStyle(PlainButtonStyle())
+//            .buttonStyle(PlainButtonStyle())
             .task {
                 await loadPreferencesAndMetadata()
+            }
+        }
+
+        struct Thumbnail: View {
+            var preferences: ExternalPlatform.Asset.Preferences?
+
+            var body: some View {
+                CachedAsyncImage(url: preferences?.cachedThumbnailURL, contentMode: .fill) {
+                    ProgressView()
+                }
+                .frame(square: 60)
+                .clipped()
+                .overlay(alignment: .bottomTrailing) {
+                    if let platform = preferences?.platform {
+                        platform.icon?
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundColor(platform.color)
+                            .opacity(0.5)
+                            .frame(width: 20, height: 20)
+                            .padding(2)
+                    }
+                }
             }
         }
 
@@ -109,20 +109,13 @@ public struct ExternalAssetsSection: View {
         func loadPreferencesAndMetadata() async {
             await withErrorReporting {
                 // Fetch or create preferences
-                self.preferences = try? await database.write { db in
+                self.preferences = try await database.write { db in
                     // Create if doesn't exist
+                    let detectedPlatform = ExternalPlatform.detectPlatform(from: asset.url)
                     try db.execute(
-                        sql: "INSERT INTO externalAssetPreferences (assetURL) VALUES (?) ON CONFLICT DO NOTHING",
-                        arguments: [asset.url.absoluteString]
+                        sql: "INSERT INTO externalAssetPreferences (assetURL, platform) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                        arguments: [asset.url.absoluteString, detectedPlatform.rawValue]
                     )
-
-                    // Detect and update platform from URL
-                    if let detectedPlatform = ExternalPlatform.detectPlatform(from: asset.url) {
-                        try db.execute(
-                            sql: "UPDATE externalAssetPreferences SET platform = ? WHERE assetURL = ?",
-                            arguments: [detectedPlatform.rawValue, asset.url.absoluteString]
-                        )
-                    }
 
                     // Fetch it
                     return try ExternalPlatform.Asset.Preferences
@@ -132,16 +125,11 @@ public struct ExternalAssetsSection: View {
 
                 guard let prefs = preferences else { return }
 
-                // Skip if we tried recently (within 5 minutes)
-                if let lastAttempt = prefs.lastMetadataFetchAttemptAt,
-                   date().timeIntervalSince(lastAttempt) < 300 {
-                    return
-                }
-
-                // Skip if we already have metadata
-                if prefs.cachedTitle != nil {
-                    return
-                }
+//                // Skip if we tried recently (within 5 minutes)
+//                if let lastAttempt = prefs.lastMetadataFetchAttemptAt,
+//                   date().timeIntervalSince(lastAttempt) < 300 {
+//                    return
+//                }
 
                 // Fetch metadata
                 isLoadingMetadata = true
@@ -151,22 +139,19 @@ public struct ExternalAssetsSection: View {
                     let metadata = try await oembedClient.fetch(asset.url, prefs.platform)
 
                     // Update database with fetched metadata
+                    // Note: oEmbed spec doesn't include duration or description fields
                     try await database.write { db in
                         try db.execute(
                             sql: """
                             UPDATE externalAssetPreferences
                             SET cachedTitle = ?,
-                                cachedDescription = ?,
                                 cachedThumbnailURL = ?,
-                                cachedDurationSeconds = ?,
                                 lastMetadataFetchAttemptAt = ?
                             WHERE assetURL = ?
                             """,
                             arguments: [
                                 metadata.title,
-                                metadata.description,
                                 metadata.thumbnailURL?.absoluteString,
-                                metadata.durationSeconds,
                                 Date(),
                                 asset.url.absoluteString
                             ]
@@ -181,7 +166,7 @@ public struct ExternalAssetsSection: View {
                     }
                 } catch {
                     // On error, just update the timestamp so we don't retry immediately
-                    try? await database.write { db in
+                    try await database.write { db in
                         try db.execute(
                             sql: """
                             UPDATE externalAssetPreferences
@@ -191,30 +176,14 @@ public struct ExternalAssetsSection: View {
                             arguments: [Date(), asset.url.absoluteString]
                         )
                     }
+                    throw error
                 }
             }
         }
     }
 }
 
-#Preview {
-    List {
-        ExternalAssetsSection(
-            assets: [
-                ExternalPlatform.Asset(
-                    url: URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ")!,
-                ),
-                ExternalPlatform.Asset(
-                    url: URL(string: "https://soundcloud.com/artist/live-set")!,
-                )
-            ],
-            title: "Recordings"
-        )
-    }
-}
-
 extension ExternalPlatform {
-
     var color: Color {
         switch self {
         case .youtube:

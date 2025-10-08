@@ -5,8 +5,6 @@ import CoreModels
 import Dependencies
 import IssueReporting
 
-
-
 struct MusicEventViewer: View {
     @Observable
     @MainActor
@@ -22,7 +20,6 @@ struct MusicEventViewer: View {
         @ObservationIgnored
         @Dependency(\.imagePrefetchClient) var imagePrefetchClient
         
-
         func onAppear() async {
             @Dependency(\.defaultDatabase) var database
             self.eventFeatures = nil

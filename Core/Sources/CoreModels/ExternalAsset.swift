@@ -38,7 +38,7 @@ public enum ExternalPlatform: String, Equatable, Codable, Sendable, CaseIterable
         }
     }
     // Auto-detect platform from URL
-    public static func detectPlatform(from url: URL) -> Self? {
+    public static func detectPlatform(from url: URL) -> Self {
         let host = url.absoluteString
         if host.contains("youtube") || host.contains("youtu.be") {
             return .youtube
@@ -99,7 +99,12 @@ public extension ExternalPlatform {
         public init(url: URL) {
             self.url = url
         }
+
         public let url: URL
+        public var platform: ExternalPlatform {
+            .detectPlatform(from: url)
+        }
+
 
         public enum AssetType: Equatable, Codable, Sendable {
             case profile

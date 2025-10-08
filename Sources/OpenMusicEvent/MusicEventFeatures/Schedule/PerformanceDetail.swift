@@ -318,10 +318,14 @@ public struct PerformanceDetailView: View {
                 }
             }
 
-            ExternalAssetsSection(
-                assets: performance.performanceRecordings ?? [],
-                title: "Recordings"
-            )
+            Section("Recordings") {
+                if let performanceRecordings = performance.performanceRecordings,
+                   !performanceRecordings.isEmpty {
+                    ForEach(performanceRecordings, id: \.url) { recording in
+                        ExternalPlatform.RowView(asset: recording)
+                    }
+                }
+            }
         }
         .navigationDestination(item: $artistDetail) {
             ArtistDetailView(store: $0)

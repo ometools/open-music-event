@@ -91,6 +91,7 @@ struct ScheduleCardView: View {
             color: performance?.stageColor.swiftUIColor ?? .clear,
             isSelected: isSelected
         ) {
+
             if let performance = performance {
                 #if os(Android)
                 switch scheduleState.scheduleKind {
@@ -99,6 +100,7 @@ struct ScheduleCardView: View {
                 case .allStagesAtOnce:
                     TinyPerformanceView(performance: performance)
                 }
+
                 #else
                 ViewThatFits {
                     LargePerformanceView(performance: performance, hasFavoriteArtist: self.isFavorite)
@@ -106,6 +108,8 @@ struct ScheduleCardView: View {
                 }
                 #endif
             }
+
+
         }
         .overlay {
             if isDimmed {
@@ -144,6 +148,8 @@ struct ScheduleCardView: View {
                     self.didTapGoToArtist(artist.id)
                 }
             }
+        } primaryAction: {
+            self.didTapGoToDetails()
         }
         .animation(.default, value: isDimmed)
         .animation(.default, value: isSeen)
@@ -157,6 +163,13 @@ struct ScheduleCardView: View {
             if let performance = self.performance {
                 PerformanceDetailView(id: performance.id)
             }
+        }
+    }
+
+
+    struct RecordingIndicators: View {
+        var body: some View {
+
         }
     }
 }
@@ -182,22 +195,46 @@ struct LargePerformanceView: View {
 
             Spacer()
 
-            HStack {
-                if performance.isSeen {
-                    Icons.seenOn
-                }
-
-                if hasFavoriteArtist {
-                    Image(systemName: "heart.fill")
-                }
-            }
-            .foregroundStyle(.secondary)
-            .padding(.trailing)
-
+            icons
         }
         .padding(.top, 2)
     }
+
+
+    @ViewBuilder
+    var icons: some View {
+        HStack(spacing: 4) {
+            if performance.isSeen {
+                IconView(image: Icons.seenOn)
+            }
+
+            if hasFavoriteArtist {
+                IconView(image: Icons.heartFill)
+            }
+
+            ForEach(performance.performanceRecordings ?? [], id: \.url) { recording in
+                IconView(image: recording.platform.icon?.resizable())
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(.trailing)
+    }
+
+    struct IconView: View {
+        let image: Image?
+        var body: some View {
+            if let image {
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(square: 20)
+            }
+        }
+    }
 }
+
+
+
 
 struct TinyPerformanceView: View {
     var performance: PerformanceDetail

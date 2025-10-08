@@ -13,20 +13,23 @@ import SkipFuse
 public struct OMEContextMenu<Content: View, MenuContent: View>: View {
     private let content: Content
     private let menuContent: MenuContent
-    
+    let primaryAction: () -> Void
+
     public init(
         @ViewBuilder content: () -> Content,
-        @ViewBuilder menuContent: () -> MenuContent
+        @ViewBuilder menuContent: () -> MenuContent,
+        primaryAction: @escaping () -> Void
     ) {
         self.content = content()
         self.menuContent = menuContent()
+        self.primaryAction = primaryAction
     }
     
     public var body: some View {
         #if os(Android)
-        AndroidContextMenu(content: content, menuContent: menuContent)
+        AndroidContextMenu(content: content, menuContent: menuContent, primaryAction: primaryAction)
         #else
-        DarwinContextMenu(content: content, menuContent: menuContent)
+        DarwinContextMenu(content: content, menuContent: menuContent, primaryAction: primaryAction)
         #endif
     }
 }
@@ -35,9 +38,13 @@ public struct OMEContextMenu<Content: View, MenuContent: View>: View {
 internal struct DarwinContextMenu<Content: View, MenuContent: View>: View {
     let content: Content
     let menuContent: MenuContent
-    
+    let primaryAction: () -> Void
+
     var body: some View {
         content
+            .onTapGesture {
+                primaryAction()
+            }
             .contextMenu {
                 menuContent
             }
@@ -49,6 +56,7 @@ internal struct DarwinContextMenu<Content: View, MenuContent: View>: View {
 internal struct AndroidContextMenu<Content: View, MenuContent: View>: View {
     let content: Content
     let menuContent: MenuContent
+    let primaryAction: () -> Void
     @State var showingContextMenu = false
     @State var isPressed = false
 
@@ -61,7 +69,7 @@ internal struct AndroidContextMenu<Content: View, MenuContent: View>: View {
         } label: {
             content
         } primaryAction: {
-            // noop for long press menu only
+            primaryAction()
         }
 
 //        ZStack {
@@ -106,14 +114,15 @@ internal struct AndroidContextMenu<Content: View, MenuContent: View>: View {
 
 extension View {
     public func omeContextMenu<MenuContent: View>(
-        @ViewBuilder _ menuContent: @escaping () -> MenuContent
+        @ViewBuilder _ menuContent: @escaping () -> MenuContent,
+        primaryAction: @escaping () -> Void = {}
     ) -> some View {
         OMEContextMenu(
             content: { self },
             menuContent: {
-
                 menuContent()
-            }
+            },
+            primaryAction: primaryAction
         )
     }
 }

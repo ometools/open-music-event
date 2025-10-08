@@ -21,6 +21,7 @@ let package = Package(
         .package(url: "https://source.skip.tools/skip.git", from: "1.6.5"),
         .package(url: "https://github.com/woodymelling/skip-ui", branch: "main"),
         .package(url: "https://github.com/woodymelling/skip-fuse-ui", branch: "main"),
+        .package(url: "https://github.com/woodymelling/swift-dependencies-http-client", branch: "main"),
         .package(url: "https://source.skip.tools/skip-firebase.git", "0.9.0"..<"2.0.0"),
         .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"]),
 
@@ -51,7 +52,8 @@ let package = Package(
 
                 .product(name: "Zip", package: "zip"),
                 .product(name: "NukeUI", package: "Nuke", condition: .when(platforms: [.iOS])),
-                
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+
                 .product(name: "SkipFirebaseCore", package: "skip-firebase"),
                 .product(name: "SkipFirebaseMessaging", package: "skip-firebase"),
             ],
