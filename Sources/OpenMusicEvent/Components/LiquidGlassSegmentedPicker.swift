@@ -297,171 +297,171 @@ internal struct RectPreferenceKey: PreferenceKey {
     }
 }
 
+//
+//
+//#Preview {
+//    @Previewable @State var val: String = "star"
+//    @Previewable @State var colorSelection: String = "blue"
+//    @Previewable @State var textSelection: String = "Home"
+//
+//    VStack(spacing: 40) {
+//        Text("Testing LiquidGlassSegmentedPicker Colors")
+//            .font(.title2)
+//            .padding()
+//
+//        if #available(iOS 26, *) {
+//            // Test 1: Icons with different colors
+//            VStack(alignment: .leading, spacing: 10) {
+//                Text("Icon Picker with Custom Colors")
+//                    .font(.headline)
+//
+//                LiquidGlassSegmentedPicker(selection: $val) {
+//                    ForEach(["star", "cloud", "eye"], id: \.self) { item in
+//                        Image(systemName: item)
+//                            .resizable()
+//                            .aspectRatio(contentMode: .fit)
+//                            .padding()
+//                            .pickerItemColor(colorForItem(item))
+//                    }
+//                }
+//            }
+//
+//            // Test 2: Color swatches as picker items
+//            VStack(alignment: .leading, spacing: 10) {
+//                Text("Color Swatch Picker")
+//                    .font(.headline)
+//
+//                LiquidGlassSegmentedPicker(selection: $colorSelection) {
+//                    ForEach(["blue", "red", "green", "purple", "orange"], id: \.self) { color in
+//                        Circle()
+//                            .fill(colorForName(color))
+//                            .frame(width: 40, height: 40)
+//                            .pickerItemColor(colorForName(color))
+//                            .tag(color)
+//                    }
+//                }
+//            }
+//
+//            // Test 3: Text labels with colors
+//            VStack(alignment: .leading, spacing: 10) {
+//                Text("Text Picker with Theme Colors")
+//                    .font(.headline)
+//
+//                LiquidGlassSegmentedPicker(selection: $textSelection) {
+//                    ForEach(["Home", "Work", "Travel", "Health"], id: \.self) { item in
+//                        Text(item)
+//                            .font(.system(size: 16, weight: .medium))
+//                            .padding(.horizontal, 16)
+//                            .padding(.vertical, 8)
+//                            .pickerItemColor(themeColorForCategory(item))
+//                            .tag(item)
+//                    }
+//                }
+//            }
+//
+//            // Test 4: Mixed content with gradient colors
+//            VStack(alignment: .leading, spacing: 10) {
+//                Text("Mixed Content with Gradient Theme")
+//                    .font(.headline)
+//
+//                LiquidGlassSegmentedPicker(selection: $val) {
+//                    ForEach(Array(zip(["star", "cloud", "eye"], ["Favorites", "Cloud", "Privacy"])), id: \.0) { icon, label in
+//                        VStack(spacing: 4) {
+//                            Image(systemName: icon)
+//                                .font(.system(size: 20))
+//                            Text(label)
+//                                .font(.caption)
+//                                .fontWeight(.medium)
+//                        }
+//                        .padding(.vertical, 8)
+//                        .padding(.horizontal, 12)
+//                        .pickerItemColor(gradientColorForIcon(icon))
+//                        .tag(icon)
+//                    }
+//                }
+//            }
+//
+//            // Display current selections
+//            VStack(alignment: .leading, spacing: 8) {
+//                Text("Current Selections:")
+//                    .font(.headline)
+//                Text("Icon: \(val)")
+//                Text("Color: \(colorSelection)")
+//                Text("Category: \(textSelection)")
+//            }
+//            .padding()
+//            .background(Color.secondary.opacity(0.1))
+//            .cornerRadius(12)
+//        }
+//    }
+//    .padding()
+//    .background(
+//        LinearGradient(
+//            colors: [Color.blue.opacity(0.1), Color.purple.opacity(0.1)],
+//            startPoint: .topLeading,
+//            endPoint: .bottomTrailing
+//        )
+//    )
+//}
+//
+//// Helper functions for color testing
+//private func colorForItem(_ item: String) -> Color {
+//    switch item {
+//    case "star": return .yellow
+//    case "cloud": return .cyan
+//    case "eye": return .purple
+//    default: return .blue
+//    }
+//}
+//
+//private func colorForName(_ name: String) -> Color {
+//    switch name {
+//    case "blue": return .blue
+//    case "red": return .red
+//    case "green": return .green
+//    case "purple": return .purple
+//    case "orange": return .orange
+//    default: return .blue
+//    }
+//}
+//
+//private func themeColorForCategory(_ category: String) -> Color {
+//    switch category {
+//    case "Home": return .blue
+//    case "Work": return .orange
+//    case "Travel": return .green
+//    case "Health": return .red
+//    default: return .gray
+//    }
+//}
+//
+//
+//private func gradientColorForIcon(_ icon: String) -> Color {
+//    switch icon {
+//    case "star": return .pink
+//    case "cloud": return .teal
+//    case "eye": return .indigo
+//    default: return .mint
+//    }
+//}
 
-
-#Preview {
-    @Previewable @State var val: String = "star"
-    @Previewable @State var colorSelection: String = "blue"
-    @Previewable @State var textSelection: String = "Home"
-
-    VStack(spacing: 40) {
-        Text("Testing LiquidGlassSegmentedPicker Colors")
-            .font(.title2)
-            .padding()
-
-        if #available(iOS 26, *) {
-            // Test 1: Icons with different colors
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Icon Picker with Custom Colors")
-                    .font(.headline)
-
-                LiquidGlassSegmentedPicker(selection: $val) {
-                    ForEach(["star", "cloud", "eye"], id: \.self) { item in
-                        Image(systemName: item)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .padding()
-                            .pickerItemColor(colorForItem(item))
-                    }
-                }
-            }
-
-            // Test 2: Color swatches as picker items
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Color Swatch Picker")
-                    .font(.headline)
-
-                LiquidGlassSegmentedPicker(selection: $colorSelection) {
-                    ForEach(["blue", "red", "green", "purple", "orange"], id: \.self) { color in
-                        Circle()
-                            .fill(colorForName(color))
-                            .frame(width: 40, height: 40)
-                            .pickerItemColor(colorForName(color))
-                            .tag(color)
-                    }
-                }
-            }
-
-            // Test 3: Text labels with colors
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Text Picker with Theme Colors")
-                    .font(.headline)
-
-                LiquidGlassSegmentedPicker(selection: $textSelection) {
-                    ForEach(["Home", "Work", "Travel", "Health"], id: \.self) { item in
-                        Text(item)
-                            .font(.system(size: 16, weight: .medium))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .pickerItemColor(themeColorForCategory(item))
-                            .tag(item)
-                    }
-                }
-            }
-
-            // Test 4: Mixed content with gradient colors
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Mixed Content with Gradient Theme")
-                    .font(.headline)
-
-                LiquidGlassSegmentedPicker(selection: $val) {
-                    ForEach(Array(zip(["star", "cloud", "eye"], ["Favorites", "Cloud", "Privacy"])), id: \.0) { icon, label in
-                        VStack(spacing: 4) {
-                            Image(systemName: icon)
-                                .font(.system(size: 20))
-                            Text(label)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                        .pickerItemColor(gradientColorForIcon(icon))
-                        .tag(icon)
-                    }
-                }
-            }
-
-            // Display current selections
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Current Selections:")
-                    .font(.headline)
-                Text("Icon: \(val)")
-                Text("Color: \(colorSelection)")
-                Text("Category: \(textSelection)")
-            }
-            .padding()
-            .background(Color.secondary.opacity(0.1))
-            .cornerRadius(12)
-        }
-    }
-    .padding()
-    .background(
-        LinearGradient(
-            colors: [Color.blue.opacity(0.1), Color.purple.opacity(0.1)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    )
-}
-
-// Helper functions for color testing
-private func colorForItem(_ item: String) -> Color {
-    switch item {
-    case "star": return .yellow
-    case "cloud": return .cyan
-    case "eye": return .purple
-    default: return .blue
-    }
-}
-
-private func colorForName(_ name: String) -> Color {
-    switch name {
-    case "blue": return .blue
-    case "red": return .red
-    case "green": return .green
-    case "purple": return .purple
-    case "orange": return .orange
-    default: return .blue
-    }
-}
-
-private func themeColorForCategory(_ category: String) -> Color {
-    switch category {
-    case "Home": return .blue
-    case "Work": return .orange
-    case "Travel": return .green
-    case "Health": return .red
-    default: return .gray
-    }
-}
-
-
-private func gradientColorForIcon(_ icon: String) -> Color {
-    switch icon {
-    case "star": return .pink
-    case "cloud": return .teal
-    case "eye": return .indigo
-    default: return .mint
-    }
-}
-
-
-
-
-@available(iOS 26, *)
-struct DragBubble: View {
-
-    @GestureState var dragAmount: CGSize = .zero
-
-    var body: some View {
-        Capsule()
-            .frame(width: 200, height: 100)
-            .glassEffect(.clear.interactive())
-            .offset(dragAmount)
-               .gesture(
-                   DragGesture().updating($dragAmount) { value, state, transaction in
-                       state = value.translation
-                   }
-               )
-    }
-}
+//
+//
+//
+//@available(iOS 26, *)
+//struct DragBubble: View {
+//
+//    @GestureState var dragAmount: CGSize = .zero
+//
+//    var body: some View {
+//        Capsule()
+//            .frame(width: 200, height: 100)
+//            .glassEffect(.clear.interactive())
+//            .offset(dragAmount)
+//               .gesture(
+//                   DragGesture().updating($dragAmount) { value, state, transaction in
+//                       state = value.translation
+//                   }
+//               )
+//    }
+//}
