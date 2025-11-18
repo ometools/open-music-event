@@ -23,8 +23,12 @@ import FirebaseMessaging
 
 import OpenMusicEventParser
 
+
 public enum OME {
+    static let logger = Logger(subsystem: "live.openmusicevent.app", category: "OME")
     public static func prepareDependencies(enableFirebase: Bool = true) throws {
+        logger.info("prepareDepedencies(enableFirebase: \(enableFirebase))")
+
         try Dependencies.prepareDependencies {
             $0.defaultDatabase = try appDatabase()
             $0.omeLogger = LoggingLogger()
@@ -42,7 +46,15 @@ public enum OME {
             Messaging.messaging().delegate = notificationManager
         }
 
-        IssueReporters.current += [InMemoryIssueReporter.shared, .breakpoint]
+        IssueReporters.current += [
+            InMemoryIssueReporter.shared,
+        ]
+
+        #if !os(Android)
+        IssueReporters.current += [
+            .breakpoint
+        ]
+        #endif
     }
 
     @MainActor
@@ -307,12 +319,12 @@ class InMemoryIssueReporter: IssueReporter, @unchecked Sendable {
 }
 
 
-#if os(iOS)
-#Preview {
-    let _ = try! prepareDependencies {
-        $0.defaultDatabase = try appDatabase()
-    }
-
-    OMEAppEntryPoint()
-}
-#endif
+//#if os(iOS)
+//#Preview {
+//    let _ = try! prepareDependencies {
+//        $0.defaultDatabase = try appDatabase()
+//    }
+//
+//    OMEAppEntryPoint()
+//}
+//#endif

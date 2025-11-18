@@ -120,7 +120,7 @@ public struct ScheduleSingleStageAtOnceView: View {
     public var body: some View {
         GeometryReader { geo in
             ScrollView {
-                HorizontalPageView(page: $store.scheduleState.selectedStage.animation()) {
+                HorizontalPageView(page: $store.scheduleState.selectedStage/*.animation()*/) {
                     ForEach(store.stages) { stage in
                         StageSchedulePage(
                             id: stage.id,

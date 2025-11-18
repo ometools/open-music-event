@@ -13,6 +13,9 @@ struct ScheduleStageSelector: View {
     @Binding var selectedStage: Stage.ID?
 
     var body: some View {
+        #if os(Android)
+        standardPicker
+        #else
         if #available(iOS 26, *) {
             LiquidGlassSegmentedPicker(selection: $selectedStage.animation()) {
                 ForEach(stages) { stage in
@@ -29,23 +32,29 @@ struct ScheduleStageSelector: View {
             }
             .sensoryFeedback(.selection, trigger: selectedStage)
         } else {
-            ZStack(alignment: .bottom) {
-                HStack {
-                    ForEach(stages) { stage in
-                        Spacer()
-                        ScheduleHeaderButton(
-                            stage: stage,
-                            isSelected: selectedStage == stage.id,
-                            onSelect: {
-                                selectedStage = $0
-                            }
-                        )
-                    }
+            standardPicker
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    var standardPicker: some View {
+        ZStack(alignment: .bottom) {
+            HStack {
+                ForEach(stages) { stage in
                     Spacer()
+                    ScheduleHeaderButton(
+                        stage: stage,
+                        isSelected: selectedStage == stage.id,
+                        onSelect: {
+                            selectedStage = $0
+                        }
+                    )
                 }
-                .frame(maxWidth: .infinity)
-                .shadow()
+                Spacer()
             }
+            .frame(maxWidth: .infinity)
+            .shadow()
         }
     }
 }

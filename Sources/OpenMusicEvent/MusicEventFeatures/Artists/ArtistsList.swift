@@ -158,7 +158,9 @@ struct ArtistsListView: View {
                 if isFavorite {
                     Image(systemName: "heart.fill")
                         .resizable()
+                        #if !os(Android)
                         .renderingMode(.template)
+                        #endif
                         .aspectRatio(contentMode: .fit)
                         .frame(square: 15)
                         .padding(.trailing)

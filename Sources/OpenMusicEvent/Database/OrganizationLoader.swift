@@ -319,10 +319,7 @@ func downloadAndStoreOrganizer(from reference: OrganizationReference) async thro
     let organizer: OrganizerConfiguration = try await dataFetchingClient.fetchOrganizer(reference)
 
     try await organizer.insert(url: reference.zipURL, into: defaultDatabase)
-
-    Task {
-        try await notificationManager.ensureTopicsAreSubscribed()
-    }
+    try await notificationManager.ensureTopicsAreSubscribed()
 }
 
 func loadAndStoreLocalOrganizer(from folderURL: URL) async throws {
@@ -339,7 +336,6 @@ func loadAndStoreLocalOrganizer(from folderURL: URL) async throws {
 
     // Use a local file URL as the organizer URL
     organizerData.info.url = folderURL
-
     try await organizerData.insert(url: folderURL, into: defaultDatabase)
 
     Task {
@@ -347,9 +343,6 @@ func loadAndStoreLocalOrganizer(from folderURL: URL) async throws {
     }
 }
 
-// MARK: - Simplified Organization Insertion Service
-/// Service responsible for inserting organization data into the database
-/// Follows the principle: NO USER DATA should be stored in organization tables
 enum OrganizationInsertionService {
 
     /// Inserts organization configuration into database with simplified, more maintainable approach
@@ -359,8 +352,6 @@ enum OrganizationInsertionService {
     static func insert(_ config: OrganizerConfiguration, url: URL, into database: any DatabaseWriter) async throws {
         
         try await database.write { db in
-            
-            // STEP 1: Preserve all user preferences (the only user data we care about)
             let userPreferences = try preserveUserPreferences(from: db)
             
             // STEP 2: Clean insert of organization data (simple full replacement)
@@ -415,8 +406,12 @@ enum OrganizationInsertionService {
         try eventInfo.upsert(db)
         
         // Create artist mapping for later reference
-        let artistMapping = try insertArtists(event.artists, eventID: eventID, into: db)
-        
+        let artistMapping = try insertArtists(
+            event.artists,
+            eventID: eventID,
+            into: db
+        )
+
         // Insert other entities
         try insertChannels(event.channels, eventID: eventID, into: db)
         let stageMapping = try insertStages(event.stages, eventID: eventID, stageLineups: event.stageLineups, artistMapping: artistMapping, into: db)

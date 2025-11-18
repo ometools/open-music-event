@@ -155,7 +155,9 @@ struct ArtistLinkView: View {
                     .foregroundStyle(.secondary)
 //                    .foregroundStyle(.tertiary)
             }
+            #if !os(Android)
             .contentShape(Rectangle())
+            #endif
         }
         .buttonStyle(.plain)
 //        .contentShape(Rectangle())

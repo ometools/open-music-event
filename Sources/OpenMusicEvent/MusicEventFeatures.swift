@@ -347,6 +347,19 @@ public struct MusicEventFeaturesView: View {
     }
 }
 
+#if os(Android)
+extension EnvironmentValues {
+    enum CalendarEnvironmentKey: EnvironmentKey {
+        static let defaultValue = Calendar.autoupdatingCurrent
+    }
+
+    /// The current calendar that views should use when handling dates.
+    public var calendar: Calendar {
+        get { self[CalendarEnvironmentKey.self] }
+        set { self[CalendarEnvironmentKey.self] = newValue }
+    }
+}
+#endif
 
 
 struct MoreView: View {

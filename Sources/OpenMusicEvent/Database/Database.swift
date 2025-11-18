@@ -18,7 +18,7 @@ private let logger = Logger(
 )
 
 func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any DatabaseWriter {
-    print("Preparing Database")
+    logger.info("Preparing application database")
     let database: any DatabaseWriter
     var configuration = Configuration()
 
@@ -160,9 +160,11 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
 ////    }
 //    #endif
 
+    logger.log("Migrataing Database")
     try migrator.migrate(database)
 
     // MARK: Triggers
+    logger.log("Creating Channel Subscription Changed Feature")
     try database.write { db in
         try sql("""
         CREATE TEMPORARY TRIGGER on_channel_subscription_changed

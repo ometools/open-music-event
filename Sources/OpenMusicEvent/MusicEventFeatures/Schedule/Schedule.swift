@@ -115,8 +115,6 @@ public struct ScheduleView: View {
     // var interfaceOrientation
     #endif
 
-
-
     public var body: some View {
         Group {
             switch store.globalScheduleState.scheduleKind {
