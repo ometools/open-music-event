@@ -7,6 +7,7 @@
 
 import  SwiftUI; import SkipFuse
 // import SharingGRDB
+import CasePaths
 import GRDB
 import IssueReporting
 import Dependencies
@@ -18,7 +19,6 @@ struct ScheduleCardView: View {
     }
 
     let id: Performance.ID
-    @State var selectedPerformance: Performance.ID?
 
     @Dependency(\.defaultDatabase) var database
 
@@ -45,11 +45,14 @@ struct ScheduleCardView: View {
     }
 
     func didTapGoToArtist(_ artistID: Artist.ID) {
-        self.artistDetail = ArtistDetail(artistID: artistID)
+        self.destination = .artistDetail(ArtistDetail(artistID: artistID))
     }
 
     func didTapGoToDetails() {
-        self.isShowingPerformanceDetail = true
+        guard let performance = performance
+        else { reportIssue("Expected performance to be non-nil"); return }
+
+        self.destination = .performanceDetail(performance)
     }
     
     func toggleSeen() async {
@@ -60,10 +63,16 @@ struct ScheduleCardView: View {
         }
     }
 
-    @State var artistDetail: ArtistDetail?
-    @State var isShowingPerformanceDetail: Bool = false
-    @State var isFavorite: Bool = false
 
+@CasePathable
+    enum Destination {
+        case artistDetail(ArtistDetail)
+        case performanceDetail(PerformanceDetail)
+    }
+
+    @State var destination: Destination?
+
+    @State var isFavorite: Bool = false
     @State var performance: PerformanceDetail?
     @State var performingArtists: [Artist] = []
 
@@ -78,6 +87,7 @@ struct ScheduleCardView: View {
     var isDimmed: Bool {
         scheduleState.filteringFavorites && !isFavorite
     }
+
 
     var isSeen: Bool {
         guard let performance
@@ -156,13 +166,11 @@ struct ScheduleCardView: View {
         .id(id)
         .tag(id)
         .task(id: id) { await task() }
-        .navigationDestination(item: $artistDetail) {
+        .navigationDestination(item: $destination.artistDetail) {
             ArtistDetailView(store: $0)
         }
-        .navigationDestination(isPresented: $isShowingPerformanceDetail) {
-            if let performance = self.performance {
-                PerformanceDetailView(id: performance.id)
-            }
+        .navigationDestination(item: $destination.performanceDetail) {
+            PerformanceDetailView(id: $0.id)
         }
     }
 

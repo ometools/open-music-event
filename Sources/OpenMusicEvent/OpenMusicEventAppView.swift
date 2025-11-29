@@ -50,11 +50,11 @@ public enum OME {
             InMemoryIssueReporter.shared,
         ]
 
-        #if !os(Android)
-        IssueReporters.current += [
-            .breakpoint
-        ]
-        #endif
+//        #if !os(Android)
+//        IssueReporters.current += [
+//            .breakpoint
+//        ]
+//        #endif
     }
 
     @MainActor

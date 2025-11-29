@@ -245,13 +245,13 @@ public class MusicEventFeatures: Identifiable {
                     .fetchOne(db)
             }
 
-            await MainActor.run {
-                self.selectedFeature = .communications
-
-                self.communications?.destination = .init(channelID)
-
-                self.communications?.destination?.destination = post
-            }
+//            await MainActor.run {
+//                self.selectedFeature = .communications
+//
+//                self.communications?.destination = .init(channelID)
+//
+//                self.communications?.destination?.destination = post
+//            }
         }
     }
 }
@@ -360,6 +360,25 @@ extension EnvironmentValues {
     }
 }
 #endif
+
+
+extension OME {
+    enum EditingMode {
+        case readOnly
+        case editing
+    }
+}
+
+extension EnvironmentValues {
+    enum EditingModeKey: EnvironmentKey {
+        static let defaultValue: OME.EditingMode = .readOnly
+    }
+
+    var editingMode: OME.EditingMode {
+        get { self[EditingModeKey.self] }
+        set { self[EditingModeKey.self] = newValue }
+    }
+}
 
 
 struct MoreView: View {

@@ -9,7 +9,7 @@ import Foundation
 import CoreModels
 import GRDB
 import Dependencies
-
+import CasePaths
 
 extension CommunicationChannel {
 //    @Selection
@@ -68,11 +68,24 @@ public struct CommunicationsFeatureView: View {
         @ObservationIgnored
         @Dependency(\.musicEventID) var musicEventID
 
-        var destination: CommunicationChannelView.Store?
+
+        @CasePathable
+        enum Destination {
+            case channel(CommunicationChannelView.Store)
+            case createChannel
+        }
+
+        var destination: Destination?
 
         func didTapChannel(_ channel: CommunicationChannel.ID) {
             withDependencies(from: self) {
-                self.destination = .init(channel)
+                self.destination = .channel(.init(channel))
+            }
+        }
+
+        func didTapCreateChannel() {
+            withDependencies(from: self) {
+                self.destination = .createChannel
             }
         }
 
@@ -96,6 +109,7 @@ public struct CommunicationsFeatureView: View {
     }
 
     @Bindable var store: Store
+    @Environment(\.editingMode) var editingMode
 
     public var body: some View {
         List {
@@ -114,7 +128,14 @@ public struct CommunicationsFeatureView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationDestination(item: $store.destination) {
+        .toolbar {
+            if editingMode == .editing {
+                Button("Create Channel", systemImage: "plus") {
+                    store.didTapCreateChannel()
+                }
+            }
+        }
+        .navigationDestination(item: $store.destination.channel) {
             CommunicationChannelView(store: $0)
         }
         .navigationTitle("Updates")
@@ -158,6 +179,9 @@ public struct CommunicationsFeatureView: View {
     }
 }
 
+
+class ChannelForm {}
+
 public struct CommunicationChannelView: View {
     @MainActor
     @Observable
@@ -177,7 +201,14 @@ public struct CommunicationChannelView: View {
             pinnedPosts.isEmpty && regularPosts.isEmpty
         }
 
-        var destination: CommunicationChannel.Post?
+        @CasePathable
+        enum Destination {
+            case post(CommunicationChannel.Post)
+            case editPost
+        }
+
+
+        var destination: Destination?
 
         @ObservationIgnored
         @Dependency(\.defaultDatabase) var defaultDatabase
@@ -229,7 +260,7 @@ public struct CommunicationChannelView: View {
         }
 
         func didTapPost(_ post: CommunicationChannel.Post) {
-            self.destination = post
+            self.destination = .post(post)
         }
 
         func didTapNotifyMe() {
@@ -238,6 +269,10 @@ public struct CommunicationChannelView: View {
 
         func didTapStopNotifyingMe() {
             updateNotificationState(.unsubscribed)
+        }
+
+        func didTapCreatePost() {
+            self.destination = .editPost
         }
 
         private func updateNotificationState(_ state: CommunicationChannel.UserNotificationState) {
@@ -326,7 +361,7 @@ public struct CommunicationChannelView: View {
                 }
             }
         }
-        .navigationDestination(item: $store.destination) {
+        .navigationDestination(item: $store.destination.post) {
             PostDetailView(post: $0)
         }
     }
@@ -432,56 +467,6 @@ struct PostDetailView: View {
 //    return NavigationStack {
 //        CommunicationsFeatureView(store: .init())
 //    }
+//    .environment(\.editingMode, .editing)
 //}
 //#endif
-
-extension View {
-    public func navigationDestination<D, C: View>(
-          item: Binding<D?>,
-          @ViewBuilder destination: @escaping (D) -> C
-        ) -> some View {
-          navigationDestination(isPresented: Binding(item)) {
-            if let item = item.wrappedValue {
-              destination(item)
-            }
-          }
-        }
-}
-  import IssueReporting
-  import SwiftUI
-
-  extension Binding {
-    /// Creates a binding by projecting the base optional value to a Boolean value.
-    ///
-    /// Writing `false` to the binding will `nil` out the base value. Writing `true` produces a
-    /// runtime warning.
-    ///
-    /// - Parameter base: A value to project to a Boolean value.
-    public init<V>(
-      _ base: Binding<V?>,
-    ) where Value == Bool {
-      self =
-        base[]
-    }
-  }
-
-  extension Optional {
-    fileprivate subscript() -> Bool {
-      get { self != nil }
-      set {
-        if newValue {
-          reportIssue(
-            """
-            Boolean presentation binding attempted to write 'true' to a generic 'Binding<Item?>' \
-            (i.e., 'Binding<\(Wrapped.self)?>').
-
-            This is not a valid thing to do, as there is no way to convert 'true' to a new \
-            instance of '\(Wrapped.self)'.
-            """
-          )
-        } else {
-          self = nil
-        }
-      }
-    }
-  }

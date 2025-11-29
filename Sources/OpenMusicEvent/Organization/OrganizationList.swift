@@ -11,6 +11,7 @@ import SkipFuse
 import GRDB
 import Dependencies
 import IssueReporting
+import CasePaths
 
 struct OrganizerListView: View {
 
@@ -23,6 +24,7 @@ struct OrganizerListView: View {
         var organizers: [Organizer] = []
 
 
+        @CasePathable
         enum Destination {
             case organizerDetail(Organizer.ID)
             case addOrganization(OrganizationFormView.Model)
@@ -65,43 +67,12 @@ struct OrganizerListView: View {
               }
             }
         }
-
-        // These are needed because SwiftNavigation is not usable on Android at the moment
-        var organizerDetail: Organizer.ID? {
-            get {
-                if case let .organizerDetail(orgDetail) = destination {
-                    return orgDetail
-                } else {
-                    return nil
-                }
-            }
-
-            set {
-                // This should be okay, the binding doesn't know how to set anythinb but nil
-                destination = nil
-            }
-        }
-
-        var addOrganization: OrganizationFormView.Model? {
-            get {
-                if case let .addOrganization(addOrg) = destination {
-                    return addOrg
-                } else {
-                    return nil
-                }
-            }
-
-            set {
-                destination = nil
-            }
-        }
     }
 
     @Bindable var store: Model
 
     public var body: some View {
         Group {
-
             if !store.organizers.isEmpty {
                 List {
                     ForEach(store.organizers) { org in
@@ -133,7 +104,7 @@ struct OrganizerListView: View {
                 store.didTapAddOrganizerButton()
             }
         }
-        .sheet(item: $store.addOrganization) { store in
+        .sheet(item: $store.destination.addOrganization) { store in
             NavigationStack {
                 OrganizationFormView(store: store)
                     .navigationTitle("Add Organization")

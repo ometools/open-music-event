@@ -171,6 +171,9 @@
     "Copy issues" : {
 
     },
+    "Create Channel" : {
+
+    },
     "Dark" : {
       "comment" : "Menu item indicating that the appearance should be in dark mode",
       "extractionState" : "stale",
