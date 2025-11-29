@@ -29,6 +29,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.4.1"),
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3"),
         .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.0"),
+        .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
 
         // Pin this version, 1.1 might be
         .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.0.3"),
@@ -49,6 +50,7 @@ let package = Package(
                 .product(name: "GRDB", package: "grdb-sqlcipher"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "DependenciesMacros", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
 
                 .product(name: "CasePaths", package: "swift-case-paths"),
 

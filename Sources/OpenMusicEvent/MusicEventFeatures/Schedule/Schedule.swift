@@ -42,29 +42,28 @@ public class ScheduleFeature {
     public init(category: Stage.Category?) {
         self.category = category
 
-        let scheduleState = ScheduleState()
-        self.scheduleState = ScheduleState()
-        self.singleStageAtOnceFeature = .init(state: scheduleState, category: category)
+        self.singleStageAtOnceFeature = .init(category: category)
     }
 
     var category: Stage.Category?
     var singleStageAtOnceFeature: ScheduleSingleStageAtOnceView.Store
     
-    var globalScheduleState: GlobalScheduleState = .shared
-    var scheduleState: ScheduleState
-
     public var schedules: [Schedule] = []
 
 
     var isFiltering: Bool {
+        return false
         // For future filters
-        return globalScheduleState.filteringFavorites
+//        return globalScheduleState.filteringFavorites
     }
+
+    @ObservationIgnored
+    @SharedShim(.selectedSchedule) var selectedSchedule = nil
 
     var showTimeIndicator: Bool {
         @Dependency(\.date) var date
 
-        if let selectedDay = schedules.first(where: { $0.id == globalScheduleState.selectedSchedule }) {
+        if let selectedDay = schedules.first(where: { $0.id == selectedSchedule }) {
             if let startTime = selectedDay.startTime, let endTime = selectedDay.endTime {
                 return date() >= startTime && date() <= endTime
             } else {
@@ -92,10 +91,9 @@ public class ScheduleFeature {
             for try await schedules in query.values() {
                 self.schedules = schedules
                 logger.log("schedules: \(schedules)")
-
-                if globalScheduleState.selectedSchedule == nil || !schedules.contains(where: { $0.id == globalScheduleState.selectedSchedule }) {
-                    globalScheduleState.selectedSchedule = schedules.first?.id
-                }
+//                if selectedSchedule == nil || !schedules.contains(where: { $0.id == selectedSchedule }) {
+//                    selectedSchedule.withLock { $0 = } = schedules.first?.id
+//                }
             }
         }
     }
@@ -117,29 +115,29 @@ public struct ScheduleView: View {
 
     public var body: some View {
         Group {
-            switch store.globalScheduleState.scheduleKind {
-            case .singleStageAtOnce:
+//            switch store.globalScheduleState.scheduleKind {
+//            case .singleStageAtOnce:
                 ScheduleSingleStageAtOnceView(store: store.singleStageAtOnceFeature)
 
-            case .allStagesAtOnce:
-                ManyStagesAtOnceView(store: self.store)
-            }
+//            case .allStagesAtOnce:
+//                ManyStagesAtOnceView(store: self.store)
+//            }
         }
-        .animation(.default, value: store.globalScheduleState.scheduleKind)
+//        .animation(.default, value: store.globalScheduleState.scheduleKind)
         .toolbar {
             if #available(iOS 26, *) {
                 ToolbarSpacer(.flexible)
             }
 
             ToolbarItemGroup(placement: .primaryAction) {
-                ScheduleTypeMenu(selection: $store.globalScheduleState.scheduleKind)
+//                ScheduleTypeMenu(selection: $store.globalScheduleState.scheduleKind)
 
                 FilterMenu(store: store)
             }
         }
         .modifier(
             ScheduleSelectorModifier(
-                selectedScheduleID: $store.globalScheduleState.selectedSchedule,
+                selectedScheduleID: Binding(store.$selectedSchedule),
                 schedules: store.schedules
             )
         )
@@ -162,15 +160,15 @@ public struct ScheduleView: View {
         var body: some View {
             Menu {
                 Section {
-                    Button {
-                        store.globalScheduleState.filteringFavorites.toggle()
-                    } label: {
-                        Label {
-                            Text("Favorites")
-                        } icon: {
-                            store.globalScheduleState.filteringFavorites ? Icons.heartFill : Icons.heart
-                        }
-                    }
+//                    Button {
+//                        store.globalScheduleState.filteringFavorites.toggle()
+//                    } label: {
+//                        Label {
+//                            Text("Favorites")
+//                        } icon: {
+//                            store.globalScheduleState.filteringFavorites ? Icons.heartFill : Icons.heart
+//                        }
+//                    }
                 } header: {
                     Text("Filters")
                         .foregroundStyle(.secondary)

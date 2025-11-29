@@ -34,10 +34,25 @@ private let logger = Logger(
 //     }
 // }
 
+extension SharedKey where Self == AppStorageKey<Schedule.ID?> {
+    static var selectedSchedule: Self {
+        .appStorage("selectedSchedule")
+    }
+}
+
+extension SharedKey where Self == AppStorageKey<Stage.ID?> {
+    static func selectedStage(category: Stage.Category?) -> Self {
+        .appStorage("\(category ?? "all")-selectedStage")
+    }
+}
+
 @Observable
 @MainActor
 class GlobalScheduleState {
-    var selectedSchedule: Schedule.ID?
+    @ObservationIgnored
+    @SharedShim(.selectedSchedule)
+    var selectedSchedule: Schedule.ID? = nil
+
     var filteringFavorites: Bool = false
 
     enum ScheduleType: PickableValue {
@@ -66,19 +81,24 @@ class GlobalScheduleState {
     static let shared = GlobalScheduleState()
 }
 
-@Observable
-@MainActor
-class ScheduleState {
+
+struct ScheduleState {
     var selectedStage: Stage.ID?
 }
+
+import Sharing
 
 
 public struct ScheduleSingleStageAtOnceView: View {
 
     @Observable @MainActor
     class Store {
-        var scheduleState: ScheduleState
-        var globalScheduleState: GlobalScheduleState = .shared
+//        var globalScheduleState: GlobalScheduleState = .shared
+        @ObservationIgnored
+        @SharedShim(.selectedSchedule) var selectedSchedule = nil
+
+        @ObservationIgnored
+        @SharedShim var selectedStage: Stage.ID?
 
         @ObservationIgnored
         @Dependency(\.musicEventID) var musicEventID
@@ -86,9 +106,9 @@ public struct ScheduleSingleStageAtOnceView: View {
         let category: Stage.Category?
         var stages: [Stage] = []
 
-        init(state: ScheduleState, category: Stage.Category?) {
+        init(category: Stage.Category?) {
             self.category = category
-            self.scheduleState = state
+            self._selectedStage = SharedShim(wrappedValue: nil, .selectedStage(category: category))
         }
 
         func task() async {
@@ -103,10 +123,6 @@ public struct ScheduleSingleStageAtOnceView: View {
             await withErrorReporting {
                 for try await stages in query.values() {
                     self.stages = stages
-
-                    if scheduleState.selectedStage == nil {
-                        scheduleState.selectedStage = stages.first?.id
-                    }
                 }
             }
         }
@@ -120,11 +136,11 @@ public struct ScheduleSingleStageAtOnceView: View {
     public var body: some View {
         GeometryReader { geo in
             ScrollView {
-                HorizontalPageView(page: $store.scheduleState.selectedStage/*.animation()*/) {
+                HorizontalPageView(page: Binding(store.$selectedStage)) {
                     ForEach(store.stages) { stage in
                         StageSchedulePage(
                             id: stage.id,
-                            selectedSchedule: store.globalScheduleState.selectedSchedule
+                            selectedSchedule: store.selectedSchedule
                         )
                         .frame(width: geo.size.width)
                         .tag(stage.id)
@@ -140,7 +156,7 @@ public struct ScheduleSingleStageAtOnceView: View {
         .navigationBarExtension {
             ScheduleStageSelector(
                 stages: store.stages,
-                selectedStage: $store.scheduleState.selectedStage
+                selectedStage: Binding(store.$selectedStage)
             )
         }
         .task(id: store.category) { await store.task() }
@@ -172,7 +188,6 @@ public struct ScheduleSingleStageAtOnceView: View {
 struct StageSchedulePage: View, Identifiable {
     var id: Stage.ID
     var selectedSchedule: Schedule.ID?
-    var globalScheduleState: GlobalScheduleState = .shared
 
     @State
     var performances: [PerformanceTimelineCard] = []
@@ -191,7 +206,7 @@ struct StageSchedulePage: View, Identifiable {
     let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "StageSchedulePage")
 
     func task() async {
-        guard let selectedSchedule = globalScheduleState.selectedSchedule
+        guard let selectedSchedule = selectedSchedule
         else { return }
 
         let query = ValueObservation.tracking { db in

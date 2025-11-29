@@ -13,7 +13,10 @@ import IssueReporting
 
 struct ManyStagesAtOnceView: View {
     var store: ScheduleFeature
-    var globalScheduleState: GlobalScheduleState = .shared
+
+    @ObservationIgnored
+    @SharedShim(.selectedSchedule)
+    var selectedSchedule = nil
 
     @State
     var performances: [PerformanceTimelineCard] = []
@@ -56,7 +59,7 @@ struct ManyStagesAtOnceView: View {
     let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "StageSchedulePage")
 
     func task() async {
-        guard let selectedSchedule = globalScheduleState.selectedSchedule
+        guard let selectedSchedule = selectedSchedule
         else { return }
 
         let musicEventID = store.musicEventID
@@ -112,7 +115,7 @@ struct ManyStagesAtOnceView: View {
                 selectedStage: .constant(nil)
             )
         }
-        .task(id: globalScheduleState.selectedSchedule) {
+        .task(id: selectedSchedule) {
             await withErrorReporting {
                 await self.task()
             }
