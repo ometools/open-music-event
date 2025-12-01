@@ -38,6 +38,7 @@ public class ArtistsList {
     func searchTextDidChange() async {
         let id = self.musicEventID
         let searchText = self.searchText
+        let defaultDatabase = self.defaultDatabase
         let query = ValueObservation.tracking { db in
             try Artist
                 .filter(Column("musicEventID") == id)
@@ -45,12 +46,12 @@ public class ArtistsList {
                 .order(Column("name").collating(.nocase))
                 .fetchAll(db)
         }
-
-        await withErrorReporting {
-            for try await artists in query.values() {
-                self.artists = artists
-            }
-        }
+//
+//        await withErrorReporting {
+//            for try await artists in query.values() {
+//                self.artists = artists
+//            }
+//        }
     }
 }
 
@@ -106,12 +107,12 @@ struct ArtistsListView: View {
             let query = ValueObservation.tracking { db in
                 let artist = try Artist.fetchOne(db, id: self.id)
                 let stages = try Queries.fetchPerformanceStages(for: self.id, from: db)
-                let isFavorite = try Artist.Preferences.fetchOne(db, key: self.id)?.isFavorite ?? false
-                return (artist, stages, isFavorite)
+//                let isFavorite = try Artist.Preferences.fetchOne(db, key: self.id)?.isFavorite ?? false
+                return (artist, stages, false)
             }
 
             await withErrorReporting {
-                for try await (artist, stages, favorite) in query.values() {
+                for try await (artist, stages, favorite) in query.values(in: database) {
                     self.artist = artist
                     self.performanceStages = stages
                     self.isFavorite = favorite

@@ -34,6 +34,9 @@ class ArtistDetail {
 
     let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "ArtistDetailPage")
 
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var db
+
     func task() async {
 
         let combinedQuery = ValueObservation.tracking { db in
@@ -44,7 +47,7 @@ class ArtistDetail {
         }
 
         await withErrorReporting {
-            for try await (artist, performances, preferences) in combinedQuery.values() {
+            for try await (artist, performances, preferences) in combinedQuery.values(in: db) {
                 logger.info("Selected Artist: \(artist.name) with: \(performances)")
                 self.artist = artist
                 self.performances = performances

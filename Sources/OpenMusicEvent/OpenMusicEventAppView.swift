@@ -30,8 +30,8 @@ public enum OME {
         logger.info("prepareDepedencies(enableFirebase: \(enableFirebase))")
 
         try Dependencies.prepareDependencies {
-            $0.defaultDatabase = try appDatabase()
             $0.omeLogger = LoggingLogger()
+            $0.userPreferencesDatabase = try OrganizationDatabaseManager.openUserPreferencesDatabase()
         }
 
         #if canImport(Nuke)
@@ -65,6 +65,7 @@ public enum OME {
 
 }
 
+
 // MARK: - Shared Organization Model
 @Observable
 @MainActor
@@ -72,41 +73,50 @@ class OrganizationViewer {
     var musicEventViewer: MusicEventViewer.Model?
 
     init() {
-        NotificationCenter.default.addObserver(
-            forName: .userSelectedToViewEvent,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard case .some(.viewEvent(let eventID)) = notification.info else {
-                reportIssue("Posted notification: userSelectedToViewEvent did not contain valid eventID")
-                return
-            }
-            MainActor.assumeIsolated {
-                self.handleSelectedEventIDNotification(eventID)
-            }
+
+    }
+
+    struct OrganizationSelection: FetchableRecord {
+        init(row: GRDB.Row) throws {
+            self.organizationID = row["organizationID"]
+            self.url = row["url"]
         }
 
-        NotificationCenter.default.addObserver(
-            forName: .userRequestedToExitEvent,
-            object: nil,
-            queue: .main
-        ) { _ in
-            MainActor.assumeIsolated {
-                self.handleExitEventNotification()
+        let organizationID: Organizer.ID
+        let url: URL
+    }
+
+
+    @ObservationIgnored
+    @Dependency(\.userPreferencesDatabase) var userPrefsDB
+    func onMount() async {
+        let observation = ValueObservation.tracking { db in
+            try AppState.fetchOne(db, key: 1)
+        }
+
+        await withErrorReporting {
+            for try await appState in observation.values(in: userPrefsDB) {
+                if let url = appState?.selectedOrganizationURL,
+                   let id = appState?.selectedEventID {
+                    try withDependencies {
+                        @Dependency(\.organizationDatabaseManager) var dbManager
+                        $0.defaultDatabase = try dbManager.openDatabase(at: url)
+                    } operation: {
+                        self.musicEventViewer = .init(eventID: id)
+                    }
+
+                } else {
+
+                }
             }
         }
     }
 
-    func loadSavedEvent() {
-        let eventIDString: String? = UserDefaults.standard.string(forKey: "selectedMusicEventID")
-        if let eventIDString {
-            self.musicEventViewer = .init(eventID: .init(eventIDString))
-        }
-    }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
+
 
     private func handleSelectedEventIDNotification(_ eventID: MusicEvent.ID) {
         let eventString = String(eventID.rawValue)
@@ -142,18 +152,19 @@ public struct OMEWhiteLabeledEntryPoint: View {
         var organizerLoadError: String?
 
         init(id: Organizer.ID, organization: OrganizationReference) {
-            self.organizerDetailStore = .init(id: id)
-            self.organizationReference = organization
+            fatalError()
+//            self.organizerDetailStore = .init(id: id)
+//            self.organizationReference = organization
         }
 
         @ObservationIgnored
         @Dependency(\.defaultDatabase) var database
 
         func onAppear() async {
-            organizationViewer.loadSavedEvent()
-
             self.isLoadingOrganizer = true
             self.organizerLoadError = nil
+
+            await self.organizationViewer.onMount()
 
             await withTaskGroup {
                 $0.addTask {
@@ -199,9 +210,6 @@ public struct OMEAppEntryPoint: View {
         var organizationViewer = OrganizationViewer()
         var organizerList = OrganizerListView.Model()
 
-        func onAppear() async {
-            organizationViewer.loadSavedEvent()
-        }
     }
 
     public var body: some View {
@@ -209,12 +217,16 @@ public struct OMEAppEntryPoint: View {
             NavigationStack {
                 OrganizerListView(store: store.organizerList)
             }
+            .onAppear {
+                Task {
+                    await store.organizationViewer.onMount()
+                }
+            }
 
             if let store = store.organizationViewer.musicEventViewer {
                 MusicEventViewer(store: store)
             }
         }
-        .onAppear { Task { await store.onAppear() } }
     }
 }
 
@@ -236,8 +248,6 @@ public struct OMEBundledEntryPoint: View {
         var loadError: String?
 
         func onAppear(folderURL: URL) async {
-            organizationViewer.loadSavedEvent()
-
             self.isLoading = true
             self.loadError = nil
 

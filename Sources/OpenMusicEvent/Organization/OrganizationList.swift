@@ -12,60 +12,116 @@ import GRDB
 import Dependencies
 import IssueReporting
 import CasePaths
+import OpenMusicEventParser
 
 struct OrganizerListView: View {
+
 
     @MainActor
     @Observable
     class Model {
         public init() {}
 
-        // The live list
-        var organizers: [Organizer] = []
+        public typealias Organization = Organizer.Draft
 
+
+        struct StoredOrganization: Sendable, Equatable, Identifiable {
+            var id: Organizer.ID? { organization.id }
+            var url: URL
+            var organization: Organization
+        }
+
+        var organizations: [StoredOrganization] = []
+
+        
 
         @CasePathable
         enum Destination {
-            case organizerDetail(Organizer.ID)
+            case organizationDetail(OrganizerDetailView.Store)
             case addOrganization(OrganizationFormView.Model)
         }
 
         var destination: Destination?
 
         @ObservationIgnored
-        @Dependency(\.defaultDatabase) var defaultDatabase
+        @Dependency(\.organizationDatabaseManager) var dbManager
 
         func onAppear() async {
+            await loadAvailableOrganizations()
+        }
 
-            let values = ValueObservation.tracking { db in
-                try Organizer.fetchAll(db)
-            }
-            .values(in: defaultDatabase)
+        func loadAvailableOrganizations() async {
+            
+            withErrorReporting {
+                // List all organizations from filesystem
+                let orgs = try dbManager.listOrganizations()
 
-            do {
-                for try await organizers in values {
-                    self.organizers = organizers
+                // Parse organizer info from YAML files (no database opening needed)
+                var organizations: [StoredOrganization] = []
+                for url in orgs {
+                    // Read and parse organizer-info.yml
+                    do {
+                        let config = try OrganizerConfiguration.fileTree.read(from: url)
+
+                        organizations.append(
+                            .init(
+                                url: url,
+                                organization: config.info
+                            )
+                        )
+                    } catch {
+                        reportIssue("failed to parse organizer-info.yml at \(url)")
+                    }
+
                 }
-            } catch {
-                reportIssue(error)
+                self.organizations = organizations
             }
         }
 
+        func didTapOrganization(_ organization: StoredOrganization) {
+            withErrorReporting {
+                try withDependencies {
+                    @Dependency(\.organizationDatabaseManager) var dbManager
+                    $0.defaultDatabase = try dbManager.openDatabase(at: organization.url)
+                } operation: {
 
-        func didTapOrganizer(id: Organizer.ID) {
-            self.destination = .organizerDetail(id)
+                    self.destination = .organizationDetail(
+                        OrganizerDetailView.Store(for: organization)
+                    )
+                }
+            }
         }
 
         func didTapAddOrganizerButton() {
+            let addOrganization = OrganizationFormView.Model()
+            addOrganization.didFinishSaving = {
+                print("FinishedSaving")
+                self.destination = nil
+                Task {
+                    await self.loadAvailableOrganizations()
+                }
+            }
             self.destination = .addOrganization(.init())
         }
 
-        func didDeleteOrganization(_ indices: IndexSet) {
-            _ = withErrorReporting {
-              try defaultDatabase.write { db in
-                  try Organizer.deleteAll(db, ids: indices.map { organizers[$0].id })
-              }
-            }
+        func didDeleteOrganization(_ indices: IndexSet) async {
+//            Task {
+//                await withErrorReporting {
+//                    let orgsToDelete = indices.map { organizations[$0] }
+//
+//                    for item in orgsToDelete {
+//                        // Delete entire organization folder
+//                        try FileManager.default.removeItem(at: item.filesPath)
+//                    }
+//
+//                    // Reload list
+//                    await loadAvailableOrganizations()
+//                }
+//            }
+        }
+
+        func onPullToRefresh() async {
+            await self.loadAvailableOrganizations()
         }
     }
 
@@ -73,28 +129,32 @@ struct OrganizerListView: View {
 
     public var body: some View {
         Group {
-            if !store.organizers.isEmpty {
-                List {
-                    ForEach(store.organizers) { org in
-                        NavigationLink {
-                            OrganizerDetailView(store: .init(id: org.id))
+            List {
+                if !store.organizations.isEmpty {
+                    ForEach(store.organizations) { item in
+                        NavigationLinkButton {
+                            store.didTapOrganization(item)
                         } label: {
-                            Row(org: org)
+                            Row(org: item.organization)
                         }
                     }
                     .onDelete { indexSet in
-                        store.didDeleteOrganization(indexSet)
+                        Task {
+                            await store.didDeleteOrganization(indexSet)
+                        }
                     }
+                } else {
+                    ContentUnavailableView(
+                        "No Organizations Yet",
+                        systemImage: "folder.badge.plus",
+                        description: Text("Use the + button in the top right, and add a link to any Open Music Event directory")
+                    )
                 }
-                .listStyle(.plain)
 
-            } else {
-//                ContentUnavailableView(
-//                    "No Organizations Yet",
-//                    systemImage: "folder.badge.plus",
-//                    description: Text("Use the + button in the top right, and add a link to any Open Music Event directory")
-//                )
-                Text("Content Unavailable")
+            }
+            .listStyle(.plain)
+            .refreshable {
+                await self.store.onPullToRefresh()
             }
         }
         .onAppear { Task { await store.onAppear() }}
@@ -110,10 +170,16 @@ struct OrganizerListView: View {
                     .navigationTitle("Add Organization")
             }
         }
+        .navigationDestination(
+            item: $store.destination.organizationDetail,
+            destination: {
+                OrganizerDetailView(store: $0)
+            }
+        )
     }
 
     struct Row: View {
-        var org: Organizer
+        var org: Organizer.Draft
 
         var body: some View {
             HStack {
@@ -123,16 +189,17 @@ struct OrganizerListView: View {
 
                 VStack(alignment: .leading) {
                     Text(org.name)
-                    Text(org.url.absoluteString)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if let url = org.url {
+                            Text(url.absoluteString)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .foregroundStyle(Color.primary)
-            .onAppear {
-                print(org)
-            }
         }
     }
 }

@@ -254,14 +254,14 @@ public struct PerformanceDetailView: View {
             return (loadedPerformance, loadedArtists)
         }
         
-        await withErrorReporting {
-            for try await (loadedPerformance, loadedArtists) in query.values() {
-                if let loadedPerformance {
-                    performance = loadedPerformance
-                }
-                performingArtists = loadedArtists
-            }
-        }
+//        await withErrorReporting {
+//            for try await (loadedPerformance, loadedArtists) in query.values() {
+//                if let loadedPerformance {
+//                    performance = loadedPerformance
+//                }
+//                performingArtists = loadedArtists
+//            }
+//        }
     }
 
     public var body: some View {

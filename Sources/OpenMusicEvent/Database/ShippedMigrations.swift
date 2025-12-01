@@ -92,7 +92,8 @@ extension DatabaseMigrator {
                 "description" TEXT,
                 "startTime" TEXT NOT NULL,
                 "endTime" TEXT NOT NULL,
-            
+                "performanceRecordings" TEXT,
+
                 FOREIGN KEY("stageID") REFERENCES "stages"("id") ON DELETE CASCADE,
                 FOREIGN KEY("scheduleID") REFERENCES "schedules"("id") ON DELETE CASCADE
             ) STRICT;
@@ -144,27 +145,6 @@ extension DatabaseMigrator {
             """).execute(db)
         }
 
-        self.registerMigration("Create preferences tables") { db in
-            try sql("""
-            CREATE TABLE artistPreferences(
-                "artistID" TEXT PRIMARY KEY NOT NULL,
-                "isFavorite" INTEGER NOT NULL DEFAULT 0,
-            
-                FOREIGN KEY("artistID") REFERENCES "artists" ON DELETE CASCADE
-            ) STRICT;
-            """)
-            .execute(db)
-
-            try sql("""
-            CREATE TABLE performancePreferences(
-                "performanceID" TEXT PRIMARY KEY NOT NULL,
-                "seen" INTEGER NOT NULL DEFAULT 0,
-            
-                FOREIGN KEY("performanceID") REFERENCES "performances" ON DELETE CASCADE
-            ) STRICT;
-            """)
-            .execute(db)
-        }
-
+        
     }
 }

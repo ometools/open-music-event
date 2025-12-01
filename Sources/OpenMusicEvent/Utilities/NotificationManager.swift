@@ -156,7 +156,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
             }
         }
 
-        try await self.updateTopicSubscription("data-updates", to: .subscribed)
+//        try await self.updateTopicSubscription("data-updates", to: .subscribed)
     }
 
     // MARK: - MessagingDelegate

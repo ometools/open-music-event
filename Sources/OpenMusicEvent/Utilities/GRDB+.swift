@@ -157,16 +157,16 @@ extension ExternalPlatform.Asset: DatabaseValueConvertible {
 //        }
 //    }
 //}
-
-extension ValueObservation {
-    public func values(
-        scheduling scheduler: some ValueObservationScheduler = .task,
-        bufferingPolicy: AsyncValueObservation<Reducer.Value>.BufferingPolicy = .unbounded)
-    -> AsyncValueObservation<Reducer.Value>
-    where Reducer: ValueReducer
-    {
-        @Dependency(\.defaultDatabase) var defaultDatabase
-
-        return self.values(in: defaultDatabase, scheduling: scheduler, bufferingPolicy: bufferingPolicy)
-    }
-}
+//
+//extension ValueObservation {
+//    public func values(
+//        scheduling scheduler: some ValueObservationScheduler = .task,
+//        bufferingPolicy: AsyncValueObservation<Reducer.Value>.BufferingPolicy = .unbounded)
+//    -> AsyncValueObservation<Reducer.Value>
+//    where Reducer: ValueReducer
+//    {
+//        @Dependency(\.defaultDatabase) var defaultDatabase
+//
+//        return self.values(in: defaultDatabase, scheduling: scheduler, bufferingPolicy: bufferingPolicy)
+//    }
+//}

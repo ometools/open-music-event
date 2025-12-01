@@ -75,10 +75,8 @@ struct LoadingScreen: View {
     }
 }
 
-public struct OrganizerDetailView: View {
-    public init(organizerID: Organizer.ID) {
-        self.store = Store(id: organizerID)
-    }
+
+public struct OrganizationDetailView: View {
 
     public init(store: Store) {
         self.store = store
@@ -88,59 +86,58 @@ public struct OrganizerDetailView: View {
     @MainActor
     public class Store {
         let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "OrganizerDetails")
+        typealias Organization = OrganizerListView.Model.StoredOrganization
 
-        public init(id: Organizer.ID) {
-            self.id = id
+        init(for org: Organization) {
+            self.organization = org
         }
 
-        public let id: Organizer.ID
-
-        public var organizer: Organizer?
-        var events: [MusicEvent] = []
+        let organization: Organization
 
         public var showingLoadingScreen: Bool = false
 
+        @ObservationIgnored
+        @Dependency(\.userPreferencesDatabase) var userPrefsDB
         public func didTapEvent(id: MusicEvent.ID) {
-            logger.info("didTapEvent: \(id.rawValue)")
-            NotificationCenter.default.post(
-                name: .userSelectedToViewEvent,
-                info: .viewEvent(eventID: id)
-            )
+            withErrorReporting {
+                try userPrefsDB.write { db in
+                    // Fetch or create the singleton row
+                    var appState = try AppState.fetchOne(db, key: 1) ?? AppState()
+
+                    // Update the selection
+                    appState.selectedEventID = id
+                    appState.selectedOrganizationURL = self.organization.url
+
+                    // Save (insert or update)
+                    try appState.save(db)
+                }
+            }
         }
 
         public func onPullToRefresh() async  {
-            guard let organizer
-            else {
-                reportIssue()
-                return
-            }
 
-            await withErrorReporting {
-                try await downloadAndStoreOrganizer(from: .zipURL(organizer.url))
-            }
+
+//            await withErrorReporting {
+//                try await downloadAndStoreOrganizer(from: .zipURL(organizer.url))
+//            }
         }
 
-        struct OrganizerEvents {
-            let info: Organizer
-            let events: [MusicEvent]
-        }
+        var events: [MusicEvent] = []
+
+        @ObservationIgnored
+        @Dependency(\.defaultDatabase) var database
+
         public func onAppear() async {
-            @Dependency(\.defaultDatabase) var database
 
             let query = ValueObservation.tracking { db in
-                let org = try Organizer.fetchOne(db, id: self.id)
-
-                let events = try MusicEvent
-                    .filter(Column("organizerID") == self.id)
+                try MusicEvent
+                    .filter(Column("organizerID") == self.organization.id)
                     .order(Column("startTime").desc)
                     .fetchAll(db)
-
-                return (org, events)
             }
 
             await withErrorReporting {
-                for try await (organizer, events) in query.values(in: database) {
-                    self.organizer = organizer
+                for try await events in query.values(in: database) {
                     self.events = events
                 }
             }
@@ -181,61 +178,60 @@ public struct OrganizerDetailView: View {
         }
     }
 
+    var organizer: Organizer.Draft {
+        store.organization.organization
+    }
 
     public var body: some View {
         Group {
-            if let organizer = store.organizer {
-                StretchyHeaderList(
-                    title: Text(organizer.name),
-                    stretchyContent: {
-                        OrganizerImageView(organizer: organizer)
-                    },
-                    listContent: {
-                        if !currentEvents.isEmpty {
-                            Section("Happening Now") {
-                                ForEach(currentEvents) { event in
-                                    NavigationLinkButton {
-                                        store.didTapEvent(id: event.id)
-                                    } label: {
-                                        EventRowView(event: event)
-                                    }
-                                }
-                            }
-                        }
-
-                        if !upcomingEvents.isEmpty {
-                            Section("Upcoming Events") {
-                                ForEach(upcomingEvents) { event in
-                                    NavigationLinkButton {
-                                        store.didTapEvent(id: event.id)
-                                    } label: {
-                                        EventRowView(event: event)
-                                    }
-                                }
-                            }
-                        }
-
-                        if !previousEvents.isEmpty {
-                            Section("Previous Events") {
-                                ForEach(previousEvents) { event in
-                                    NavigationLinkButton {
-                                        store.didTapEvent(id: event.id)
-                                    } label: {
-                                        EventRowView(event: event)
-                                    }
+            StretchyHeaderList(
+                title: Text(organizer.name),
+                stretchyContent: {
+                    OrganizerImageView(organizer: organizer)
+                },
+                listContent: {
+                    if !currentEvents.isEmpty {
+                        Section("Happening Now") {
+                            ForEach(currentEvents) { event in
+                                NavigationLinkButton {
+                                    store.didTapEvent(id: event.id)
+                                } label: {
+                                    EventRowView(event: event)
                                 }
                             }
                         }
                     }
-                )
-                .refreshable { await store.onPullToRefresh() }
-                .listStyle(.plain)
-            } else {
-                LoadingScreen()
-            }
+
+                    if !upcomingEvents.isEmpty {
+                        Section("Upcoming Events") {
+                            ForEach(upcomingEvents) { event in
+                                NavigationLinkButton {
+                                    store.didTapEvent(id: event.id)
+                                } label: {
+                                    EventRowView(event: event)
+                                }
+                            }
+                        }
+                    }
+
+                    if !previousEvents.isEmpty {
+                        Section("Previous Events") {
+                            ForEach(previousEvents) { event in
+                                NavigationLinkButton {
+                                    store.didTapEvent(id: event.id)
+                                } label: {
+                                    EventRowView(event: event)
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+            .refreshable { await store.onPullToRefresh() }
+            .listStyle(.plain)
         }
         .task { await store.onAppear() }
-        .animation(.default, value: store.organizer == nil)
+//        .animation(.default, value: store.organizer == nil)
         .animation(.default, value: store.showingLoadingScreen)
     }
 

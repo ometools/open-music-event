@@ -19,9 +19,11 @@ struct MusicEventViewer: View {
 
         @ObservationIgnored
         @Dependency(\.imagePrefetchClient) var imagePrefetchClient
-        
+
+        @ObservationIgnored
+        @Dependency(\.defaultDatabase) var database
+
         func onAppear() async {
-            @Dependency(\.defaultDatabase) var database
             self.eventFeatures = nil
             self.isLoading = true
             let musicEventID = self.id
@@ -50,13 +52,15 @@ struct MusicEventViewer: View {
                         guard let organizer
                         else { reportIssue(); return }
 
-                        self.eventFeatures = MusicEventFeatures(
-                            event,
-                            organizer,
-                            artists: artists,
-                            stages: stages,
-                            schedules: schedules
-                        )
+                        withDependencies(from: self) {
+                            self.eventFeatures = MusicEventFeatures(
+                                event,
+                                organizer,
+                                artists: artists,
+                                stages: stages,
+                                schedules: schedules
+                            )
+                        }
                         self.isLoading = false
                     }
                 }
@@ -112,7 +116,7 @@ extension DependencyValues {
 @Observable
 public class MusicEventFeatures: Identifiable {
     public enum Feature: String, Hashable, Codable, Sendable {
-        case schedule, artists, contactInfo, communications, siteMap, location, explore, workshops, notifications, about, more
+        case schedule, artists, contactInfo, communications, siteMap, location, explore, workshops, notifications, about, more, edit
     }
 
 
@@ -151,27 +155,28 @@ public class MusicEventFeatures: Identifiable {
         stages: [Stage],
         schedules: [Schedule]
     ) {
-        @Dependency(\.musicEventID) var musicEventID
+
         self.organizer = organizer
 
         self.artists = ArtistsList()
         self.communications = CommunicationsFeatureView.Store()
+        
         self.notifications = NotificationPreferencesView.Store()
 
         self.shouldShowArtistImages = true
 
-        if !schedules.isEmpty {
-            self.schedule = ScheduleFeature(category: nil)
-            self.workshopsSchedule = ScheduleFeature(category: "workshop")
-        }
-
-        if !event.contactNumbers.isEmpty {
-            self.contactInfo = ContactInfoFeature()
-        }
-
-        if let location = event.location {
-            self.location = LocationFeature(location: location)
-        }
+//        if !schedules.isEmpty {
+//            self.schedule = ScheduleFeature(category: nil)
+//            self.workshopsSchedule = ScheduleFeature(category: "workshop")
+//        }
+//
+//        if !event.contactNumbers.isEmpty {
+//            self.contactInfo = ContactInfoFeature()
+//        }
+//
+//        if let location = event.location {
+//            self.location = LocationFeature(location: location)
+//        }
 
 
         self.event = event
@@ -245,14 +250,18 @@ public class MusicEventFeatures: Identifiable {
                     .fetchOne(db)
             }
 
-//            await MainActor.run {
-//                self.selectedFeature = .communications
-//
-//                self.communications?.destination = .init(channelID)
-//
-//                self.communications?.destination?.destination = post
-//            }
+            //            await MainActor.run {
+            //                self.selectedFeature = .communications
+            //
+            //                self.communications?.destination = .init(channelID)
+            //
+            //                self.communications?.destination?.destination = post
+            //            }
         }
+    }
+
+    var showingEdit: Bool {
+        true
     }
 }
 
@@ -308,7 +317,7 @@ public struct MusicEventFeaturesView: View {
                 }
                 .tabItem {
                     Label {
-                        Text("Updates")
+                        Text("Comms")
                     } icon: {
                         Icons.megaphone
                     }
@@ -317,25 +326,14 @@ public struct MusicEventFeaturesView: View {
             }
 
             NavigationStack {
+                EditsView()
+            }
+
+            NavigationStack {
                 MoreView(store: store)
             }
             .tabItem { Label("More", image: Icons.ellipsis) }
             .tag(MusicEventFeatures.Feature.more)
-//            if let workshops = store.workshops {
-//                NavigationStack {
-//                    Text("TODO: Workshops")
-//                }
-//                .tabItem { Label("Workshops", systemImage: "figure.mind.and.body") }
-//                .tag(MusicEventFeatures.Feature.workshops)
-//            }
-//
-
-//
-//            NavigationStack {
-//                Text("TODO: Notifications")
-//            }
-//            .tabItem { Label("Notifications", systemImage: Icons.notifications) }
-//            .tag(MusicEventFeatures.Feature.notifications)
         }
         .task { await store.onAppear() }
         .environment(\.showArtistImages, store.shouldShowArtistImages)
@@ -361,28 +359,9 @@ extension EnvironmentValues {
 }
 #endif
 
-
-extension OME {
-    enum EditingMode {
-        case readOnly
-        case editing
-    }
-}
-
-extension EnvironmentValues {
-    enum EditingModeKey: EnvironmentKey {
-        static let defaultValue: OME.EditingMode = .readOnly
-    }
-
-    var editingMode: OME.EditingMode {
-        get { self[EditingModeKey.self] }
-        set { self[EditingModeKey.self] = newValue }
-    }
-}
-
-
 struct MoreView: View {
     let store: MusicEventFeatures
+
 
     var body: some View {
         List {
@@ -432,6 +411,16 @@ struct MoreView: View {
                     Label("About", image: Icons.infoCircle)
                 }
             }
+
+
+            if store.showingEdit {
+                Feature(.edit) {
+                    EditsView()
+                } label: {
+                    Label("Edit", image: Icons.infoCircle)
+                }
+            }
+
 
         }
         .navigationTitle("More")
@@ -520,9 +509,6 @@ enum FeatureLocationEnvironmentKey: EnvironmentKey {
     static let defaultValue: FeatureLocation = .tabBar
 }
 
-#if canImport(UIKit)
-
-#endif
 extension EnvironmentValues {
     var featureLocation: FeatureLocation {
         get {
@@ -568,6 +554,7 @@ struct Feature<FeatureView: View, FeatureLabelView: View>: View {
 
 
 
+
 //
 //#Preview("About App") {
 //
@@ -579,3 +566,4 @@ struct Feature<FeatureView: View, FeatureLabelView: View>: View {
 //        AboutAppView(store: .init())
 //    }
 //}
+

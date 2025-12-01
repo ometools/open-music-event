@@ -1,32 +1,3 @@
-//
-//  OrganizationLoader.swift
-//  open-music-event
-//
-//  Created by Woodrow Melling on 5/7/25.
-//
-//  ORGANIZATION DATABASE INSERTION COMPLEXITY - CURRENT ASSUMPTIONS:
-//
-//  ## CRITICAL ASSUMPTIONS (These should be no user data stored in org tables):
-//  1. Organization tables contain ONLY source data from organization configuration files
-//  2. User preferences/state are stored in separate "Preferences" tables (artistPreferences, performancePreferences, etc.)
-//  3. Any user-generated data must NOT be stored alongside organization data
-//
-//  ## CURRENT COMPLEXITY ISSUES:
-//  1. Manual selective deletion for each entity level (events, artists, stages, schedules, performances, posts)
-//  2. Complex ID generation using stabilizedBy pattern that's brittle and hard to debug
-//  3. Nested loops with error-prone foreign key relationships
-//  4. Preservation logic for user preferences scattered throughout insertion
-//  5. No clear separation between user data and organization data
-//  6. Inefficient: queries existing data multiple times for each entity type
-//
-//  ## PROPOSED SIMPLIFICATION STRATEGY:
-//  1. Create clear separation between organization data and user data
-//  2. Use transaction-based full replacement with preference preservation
-//  3. Simplify ID generation with consistent, debuggable patterns
-//  4. Extract insertion logic into dedicated service classes
-//  5. Add comprehensive validation and error handling
-//
-
 import OpenMusicEventParser
 import Dependencies
 import DependenciesMacros
@@ -146,6 +117,7 @@ private func getUnzippedDirectory(from zipURL: URL) throws -> URL {
     return try findOrganizationInfoDirectory(startingFrom: zipURL, currentDepth: 0, maxDepth: 5)
 }
 
+
 private func findOrganizationInfoDirectory(startingFrom url: URL, currentDepth: Int, maxDepth: Int) throws -> URL {
     // Safety check: prevent infinite recursion
     guard currentDepth <= maxDepth else {
@@ -232,6 +204,9 @@ extension OmeID where RawValue == String {
             }.joined(separator: "/"))
     }
 }
+
+
+
 
 
 public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringConvertible {
@@ -322,6 +297,117 @@ func downloadAndStoreOrganizer(from reference: OrganizationReference) async thro
     try await notificationManager.ensureTopicsAreSubscribed()
 }
 
+/// Downloads and stores organization using per-org database architecture
+func downloadAndStoreOrganizationV2(from reference: OrganizationReference) async throws -> DatabaseQueue {
+    @Dependency(\.organizationDatabaseManager) var dbManager
+
+    // Download, parse, and get source files path
+    let (config, sourceFilesPath) = try await downloadAndParseWithFiles(from: reference)
+
+    guard let organizerID = config.info.id else {
+        struct MissingOrganizerIDError: Error {}
+        throw MissingOrganizerIDError()
+    }
+
+    // Determine branch from reference
+    let branch: String
+    switch reference {
+    case .repository(let repo):
+        switch repo.version {
+        case .branch(let branchName):
+            branch = branchName
+        case .version(let version):
+            branch = "v\(version)"
+        }
+    default:
+        branch = "main"
+    }
+
+    // Create final organization folder path
+    let orgPath = OrganizationDatabaseManager.organizationsDirectory
+        .appendingPathComponent("\(organizerID.rawValue)-\(branch)")
+
+    // Move downloaded files to final location
+    let fileManager = FileManager.default
+
+    // Ensure parent "Open Music Event" directory exists
+    try fileManager.createDirectory(
+        at: OrganizationDatabaseManager.organizationsDirectory,
+        withIntermediateDirectories: true
+    )
+
+    // Remove existing org folder if it exists
+    if fileManager.fileExists(atPath: orgPath.path()) {
+        try fileManager.removeItem(at: orgPath)
+    }
+
+    // Move temp files to final location
+    try fileManager.moveItem(at: sourceFilesPath, to: orgPath)
+    // Open organization database (creates .ome/org.db)
+    let orgDatabase = try dbManager.openDatabase(at: orgPath)
+
+    // Insert configuration into org database
+    try await OrganizationInsertionService.insert(config, into: orgDatabase)
+
+    return orgDatabase
+}
+
+/// Downloads and parses organization, returning config and source files path
+/// Caller is responsible for moving/cleaning up the source files
+private func downloadAndParseWithFiles(from reference: OrganizationReference) async throws -> (OrganizerConfiguration, URL) {
+    let urlHash = String(reference.zipURL.absoluteString.stableHash)
+
+    #if os(iOS)
+    let unzippedURL = URL.documentsDirectory
+        .appending(path: "ome-zips")
+        .appending(path: urlHash)
+    #elseif os(Android)
+    let unzippedURL = URL.applicationSupportDirectory
+        .appending(path: "ome-zips")
+        .appending(path: urlHash)
+    #endif
+
+    let fileManager = FileManager.default
+    try fileManager.createDirectory(at: unzippedURL, withIntermediateDirectories: true)
+    try fileManager.clearDirectory(unzippedURL)
+
+    // Download zip
+    let (downloadURL, response) = try await URLSession.shared.download(from: reference.zipURL)
+
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+        struct BadRequest: Error {}
+        throw BadRequest()
+    }
+
+    // Unzip
+    @Dependency(\.zipClient) var zipClient
+    try zipClient.unzipFile(source: downloadURL, destination: unzippedURL)
+
+    // Find directory containing organizer-info
+    let sourceFilesPath = try findOrganizationInfoDirectory(startingFrom: unzippedURL, currentDepth: 0, maxDepth: 5)
+
+    // Parse configuration
+    var config = try withDependencies {
+        var utcCalendar = Calendar.current
+        utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+        $0.calendar = utcCalendar
+    } operation: {
+        try OrganizerConfiguration.fileTree.read(from: sourceFilesPath)
+    }
+
+    // Set URL from reference
+    switch reference {
+    case .repository(let repository):
+        config.info.url = repository.zipURL
+    case .zipURL(let zipURL):
+        config.info.url = zipURL
+    case .bundledDirectory(let directoryURL):
+        config.info.url = directoryURL
+    }
+
+    return (config, sourceFilesPath)
+}
+
 func loadAndStoreLocalOrganizer(from folderURL: URL) async throws {
     @Dependency(\.defaultDatabase) var defaultDatabase
     @Dependency(\.notificationManager) var notificationManager
@@ -345,23 +431,30 @@ func loadAndStoreLocalOrganizer(from folderURL: URL) async throws {
 
 enum OrganizationInsertionService {
 
-    /// Inserts organization configuration into database with simplified, more maintainable approach
+     /// Inserts organization configuration into database with simplified, more maintainable approach
     /// - Preserves user preferences by backing them up and restoring after insertion
     /// - Uses full replacement strategy within transactions for data integrity
     /// - Separates concerns between organization data and user preferences
     static func insert(_ config: OrganizerConfiguration, url: URL, into database: any DatabaseWriter) async throws {
-        
+
         try await database.write { db in
             let userPreferences = try preserveUserPreferences(from: db)
-            
+
             // STEP 2: Clean insert of organization data (simple full replacement)
             try insertOrganizationData(config, url: url, into: db)
-            
+
             // STEP 3: Restore user preferences that still have valid references
             try restoreUserPreferences(userPreferences, into: db)
         }
     }
-    
+
+    /// Inserts organization data into a per-org database (no user preferences handling)
+    static func insert(_ config: OrganizerConfiguration, into database: any DatabaseWriter) async throws {
+        try await database.write { db in
+            try insertOrganizationDataOnly(config, into: db)
+        }
+    }
+
     /// Preserves all user preference data before organization data replacement
     private static func preserveUserPreferences(from db: Database) throws -> UserPreferences {
         UserPreferences(
@@ -374,11 +467,11 @@ enum OrganizationInsertionService {
     
     /// Inserts organization data using simplified full-replacement approach
     private static func insertOrganizationData(_ config: OrganizerConfiguration, url: URL, into db: Database) throws {
-        
+
         // Insert organizer info
         var organizerInfo = config.info
         organizerInfo.url = url
-        
+
         guard let organizerID = organizerInfo.id else {
             struct MissingOrganizerIDError: Error {}
             throw MissingOrganizerIDError()
@@ -392,7 +485,25 @@ enum OrganizationInsertionService {
             try insertEvent(event, organizerID: organizerID, into: db)
         }
     }
-    
+
+    /// Inserts organization data into per-org database (no URL needed, no preferences)
+    private static func insertOrganizationDataOnly(_ config: OrganizerConfiguration, into db: Database) throws {
+
+        guard let organizerID = config.info.id else {
+            struct MissingOrganizerIDError: Error {}
+            throw MissingOrganizerIDError()
+        }
+
+        // Insert organizer info (URL already set from parsing)
+        try Organizer.deleteOne(db, id: organizerID)
+        try config.info.upsert(db)
+
+        // Insert all events and their related data
+        for event in config.events {
+            try insertEvent(event, organizerID: organizerID, into: db)
+        }
+    }
+
     /// Inserts a single event and all its related data
     private static func insertEvent(_ event: EventConfiguration, organizerID: Organizer.ID, into db: Database) throws {
         

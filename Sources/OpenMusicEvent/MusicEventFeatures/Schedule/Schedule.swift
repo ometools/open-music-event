@@ -43,6 +43,8 @@ public class ScheduleFeature {
         self.category = category
 
         self.singleStageAtOnceFeature = .init(category: category)
+
+        
     }
 
     var category: Stage.Category?
@@ -78,25 +80,31 @@ public class ScheduleFeature {
     @Dependency(\.musicEventID) var musicEventID
 
     public func task() async {
-        let musicEventID = musicEventID
-
-        let query = ValueObservation.tracking { db in
-            try Schedule
-                .filter(Column("musicEventID") == musicEventID)
-                .order(Column("startTime"))
-                .fetchAll(db)
-        }
 
         await withErrorReporting {
-            for try await schedules in query.values() {
+            let musicEventID = self.musicEventID
+
+            let query = ValueObservation.tracking { db in
+                try Schedule
+                    .filter(Column("musicEventID") == musicEventID)
+                    .order(Column("startTime"))
+                    .fetchAll(db)
+            }
+
+            for try await schedules in query.values(in: self.database) {
                 self.schedules = schedules
                 logger.log("schedules: \(schedules)")
-//                if selectedSchedule == nil || !schedules.contains(where: { $0.id == selectedSchedule }) {
-//                    selectedSchedule.withLock { $0 = } = schedules.first?.id
-//                }
+                //                if selectedSchedule == nil || !schedules.contains(where: { $0.id == selectedSchedule }) {
+                //                    selectedSchedule.withLock { $0 = } = schedules.first?.id
+                //                }
             }
         }
+
     }
+
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var database
+
 }
 
 

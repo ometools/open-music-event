@@ -88,13 +88,13 @@ struct ManyStagesAtOnceView: View {
 
             return (performances, stages)
         }
-
-        await withErrorReporting {
-            for try await (performances, stages) in query.values() {
-                self.performances = performances
-                self.stages = stages
-            }
-        }
+//
+//        await withErrorReporting {
+//            for try await (performances, stages) in query.values() {
+//                self.performances = performances
+//                self.stages = stages
+//            }
+//        }
     }
 
     

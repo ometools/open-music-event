@@ -38,9 +38,10 @@ struct OrganizationFormView: View {
         var versionText = ""
 
         var isLoading = false
-        var dismiss = ViewTrigger()
         var errorMessage: String?
 
+
+        var didFinishSaving: (() -> Void)? = {}
 
         var repositoryLocation: OrganizationReference? {
             guard let url = URL(string: githubURL)
@@ -71,19 +72,18 @@ struct OrganizationFormView: View {
 
             self.isLoading = true
             do {
-                try await downloadAndStoreOrganizer(from: repositoryLocation)
+                try await downloadAndStoreOrganizationV2(from: repositoryLocation)
             } catch {
                 self.errorMessage = error.localizedDescription
                 reportIssue(error)
             }
-            self.dismiss.trigger()
             self.isLoading = false
 
+            self.didFinishSaving?()
         }
     }
 
     @Bindable var store = Model()
-    @Environment(\.dismiss) var dismiss
 
     var body: some View {
         Form {
@@ -136,9 +136,6 @@ struct OrganizationFormView: View {
                     Text("Add")
                 }
             }
-        }
-        .onTrigger(of: store.dismiss) { @MainActor in
-            dismiss()
         }
     }
 }

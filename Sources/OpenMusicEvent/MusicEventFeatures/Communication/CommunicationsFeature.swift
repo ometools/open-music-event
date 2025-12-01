@@ -72,7 +72,7 @@ public struct CommunicationsFeatureView: View {
         @CasePathable
         enum Destination {
             case channel(CommunicationChannelView.Store)
-            case createChannel
+            case createChannel(EditChannelView.Store)
         }
 
         var destination: Destination?
@@ -85,9 +85,14 @@ public struct CommunicationsFeatureView: View {
 
         func didTapCreateChannel() {
             withDependencies(from: self) {
-                self.destination = .createChannel
+                self.destination = .createChannel(
+                    .init(dismiss: {
+                        self.destination = nil
+                    }
+                 ))
             }
         }
+
 
         func task() async {
             let id = musicEventID
@@ -106,10 +111,13 @@ public struct CommunicationsFeatureView: View {
                 }
             }
         }
+
+        var showCreateChannelButton: Bool {
+            true
+        }
     }
 
     @Bindable var store: Store
-    @Environment(\.editingMode) var editingMode
 
     public var body: some View {
         List {
@@ -129,7 +137,7 @@ public struct CommunicationsFeatureView: View {
             }
         }
         .toolbar {
-            if editingMode == .editing {
+            if store.showCreateChannelButton {
                 Button("Create Channel", systemImage: "plus") {
                     store.didTapCreateChannel()
                 }
@@ -138,8 +146,108 @@ public struct CommunicationsFeatureView: View {
         .navigationDestination(item: $store.destination.channel) {
             CommunicationChannelView(store: $0)
         }
+        .sheet(
+            item: $store.destination.createChannel,
+            content: CreateChannelView.init(store:)
+        )
         .navigationTitle("Updates")
         .task { await store.task() }
+    }
+
+    struct CreateChannelView: View {
+        let store: EditChannelView.Store
+        var body: some View {
+            NavigationStack {
+                EditChannelView(store: store)
+                    .navigationTitle("Create Channel")
+                    .toolbar {
+                        Button("Create", systemImage: "checkmark") {
+                            store.didTapSaveChannel()
+                        }
+                    }
+            }
+        }
+    }
+
+
+    struct EditChannelView: View {
+        @Observable
+        @MainActor
+        class Store: Identifiable {
+            @ObservationIgnored
+            @Dependency(\.defaultDatabase) var defaultDatabase
+
+            init(
+                channel: CommunicationChannel.Draft? = nil,
+                dismiss: @escaping () -> Void
+            ) {
+                @Dependency(\.musicEventID) var musicEventID
+                self.channel = channel ?? CommunicationChannel.Draft(
+                    musicEventID: musicEventID,
+                    name: "General",
+                    description: "for all the testing stuff that I do",
+                    defaultNotificationState: .subscribed,
+                    notificationsRequired: false
+                )
+                self.dismiss = dismiss
+            }
+
+            var channel: CommunicationChannel.Draft
+
+            var dismiss: () -> Void
+
+
+
+            func didTapSaveChannel() {
+                withErrorReporting {
+                    if channel.id == nil {
+                        channel.id = .init(channel.name.replacingOccurrences(of: " ", with: ""))
+                    }
+                    try defaultDatabase.write { db in
+                        try channel.upsert(db)
+                    }
+                }
+
+                self.dismiss()
+            }
+
+        }
+
+        @Bindable var store: Store
+
+        @SharedShim(.appStorage("efaults-editChannelView-defaultsSectionExpanded"))
+        var defaultsSectionExpanded: Bool = false
+
+        var body: some View {
+            Form {
+                Section("Title") {
+                    TextField("General...", text: $store.channel.name)
+                }
+
+
+                Section("Description") {
+                    TextField("Describe the purpose of the channel", text: $store.channel.description, axis: .vertical)
+                }
+
+                DisclosureGroup("Defaults", isExpanded: Binding($defaultsSectionExpanded)) {
+                    Picker("Notifications", selection: $store.channel.defaultNotificationState ) {
+                        ForEach(CommunicationChannel.DefaultNotificationState.allCases, id: \.self) {
+                            Text($0.rawValue.capitalized)
+                        }
+                    }
+
+                    if store.channel.defaultNotificationState == .subscribed {
+                        VStack(alignment: .leading) {
+                            Toggle("Require Notifications", isOn: $store.channel.notificationsRequired)
+                            Text("Users can always opt out of notifications through the operating system. Delivery of notifications cannot be guaranteed, and should not be relied upon as the sole source of critical information")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                    }
+                }
+            }
+        }
     }
 
     struct Row: View {
@@ -408,7 +516,15 @@ public struct CommunicationChannelView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
 }
+
+struct CreatePostView: View {
+    var body: some View {
+        Text("Create Post View")
+    }
+}
+
 
 struct PostDetailView: View {
     let post: CommunicationChannel.Post
@@ -457,16 +573,16 @@ struct PostDetailView: View {
 //
 //
 //
-//#if !os(ANDROID)
-//#Preview {
-//    try! prepareDependencies {
-//        $0.defaultDatabase = try appDatabase()
-//        $0.musicEventID = ""
-//    }
-//
-//    return NavigationStack {
-//        CommunicationsFeatureView(store: .init())
-//    }
+#if !os(ANDROID)
+#Preview {
+    try! prepareDependencies {
+        $0.defaultDatabase = try appDatabase()
+        $0.musicEventID = "testival-1"
+    }
+
+    return NavigationStack {
+        CommunicationsFeatureView(store: .init())
+    }
 //    .environment(\.editingMode, .editing)
-//}
-//#endif
+}
+#endif

@@ -58,6 +58,7 @@ extension OpenMusicEventBaseTestSuite {
                 
                     FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
                 ) STRICT;
+                
                 CREATE TABLE musicEvents(
                     "id" INTEGER PRIMARY KEY AUTOINCREMENT,
                     "organizerURL" TEXT,

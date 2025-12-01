@@ -20,18 +20,32 @@ import Dependencies
 import CoreModels
 
 struct OrganizerIconView: View {
-    let organizer: Organizer
+    init(organizer: Organizer) {
+        self.iconImageURL = organizer.iconImageURL
+    }
+    init(organizer: Organizer.Draft) {
+        self.iconImageURL = organizer.iconImageURL
+    }
 
+    let iconImageURL: URL?
     var body: some View {
-        CachedAsyncImage(url: organizer.iconImageURL, renderingMode: .template)
+        CachedAsyncImage(url: iconImageURL, renderingMode: .template)
     }
 }
 
 struct OrganizerImageView: View {
-    let organizer: Organizer
+    init(organizer: Organizer) {
+        self.imageURL = organizer.imageURL
+    }
+
+    init(organizer: Organizer.Draft) {
+        self.imageURL = organizer.imageURL
+    }
+
+    let imageURL: URL?
 
     var body: some View {
-        CachedAsyncImage(url: organizer.imageURL)
+        CachedAsyncImage(url: imageURL)
     }
 }
 

@@ -159,19 +159,25 @@
     "Channels marked with ⚠️ send critical notifications that cannot be disabled." : {
 
     },
+    "Comms" : {
+
+    },
     "Communication Channels" : {
 
     },
     "Contact Info" : {
 
     },
-    "Content Unavailable" : {
-
-    },
     "Copy issues" : {
 
     },
+    "Create" : {
+
+    },
     "Create Channel" : {
+
+    },
+    "Create Post View" : {
 
     },
     "Dark" : {
@@ -234,6 +240,15 @@
         }
       }
     },
+    "Defaults" : {
+
+    },
+    "Describe the purpose of the channel" : {
+
+    },
+    "Description" : {
+
+    },
     "Directions" : {
 
     },
@@ -283,6 +298,9 @@
       }
     },
     "Filters" : {
+
+    },
+    "General..." : {
 
     },
     "GitHub" : {
@@ -459,6 +477,9 @@
     "No communication channels available for this event." : {
 
     },
+    "No Organizations Yet" : {
+
+    },
     "Notes" : {
       "comment" : "Item editor form label for the Notes field",
       "extractionState" : "stale",
@@ -565,6 +586,9 @@
 
     },
     "Report an Issue" : {
+
+    },
+    "Require Notifications" : {
 
     },
     "Save" : {
@@ -683,7 +707,6 @@
     },
     "Title" : {
       "comment" : "Label for the item editor form indicating the title of the item",
-      "extractionState" : "stale",
       "localizations" : {
         "es" : {
           "stringUnit" : {
@@ -711,6 +734,12 @@
         }
       }
     },
+    "Toggle between read only and edit mode" : {
+
+    },
+    "Toggle Edit Mode" : {
+
+    },
     "Unsubscribed" : {
 
     },
@@ -724,6 +753,12 @@
 
     },
     "url" : {
+
+    },
+    "Use the + button in the top right, and add a link to any Open Music Event directory" : {
+
+    },
+    "Users can always opt out of notifications through the operating system. Delivery of notifications cannot be guaranteed, and should not be relied upon as the sole source of critical information" : {
 
     },
     "version" : {
@@ -799,6 +834,9 @@
       }
     },
     "Workshops" : {
+
+    },
+    "Write To Disk" : {
 
     }
   },

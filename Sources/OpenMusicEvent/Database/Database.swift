@@ -32,37 +32,37 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         }
         #endif
 
-        db.add(
-          function: DatabaseFunction(
-            "handleChannelSubscriptionChanged",
-            argumentCount: 3
-          ) { dbValues in
-            // Arguments: channelID, firebaseTopicName, oldState, newState, isRequired
-              guard let channelID = CommunicationChannel.ID.fromDatabaseValue(dbValues[0]),
-                    let newValue = CommunicationChannel.UserNotificationState.fromDatabaseValue(dbValues[1])
-              else {
-                  reportIssue("Failed to parse Database Values")
-                  return nil
-              }
-
-              if let topic = CommunicationChannel.FirebaseTopicName.fromDatabaseValue(dbValues[2]) {
-                  logger.log("""
-                  channelID: \(channelID),
-                  newValue: \(newValue.rawValue),
-                  topic: \(topic.rawValue)
-                  """)
-
-                  Task {
-                      @Dependency(\.notificationManager) var notificationManager
-                      await withErrorReporting {
-                          try await notificationManager.updateTopicSubscription(topic, to: newValue)
-                      }
-                  }
-              }
-
-            return nil
-          }
-        )
+//        db.add(
+//          function: DatabaseFunction(
+//            "handleChannelSubscriptionChanged",
+//            argumentCount: 3
+//          ) { dbValues in
+//            // Arguments: channelID, firebaseTopicName, oldState, newState, isRequired
+//              guard let channelID = CommunicationChannel.ID.fromDatabaseValue(dbValues[0]),
+//                    let newValue = CommunicationChannel.UserNotificationState.fromDatabaseValue(dbValues[1])
+//              else {
+//                  reportIssue("Failed to parse Database Values")
+//                  return nil
+//              }
+//
+//              if let topic = CommunicationChannel.FirebaseTopicName.fromDatabaseValue(dbValues[2]) {
+//                  logger.log("""
+//                  channelID: \(channelID),
+//                  newValue: \(newValue.rawValue),
+//                  topic: \(topic.rawValue)
+//                  """)
+//
+//                  Task {
+//                      @Dependency(\.notificationManager) var notificationManager
+//                      await withErrorReporting {
+//                          try await notificationManager.updateTopicSubscription(topic, to: newValue)
+//                      }
+//                  }
+//              }
+//
+//            return nil
+//          }
+//        )
     }
 
     @Dependency(\.context) var context
@@ -151,14 +151,14 @@ func appDatabase(whiteLabeledOrganizationID: Organizer.ID? = nil) throws -> any 
         .execute(db)
     }
 
-//
-//    #if DEBUG
-////    if context == .preview {
-//        migrator.registerMigration("Seed sample data") { db in
-//            try db.seedSampleData()
-//        }
-////    }
-//    #endif
+
+    #if DEBUG
+//    if context == .preview {
+        migrator.registerMigration("Seed sample data") { db in
+            try db.seedSampleData()
+        }
+//    }
+    #endif
 
     logger.log("Migrataing Database")
     try migrator.migrate(database)
@@ -262,7 +262,7 @@ extension DependencyValues {
     set { self[DefaultDatabaseKey.self] = newValue }
   }
 
-  private enum DefaultDatabaseKey: DependencyKey {
+  enum DefaultDatabaseKey: DependencyKey {
     static var liveValue: any DatabaseWriter { testValue }
     static var testValue: any DatabaseWriter {
       var message: String {

@@ -49,9 +49,7 @@ extension SharedKey where Self == AppStorageKey<Stage.ID?> {
 @Observable
 @MainActor
 class GlobalScheduleState {
-    @ObservationIgnored
-    @SharedShim(.selectedSchedule)
-    var selectedSchedule: Schedule.ID? = nil
+
 
     var filteringFavorites: Bool = false
 
@@ -103,6 +101,10 @@ public struct ScheduleSingleStageAtOnceView: View {
         @ObservationIgnored
         @Dependency(\.musicEventID) var musicEventID
 
+        @ObservationIgnored
+        @Dependency(\.defaultDatabase) var database
+
+
         let category: Stage.Category?
         var stages: [Stage] = []
 
@@ -121,7 +123,7 @@ public struct ScheduleSingleStageAtOnceView: View {
             }
 
             await withErrorReporting {
-                for try await stages in query.values() {
+                for try await stages in query.values(in: database) {
                     self.stages = stages
                 }
             }
@@ -205,6 +207,8 @@ struct StageSchedulePage: View, Identifiable {
 
     let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "StageSchedulePage")
 
+    
+
     func task() async {
         guard let selectedSchedule = selectedSchedule
         else { return }
@@ -216,16 +220,16 @@ struct StageSchedulePage: View, Identifiable {
         }
 
         await withErrorReporting {
-            for try await performances in query.values() {
-                self.performances = performances.map {
-                    PerformanceTimelineCard(
-                        id: $0.id,
-                        startTime: $0.startTime,
-                        endTime: $0.endTime
-                    )
-                }
-                logger.log("PerformancesCount: \(performances.count)")
-            }
+//            for try await performances in query.values(in: ) {
+//                self.performances = performances.map {
+//                    PerformanceTimelineCard(
+//                        id: $0.id,
+//                        startTime: $0.startTime,
+//                        endTime: $0.endTime
+//                    )
+//                }
+//                logger.log("PerformancesCount: \(performances.count)")
+//            }
         }
     }
 
