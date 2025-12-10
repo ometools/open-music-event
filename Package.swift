@@ -30,6 +30,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.3.3"),
         .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.0"),
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
+        .package(url: "https://github.com/pointfreeco/swift-url-routing", from: "0.6.2"),
 
 
         // Pin this version, 1.1 might be
@@ -61,6 +62,8 @@ let package = Package(
 
                 .product(name: "SkipFirebaseCore", package: "skip-firebase"),
                 .product(name: "SkipFirebaseMessaging", package: "skip-firebase"),
+
+                .product(name: "URLRouting", package: "swift-url-routing"),
             ],
             resources: [.process("Resources")],
             plugins: [.plugin(name: "skipstone", package: "skip")]

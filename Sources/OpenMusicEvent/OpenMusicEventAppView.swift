@@ -70,7 +70,7 @@ public enum OME {
 @Observable
 @MainActor
 class OrganizationViewer {
-    var musicEventViewer: MusicEventViewer.Model?
+    var musicEventViewer: MusicEventViewer?
 
     init() {
 
@@ -91,17 +91,6 @@ class OrganizationViewer {
         NotificationCenter.default.removeObserver(self)
     }
 
-
-    private func handleSelectedEventIDNotification(_ eventID: MusicEvent.ID) {
-        let eventString = String(eventID.rawValue)
-        UserDefaults.standard.set(eventString, forKey: "selectedMusicEventID")
-        self.musicEventViewer = .init(eventID: eventID)
-    }
-
-    private func handleExitEventNotification() {
-        UserDefaults.standard.set(nil, forKey: "selectedMusicEventID")
-        self.musicEventViewer = nil
-    }
 }
 
 // MARK: WhiteLabledEntryPoint
@@ -120,7 +109,7 @@ public struct OMEWhiteLabeledEntryPoint: View {
     @MainActor
     class Model {
         var organizationViewer = OrganizationViewer()
-        var organizerDetailStore: OrganizationRootView.Store
+        var organizerDetailStore: OrganizationRoot
         let organizationReference: OrganizationReference
         var isLoadingOrganizer: Bool = false
         var organizerLoadError: String?
@@ -158,8 +147,8 @@ public struct OMEWhiteLabeledEntryPoint: View {
                 OrganizationRootView(store: store.organizerDetailStore)
             }
 
-            if let musicEventViewer = store.organizationViewer.musicEventViewer {
-                MusicEventViewer(store: musicEventViewer)
+            if let store = store.organizationViewer.musicEventViewer {
+                MusicEventView(store: store)
             } else if store.isLoadingOrganizer {
                 LoadingScreen()
             }
@@ -180,7 +169,7 @@ public struct OMEAppEntryPoint: View {
     @MainActor
     class Model {
         var organizerList = OrganizerListView.Model()
-        var organization: OrganizationRootView.Store?
+        var organization: OrganizationRoot?
 
         @ObservationIgnored
         @Dependency(\.userPreferencesDatabase) var userPrefsDB
@@ -192,45 +181,65 @@ public struct OMEAppEntryPoint: View {
                 }
 
                 for try await appState in query.values(in: userPrefsDB) {
-                    if let selectedOrganizationID = appState?.selectedOrganizationID {
-
-                    }
-
-                    if let selectedEventID = appState?.selectedEventID {
-                        
+                    if let orgID = appState?.selectedOrganizationID,
+                       organization?.id != orgID
+                    {
+                        self.organization = try OrganizationRoot.openExistingDatabase(for: orgID)
                     }
                 }
             }
         }
 
+        var logger = Logger(subsystem: "com.ometools.open-music-event", category: "AppEntryPoint")
         func navigate(to route: AppRoute) throws {
-            withErrorReporting {
-                switch route {
-                case .organizationList:
-                    break
-                case .organization(let id, let subroute):
-                    try withDependencies {
-                        @Dependency(\.organizationDatabaseManager) var orgDatabaseManager
-                        $0.defaultDatabase = try orgDatabaseManager.openDatabase(id: id)
-                    } operation: {
-                        self.organization = OrganizationRootView.Store(for: id)
-                        organization?.navigate(to: subroute)
-                    }
-
+            logger.info("Navigating to \(String(describing: route))")
+            switch route {
+            case .organizationList:
+                self.organization = nil
+            case .organization(let id, _):
+                if organization?.id != id {
+                    self.organization = try OrganizationRoot.openExistingDatabase(for: id)
                 }
             }
         }
     }
 
     public var body: some View {
-        OrganizerListView(store: store.organizerList)
-            .onAppear {
-                Task {
-                    await store.onFirstAppear()
-                }
+        Group {
+            if let org = store.organization {
+                OrganizationRootView(store: org)
+            } else {
+                OrganizerListView(store: store.organizerList)
             }
+        }
+        .onFirstAppear {
+            Task {
+                await store.onFirstAppear()
+            }
+        }
     }
 }
+
+struct OnFirstAppearViewModifier: ViewModifier {
+    let operation: () -> Void
+    @State var hasAppeared: Bool = false
+    func body(content: Content) -> some View {
+        content.onAppear {
+            if !hasAppeared {
+                operation()
+                hasAppeared = true
+            }
+        }
+
+    }
+}
+
+extension View {
+    func onFirstAppear(perform action: @escaping () -> Void) -> some View {
+        modifier(OnFirstAppearViewModifier(operation: action))
+    }
+}
+
 
 
 
@@ -292,8 +301,8 @@ public struct OMEBundledEntryPoint: View {
                 }
             } else if store.isLoading {
                 LoadingScreen()
-            } else if let musicEventViewer = store.organizationViewer.musicEventViewer {
-                MusicEventViewer(store: musicEventViewer)
+            } else if let store = store.organizationViewer.musicEventViewer {
+                MusicEventView(store: store)
             }
 
             Text("Hello World!")

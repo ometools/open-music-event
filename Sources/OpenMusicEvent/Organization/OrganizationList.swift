@@ -37,7 +37,7 @@ struct OrganizerListView: View {
 
         @CasePathable
         enum Destination {
-            case organizationRoot(OrganizationRootView.Store)
+            case organizationRoot(OrganizationRoot)
             case addOrganization(OrganizationFormView.Model)
         }
 
@@ -91,7 +91,16 @@ struct OrganizerListView: View {
 
         func didTapOrganization(_ organization: StoredOrganization) {
             withErrorReporting {
+                try userPrefsDb.write { db in
+                    // Fetch or create the singleton row
+                    var appState = try AppState.fetchOne(db, key: 1) ?? AppState()
 
+                    // Update the selection
+                    appState.selectedOrganizationID = organization.id
+
+                    // Save (insert or update)
+                    try appState.save(db)
+                }
             }
         }
 

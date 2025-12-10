@@ -11,7 +11,7 @@ struct AboutAppView: View {
     let store: MusicEventFeatures
     var body: some View {
         List {
-            Section(store.event.name) {
+            Section(store.event?.name ?? "") {
                 Button {
                     Task {
                         await store.didTapReloadOrganizer()

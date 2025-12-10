@@ -426,9 +426,6 @@
     "Loading" : {
 
     },
-    "Loading Organization..." : {
-
-    },
     "Location" : {
 
     },
@@ -442,6 +439,9 @@
 
     },
     "More" : {
+
+    },
+    "Music Event Viewer" : {
 
     },
     "Name" : {
@@ -535,6 +535,9 @@
 
     },
     "Options" : {
+
+    },
+    "Organization Root View" : {
 
     },
     "Organization URL" : {

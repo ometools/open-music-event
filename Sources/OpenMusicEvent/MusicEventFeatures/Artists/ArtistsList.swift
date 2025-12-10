@@ -14,6 +14,13 @@ import GRDB
 @MainActor
 @Observable
 public class ArtistsList {
+    
+    // @Selection
+    struct Row {
+        let artist: Artist
+        let preferences: Artist.Preferences
+        let performancesStages: [Stage]
+    }
 
     // MARK: Data
     // TODO: Replace @FetchAll with GRDB query

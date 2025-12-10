@@ -309,23 +309,9 @@ func downloadAndStoreOrganizationV2(from reference: OrganizationReference) async
         throw MissingOrganizerIDError()
     }
 
-    // Determine branch from reference
-    let branch: String
-    switch reference {
-    case .repository(let repo):
-        switch repo.version {
-        case .branch(let branchName):
-            branch = branchName
-        case .version(let version):
-            branch = "v\(version)"
-        }
-    default:
-        branch = "main"
-    }
-
     // Create final organization folder path
     let orgPath = OrganizationDatabaseManager.organizationsDirectory
-        .appendingPathComponent("\(organizerID.rawValue)-\(branch)")
+        .appendingPathComponent("\(organizerID.rawValue)")
 
     // Move downloaded files to final location
     let fileManager = FileManager.default
