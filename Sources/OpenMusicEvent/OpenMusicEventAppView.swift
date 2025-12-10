@@ -87,32 +87,6 @@ class OrganizationViewer {
     }
 
 
-    @ObservationIgnored
-    @Dependency(\.userPreferencesDatabase) var userPrefsDB
-    func onMount() async {
-        let observation = ValueObservation.tracking { db in
-            try AppState.fetchOne(db, key: 1)
-        }
-
-        await withErrorReporting {
-            for try await appState in observation.values(in: userPrefsDB) {
-                if let url = appState?.selectedOrganizationURL,
-                   let id = appState?.selectedEventID {
-                    try withDependencies {
-                        @Dependency(\.organizationDatabaseManager) var dbManager
-                        $0.defaultDatabase = try dbManager.openDatabase(at: url)
-                    } operation: {
-                        self.musicEventViewer = .init(eventID: id)
-                    }
-
-                } else {
-
-                }
-            }
-        }
-    }
-
-
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -146,7 +120,7 @@ public struct OMEWhiteLabeledEntryPoint: View {
     @MainActor
     class Model {
         var organizationViewer = OrganizationViewer()
-        var organizerDetailStore: OrganizerDetailView.Store
+        var organizerDetailStore: OrganizationRootView.Store
         let organizationReference: OrganizationReference
         var isLoadingOrganizer: Bool = false
         var organizerLoadError: String?
@@ -163,8 +137,6 @@ public struct OMEWhiteLabeledEntryPoint: View {
         func onAppear() async {
             self.isLoadingOrganizer = true
             self.organizerLoadError = nil
-
-            await self.organizationViewer.onMount()
 
             await withTaskGroup {
                 $0.addTask {
@@ -183,7 +155,7 @@ public struct OMEWhiteLabeledEntryPoint: View {
     public var body: some View {
         ZStack {
             NavigationStack {
-                OrganizerDetailView(store: store.organizerDetailStore)
+                OrganizationRootView(store: store.organizerDetailStore)
             }
 
             if let musicEventViewer = store.organizationViewer.musicEventViewer {
@@ -207,27 +179,64 @@ public struct OMEAppEntryPoint: View {
     @Observable
     @MainActor
     class Model {
-        var organizationViewer = OrganizationViewer()
         var organizerList = OrganizerListView.Model()
+        var organization: OrganizationRootView.Store?
 
-    }
+        @ObservationIgnored
+        @Dependency(\.userPreferencesDatabase) var userPrefsDB
 
-    public var body: some View {
-        ZStack {
-            NavigationStack {
-                OrganizerListView(store: store.organizerList)
-            }
-            .onAppear {
-                Task {
-                    await store.organizationViewer.onMount()
+        func onFirstAppear() async {
+            await withErrorReporting {
+                let query = ValueObservation.tracking { db in
+                     try AppState.fetchOne(db)
+                }
+
+                for try await appState in query.values(in: userPrefsDB) {
+                    if let selectedOrganizationID = appState?.selectedOrganizationID {
+
+                    }
+
+                    if let selectedEventID = appState?.selectedEventID {
+                        
+                    }
                 }
             }
+        }
 
-            if let store = store.organizationViewer.musicEventViewer {
-                MusicEventViewer(store: store)
+        func navigate(to route: AppRoute) throws {
+            withErrorReporting {
+                switch route {
+                case .organizationList:
+                    break
+                case .organization(let id, let subroute):
+                    try withDependencies {
+                        @Dependency(\.organizationDatabaseManager) var orgDatabaseManager
+                        $0.defaultDatabase = try orgDatabaseManager.openDatabase(id: id)
+                    } operation: {
+                        self.organization = OrganizationRootView.Store(for: id)
+                        organization?.navigate(to: subroute)
+                    }
+
+                }
             }
         }
     }
+
+    public var body: some View {
+        OrganizerListView(store: store.organizerList)
+            .onAppear {
+                Task {
+                    await store.onFirstAppear()
+                }
+            }
+    }
+}
+
+
+
+enum AppRoute: Hashable {
+    case organizationList
+    case organization(Organizer.ID, OrganizationRoute)
 }
 
 

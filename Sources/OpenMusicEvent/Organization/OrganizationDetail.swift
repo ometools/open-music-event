@@ -75,8 +75,9 @@ struct LoadingScreen: View {
     }
 }
 
+import CasePaths
 
-public struct OrganizationDetailView: View {
+public struct OrganizationRootView: View {
 
     public init(store: Store) {
         self.store = store
@@ -86,37 +87,69 @@ public struct OrganizationDetailView: View {
     @MainActor
     public class Store {
         let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "OrganizerDetails")
-        typealias Organization = OrganizerListView.Model.StoredOrganization
+        typealias Organization = Organizer
 
-        init(for org: Organization) {
-            self.organization = org
+
+        init(for id: Organization.ID) {}
+
+        var destination: Destination? = nil
+        var organization: Organization?
+
+
+        @CasePathable
+        enum Destination {
+            case eventViewer(MusicEventViewer.Model)
         }
 
-        let organization: Organization
+        func navigate(to route: OrganizationRoute) {
+            switch route {
+            case .root: break
+            case .event(let id, let eventRoute):
+                self.destination = .eventViewer(.init(eventID: id))
+            }
+        }
 
         public var showingLoadingScreen: Bool = false
 
         @ObservationIgnored
         @Dependency(\.userPreferencesDatabase) var userPrefsDB
+        
         public func didTapEvent(id: MusicEvent.ID) {
             withErrorReporting {
                 try userPrefsDB.write { db in
-                    // Fetch or create the singleton row
                     var appState = try AppState.fetchOne(db, key: 1) ?? AppState()
-
-                    // Update the selection
+                    
                     appState.selectedEventID = id
-                    appState.selectedOrganizationURL = self.organization.url
 
-                    // Save (insert or update)
                     try appState.save(db)
                 }
             }
         }
 
+
+        func observeOrganizationDetails() async {
+            let query = ValueObservation.tracking { db in
+                let organization = try Organizer
+                    .fetchOne(db)
+
+                let events = try MusicEvent
+                    .order(Column("startTime").desc)
+                    .fetchAll(db)
+
+
+                return (organization, events)
+            }
+
+            await withErrorReporting {
+                for try await (organization, events) in query.values(in: self.database) {
+                    self.events = events
+                    self.organization = organization
+                }
+            }
+        }
+
+
         public func onPullToRefresh() async  {
-
-
 //            await withErrorReporting {
 //                try await downloadAndStoreOrganizer(from: .zipURL(organizer.url))
 //            }
@@ -128,71 +161,58 @@ public struct OrganizationDetailView: View {
         @Dependency(\.defaultDatabase) var database
 
         public func onAppear() async {
+            await self.observeOrganizationDetails()
+        }
 
-            let query = ValueObservation.tracking { db in
-                try MusicEvent
-                    .filter(Column("organizerID") == self.organization.id)
-                    .order(Column("startTime").desc)
-                    .fetchAll(db)
-            }
+        @ObservationIgnored
+        @Dependency(\.date) var date
 
-            await withErrorReporting {
-                for try await events in query.values(in: database) {
-                    self.events = events
+        var previousEvents: [MusicEvent] {
+            events.filter { event in
+                if let endTime = event.endTime {
+                    endTime < date()
+                } else {
+                    true
                 }
             }
         }
+
+        var upcomingEvents: [MusicEvent] {
+            events.filter { event in
+                if let startTime = event.startTime {
+                    startTime > date()
+                } else {
+                    false
+                }
+            }
+        }
+
+        var currentEvents: [MusicEvent] {
+            events.filter { event in
+                if let startTime = event.startTime, let endTime = event.endTime {
+                    startTime < date() && endTime > date()
+                } else {
+                    false
+                }
+            }
+        }
+
+
     }
 
     @State var store: Store
 
-    @Environment(\.date) var date
-
-    var previousEvents: [MusicEvent] {
-        store.events.filter { event in
-            if let endTime = event.endTime {
-                endTime < date()
-            } else {
-                true
-            }
-        }
-    }
-
-    var upcomingEvents: [MusicEvent] {
-        store.events.filter { event in
-            if let startTime = event.startTime {
-                startTime > date()
-            } else {
-                false
-            }
-        }
-    }
-
-    var currentEvents: [MusicEvent] {
-        store.events.filter { event in
-            if let startTime = event.startTime, let endTime = event.endTime {
-                startTime < date() && endTime > date()
-            } else {
-                false
-            }
-        }
-    }
-
-    var organizer: Organizer.Draft {
-        store.organization.organization
-    }
-
     public var body: some View {
-        Group {
+        if let organizer = store.organization {
             StretchyHeaderList(
                 title: Text(organizer.name),
                 stretchyContent: {
                     OrganizerImageView(organizer: organizer)
                 },
                 listContent: {
-                    if !currentEvents.isEmpty {
+                    if !store.currentEvents.isEmpty {
                         Section("Happening Now") {
-                            ForEach(currentEvents) { event in
+                            ForEach(store.currentEvents) { event in
                                 NavigationLinkButton {
                                     store.didTapEvent(id: event.id)
                                 } label: {
@@ -202,9 +222,9 @@ public struct OrganizationDetailView: View {
                         }
                     }
 
-                    if !upcomingEvents.isEmpty {
+                    if !store.upcomingEvents.isEmpty {
                         Section("Upcoming Events") {
-                            ForEach(upcomingEvents) { event in
+                            ForEach(store.upcomingEvents) { event in
                                 NavigationLinkButton {
                                     store.didTapEvent(id: event.id)
                                 } label: {
@@ -214,9 +234,9 @@ public struct OrganizationDetailView: View {
                         }
                     }
 
-                    if !previousEvents.isEmpty {
+                    if !store.previousEvents.isEmpty {
                         Section("Previous Events") {
-                            ForEach(previousEvents) { event in
+                            ForEach(store.previousEvents) { event in
                                 NavigationLinkButton {
                                     store.didTapEvent(id: event.id)
                                 } label: {
@@ -229,13 +249,16 @@ public struct OrganizationDetailView: View {
             )
             .refreshable { await store.onPullToRefresh() }
             .listStyle(.plain)
+            .task { await store.onAppear() }
+        } else {
+            LoadingScreen()
         }
-        .task { await store.onAppear() }
-//        .animation(.default, value: store.organizer == nil)
-        .animation(.default, value: store.showingLoadingScreen)
     }
 
 
+    @ViewBuilder
+    var organizationDetail: some View {
+            }
     struct EventRowView: View {
         var event: MusicEvent
 

@@ -37,18 +37,26 @@ struct OrganizerListView: View {
 
         @CasePathable
         enum Destination {
-            case organizationDetail(OrganizerDetailView.Store)
+            case organizationRoot(OrganizationRootView.Store)
             case addOrganization(OrganizationFormView.Model)
         }
 
         var destination: Destination?
 
+        func onAppear() async {
+            await withTaskGroup {
+                $0.addTask { await self.loadAvailableOrganizations() }
+
+                await $0.waitForAll()
+            }
+        }
+
+        @ObservationIgnored
+        @Dependency(\.userPreferencesDatabase) var userPrefsDB
+
+
         @ObservationIgnored
         @Dependency(\.organizationDatabaseManager) var dbManager
-
-        func onAppear() async {
-            await loadAvailableOrganizations()
-        }
 
         func loadAvailableOrganizations() async {
             
@@ -78,26 +86,20 @@ struct OrganizerListView: View {
             }
         }
 
+        @ObservationIgnored
+        @Dependency(\.userPreferencesDatabase) var userPrefsDb
+
         func didTapOrganization(_ organization: StoredOrganization) {
             withErrorReporting {
-                try withDependencies {
-                    @Dependency(\.organizationDatabaseManager) var dbManager
-                    $0.defaultDatabase = try dbManager.openDatabase(at: organization.url)
-                } operation: {
 
-                    self.destination = .organizationDetail(
-                        OrganizerDetailView.Store(for: organization)
-                    )
-                }
             }
         }
 
         func didTapAddOrganizerButton() {
             let addOrganization = OrganizationFormView.Model()
             addOrganization.didFinishSaving = {
-                print("FinishedSaving")
-                self.destination = nil
-                Task {
+                Task { @MainActor in
+                    self.destination = nil
                     await self.loadAvailableOrganizations()
                 }
             }
@@ -129,53 +131,66 @@ struct OrganizerListView: View {
 
     public var body: some View {
         Group {
-            List {
-                if !store.organizations.isEmpty {
-                    ForEach(store.organizations) { item in
-                        NavigationLinkButton {
-                            store.didTapOrganization(item)
-                        } label: {
-                            Row(org: item.organization)
-                        }
-                    }
-                    .onDelete { indexSet in
-                        Task {
-                            await store.didDeleteOrganization(indexSet)
-                        }
-                    }
-                } else {
-                    ContentUnavailableView(
-                        "No Organizations Yet",
-                        systemImage: "folder.badge.plus",
-                        description: Text("Use the + button in the top right, and add a link to any Open Music Event directory")
-                    )
+            switch store.destination {
+            case .organizationRoot(let store):
+                OrganizationRootView(store: store)
+            case .addOrganization(let store):
+                NavigationStack {
+                    OrganizationFormView(store: store)
+                        .navigationTitle("Add Organization")
                 }
 
+            case .none:
+                NavigationStack {
+                    List {
+                        if !store.organizations.isEmpty {
+                            ForEach(store.organizations) { item in
+                                NavigationLinkButton {
+                                    store.didTapOrganization(item)
+                                } label: {
+                                    Row(org: item.organization)
+                                }
+                            }
+                            .onDelete { indexSet in
+                                Task {
+                                    await store.didDeleteOrganization(indexSet)
+                                }
+                            }
+                        } else {
+                            ContentUnavailableView(
+                                "No Organizations Yet",
+                                systemImage: "folder.badge.plus",
+                                description: Text("Use the + button in the top right, and add a link to any Open Music Event directory")
+                            )
+                        }
+
+                    }
+                    .listStyle(.plain)
+                    .refreshable {
+                        await self.store.onPullToRefresh()
+                    }
+                    .onAppear { Task { await store.onAppear() }}
+                    .navigationTitle("Organizations")
+                    .toolbar {
+                        Button("Add Organization", image: Icons.plus) {
+                            store.didTapAddOrganizerButton()
+                        }
+                    }
+                }
             }
-            .listStyle(.plain)
-            .refreshable {
-                await self.store.onPullToRefresh()
-            }
+//            .sheet(item: $store.destination.addOrganization) { store in
+//                NavigationStack {
+//                    OrganizationFormView(store: store)
+//                        .navigationTitle("Add Organization")
+//                }
+//            }
+
+
         }
-        .onAppear { Task { await store.onAppear() }}
-        .navigationTitle("Organizations")
-        .toolbar {
-            Button("Add Organization", image: Icons.plus) {
-                store.didTapAddOrganizerButton()
-            }
-        }
-        .sheet(item: $store.destination.addOrganization) { store in
-            NavigationStack {
-                OrganizationFormView(store: store)
-                    .navigationTitle("Add Organization")
-            }
-        }
-        .navigationDestination(
-            item: $store.destination.organizationDetail,
-            destination: {
-                OrganizerDetailView(store: $0)
-            }
-        )
+
+
+
+
     }
 
     struct Row: View {
@@ -256,4 +271,21 @@ struct OrganizerListView: View {
 //        dbWriter: dbWriter
 //    )
 //}
+
+
+
+enum OrganizationRoute: Hashable, Codable {
+    case root
+    case event(MusicEvent.ID, EventRoute?)
+}
+
+enum EventRoute: Hashable, Codable {
+    case artists
+    case artist(Artist.ID)
+    case stages
+    case stage(Stage.ID)
+    case schedule
+    case communications
+    case channel(CommunicationChannel.ID)
+}
 

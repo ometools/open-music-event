@@ -47,11 +47,11 @@ public class ArtistsList {
                 .fetchAll(db)
         }
 //
-//        await withErrorReporting {
-//            for try await artists in query.values() {
-//                self.artists = artists
-//            }
-//        }
+        await withErrorReporting {
+            for try await artists in query.values(in: self.defaultDatabase) {
+                self.artists = artists
+            }
+        }
     }
 }
 

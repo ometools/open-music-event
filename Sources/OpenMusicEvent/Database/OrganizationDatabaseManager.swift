@@ -40,6 +40,12 @@ struct OrganizationDatabaseManager {
 
     // MARK: - Organization Database
 
+    func openDatabase(id: Organizer.ID) throws -> DatabaseQueue {
+        let orgPath = OrganizationDatabaseManager.organizationsDirectory
+            .appendingPathComponent("\(id.rawValue)")
+        return try openDatabase(at: orgPath)
+    }
+
     /// Opens database for a specific organization
     /// Database is co-located with files at: {orgPath}/.ome/org.db
     func openDatabase(at orgPath: URL) throws -> DatabaseQueue {

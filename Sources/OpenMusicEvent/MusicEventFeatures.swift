@@ -8,7 +8,7 @@ import IssueReporting
 struct MusicEventViewer: View {
     @Observable
     @MainActor
-    class Model {
+    class Model: @MainActor Identifiable {
         init(eventID: MusicEvent.ID) {
             self.id = eventID
         }
@@ -183,33 +183,33 @@ public class MusicEventFeatures: Identifiable {
     }
 
     func onAppear() async {
-        NotificationCenter.default.addObserver(
-            forName: .userSelectedToViewArtist,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard case .some(.viewArtist(let artistID)) = notification.info else {
-                reportIssue("Posted notification: userSelectedToViewArtist did not contain valid artistID")
-                return
-            }
-            MainActor.assumeIsolated {
-                self.handleSelectedArtistIDNotification(artistID)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .userSelectedToViewPost,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard case .some(.viewPost(let channelID, let postID)) = notification.info else {
-                reportIssue("Posted notification: userSelectedToViewPost did not contain valid channelID and postID")
-                return
-            }
-            Task { @MainActor in
-                await self.handleSelectedPostNotification(channelID: channelID, stub: postID)
-            }
-        }
+//        NotificationCenter.default.addObserver(
+//            forName: .userSelectedToViewArtist,
+//            object: nil,
+//            queue: .main
+//        ) { notification in
+//            guard case .some(.viewArtist(let artistID)) = notification.info else {
+//                reportIssue("Posted notification: userSelectedToViewArtist did not contain valid artistID")
+//                return
+//            }
+//            MainActor.assumeIsolated {
+//                self.handleSelectedArtistIDNotification(artistID)
+//            }
+//        }
+//
+//        NotificationCenter.default.addObserver(
+//            forName: .userSelectedToViewPost,
+//            object: nil,
+//            queue: .main
+//        ) { notification in
+//            guard case .some(.viewPost(let channelID, let postID)) = notification.info else {
+//                reportIssue("Posted notification: userSelectedToViewPost did not contain valid channelID and postID")
+//                return
+//            }
+//            Task { @MainActor in
+//                await self.handleSelectedPostNotification(channelID: channelID, stub: postID)
+//            }
+//        }
     }
 
     func didTapReloadOrganizer() async {
