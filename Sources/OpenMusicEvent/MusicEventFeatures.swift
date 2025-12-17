@@ -92,6 +92,19 @@ extension DependencyValues {
     }
 }
 
+enum OrganizerIDDependencyKey: DependencyKey {
+    static let liveValue: Organizer.ID = .init("-1")
+}
+
+extension DependencyValues {
+    var organizerID: Organizer.ID {
+        get {
+            self[OrganizerIDDependencyKey.self]
+        }
+        set { self[OrganizerIDDependencyKey.self] = newValue }
+    }
+}
+
 @MainActor
 @Observable
 public class MusicEventFeatures: Identifiable {

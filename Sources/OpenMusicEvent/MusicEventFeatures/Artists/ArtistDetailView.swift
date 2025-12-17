@@ -37,31 +37,76 @@ class ArtistDetail {
     @ObservationIgnored
     @Dependency(\.defaultDatabase) var db
 
+    @ObservationIgnored
+    @Dependency(\.organizerID) var organizerID
+
     func task() async {
+        let artistID = self.artistID
+        let organizerID = self.organizerID
 
         let combinedQuery = ValueObservation.tracking { db in
-            let artist = try Artist.find(db, id: self.artistID)
-            let performances = try Queries.fetchPerformances(for: self.artistID, from: db)
-            let preferences = try Artist.Preferences.fetchOne(db, key: self.artistID)
-            return (artist, performances, preferences)
+            // Fetch artist
+            let artist = try Artist.find(db, id: artistID)
+
+            // Fetch artist preference from userprefs
+            let isFavorite = try Bool.fetchOne(db, sql: """
+                SELECT COALESCE(isFavorite, 0)
+                FROM userprefs.artistPreferences
+                WHERE organizerID = ? AND artistID = ?
+                """, arguments: [organizerID.rawValue, artistID.rawValue]) ?? false
+
+            // Fetch performances with stage and performance preferences
+            let performances = try Row.fetchAll(db, sql: """
+                SELECT
+                    p.id as id,
+                    p.stageID as stageID,
+                    p.startTime as startTime,
+                    p.endTime as endTime,
+                    p.title as title,
+                    s.color as stageColor,
+                    COALESCE(pp.seen, 0) as isSeen
+                FROM performanceArtists pa
+                JOIN performances p ON pa.performanceID = p.id
+                JOIN stages s ON p.stageID = s.id
+                LEFT JOIN userprefs.performancePreferences pp
+                    ON p.id = pp.performanceID AND pp.organizerID = ?
+                WHERE pa.artistID = ?
+                ORDER BY p.startTime ASC
+                """, arguments: [organizerID.rawValue, artistID.rawValue]
+            ).map { row in
+                PerformanceDetailRow.ArtistPerformance(
+                    id: OmeID(row["id"]),
+                    stageID: OmeID(row["stageID"]),
+                    startTime: row["startTime"] as Date,
+                    endTime: row["endTime"] as Date,
+                    title: row["title"],
+                    stageColor: OMEColor(rawValue: row["stageColor"]),
+                    isSeen: row["isSeen"] ?? false
+                )
+            }
+
+            return (artist, performances, isFavorite)
         }
 
         await withErrorReporting {
-            for try await (artist, performances, preferences) in combinedQuery.values(in: db) {
+            for try await (artist, performances, isFavorite) in combinedQuery.values(in: db) {
                 logger.info("Selected Artist: \(artist.name) with: \(performances)")
                 self.artist = artist
                 self.performances = performances
-                self.isFavorite = preferences?.isFavorite ?? false
+                self.isFavorite = isFavorite
             }
         }
     }
-    
+
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var database
+
     func toggleFavorite() async {
-        @Dependency(\.defaultDatabase) var database
-        
+        let organizerID = self.organizerID
+
         await withErrorReporting {
             try await database.write { db in
-                try Artist.Preferences.toggleFavorite(for: self.artistID, in: db)
+                try Artist.Preferences.toggleFavorite(for: self.artistID, organizerID: organizerID, in: db)
             }
         }
     }
@@ -71,6 +116,21 @@ class ArtistDetail {
     var performances: [PerformanceDetailRow.ArtistPerformance] = []
     var isFavorite: Bool = false
 }
+
+
+extension Artist.Preferences {
+    static func toggleFavorite(for artistID: Artist.ID, organizerID: Organizer.ID, in db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO userprefs.artistPreferences (organizerID, artistID, isFavorite)
+            VALUES (?, ?, 1)
+            ON CONFLICT(organizerID, artistID) DO UPDATE SET
+            isFavorite = 1 - isFavorite
+            """,
+           arguments: [organizerID.rawValue, artistID.rawValue]
+        )
+    }
+}
+
 
 
 struct ArtistDetailView: View {

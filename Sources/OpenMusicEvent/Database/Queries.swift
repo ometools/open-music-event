@@ -140,19 +140,50 @@ struct Queries {
     static func communicationChannelUserInfoQuery(for channelID: CommunicationChannel.ID) -> SQLRequest<CommunicationChannel.ChannelUserInfo> {
         return SQLRequest<CommunicationChannel.ChannelUserInfo>(
             sql: """
-                SELECT 
+                SELECT
                     c.id,
                     c.name,
                     c.description,
                     c.notificationsRequired,
                     COALESCE(cp.userNotificationState, c.defaultNotificationState) as userNotificationState
-                
+
                 FROM channels c
                 LEFT JOIN channelPreferences cp ON c.id = cp.channelID
                 WHERE c.channelID = ?
                 """,
             arguments: [channelID]
         )
+    }
+
+    static func fetchArtistListRows(
+        for musicEventID: MusicEvent.ID,
+        organizerID: Organizer.ID,
+        searchText: String = ""
+    ) -> SQLRequest<ArtistsList.Row> {
+        let searchFilter = searchText.isEmpty ? "" : "AND a.name COLLATE NOCASE LIKE ?"
+
+        let sql = """
+            SELECT
+                a.id,
+                a.name as artistName,
+                a.imageURL as artistImageURL,
+                COALESCE(ap.isFavorite, 0) as isFavorite
+            FROM artists a
+            LEFT JOIN performanceArtists pa ON a.id = pa.artistID
+            LEFT JOIN performances p ON pa.performanceID = p.id
+            LEFT JOIN stages s ON p.stageID = s.id
+            LEFT JOIN userprefs.artistPreferences ap
+                ON a.id = ap.artistID AND ap.organizerID = ?
+            WHERE a.musicEventID = ? \(searchFilter)
+            GROUP BY a.id, ap.isFavorite
+            ORDER BY a.name COLLATE NOCASE
+        """
+
+        let arguments: [DatabaseValueConvertible] = searchText.isEmpty
+            ? [organizerID.rawValue, musicEventID.rawValue]
+            : [organizerID.rawValue, musicEventID.rawValue, "%\(searchText)%"]
+
+        return SQLRequest<ArtistsList.Row>(sql: sql, arguments: StatementArguments(arguments))
     }
 }
 

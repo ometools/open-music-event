@@ -309,13 +309,13 @@ public struct PerformanceDetailView: View {
             }
 
             Section {
-                ForEach(performingArtists, id: \.id) { artist in
-                    NavigationLinkButton {
-                        didTapGoToArtist(artist.id)
-                    } label: {
-                        ArtistsListView.Row(id: artist.id)
-                    }
-                }
+//                ForEach(performingArtists, id: \.id) { artist in
+//                    NavigationLinkButton {
+//                        didTapGoToArtist(artist.id)
+//                    } label: {
+//                        ArtistsListView.Row(id: artist.id)
+//                    }
+//                }
             }
 
             Section("Recordings") {

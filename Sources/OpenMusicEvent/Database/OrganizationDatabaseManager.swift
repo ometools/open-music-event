@@ -61,13 +61,17 @@ struct OrganizationDatabaseManager {
         var configuration = Configuration()
         configuration.foreignKeysEnabled = true
 
-        #if DEBUG
+        // ATTACH user preferences database on every connection
         configuration.prepareDatabase { db in
+
+            #if DEBUG
             db.trace(options: .profile) {
                 print("\($0.expandedDescription)")
             }
+            #endif
+            let userPrefsPath = OrganizationDatabaseManager.userPreferencesDatabasePath.path()
+            try db.execute(sql: "ATTACH DATABASE '\(userPrefsPath)' AS userprefs")
         }
-        #endif
 
         let db = try DatabaseQueue(path: dbPath.path(), configuration: configuration)
 
@@ -174,11 +178,13 @@ extension OrganizationDatabaseManager {
         var configuration = Configuration()
         configuration.foreignKeysEnabled = true
 
+
         #if DEBUG
         configuration.prepareDatabase { db in
             db.trace(options: .profile) {
                 print("[UserPrefs] \($0.expandedDescription)")
             }
+
         }
         #endif
         @Dependency(\.context) var context
@@ -213,6 +219,9 @@ extension OrganizationDatabaseManager {
         // Run user preferences migrations
         var migrator = DatabaseMigrator()
         migrator.registerUserPreferencesMigrations()
+        #if DEBUG
+        migrator.eraseDatabaseOnSchemaChange = true
+        #endif
         try migrator.migrate(database)
 
         return database
@@ -254,7 +263,6 @@ extension DatabaseMigrator {
                     organizerID TEXT NOT NULL,
                     artistID TEXT NOT NULL,
                     isFavorite INTEGER NOT NULL DEFAULT 0,
-                    notes TEXT,
                     PRIMARY KEY (organizerID, artistID)
                 ) STRICT;
             """)
@@ -265,7 +273,7 @@ extension DatabaseMigrator {
                     organizerID TEXT NOT NULL,
                     performanceID TEXT NOT NULL,
                     isFavorite INTEGER NOT NULL DEFAULT 0,
-                    reminder TEXT,
+                    seen INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (organizerID, performanceID)
                 ) STRICT;
             """)

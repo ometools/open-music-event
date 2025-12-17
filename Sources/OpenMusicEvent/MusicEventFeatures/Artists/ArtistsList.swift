@@ -14,18 +14,41 @@ import GRDB
 @MainActor
 @Observable
 public class ArtistsList {
-    
-    // @Selection
-    struct Row {
-        let artist: Artist
-        let preferences: Artist.Preferences
-        let performancesStages: [Stage]
+
+    struct Row: FetchableRecord, Identifiable {
+        let id: Artist.ID
+        let artistName: String
+        let artistImageURL: URL?
+        let isFavorite: Bool
+//        let performancesStages: [(stageID: Stage.ID, stageName: String, color: Color)]
+
+        init(row: GRDB.Row) {
+            self.id = OmeID(rawValue: row["id"])
+            self.artistName = row["artistName"]
+            self.artistImageURL = row["artistImageURL"]
+            self.isFavorite = row["isFavorite"]
+//
+//            // Parse concatenated stages: "stageID::stageName::color|||..."
+//            if let stagesString: String = row["performanceStages"], !stagesString.isEmpty {
+//                self.performancesStages = stagesString
+//                    .split(separator: "|||")
+//                    .compactMap { stage in
+//                        let parts = stage.split(separator: "::")
+//                        guard parts.count == 3 else { return nil }
+//                        let stageID = OmeID<Stage>(rawValue: String(parts[0]))
+//                        let stageName = String(parts[1])
+//                        let colorRawValue = String(parts[2])
+//                        let omeColor = OMEColor(rawValue: colorRawValue)
+//                        return (stageID, stageName, Color(omeColor))
+//                    }
+//            } else {
+//                self.performancesStages = []
+//            }
+        }
     }
 
     // MARK: Data
-    // TODO: Replace @FetchAll with GRDB query
-    var artists: [Artist] = []
-
+    var rows: [Row] = []
 
     // MARK: State
     var searchText: String = ""
@@ -36,27 +59,33 @@ public class ArtistsList {
     @ObservationIgnored
     @Dependency(\.musicEventID) var musicEventID
 
+    @ObservationIgnored
+    @Dependency(\.organizerID) var organizerID
+
     var destination: ArtistDetail?
 
     func didTapArtist(_ id: Artist.ID) {
-        self.destination = ArtistDetail(artistID: id)
+        withDependencies(from: self) {
+            self.destination = ArtistDetail(artistID: id)
+        }
     }
 
     func searchTextDidChange() async {
-        let id = self.musicEventID
+        let eventID = self.musicEventID
+        let orgID = self.organizerID
         let searchText = self.searchText
-        let defaultDatabase = self.defaultDatabase
-        let query = ValueObservation.tracking { db in
-            try Artist
-                .filter(Column("musicEventID") == id)
-                .filter(Column("name").collating(.nocase).like("%\(searchText)%"))
-                .order(Column("name").collating(.nocase))
-                .fetchAll(db)
+
+        let observation = ValueObservation.tracking { db in
+            try Queries.fetchArtistListRows(
+                for: eventID,
+                organizerID: orgID,
+                searchText: searchText
+            ).fetchAll(db)
         }
-//
+
         await withErrorReporting {
-            for try await artists in query.values(in: self.defaultDatabase) {
-                self.artists = artists
+            for try await rows in observation.values(in: defaultDatabase) {
+                self.rows = rows
             }
         }
     }
@@ -65,13 +94,12 @@ public class ArtistsList {
 struct ArtistsListView: View {
     @Bindable var store: ArtistsList
 
-
     var body: some View {
-        List(store.artists) { artist in
+        List(store.rows) { row in
             Button {
-                store.didTapArtist(artist.id)
+                store.didTapArtist(row.id)
             } label: {
-                Row(artist: artist)
+                RowView(row: row)
             }
         }
         .searchable(text: $store.searchText)
@@ -87,83 +115,39 @@ struct ArtistsListView: View {
         }
     }
 
-    struct Row: View {
-        init(artist: Artist) {
-            self.artist = artist
-            self.id = artist.id
-        }
-        init(id: Artist.ID) {
-            self.id = id
-        }
+    struct RowView: View {
+        let row: ArtistsList.Row
 
-        var id: Artist.ID
-
-        @State var artist: Artist?
-
-        @State var performanceStages: [Stage] = []
-        @State var isFavorite: Bool = false
-
-        private var imageSize: CGFloat = 60
-
-        @Dependency(\.defaultDatabase) private var database
-
-        @Environment(\.showArtistImages)
-        var showArtistImages
-
-        private func loadArtistData() async {
-            let query = ValueObservation.tracking { db in
-                let artist = try Artist.fetchOne(db, id: self.id)
-                let stages = try Queries.fetchPerformanceStages(for: self.id, from: db)
-//                let isFavorite = try Artist.Preferences.fetchOne(db, key: self.id)?.isFavorite ?? false
-                return (artist, stages, false)
-            }
-
-            await withErrorReporting {
-                for try await (artist, stages, favorite) in query.values(in: database) {
-                    self.artist = artist
-                    self.performanceStages = stages
-                    self.isFavorite = favorite
-                }
-            }
-        }
-
-        private func toggleFavorite() async {
-            await withErrorReporting {
-                try await database.write { db in
-                    try Artist.Preferences.toggleFavorite(for: self.id, in: db)
-                }
-            }
-        }
+        @Environment(\.showArtistImages) var showArtistImages
 
         var body: some View {
-
             HStack(spacing: 10) {
-                Group {
-                    if let imageURL = artist?.imageURL, showArtistImages {
-                        CachedAsyncImage(url: imageURL) {
-                            if let stage = performanceStages.first {
-                                StageIconView(stageID: stage.id)
-                            }
-                        }
-                            .frame(square: 60)
-                            .clipped()
-                    } else {
-                        ForEach(performanceStages) {
-                            StageIconView(stageID: $0.id)
-                                .frame(square: 60)
-                        }
-                    }
-                }
+//                Group {
+//                    if let imageURL = row.artistImageURL, showArtistImages {
+//                        CachedAsyncImage(url: imageURL) {
+//                            if let stage = row.performancesStages.first {
+//                                StageIconView(stageID: stage.stageID)
+//                            }
+//                        }
+//                        .frame(square: 60)
+//                        .clipped()
+//                    } else {
+//                        ForEach(row.performancesStages, id: \.stageID) { stage in
+//                            StageIconView(stageID: stage.stageID)
+//                                .frame(square: 60)
+//                        }
+//                    }
+//                }
+//
+//                StageIndicatorView(colors: row.performancesStages.map(\.color))
+//                    .frame(width: 5, height: 60)
 
-                StageIndicatorView(colors: performanceStages.map(\.color))
-                    .frame(width: 5, height: 60)
-
-                Text(artist?.name ?? "")
+                Text(row.artistName)
                     .lineLimit(1)
 
                 Spacer()
 
-                if isFavorite {
+                if row.isFavorite {
                     Image(systemName: "heart.fill")
                         .resizable()
                         #if !os(Android)
@@ -175,24 +159,7 @@ struct ArtistsListView: View {
                 }
             }
             .foregroundStyle(.primary)
-            .task {
-                await loadArtistData()
-            }
         }
-
-    }
-}
-
-extension Artist.Preferences {
-    static func toggleFavorite(for artistID: Artist.ID, in db: Database) throws {
-        try db.execute(sql: """
-            INSERT INTO artistPreferences (artistID, isFavorite)
-            VALUES (?, 1)
-            ON CONFLICT(artistID) DO UPDATE SET
-            isFavorite = 1 - isFavorite
-            """,
-           arguments: [artistID]
-        )
     }
 }
 

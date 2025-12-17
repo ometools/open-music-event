@@ -90,6 +90,7 @@ public class OrganizationRoot {
         try withDependencies {
             @Dependency(\.organizationDatabaseManager) var orgDatabaseManager
             $0.defaultDatabase = try orgDatabaseManager.openDatabase(id: id)
+            $0.organizerID = id
         } operation: {
             OrganizationRoot(for: id)
         }
@@ -98,7 +99,6 @@ public class OrganizationRoot {
     let id: Organization.ID
     private init(for id: Organization.ID) {
         self.id = id
-
     }
 
     var destination: Destination? = nil
