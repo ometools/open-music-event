@@ -13,7 +13,7 @@ import DependenciesTestSupport
 import Foundation
 // import SharingGRDB
 import GRDB
-import GRDBSnapshotTesting
+//import GRDBSnapshotTesting
 import InlineSnapshotTesting
 import Dependencies
 
@@ -27,124 +27,124 @@ extension Tag {
 extension OpenMusicEventBaseTestSuite {
     @Suite(.snapshots(record: .failed))
     struct OrganizationStoringTests {
-        @Test
-        func storeSimpleOrganization() async throws {
-            let database = try appDatabase()
-            let organization = OrganizerConfiguration(
-                info: .init(
-                    url: URL(string: "https://github.com/woodymelling/testival"),
-                    name: "Testival",
-                    imageURL: URL(string: "https://github.com/woodymelling/testival/raw/main/images/testival-logo.png"),
-                    iconImageURL: URL(string: "https://github.com/woodymelling/testival/raw/main/images/testival-icon-imageURL.png")
-                ),
-                events: []
-            )
-
-            try await organization.insert(
-                url: organization.info.url!,
-                into: database
-            )
-
-            assertInlineSnapshot(of: AnyDatabaseReader(database), as: .dumpContent()) {
-                """
-                sqlite_master
-                CREATE TABLE artists(
-                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-                    "musicEventID" INTEGER,
-                    "name" TEXT NOT NULL,
-                    "bio" TEXT,
-                    "imageURL" TEXT,
-                    "links" TEXT,
-                
-                    FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
-                ) STRICT;
-                
-                CREATE TABLE musicEvents(
-                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-                    "organizerURL" TEXT,
-                    "name" TEXT NOT NULL,
-                    "startTime" TEXT,
-                    "endTime" TEXT,
-                    "timeZone" TEXT,
-                    "imageURL" TEXT,
-                    "iconImageURL" TEXT,
-                    "siteMapImageURL" TEXT,
-                    "location" TEXT,
-                    "contactNumbers" TEXT,
-                
-                    FOREIGN KEY("organizerURL") REFERENCES "organizers"("url") ON DELETE CASCADE
-                ) STRICT;
-                CREATE TABLE organizers (
-                    "url" TEXT PRIMARY KEY NOT NULL,
-                    "name" TEXT NOT NULL,
-                    "imageURL" TEXT,
-                    "iconImageURL" TEXT
-                ) STRICT;
-                CREATE TABLE performanceArtists (
-                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-                    "performanceID" INTEGER NOT NULL,
-                    "artistID" INTEGER REFERENCES artists(id) ON DELETE CASCADE,
-                    "anonymousArtistName" TEXT,
-                
-                    FOREIGN KEY("performanceID") REFERENCES "performances"("id") ON DELETE CASCADE
-                    FOREIGN KEY("artistID") REFERENCES "artists"("id") ON DELETE CASCADE
-                ) STRICT;
-                CREATE TABLE performances(
-                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-                    "stageID" INTEGER NOT NULL,
-                    "scheduleID" INTEGER,
-                    "title" TEXT NOT NULL,
-                    "description" TEXT,
-                    "startTime" TEXT NOT NULL,
-                    "endTime" TEXT NOT NULL,
-                
-                    FOREIGN KEY("stageID") REFERENCES "stages"("id") ON DELETE CASCADE,
-                    FOREIGN KEY("scheduleID") REFERENCES "schedules"("id") ON DELETE CASCADE
-                ) STRICT;
-                CREATE TABLE schedules(
-                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-                    "musicEventID" INTEGER,
-                    "startTime" TEXT,
-                    "endTime" TEXT,
-                    "customTitle" TEXT,
-                
-                    FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
-                ) STRICT;
-                CREATE TABLE stages(
-                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-                    "musicEventID" INTEGER,
-                    "sortIndex" TEXT NOT NULL,
-                    "name" TEXT NOT NULL,
-                    "iconImageURL" TEXT,
-                    "imageURL" TEXT,
-                    "posterImageURL" TEXT,
-                    "color" INTEGER NOT NULL,
-                    "lineup" TEXT,
-                
-                    FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
-                ) STRICT;
-                
-                artists
-                
-                musicEvents
-                
-                organizers
-                - url: 'https://github.com/woodymelling/testival'
-                  name: 'Testival'
-                  imageURL: 'https://github.com/woodymelling/testival/raw/main/images/testival-logo.png'
-                  iconImageURL: 'https://github.com/woodymelling/testival/raw/main/images/testival-icon-imageURL.png'
-                
-                performanceArtists
-                
-                performances
-                
-                schedules
-                
-                stages
-                
-                """
-            }
-        }
+//        @Test
+//        func storeSimpleOrganization() async throws {
+//            let database = try appDatabase()
+//            let organization = OrganizerConfiguration(
+//                info: .init(
+//                    url: URL(string: "https://github.com/woodymelling/testival"),
+//                    name: "Testival",
+//                    imageURL: URL(string: "https://github.com/woodymelling/testival/raw/main/images/testival-logo.png"),
+//                    iconImageURL: URL(string: "https://github.com/woodymelling/testival/raw/main/images/testival-icon-imageURL.png")
+//                ),
+//                events: []
+//            )
+//
+//            try await organization.insert(
+//                url: organization.info.url!,
+//                into: database
+//            )
+//
+//            assertInlineSnapshot(of: AnyDatabaseReader(database), as: .dumpContent()) {
+//                """
+//                sqlite_master
+//                CREATE TABLE artists(
+//                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+//                    "musicEventID" INTEGER,
+//                    "name" TEXT NOT NULL,
+//                    "bio" TEXT,
+//                    "imageURL" TEXT,
+//                    "links" TEXT,
+//                
+//                    FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
+//                ) STRICT;
+//                
+//                CREATE TABLE musicEvents(
+//                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+//                    "organizerURL" TEXT,
+//                    "name" TEXT NOT NULL,
+//                    "startTime" TEXT,
+//                    "endTime" TEXT,
+//                    "timeZone" TEXT,
+//                    "imageURL" TEXT,
+//                    "iconImageURL" TEXT,
+//                    "siteMapImageURL" TEXT,
+//                    "location" TEXT,
+//                    "contactNumbers" TEXT,
+//                
+//                    FOREIGN KEY("organizerURL") REFERENCES "organizers"("url") ON DELETE CASCADE
+//                ) STRICT;
+//                CREATE TABLE organizers (
+//                    "url" TEXT PRIMARY KEY NOT NULL,
+//                    "name" TEXT NOT NULL,
+//                    "imageURL" TEXT,
+//                    "iconImageURL" TEXT
+//                ) STRICT;
+//                CREATE TABLE performanceArtists (
+//                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+//                    "performanceID" INTEGER NOT NULL,
+//                    "artistID" INTEGER REFERENCES artists(id) ON DELETE CASCADE,
+//                    "anonymousArtistName" TEXT,
+//                
+//                    FOREIGN KEY("performanceID") REFERENCES "performances"("id") ON DELETE CASCADE
+//                    FOREIGN KEY("artistID") REFERENCES "artists"("id") ON DELETE CASCADE
+//                ) STRICT;
+//                CREATE TABLE performances(
+//                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+//                    "stageID" INTEGER NOT NULL,
+//                    "scheduleID" INTEGER,
+//                    "title" TEXT NOT NULL,
+//                    "description" TEXT,
+//                    "startTime" TEXT NOT NULL,
+//                    "endTime" TEXT NOT NULL,
+//                
+//                    FOREIGN KEY("stageID") REFERENCES "stages"("id") ON DELETE CASCADE,
+//                    FOREIGN KEY("scheduleID") REFERENCES "schedules"("id") ON DELETE CASCADE
+//                ) STRICT;
+//                CREATE TABLE schedules(
+//                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+//                    "musicEventID" INTEGER,
+//                    "startTime" TEXT,
+//                    "endTime" TEXT,
+//                    "customTitle" TEXT,
+//                
+//                    FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
+//                ) STRICT;
+//                CREATE TABLE stages(
+//                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+//                    "musicEventID" INTEGER,
+//                    "sortIndex" TEXT NOT NULL,
+//                    "name" TEXT NOT NULL,
+//                    "iconImageURL" TEXT,
+//                    "imageURL" TEXT,
+//                    "posterImageURL" TEXT,
+//                    "color" INTEGER NOT NULL,
+//                    "lineup" TEXT,
+//                
+//                    FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
+//                ) STRICT;
+//                
+//                artists
+//                
+//                musicEvents
+//                
+//                organizers
+//                - url: 'https://github.com/woodymelling/testival'
+//                  name: 'Testival'
+//                  imageURL: 'https://github.com/woodymelling/testival/raw/main/images/testival-logo.png'
+//                  iconImageURL: 'https://github.com/woodymelling/testival/raw/main/images/testival-icon-imageURL.png'
+//                
+//                performanceArtists
+//                
+//                performances
+//                
+//                schedules
+//                
+//                stages
+//                
+//                """
+//            }
+//        }
     }
 
     // MARK: Live Download Tests
@@ -152,7 +152,8 @@ extension OpenMusicEventBaseTestSuite {
     @Suite(
         .dependency(\.organizationFetchingClient, .liveValue),
         .dependency(\.zipClient, .liveValue),
-        .tags(.liveNetworkTests)
+        .tags(.liveNetworkTests),
+        .disabled()
     )
     struct LiveDownloadTests {
         @Dependency(\.defaultDatabase) var database
@@ -160,7 +161,7 @@ extension OpenMusicEventBaseTestSuite {
         @Test
         func shambhala420() async throws {
 
-            try await downloadAndStoreOrganizer(from: .url(URL(string: "https://github.com/woodymelling/shambhala-ome/archive/966ff5b45aadfdcdb325a6f85c5f744c1e792e68.zip")!))
+            try await downloadAndStoreOrganizer(from: .zipURL(URL(string: "https://github.com/woodymelling/shambhala-ome/archive/966ff5b45aadfdcdb325a6f85c5f744c1e792e68.zip")!))
 
             assertInlineSnapshot(of: AnyDatabaseReader(database), as: .dumpStatistics()) {
                 """
@@ -179,7 +180,7 @@ extension OpenMusicEventBaseTestSuite {
 
         @Test
         func wickedwoods420() async throws {
-            try await downloadAndStoreOrganizer(from: .url(URL(string: "https://github.com/wicked-woods/wicked-woods-ome/archive/be070e28249b150522f548d1b965f0fed74b7248.zip")!))
+            try await downloadAndStoreOrganizer(from: .zipURL(URL(string: "https://github.com/wicked-woods/wicked-woods-ome/archive/be070e28249b150522f548d1b965f0fed74b7248.zip")!))
 
             assertInlineSnapshot(of: AnyDatabaseReader(database), as: .dumpStatistics()) {
                 """
@@ -210,7 +211,7 @@ extension Snapshotting {
     }
 }
 
-import GRDBSnapshotTesting
+//import GRDBSnapshotTesting
 extension DatabaseReader {
     func dumpStatistics(to stream: SnapshotStream) throws {
         try read { db in

@@ -24,6 +24,8 @@ let package = Package(
         .package(url: "https://source.skip.tools/skip-firebase.git", "0.9.0"..<"2.0.0"),
         .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"]),
 
+//        .package(url: "https://github.com/groue/GRDBSnapshotTesting", from: "0.3.0"),
+
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/swift-case-paths", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.4.1"),
@@ -68,6 +70,18 @@ let package = Package(
             resources: [.process("Resources")],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),
+        .testTarget(
+            name: "OpenMusicEventAppTests",
+            dependencies: [
+                "OpenMusicEvent",
+                .product(name: "CustomDump", package: "swift-custom-dump"),
+//                .product(name: "Parsing", package: "swift-parsing"),
+                .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+                .product(name: "InlineSnapshotTesting", package: "swift-snapshot-testing"),
+                .product(name: "SnapshotTestingCustomDump", package: "swift-snapshot-testing"),
+//                .product(name: "GRDBSnapshotTesting", package: "GRDBSnapshotTesting"),
+            ]
+        )
     ]
 )
 
