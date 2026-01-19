@@ -90,9 +90,11 @@ struct LogsView: View {
                         .foregroundColor(.red)
                 }
 
+                #if !os(macOS)
                 Button("Copy issues") {
                     UIPasteboard.general.string = issueReporter.issues.map { $0.message }.joined(separator: "\n")
                 }
+                #endif
             }
 
             Section {

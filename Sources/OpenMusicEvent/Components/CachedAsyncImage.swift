@@ -63,6 +63,23 @@ public struct CachedAsyncImage<P: View>: View {
         }
         .pipeline(.shared)
     }
+    #else
+    public var body: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .empty, .failure:
+                backup()
+            case .success(let image):
+                image
+                    .resizable()
+//                    .renderingMode(self.renderingMode)
+                    .aspectRatio(contentMode: contentMode)
+
+            @unknown default:
+                backup()
+            }
+        }
+    }
     #endif
 }
 

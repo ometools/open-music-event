@@ -16,7 +16,8 @@ struct ScheduleStageSelector: View {
         #if os(Android)
         standardPicker
         #else
-        if #available(iOS 26, *) {
+
+        if #available(iOS 26, macOS 26, *) {
             LiquidGlassSegmentedPicker(selection: $selectedStage.animation()) {
                 ForEach(stages) { stage in
                     StageIconView(stageID: stage.id)

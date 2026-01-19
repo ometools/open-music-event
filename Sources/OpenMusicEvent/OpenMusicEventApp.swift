@@ -16,16 +16,15 @@ private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", cate
     // SKIP @bridge
     public init() {
         if context == .live {
-            try! OME.prepareDependencies(enableFirebase: false)
+            withErrorReporting {
+                try OME.prepareDependencies(enableFirebase: false)
+            }
         }
     }
 
     public var body: some View {
         if context == .live {
             OMEAppEntryPoint()
-                .task {
-                    logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
-                }
         } else {
             Text("OpenMusicEventRootView: context is \(String(describing: _context.wrappedValue))")
         }

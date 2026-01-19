@@ -70,7 +70,13 @@ struct NavigationBarExtensionViewModifier<ExtensionContent: View>: ViewModifier 
     }
 
     func innerBody(content: Content) -> some View {
-        #if os(iOS)
+        #if os(Android)
+        VStack {
+            extensionContent
+            content
+        }
+        .toolbarBackground(.hidden, for: .automatic)
+        #else
         content.safeAreaInset(edge: .top) {
             if #available(iOS 26, *) {
                 extensionContent
@@ -82,13 +88,10 @@ struct NavigationBarExtensionViewModifier<ExtensionContent: View>: ViewModifier 
                     .offset(dragsWithScroll ? CGSize(width: 0, height: max(0, -yPosition)) : .zero)
             }
         }
-        .toolbarBackground(.hidden, for: .navigationBar)
-        #else
-        VStack {
-            extensionContent
-            content
-        }
+        #if os(iOS)
         .toolbarBackground(.hidden, for: .navigationBar)
         #endif
+        #endif
+
     }
 }

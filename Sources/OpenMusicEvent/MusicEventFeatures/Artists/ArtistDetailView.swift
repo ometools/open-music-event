@@ -175,7 +175,7 @@ struct ArtistDetailView: View {
         .task(id: store.artist.id) { await self.store.task() }
         .id(store.artist.id)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem {
                 Button {
                     Task { await store.toggleFavorite() }
                 } label: {

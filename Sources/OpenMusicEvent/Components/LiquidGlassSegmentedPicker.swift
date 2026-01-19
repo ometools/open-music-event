@@ -8,23 +8,24 @@
 import  SwiftUI
 
 
-#if os(iOS)
+#if os(iOS) || os(macOS)
 
 // MARK: - Container Values Extension
 
-@available(iOS 26, *)
+@available(iOS 26, macOS 26, *)
 extension ContainerValues {
     @Entry var pickerItemColor: Color = .accentColor
 }
 
 // MARK: - View Extension for Picker Item Color
-@available(iOS 26, *)
+//@available(iOS 26, *)
+@available(macOS 26, iOS 26, *)
 extension View {
     public func pickerItemColor(_ color: Color) -> some View {
         containerValue(\.pickerItemColor, color)
     }
 }
-@available(iOS 26, *)
+@available(iOS 26, macOS 26, *)
 public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: View {
     // MARK: - Properties
 

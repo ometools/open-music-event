@@ -173,13 +173,6 @@ struct ScheduleCardView: View {
             PerformanceDetailView(id: $0.id)
         }
     }
-
-
-    struct RecordingIndicators: View {
-        var body: some View {
-
-        }
-    }
 }
 
 struct LargePerformanceView: View {

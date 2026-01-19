@@ -7,8 +7,10 @@ extension View {
     func _zoomable() -> some View {
         #if os(Android)
         self.zoom()
-        #else
+        #elseif canImport(UIKit)
         ZoomableContainer { self }
+        #else
+        EmptyView()
         #endif
     }
 }

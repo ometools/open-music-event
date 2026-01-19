@@ -19,8 +19,8 @@ struct OrganizationDatabaseManager {
     /// iOS: ~/Documents/open-music-event/
     /// macOS: ~/Documents/open-music-event/
     static var organizationsDirectory: URL {
-        #if os(iOS)
-        let root = URL.documentsDirectory
+        #if os(Android)
+        let root = URL.applicationSupportDirectory
         #else
         let root = URL.documentsDirectory
         #endif
@@ -30,12 +30,7 @@ struct OrganizationDatabaseManager {
 
     /// Path to user preferences database (app-private)
     static var userPreferencesDatabasePath: URL {
-        #if os(iOS)
-        let root = URL.documentsDirectory
-        #else
-        let root = URL.applicationSupportDirectory
-        #endif
-        return root.appendingPathComponent("user-preferences.db")
+        organizationsDirectory.appendingPathComponent("user-preferences.sqlite")
     }
 
     // MARK: - Organization Database
@@ -170,9 +165,13 @@ struct OrganizationDatabaseManager {
 
 
 // MARK: - User Preferences Database
-
+import OSLog
 extension OrganizationDatabaseManager {
 
+    private static let logger = Logger(
+        subsystem: "bundle.ome.OpenMusicEvent",
+        category: "Database"
+    )
     /// Opens or creates the shared user preferences database
     static func openUserPreferencesDatabase() throws -> any DatabaseWriter {
         var configuration = Configuration()
@@ -184,9 +183,9 @@ extension OrganizationDatabaseManager {
             db.trace(options: .profile) {
                 print("[UserPrefs] \($0.expandedDescription)")
             }
-
         }
         #endif
+
         @Dependency(\.context) var context
         let database: any DatabaseWriter
 
@@ -194,20 +193,20 @@ extension OrganizationDatabaseManager {
             database = try DatabaseQueue(configuration: configuration)
         } else {
             let dbPath = userPreferencesDatabasePath
-            print("🔍 Attempting to open user prefs DB at:\(dbPath.path())")
+            logger.info("Attempting to open user prefs DB at:\(dbPath.path())")
 
             let parentDir = dbPath.deletingLastPathComponent()
-            print("🔍 Parent directory: \(parentDir.path())")
+            logger.info("Parent directory: \(parentDir.path())")
 
             // Check if parent exists
-            print("🔍 Parent exists: \(FileManager.default.fileExists(atPath: parentDir.path()))")
+            logger.info("Parent exists: \(FileManager.default.fileExists(atPath: parentDir.path()))")
 
             try FileManager.default.createDirectory(
                 at: parentDir,
                 withIntermediateDirectories: true
             )
 
-            print("🔍 Parent exists after creation: \(FileManager.default.fileExists(atPath: parentDir.path()))")
+            logger.info("Parent exists after creation: \(FileManager.default.fileExists(atPath: parentDir.path()))")
 
             database = try DatabasePool(
                 path: dbPath.path(),

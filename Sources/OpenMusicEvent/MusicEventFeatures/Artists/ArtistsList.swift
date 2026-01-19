@@ -101,6 +101,7 @@ struct ArtistsListView: View {
             } label: {
                 RowView(row: row)
             }
+            .buttonStyle(.plain)
         }
         .searchable(text: $store.searchText)
         .task(id: store.searchText) { await store.searchTextDidChange() }

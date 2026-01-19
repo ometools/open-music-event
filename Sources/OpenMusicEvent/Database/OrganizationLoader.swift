@@ -29,7 +29,7 @@ extension DataFetchingClient: DependencyKey {
         // Create a safe directory name using the URL's hash
         let urlHash = String(zipURL.absoluteString.stableHash)
         
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         let unzippedURL = URL.documentsDirectory
             .appending(path: "ome-zips")
             .appending(path: urlHash)
@@ -343,12 +343,12 @@ func downloadAndStoreOrganizationV2(from reference: OrganizationReference) async
 private func downloadAndParseWithFiles(from reference: OrganizationReference) async throws -> (OrganizerConfiguration, URL) {
     let urlHash = String(reference.zipURL.absoluteString.stableHash)
 
-    #if os(iOS)
-    let unzippedURL = URL.documentsDirectory
+    #if os(Android)
+    let unzippedURL = URL.applicationSupportDirectory
         .appending(path: "ome-zips")
         .appending(path: urlHash)
-    #elseif os(Android)
-    let unzippedURL = URL.applicationSupportDirectory
+    #else
+    let unzippedURL = URL.documentsDirectory
         .appending(path: "ome-zips")
         .appending(path: urlHash)
     #endif

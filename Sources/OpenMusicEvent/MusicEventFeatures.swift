@@ -260,7 +260,23 @@ public class MusicEventFeatures: Identifiable {
     }
 
     func didTapExitEvent() {
-        NotificationCenter.default.post(name: .userRequestedToExitEvent, object: nil)
+        @Dependency(\.userPreferencesDatabase) var userPrefsDatabase
+
+        withAnimation {
+            withErrorReporting {
+                try userPrefsDatabase.write { db in
+
+                    try db.execute(
+                        sql: """
+                            UPDATE \(AppState.databaseTableName)
+                            SET selectedEventID = NULL;
+                        """,
+                        arguments: []
+                    )
+                }
+            }
+        }
+
     }
 
     deinit {
@@ -497,7 +513,9 @@ struct SiteMapImageView: View {
                 }
             #endif
         }
+        #if !os(macOS)
         .toolbarBackground(.hidden, for: .navigationBar)
+        #endif
     }
 
 }

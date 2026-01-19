@@ -179,7 +179,9 @@ public struct NotificationPreferencesView: View {
             }
         }
         .navigationTitle("Notifications")
+        #if !os(macOS)
         .navigationBarTitleDisplayMode(.large)
+        #endif
         .task { await store.task() }
 
     }

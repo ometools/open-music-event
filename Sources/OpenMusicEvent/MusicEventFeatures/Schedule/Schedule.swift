@@ -236,7 +236,9 @@ struct ScheduleSelectorModifier: ViewModifier {
                     }
                 }
             }
+        #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+        #endif
             .navigationTitle(title)
     }
 }

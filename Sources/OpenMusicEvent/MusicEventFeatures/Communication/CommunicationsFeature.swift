@@ -441,9 +441,11 @@ public struct CommunicationChannelView: View {
         }
         .task(id: store.id) { await store.task() }
         .navigationTitle(store.channel.name)
+        #if !os(macOS)
         .navigationBarTitleDisplayMode(.large)
+        #endif
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .automatic) {
                 HStack(spacing: 8) {
                     if store.channel.notificationState == .subscribed {
                         Icons.notificationsEnabled
@@ -566,23 +568,27 @@ struct PostDetailView: View {
             }
             .padding(.horizontal)
         }
+
+        #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
+
 }
 
 //
 //
 //
-#if !os(ANDROID)
-#Preview {
-    try! prepareDependencies {
-        $0.defaultDatabase = try appDatabase()
-        $0.musicEventID = "testival-1"
-    }
-
-    return NavigationStack {
-        CommunicationsFeatureView(store: .init())
-    }
-//    .environment(\.editingMode, .editing)
-}
-#endif
+//#if !os(ANDROID)
+//#Preview {
+//    try! prepareDependencies {
+//        $0.defaultDatabase = try appDatabase()
+//        $0.musicEventID = "testival-1"
+//    }
+//
+//    return NavigationStack {
+//        CommunicationsFeatureView(store: .init())
+//    }
+////    .environment(\.editingMode, .editing)
+//}
+//#endif

@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "open-music-event",
     defaultLocalization: "en",
-    platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v17), .watchOS(.v10), .macCatalyst(.v17)],
+    platforms: [.iOS(.v17), .macOS(.v26), .tvOS(.v17), .watchOS(.v10)],
     products: [
         .library(
             name: "OpenMusicEvent",
@@ -68,7 +68,9 @@ let package = Package(
                 .product(name: "URLRouting", package: "swift-url-routing"),
             ],
             resources: [.process("Resources")],
-            plugins: [.plugin(name: "skipstone", package: "skip")]
+            plugins: [
+                .plugin(name: "skipstone", package: "skip")
+            ]
         ),
         .testTarget(
             name: "OpenMusicEventAppTests",

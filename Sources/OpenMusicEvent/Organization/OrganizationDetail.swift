@@ -179,6 +179,7 @@ public class OrganizationRoot {
                 $0.addTask {
                     try await self.observeAppState()
                 }
+
                 try await $0.waitForAll()
             }
         }
@@ -256,9 +257,10 @@ public struct OrganizationRootView: View {
             switch store.destination {
             case .eventViewer(let model):
                 MusicEventView(store: model)
+                    .transition(.opacity)
             case .none:
                 if let organizer = store.organization {
-                   StretchyHeaderList(
+                    StretchyHeaderList(
                        title: Text(organizer.name),
                        stretchyContent: {
                            OrganizerImageView(organizer: organizer)
@@ -301,6 +303,7 @@ public struct OrganizationRootView: View {
                            }
                        }
                    )
+                    .transition(.opacity)
                    .refreshable { await store.onPullToRefresh() }
                    .listStyle(.plain)
                } else {
@@ -311,6 +314,7 @@ public struct OrganizationRootView: View {
                }
             }
         }
+        .animation(.default, value: store.destination == nil)
         .onFirstAppear { Task {await store.onAppear() } }
     }
 

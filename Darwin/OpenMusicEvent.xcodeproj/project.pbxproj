@@ -216,6 +216,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Wicked Woods";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 5.1.2;
 			};
 			name = Debug;
@@ -229,6 +230,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Wicked Woods";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 5.1.2;
 			};
 			name = Release;

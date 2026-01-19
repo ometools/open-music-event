@@ -51,7 +51,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
     public func applicationDidLaunch() async throws {
         #if os(Android)
         // Android handles push tokens automatically
-        #else
+        #elseif os(iOS)
         // Register for remote notifications to get APNs token
         UIApplication.shared.registerForRemoteNotifications()
         _ = await self.requestPermission()
