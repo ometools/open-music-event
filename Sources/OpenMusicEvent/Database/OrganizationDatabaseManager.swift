@@ -64,6 +64,7 @@ struct OrganizationDatabaseManager {
                 print("\($0.expandedDescription)")
             }
             #endif
+
             let userPrefsPath = OrganizationDatabaseManager.userPreferencesDatabasePath.path()
             try db.execute(sql: "ATTACH DATABASE '\(userPrefsPath)' AS userprefs")
         }
@@ -72,6 +73,12 @@ struct OrganizationDatabaseManager {
 
         // Run migrations
         var migrator = DatabaseMigrator()
+//
+//        migrator.registerMigration("Channel validations") { <#Database#> in
+//            <#code#>
+//        }
+
+
         migrator.registerShippedMigrations()
         try migrator.migrate(db)
 

@@ -125,7 +125,6 @@
     },
     "Cancel" : {
       "comment" : "Button title indicating that the operation should be cancelled",
-      "extractionState" : "stale",
       "localizations" : {
         "es" : {
           "stringUnit" : {
@@ -152,6 +151,12 @@
           }
         }
       }
+    },
+    "Channel Name" : {
+
+    },
+    "Channel Topic" : {
+
     },
     "Channels" : {
 
@@ -243,16 +248,16 @@
     "Defaults" : {
 
     },
-    "Describe the purpose of the channel" : {
-
-    },
-    "Description" : {
+    "Delete %@" : {
 
     },
     "Directions" : {
 
     },
     "Don't Notify Me For New Posts" : {
+
+    },
+    "Edit %@" : {
 
     },
     "Enable" : {
@@ -298,9 +303,6 @@
       }
     },
     "Filters" : {
-
-    },
-    "General..." : {
 
     },
     "GitHub" : {
@@ -596,7 +598,6 @@
     },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
-      "extractionState" : "stale",
       "localizations" : {
         "es" : {
           "stringUnit" : {
@@ -710,6 +711,7 @@
     },
     "Title" : {
       "comment" : "Label for the item editor form indicating the title of the item",
+      "extractionState" : "stale",
       "localizations" : {
         "es" : {
           "stringUnit" : {

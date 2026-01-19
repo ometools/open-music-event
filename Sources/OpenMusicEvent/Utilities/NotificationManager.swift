@@ -141,7 +141,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
             return try Row.fetchAll(db, sql: """
                 SELECT 
                     c.firebaseTopicName,
-                    cp.userNotificationState
+                    cp.notificationState
                 FROM channels c
                 LEFT JOIN channelPreferences cp ON c.id = cp.channelID
                 WHERE c.firebaseTopicName IS NOT NULL
@@ -151,7 +151,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
 
         for row in channelData {
             if let topic: CommunicationChannel.FirebaseTopicName = row["firebaseTopicName"],
-               let state: CommunicationChannel.UserNotificationState = row["userNotificationState"] {
+               let state: CommunicationChannel.UserNotificationState = row["notificationState"] {
                 try await self.updateTopicSubscription(topic, to: state)
             }
         }

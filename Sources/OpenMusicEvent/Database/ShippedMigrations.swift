@@ -122,7 +122,7 @@ extension DatabaseMigrator {
                 "sortIndex" INTEGER,
                 "defaultNotificationState" TEXT NOT NULL,
                 "notificationsRequired" INTEGER NOT NULL DEFAULT 0,
-                "userNotificationState" TEXT,
+                "notificationState" TEXT,
                 "firebaseTopicName" TEXT,
 
                 FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE

@@ -890,6 +890,21 @@ extension CommunicationChannel {
             self.notificationsRequired = notificationsRequired
         }
     }
+
+    public var draft: CommunicationChannel.Draft {
+        .init(
+            id: self.id,
+            musicEventID: self.musicEventID,
+            firebaseTopicName: self.firebaseTopicName,
+            name: self.name,
+            description: self.description,
+            iconImageURL: self.iconImageURL,
+            headerImageURL: self.headerImageURL,
+            sortIndex: self.sortIndex,
+            defaultNotificationState: self.defaultNotificationState,
+            notificationsRequired: self.notificationsRequired
+        )
+    }
 }
 
 extension CommunicationChannel.Draft: Codable, Sendable, Equatable {}

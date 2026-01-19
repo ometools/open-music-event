@@ -43,9 +43,9 @@ public struct NotificationPreferencesView: View {
 //                    SELECT 
 //                        c.title,
 //                        c.description,
-//                        c.userNotificationState,
+//                        c.notificationState,
 //                        c.notificationsRequired
-//                        cp.userNotificationState
+//                        cp.notificationState
 //                
 //                    FROM channels c
 //                    LEFT JOIN channelPreferences cp ON c.id = cp.channelID
@@ -60,7 +60,7 @@ public struct NotificationPreferencesView: View {
 //
 //                        for row in channelData {
 //                            if let topicName: String = row["firebaseTopicName"] {
-//                                let notificationState: String = row["userNotificationState"]
+//                                let notificationState: String = row["notificationState"]
 //                                let topic = CommunicationChannel.FirebaseTopicName(rawValue: topicName)
 //                                let state = CommunicationChannel.UserNotificationState(rawValue: notificationState)
 //                                try await self.updateTopicSubscription(topic, to: state ?? .unsubscribed)
@@ -90,7 +90,7 @@ public struct NotificationPreferencesView: View {
                         try db.execute(
                             sql: """
                                 UPDATE \(CommunicationChannel.Preferences.tableName)
-                                SET userNotificationState = ? WHERE channelID = ?
+                                SET notificationState = ? WHERE channelID = ?
                             """,
                             arguments: [newValue.rawValue, channelID]
                         )

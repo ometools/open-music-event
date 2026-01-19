@@ -40,7 +40,8 @@ class MusicEventViewer: Identifiable {
         } operation: { @MainActor in
             return MusicEventFeatures(
                 features: [
-                    .artists
+                    .artists,
+                    .communications
                 ]
             )
         }
@@ -116,7 +117,7 @@ public class MusicEventFeatures: Identifiable {
     var event: MusicEvent?
 //    var organizer: Organizer
 
-    public var selectedFeature: Feature = .schedule
+    public var selectedFeature: Feature = .communications
 
     public var schedule: ScheduleFeature?
     public var workshopsSchedule: ScheduleFeature?
@@ -313,6 +314,7 @@ public class MusicEventFeatures: Identifiable {
     }
 }
 
+// MARK: View
 public struct MusicEventFeaturesView: View {
     public init(store: MusicEventFeatures) {
         self.store = store
@@ -414,6 +416,7 @@ extension EnvironmentValues {
 }
 #endif
 
+// MARK: MORE
 struct MoreView: View {
     let store: MusicEventFeatures
 

@@ -47,16 +47,16 @@ extension CommunicationChannel {
     public struct Preferences: Identifiable, Equatable, Sendable, Codable {
         public var id: CommunicationChannel.ID { channelID }
         public let channelID: CommunicationChannel.ID
-        public var userNotificationState: CommunicationChannel.UserNotificationState
+        public var notificationState: CommunicationChannel.UserNotificationState
 
         public static let tableName = "channelPreferences"
 
         public init(
             channelID: CommunicationChannel.ID,
-            userNotificationState: CommunicationChannel.UserNotificationState
+            notificationState: CommunicationChannel.UserNotificationState
         ) {
             self.channelID = channelID
-            self.userNotificationState = userNotificationState
+            self.notificationState = notificationState
         }
     }
 }
@@ -195,21 +195,21 @@ extension CommunicationChannel.Preferences {
             set { channelID = newValue }
         }
         public var channelID: CommunicationChannel.ID
-        public var userNotificationState: CommunicationChannel.UserNotificationState
+        public var notificationState: CommunicationChannel.UserNotificationState
 
         public static let tableName = CommunicationChannel.Preferences.tableName
 
         public init(_ other: CommunicationChannel.Preferences) {
             self.channelID = other.channelID
-            self.userNotificationState = other.userNotificationState
+            self.notificationState = other.notificationState
         }
 
         public init(
             channelID: CommunicationChannel.ID,
-            userNotificationState: CommunicationChannel.UserNotificationState
+            notificationState: CommunicationChannel.UserNotificationState
         ) {
             self.channelID = channelID
-            self.userNotificationState = userNotificationState
+            self.notificationState = notificationState
         }
     }
 }

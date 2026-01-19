@@ -127,7 +127,7 @@ struct Queries {
                     c.name,
                     c.description,
                     c.notificationsRequired,
-                    COALESCE(cp.userNotificationState, c.defaultNotificationState) as userNotificationState
+                    COALESCE(cp.notificationState, c.defaultNotificationState) as notificationState
                 
                 FROM channels c
                 LEFT JOIN channelPreferences cp ON c.id = cp.channelID
@@ -145,7 +145,7 @@ struct Queries {
                     c.name,
                     c.description,
                     c.notificationsRequired,
-                    COALESCE(cp.userNotificationState, c.defaultNotificationState) as userNotificationState
+                    COALESCE(cp.notificationState, c.defaultNotificationState) as notificationState
 
                 FROM channels c
                 LEFT JOIN channelPreferences cp ON c.id = cp.channelID

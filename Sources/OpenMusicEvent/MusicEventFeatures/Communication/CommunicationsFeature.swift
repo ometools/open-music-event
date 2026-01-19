@@ -43,7 +43,7 @@ extension CommunicationChannel {
             self.notificationsRequired = row["notificationsRequired"]
             
             // Parse the notification state from the raw value if it exists
-            if let rawValue: String = row["userNotificationState"] {
+            if let rawValue: String = row["notificationState"] {
                 self.notificationState = CommunicationChannel.UserNotificationState(rawValue: rawValue)
             } else {
                 self.notificationState = nil
@@ -72,7 +72,8 @@ public struct CommunicationsFeatureView: View {
         @CasePathable
         enum Destination {
             case channel(CommunicationChannelView.Store)
-            case createChannel(EditChannelView.Store)
+            case createChannel(ChannelFormView.Store)
+            case editChannel(ChannelFormView.Store)
         }
 
         var destination: Destination?
@@ -86,13 +87,43 @@ public struct CommunicationsFeatureView: View {
         func didTapCreateChannel() {
             withDependencies(from: self) {
                 self.destination = .createChannel(
-                    .init(dismiss: {
+                    .newChannel(dismiss: {
                         self.destination = nil
                     }
                  ))
             }
         }
 
+        func didTapEditChannel(_ channelID: CommunicationChannel.ID) {
+            withErrorReporting {
+                let channel = try defaultDatabase.read { db in
+                    try CommunicationChannel.fetchOne(db, id: channelID)
+                }
+                guard let channel else {
+                    reportIssue("Tried to edit a channel that does not exist")
+                    return
+                }
+
+                withDependencies(from: self) {
+                    self.destination = .editChannel(
+                        .init(
+                            channel: channel.draft,
+                            dismiss: {
+                                self.destination = nil
+                            }
+                        )
+                    )
+                }
+            }
+        }
+
+        func didTapDeleteChannel(_ channel: CommunicationChannel.ID) {
+            withErrorReporting {
+                _ = try defaultDatabase.write { db in
+                    try CommunicationChannel.deleteOne(db, id: channel)
+                }
+            }
+        }
 
         func task() async {
             let id = musicEventID
@@ -127,6 +158,15 @@ public struct CommunicationsFeatureView: View {
                         store.didTapChannel(channel.id)
                     } label: {
                         Row(channel: channel)
+                            .contextMenu {
+                                Button("Edit \(channel.name)") {
+                                    store.didTapEditChannel(channel.id)
+                                }
+
+                                Button("Delete \(channel.name)", role: .destructive) {
+                                    store.didTapDeleteChannel(channel.id)
+                                }
+                            }
                     }
                     .buttonStyle(.plain)
                 }
@@ -147,6 +187,10 @@ public struct CommunicationsFeatureView: View {
             CommunicationChannelView(store: $0)
         }
         .sheet(
+            item: $store.destination.editChannel,
+            content: EditChannelView.init(store:)
+        )
+        .sheet(
             item: $store.destination.createChannel,
             content: CreateChannelView.init(store:)
         )
@@ -155,10 +199,11 @@ public struct CommunicationsFeatureView: View {
     }
 
     struct CreateChannelView: View {
-        let store: EditChannelView.Store
+        let store: ChannelFormView.Store
+
         var body: some View {
             NavigationStack {
-                EditChannelView(store: store)
+                ChannelFormView(store: store)
                     .navigationTitle("Create Channel")
                     .toolbar {
                         Button("Create", systemImage: "checkmark") {
@@ -169,8 +214,23 @@ public struct CommunicationsFeatureView: View {
         }
     }
 
-
     struct EditChannelView: View {
+        let store: ChannelFormView.Store
+
+        var body: some View {
+            NavigationStack {
+                ChannelFormView(store: store)
+                    .navigationTitle("Edit \(store.channel.name)")
+                    .toolbar {
+                        Button("Save", systemImage: "checkmark") {
+                            store.didTapSaveChannel()
+                        }
+                    }
+            }
+        }
+    }
+
+    struct ChannelFormView: View {
         @Observable
         @MainActor
         class Store: Identifiable {
@@ -178,24 +238,31 @@ public struct CommunicationsFeatureView: View {
             @Dependency(\.defaultDatabase) var defaultDatabase
 
             init(
-                channel: CommunicationChannel.Draft? = nil,
+                channel: CommunicationChannel.Draft,
                 dismiss: @escaping () -> Void
             ) {
-                @Dependency(\.musicEventID) var musicEventID
-                self.channel = channel ?? CommunicationChannel.Draft(
-                    musicEventID: musicEventID,
-                    name: "General",
-                    description: "for all the testing stuff that I do",
-                    defaultNotificationState: .subscribed,
-                    notificationsRequired: false
-                )
+                self.channel = channel
                 self.dismiss = dismiss
             }
 
-            var channel: CommunicationChannel.Draft
+            static func newChannel(
+                dismiss: @escaping () -> Void
+            ) -> ChannelFormView.Store {
 
+                @Dependency(\.musicEventID) var musicEventID
+                let channel = CommunicationChannel.Draft(
+                    musicEventID: musicEventID,
+                    name: "",
+                    description: ""
+                )
+                return Store(channel: channel, dismiss: dismiss)
+            }
+
+            var channel: CommunicationChannel.Draft
+            
             var dismiss: () -> Void
 
+            var attributedTopic: AttributedString = ""
 
 
             func didTapSaveChannel() {
@@ -211,25 +278,31 @@ public struct CommunicationsFeatureView: View {
                 self.dismiss()
             }
 
+            func didTapCancel() {
+                self.dismiss()
+            }
         }
 
         @Bindable var store: Store
 
-        @SharedShim(.appStorage("efaults-editChannelView-defaultsSectionExpanded"))
+        @SharedShim(.appStorage("defaults-editChannelView-defaultsSectionExpanded"))
         var defaultsSectionExpanded: Bool = false
 
         var body: some View {
             Form {
-                Section("Title") {
-                    TextField("General...", text: $store.channel.name)
+                Section {
+                    TextField("Channel Name", text: $store.channel.name)
                 }
 
-
-                Section("Description") {
-                    TextField("Describe the purpose of the channel", text: $store.channel.description, axis: .vertical)
+                LabeledContent("Channel Topic") {
+                    TextEditor(text: $store.channel.description)
+//                        .border(.tertiary)
+                        .frame(height: 100)
+                        .padding(.trailing)
                 }
 
                 DisclosureGroup("Defaults", isExpanded: Binding($defaultsSectionExpanded)) {
+
                     Picker("Notifications", selection: $store.channel.defaultNotificationState ) {
                         ForEach(CommunicationChannel.DefaultNotificationState.allCases, id: \.self) {
                             Text($0.rawValue.capitalized)
@@ -237,16 +310,21 @@ public struct CommunicationsFeatureView: View {
                     }
 
                     if store.channel.defaultNotificationState == .subscribed {
-                        VStack(alignment: .leading) {
+                        Section {
                             Toggle("Require Notifications", isOn: $store.channel.notificationsRequired)
+                        } footer: {
                             Text("Users can always opt out of notifications through the operating system. Delivery of notifications cannot be guaranteed, and should not be relied upon as the sole source of critical information")
-                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-
                     }
                 }
             }
+            .toolbar {
+                Button("Cancel") {
+                    store.didTapCancel()
+                }
+            }
+            .formStyle(.grouped)
         }
     }
 
@@ -283,12 +361,12 @@ public struct CommunicationsFeatureView: View {
             }
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
+
         }
     }
 }
 
 
-class ChannelForm {}
 
 public struct CommunicationChannelView: View {
     @MainActor
@@ -336,7 +414,7 @@ public struct CommunicationChannelView: View {
                             c.name,
                             c.description,
                             c.notificationsRequired,
-                            COALESCE(cp.userNotificationState, c.defaultNotificationState) as userNotificationState
+                            COALESCE(cp.notificationState, c.defaultNotificationState) as userNotificationState
                         
                         FROM channels c
                         LEFT JOIN channelPreferences cp ON c.id = cp.channelID
@@ -417,6 +495,8 @@ public struct CommunicationChannelView: View {
                             store.didTapPost(post)
                         } label: {
                             Row(post: post)
+                            
+
                         }
                     }
                 }
@@ -430,6 +510,7 @@ public struct CommunicationChannelView: View {
                             PostDetailView(post: post)
                         } label: {
                             Row(post: post)
+                            
                         }
                     }
                 } header: {
