@@ -73,11 +73,6 @@ struct OrganizationDatabaseManager {
 
         // Run migrations
         var migrator = DatabaseMigrator()
-//
-//        migrator.registerMigration("Channel validations") { <#Database#> in
-//            <#code#>
-//        }
-
 
         migrator.registerShippedMigrations()
         try migrator.migrate(db)
@@ -167,7 +162,6 @@ struct OrganizationDatabaseManager {
             )
         }
     }
-
 }
 
 
@@ -228,6 +222,8 @@ extension OrganizationDatabaseManager {
         #if DEBUG
         migrator.eraseDatabaseOnSchemaChange = true
         #endif
+
+
         try migrator.migrate(database)
 
         return database
@@ -346,3 +342,4 @@ private enum OrganizationDatabaseManagerKey: DependencyKey {
 private enum UserPreferencesDatabaseKey: TestDependencyKey {
     static let testValue: any DatabaseWriter = DependencyValues.DefaultDatabaseKey.testValue
 }
+

@@ -115,7 +115,7 @@ extension DatabaseMigrator {
             CREATE TABLE channels (
                 "id" TEXT PRIMARY KEY NOT NULL,
                 "musicEventID" TEXT,
-                "name" TEXT NOT NULL,
+                "name" TEXT NOT NULL CHECK (name = lower(name)), 
                 "description" TEXT NOT NULL,
                 "iconImageURL" TEXT,
                 "headerImageURL" TEXT,
@@ -124,6 +124,8 @@ extension DatabaseMigrator {
                 "notificationsRequired" INTEGER NOT NULL DEFAULT 0,
                 "notificationState" TEXT,
                 "firebaseTopicName" TEXT,
+            
+                
 
                 FOREIGN KEY("musicEventID") REFERENCES "musicEvents"("id") ON DELETE CASCADE
             ) STRICT;

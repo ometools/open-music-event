@@ -92,6 +92,12 @@ public extension ExternalPlatform {
                 platform: self.platform ?? .detectPlatform(from: url)
             )
         }
+
+        public init(from decoder: any Decoder) throws {
+            let container: KeyedDecodingContainer<ExternalPlatform.Link.CodingKeys> = try decoder.container(keyedBy: ExternalPlatform.Link.CodingKeys.self)
+            self.url = try container.decode(URL.self, forKey: ExternalPlatform.Link.CodingKeys.url)
+            self.platform = try container.decodeIfPresent(ExternalPlatform.self, forKey: ExternalPlatform.Link.CodingKeys.platform) ?? .detectPlatform(from: url)
+        }
     }
 
     struct Asset: Equatable, Codable, Sendable {

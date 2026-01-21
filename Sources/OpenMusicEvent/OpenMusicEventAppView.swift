@@ -72,9 +72,6 @@ public enum OME {
 class OrganizationViewer {
     var musicEventViewer: MusicEventViewer?
 
-    init() {
-
-    }
 
     struct OrganizationSelection: FetchableRecord {
         init(row: GRDB.Row) throws {

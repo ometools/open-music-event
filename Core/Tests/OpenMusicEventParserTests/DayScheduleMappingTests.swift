@@ -29,7 +29,7 @@ struct DayScheduleConversionTests {
     
          @Test
          func multiStage() async throws {
-             let dto = FileContent(fileName: "2024-06-12", fileType: "yaml", data: CoreModels.Schedule.YamlRepresentation(
+             let dto = try FileContent(fileName: "2024-06-12", fileType: "yaml", data: CoreModels.Schedule.YamlRepresentation(
                  customTitle: nil,
                  date: CalendarDate(year: 2024, month: 6, day: 12),
                  performances: [
@@ -86,7 +86,8 @@ struct DayScheduleConversionTests {
                            minute: 30
                          ),
                          stageName: "Bass Haven",
-                         description: nil
+                         description: nil,
+                         performanceRecordings: []
                        ),
                        [1]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                          title: "Phantom Groove",
@@ -103,7 +104,8 @@ struct DayScheduleConversionTests {
                            minute: 0
                          ),
                          stageName: "Bass Haven",
-                         description: nil
+                         description: nil,
+                         performanceRecordings: []
                        ),
                        [2]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                          title: "Caribou State",
@@ -120,7 +122,8 @@ struct DayScheduleConversionTests {
                            minute: 30
                          ),
                          stageName: "Bass Haven",
-                         description: nil
+                         description: nil,
+                         performanceRecordings: []
                        )
                      ],
                      "Main Stage": [
@@ -139,7 +142,8 @@ struct DayScheduleConversionTests {
                            minute: 0
                          ),
                          stageName: "Main Stage",
-                         description: nil
+                         description: nil,
+                         performanceRecordings: []
                        ),
                        [1]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                          title: "Rhythmbox",
@@ -156,7 +160,8 @@ struct DayScheduleConversionTests {
                            minute: 30
                          ),
                          stageName: "Main Stage",
-                         description: nil
+                         description: nil,
+                         performanceRecordings: []
                        )
                      ]
                    ]
@@ -167,7 +172,7 @@ struct DayScheduleConversionTests {
 
     @Test
     func testSingleStage() async throws {
-        let dto = FileContent(fileName: "2024-06-12", fileType: "yaml", data: CoreModels.Schedule.YamlRepresentation(
+        let dto = try FileContent(fileName: "2024-06-12", fileType: "yaml", data: CoreModels.Schedule.YamlRepresentation(
             customTitle: nil,
             date: day,
             performances: [
@@ -217,7 +222,8 @@ struct DayScheduleConversionTests {
                       minute: 30
                     ),
                     stageName: "Bass Haven",
-                    description: nil
+                    description: nil,
+                    performanceRecordings: []
                   ),
                   [1]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                     title: "Phantom Groove",
@@ -234,7 +240,8 @@ struct DayScheduleConversionTests {
                       minute: 30
                     ),
                     stageName: "Bass Haven",
-                    description: nil
+                    description: nil,
+                    performanceRecordings: []
                   ),
                   [2]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                     title: "Oaktrail",
@@ -251,7 +258,8 @@ struct DayScheduleConversionTests {
                       minute: 0
                     ),
                     stageName: "Bass Haven",
-                    description: nil
+                    description: nil,
+                    performanceRecordings: []
                   ),
                   [3]: (extension in OpenMusicEventParser):Schedule.WithUnresolvedTimes.Performance(
                     title: "Rhythmbox",
@@ -268,7 +276,8 @@ struct DayScheduleConversionTests {
                       minute: 30
                     ),
                     stageName: "Bass Haven",
-                    description: nil
+                    description: nil,
+                    performanceRecordings: []
                   )
                 ]
               ]
