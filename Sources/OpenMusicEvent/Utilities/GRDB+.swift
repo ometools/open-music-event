@@ -99,7 +99,7 @@ import GRDB
 extension Tagged: @retroactive SQLExpressible where RawValue: SQLExpressible { }
 extension Tagged: @retroactive StatementBinding where RawValue: StatementBinding { }
 extension Tagged: @retroactive StatementColumnConvertible where RawValue: StatementColumnConvertible { }
-extension Tagged: DatabaseValueConvertible where RawValue: DatabaseValueConvertible {
+extension Tagged: @retroactive DatabaseValueConvertible where RawValue: DatabaseValueConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Tagged<Tag, RawValue>? {
         RawValue.fromDatabaseValue(dbValue).map { .init($0) }
     }
@@ -107,7 +107,9 @@ extension Tagged: DatabaseValueConvertible where RawValue: DatabaseValueConverti
 
 
 // MARK: - ExternalPlatform.Asset Database Support
-extension ExternalPlatform.Asset: DatabaseValueConvertible {
+extension ExternalPlatform.Asset: @retroactive SQLExpressible {}
+extension ExternalPlatform: @retroactive StatementBinding {}
+extension ExternalPlatform.Asset: @retroactive DatabaseValueConvertible {
     public var databaseValue: DatabaseValue {
         do {
             let encoder = JSONEncoder()

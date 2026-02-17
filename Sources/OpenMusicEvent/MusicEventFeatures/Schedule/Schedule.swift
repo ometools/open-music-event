@@ -43,8 +43,6 @@ public class ScheduleFeature {
         self.category = category
 
         self.singleStageAtOnceFeature = .init(category: category)
-
-        
     }
 
     var category: Stage.Category?
@@ -79,6 +77,9 @@ public class ScheduleFeature {
     @ObservationIgnored
     @Dependency(\.musicEventID) var musicEventID
 
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var database
+
     public func task() async {
 
         await withErrorReporting {
@@ -93,7 +94,7 @@ public class ScheduleFeature {
 
             for try await schedules in query.values(in: self.database) {
                 self.schedules = schedules
-                logger.log("schedules: \(schedules)")
+//                logger.log("schedules: \(schedules)")
                 //                if selectedSchedule == nil || !schedules.contains(where: { $0.id == selectedSchedule }) {
                 //                    selectedSchedule.withLock { $0 = } = schedules.first?.id
                 //                }
@@ -101,9 +102,6 @@ public class ScheduleFeature {
         }
 
     }
-
-    @ObservationIgnored
-    @Dependency(\.defaultDatabase) var database
 
 }
 
@@ -130,19 +128,20 @@ public struct ScheduleView: View {
 //            case .allStagesAtOnce:
 //                ManyStagesAtOnceView(store: self.store)
 //            }
-        }
+//        }
 //        .animation(.default, value: store.globalScheduleState.scheduleKind)
-        .toolbar {
-            if #available(iOS 26, *) {
-                ToolbarSpacer(.flexible)
-            }
-
-            ToolbarItemGroup(placement: .primaryAction) {
-//                ScheduleTypeMenu(selection: $store.globalScheduleState.scheduleKind)
-
-                FilterMenu(store: store)
-            }
+//        .toolbar {
+//            if #available(iOS 26, *) {
+//                ToolbarSpacer(.flexible)
+//            }
+//
+//            ToolbarItemGroup(placement: .primaryAction) {
+////                ScheduleTypeMenu(selection: $store.globalScheduleState.scheduleKind)
+//
+//                FilterMenu(store: store)
+//            }
         }
+
         .modifier(
             ScheduleSelectorModifier(
                 selectedScheduleID: Binding(store.$selectedSchedule),
@@ -203,18 +202,6 @@ struct ScheduleSelectorModifier: ViewModifier {
     @Binding var selectedScheduleID: Schedule.ID?
     var schedules: [Schedule]
 
-    func label(for day: Schedule) -> String {
-        if let customTitle = day.customTitle {
-            return customTitle
-        } else if let startTime = day.startTime {
-            logger.info("START TIME Determinng Title: \(startTime)")
-            return startTime.formatted(.dateTime.weekday(.wide))
-        } else {
-            return String(day.id.rawValue)
-        }
-    }
-
-
     var selectedSchedule: Schedule? {
         schedules.first { $0.id == selectedScheduleID }
     }
@@ -226,7 +213,17 @@ struct ScheduleSelectorModifier: ViewModifier {
             "Select a Schedule"
         }
     }
-
+    func label(for day: Schedule) -> String {
+        if let customTitle = day.customTitle {
+            return customTitle
+        } else if let startTime = day.startTime {
+            logger.info("START TIME Determinng Title: \(startTime)")
+            return startTime.formatted(.dateTime.weekday(.wide))
+        } else {
+            return String(day.id.rawValue)
+        }
+    }
+    
     func body(content: Content) -> some View {
         content
             .toolbarTitleMenu {

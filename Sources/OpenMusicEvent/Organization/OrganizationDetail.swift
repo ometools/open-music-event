@@ -108,7 +108,6 @@ public class OrganizationRoot {
     @CasePathable
     enum Destination {
         case eventViewer(MusicEventViewer)
-
     }
 
     func navigate(to route: OrganizationRoute) {

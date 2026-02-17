@@ -28,7 +28,6 @@ class MusicEventViewer: Identifiable {
     @Dependency(\.musicEventID) var musicEventID
 
     func task() async {
-//            self.eventFeatures = nil
         self.isLoading = true
         await self.loadData()
         self.isLoading = false
@@ -40,8 +39,13 @@ class MusicEventViewer: Identifiable {
         } operation: { @MainActor in
             return MusicEventFeatures(
                 features: [
+                    .schedule,
                     .artists,
-                    .communications
+                    .communications,
+                    .contactInfo,
+                    .location,
+                    .siteMap,
+                    .notifications
                 ]
             )
         }
@@ -62,8 +66,6 @@ struct MusicEventView: View {
     }
 
     var body: some View {
-        let _ = Self._printChanges()
-//        Text("\(store.isLoading)")
         Group {
             if !store.isLoading, let eventFeatures = store.eventFeatures {
                 MusicEventFeaturesView(store: eventFeatures)
@@ -71,6 +73,10 @@ struct MusicEventView: View {
                 LoadingScreen("Music Event Viewer")
             }
         }
+        .environment(\.defaultDatabase, {
+            print(store.database)
+            return store.database
+        }())
         .animation(.easeIn(duration: 0.5), value: store.eventFeatures == nil)
         .task {
             await store.task()
@@ -113,10 +119,7 @@ public class MusicEventFeatures: Identifiable {
         case schedule, artists, contactInfo, communications, siteMap, location, explore, workshops, notifications, about, more, edit
     }
 
-
     var event: MusicEvent?
-//    var organizer: Organizer
-
     public var selectedFeature: Feature = .communications
 
     public var schedule: ScheduleFeature?
@@ -127,6 +130,7 @@ public class MusicEventFeatures: Identifiable {
     public var communications: CommunicationsFeatureView.Store?
     public var notifications: NotificationPreferencesView.Store?
     public var edits: EditsFeature?
+    public var siteMap: SiteMapFeature?
 
     var shouldShowArtistImages: Bool = true
     var isLoadingOrganizer: Bool = false
@@ -142,78 +146,50 @@ public class MusicEventFeatures: Identifiable {
     @ObservationIgnored
     @Dependency(\.calendar) var calendar
 
-
     init(features: [Feature]) {
         let musicEventID = musicEventID
-        print("Features: \(features), for: \(musicEventID)")
+
         for feature in features {
             switch feature {
             case .schedule:
                 self.schedule = ScheduleFeature(category: nil)
+
             case .workshops:
                 self.workshopsSchedule = ScheduleFeature(category: "workshop")
+
             case .artists:
                 self.artists = ArtistsList()
+
             case .contactInfo:
                 self.contactInfo = ContactInfoFeature()
+
             case .communications:
                 self.communications = CommunicationsFeatureView.Store()
+
             case .siteMap:
-                //
-                break
+                self.siteMap = SiteMapFeature()
+
             case .location:
-                break
-                
+                self.location = LocationFeature()
+
             case .explore:
-                //
                 break
+
             case .notifications:
                 self.notifications = NotificationPreferencesView.Store()
+
             case .about:
                 break
+
             case .more:
                 break
-//                self.selectedFeature = .more
+
             case .edit:
                 self.edits = EditsFeature()
-                //                self.showingEdit = true
             }
         }
     }
 
-    public init(
-        _ event: MusicEvent,
-        _ organizer: Organizer,
-        artists: [Artist],
-        stages: [Stage],
-        schedules: [Schedule]
-    ) {
-
-//        self.organizer = organizer
-
-        self.artists = ArtistsList()
-        self.communications = CommunicationsFeatureView.Store()
-        
-        self.notifications = NotificationPreferencesView.Store()
-
-        self.shouldShowArtistImages = true
-
-//        if !schedules.isEmpty {
-//            self.schedule = ScheduleFeature(category: nil)
-//            self.workshopsSchedule = ScheduleFeature(category: "workshop")
-//        }
-//
-//        if !event.contactNumbers.isEmpty {
-//            self.contactInfo = ContactInfoFeature()
-//        }
-//
-//        if let location = event.location {
-//            self.location = LocationFeature(location: location)
-//        }
-
-
-        self.event = event
-    }
 
     func onAppear() async {
 //        NotificationCenter.default.addObserver(
@@ -245,19 +221,8 @@ public class MusicEventFeatures: Identifiable {
 //        }
     }
 
-    func didTapReloadOrganizer() async {
-        self.errorMessage = nil
-
-        self.isLoadingOrganizer = true
-
-        do {
-//            try await downloadAndStoreOrganizer(from: .zipURL(organizer.url))
-            self.isLoadingOrganizer = false
-        } catch {
-            self.errorMessage = error.localizedDescription
-            self.isLoadingOrganizer = true
-
-        }
+    func didTapReloadOrganizer() {
+        unimplemented()
     }
 
     func didTapExitEvent() {
@@ -299,13 +264,15 @@ public class MusicEventFeatures: Identifiable {
                     .fetchOne(db)
             }
 
-            //            await MainActor.run {
-            //                self.selectedFeature = .communications
-            //
-            //                self.communications?.destination = .init(channelID)
-            //
-            //                self.communications?.destination?.destination = post
-            //            }
+            await MainActor.run {
+                self.selectedFeature = .communications
+
+                let channelFeature = CommunicationChannelView.Store(channelID)
+                channelFeature.destination = post.map { .post($0) }
+
+                self.communications?.destination = .channel(channelFeature)
+
+            }
         }
     }
 
@@ -452,13 +419,13 @@ struct MoreView: View {
                     }
                 }
 
-//                if let siteMapURL = store.event.siteMapImageURL {
-//                    Feature(.siteMap) {
-//                        SiteMapImageView(siteMapURL: siteMapURL)
-//                    } label: {
-//                        Label("Site Map", image: Icons.map)
-//                    }
-//                }
+                if let siteMapFeature = store.siteMap {
+                    Feature(.siteMap) {
+                        SiteMapView(store: siteMapFeature)
+                    } label: {
+                        Label("Site Map", image: Icons.map)
+                    }
+                }
 
             }
 
@@ -497,6 +464,52 @@ enum FeatureLocation {
 #if SKIP
 
 #endif
+
+
+@Observable
+@MainActor
+public class SiteMapFeature {
+
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var defaultDatabase
+
+    @ObservationIgnored
+    @Dependency(\.musicEventID) var musicEventID
+
+    public var siteMapImageURL: URL?
+
+    public func task() async {
+        let musicEventID = self.musicEventID
+        let query = ValueObservation.tracking { db in
+            try MusicEvent
+                .fetchOne(db, id: musicEventID)?
+                .siteMapImageURL
+        }
+
+        await withErrorReporting {
+            for try await imageURL in query.values(in: defaultDatabase) {
+                self.siteMapImageURL = imageURL
+            }
+        }
+    }
+}
+
+
+struct SiteMapView: View {
+
+    let store: SiteMapFeature
+
+    var body: some View {
+        Group {
+            if let siteMapURL = store.siteMapImageURL {
+                SiteMapImageView(siteMapURL: siteMapURL)
+            } else {
+                ProgressView()
+            }
+        }
+        .task { await store.task() }
+    }
+}
 
 struct SiteMapImageView: View {
     var siteMapURL: URL

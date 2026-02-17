@@ -133,6 +133,7 @@ extension Artist.Preferences {
 
 
 
+
 struct ArtistDetailView: View {
     var store: ArtistDetail
 
@@ -141,7 +142,8 @@ struct ArtistDetailView: View {
     }
 
     var body: some View {
-        
+
+
         StretchyHeaderList(
             title: Text(store.artist.name),
             stretchyContent: {

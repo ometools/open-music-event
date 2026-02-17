@@ -13,6 +13,7 @@ import Dependencies
 import IssueReporting
 import CasePaths
 import OpenMusicEventParser
+import Perception
 
 struct OrganizerListView: View {
 
@@ -139,91 +140,89 @@ struct OrganizerListView: View {
     @Bindable var store: Model
 
     public var body: some View {
-        Group {
-            switch store.destination {
-            case .organizationRoot(let store):
-                OrganizationRootView(store: store)
-            case .addOrganization(let store):
-                NavigationStack {
-                    OrganizationFormView(store: store)
-                        .navigationTitle("Add Organization")
-                }
 
-            case .none:
-                NavigationStack {
-                    List {
-                        if !store.organizations.isEmpty {
-                            ForEach(store.organizations) { item in
-                                NavigationLinkButton {
-                                    store.didTapOrganization(item)
-                                } label: {
-                                    Row(org: item.organization)
+            Group {
+                switch store.destination {
+                case .organizationRoot(let store):
+                    OrganizationRootView(store: store)
+                case .addOrganization(let store):
+                    NavigationStack {
+                        OrganizationFormView(store: store)
+                            .navigationTitle("Add Organization")
+                    }
+
+                case .none:
+                    NavigationStack {
+                        List {
+                            if !store.organizations.isEmpty {
+                                ForEach(store.organizations) { item in
+                                    NavigationLinkButton {
+                                        store.didTapOrganization(item)
+                                    } label: {
+                                        Row(org: item.organization)
+                                    }
                                 }
-                            }
-                            .onDelete { indexSet in
-                                Task {
-                                    await store.didDeleteOrganization(indexSet)
+                                .onDelete { indexSet in
+                                    Task {
+                                        await store.didDeleteOrganization(indexSet)
+                                    }
                                 }
+                            } else {
+                                ContentUnavailableView(
+                                    "No Organizations Yet",
+                                    systemImage: "folder.badge.plus",
+                                    description: Text("Use the + button in the top right, and add a link to any Open Music Event directory")
+                                )
                             }
-                        } else {
-                            ContentUnavailableView(
-                                "No Organizations Yet",
-                                systemImage: "folder.badge.plus",
-                                description: Text("Use the + button in the top right, and add a link to any Open Music Event directory")
-                            )
-                        }
 
-                    }
-                    .listStyle(.plain)
-                    .refreshable {
-                        await self.store.onPullToRefresh()
-                    }
-                    .onAppear { Task { await store.onAppear() }}
-                    .navigationTitle("Organizations")
-                    .toolbar {
-                        Button("Add Organization", image: Icons.plus) {
-                            store.didTapAddOrganizerButton()
+                        }
+                        .listStyle(.plain)
+                        .refreshable {
+                            await self.store.onPullToRefresh()
+                        }
+                        .onAppear { Task { await store.onAppear() }}
+                        .navigationTitle("Organizations")
+                        .toolbar {
+                            Button("Add Organization", image: Icons.plus) {
+                                store.didTapAddOrganizerButton()
+                            }
                         }
                     }
                 }
-            }
-//            .sheet(item: $store.destination.addOrganization) { store in
-//                NavigationStack {
-//                    OrganizationFormView(store: store)
-//                        .navigationTitle("Add Organization")
-//                }
-//            }
-
+    //            .sheet(item: $store.destination.addOrganization) { store in
+    //                NavigationStack {
+    //                    OrganizationFormView(store: store)
+    //                        .navigationTitle("Add Organization")
+    //                }
+    //            }
 
         }
-
-
-
-
     }
 
     struct Row: View {
         var org: Organizer.Draft
 
         var body: some View {
-            HStack {
-                OrganizerIconView(organizer: org)
-                    .frame(width: 60, height: 60)
-                    .aspectRatio(contentMode: .fit)
+            WithPerceptionTracking {
+                HStack {
+                    OrganizerIconView(organizer: org)
+                        .frame(width: 60, height: 60)
+                        .aspectRatio(contentMode: .fit)
 
-                VStack(alignment: .leading) {
-                    Text(org.name)
-                    HStack(spacing: 8) {
-                        if let url = org.url {
-                            Text(url.absoluteString)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    VStack(alignment: .leading) {
+                        Text(org.name)
+                        HStack(spacing: 8) {
+                            if let url = org.url {
+                                Text(url.absoluteString)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(Color.primary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .foregroundStyle(Color.primary)
         }
     }
 }

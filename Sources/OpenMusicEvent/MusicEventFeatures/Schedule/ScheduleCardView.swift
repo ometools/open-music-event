@@ -20,7 +20,7 @@ struct ScheduleCardView: View {
 
     let id: Performance.ID
 
-    @Dependency(\.defaultDatabase) var database
+    @Environment(\.defaultDatabase) var database
 
     func task() async {
         let combinedQuery = ValueObservation.tracking { db in

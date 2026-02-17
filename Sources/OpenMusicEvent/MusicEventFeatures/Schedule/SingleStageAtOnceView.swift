@@ -207,7 +207,8 @@ struct StageSchedulePage: View, Identifiable {
 
     let logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "StageSchedulePage")
 
-    
+    @Environment(\.defaultDatabase) var db
+
 
     func task() async {
         guard let selectedSchedule = selectedSchedule
@@ -220,16 +221,16 @@ struct StageSchedulePage: View, Identifiable {
         }
 
         await withErrorReporting {
-//            for try await performances in query.values(in: ) {
-//                self.performances = performances.map {
-//                    PerformanceTimelineCard(
-//                        id: $0.id,
-//                        startTime: $0.startTime,
-//                        endTime: $0.endTime
-//                    )
-//                }
-//                logger.log("PerformancesCount: \(performances.count)")
-//            }
+            for try await performances in query.values(in: db) {
+                self.performances = performances.map {
+                    PerformanceTimelineCard(
+                        id: $0.id,
+                        startTime: $0.startTime,
+                        endTime: $0.endTime
+                    )
+                }
+                logger.log("PerformancesCount: \(performances.count)")
+            }
         }
     }
 

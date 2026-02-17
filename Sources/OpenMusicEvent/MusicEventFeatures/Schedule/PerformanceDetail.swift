@@ -223,18 +223,18 @@ public struct PerformanceDetailView: View {
     @Environment(\.dismiss) var dismiss
     @State var artistDetail: ArtistDetail?
     
-    @Dependency(\.defaultDatabase) var database
+//    @Environment(\.defaultDatabase) var database
 
     func didTapGoToArtist(_ id: Artist.ID) {
         artistDetail = .init(artistID: id)
     }
     
     func toggleSeen() async {
-        await withErrorReporting {
-            try await database.write { db in
-                try Performance.Preferences.toggleSeen(for: performanceID, in: db)
-            }
-        }
+//        await withErrorReporting {
+//            try await database.write { db in
+//                try Performance.Preferences.toggleSeen(for: performanceID, in: db)
+//            }
+//        }
     }
 
     var hasUnnamedArtists: Bool {

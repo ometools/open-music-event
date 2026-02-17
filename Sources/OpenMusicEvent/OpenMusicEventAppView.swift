@@ -31,7 +31,10 @@ public enum OME {
 
         try Dependencies.prepareDependencies {
             $0.omeLogger = LoggingLogger()
-            $0.userPreferencesDatabase = try OrganizationDatabaseManager.openUserPreferencesDatabase()
+
+            let userPrefrerencesDatabase = try OrganizationDatabaseManager.openUserPreferencesDatabase()
+            $0.userPreferencesDatabase = userPrefrerencesDatabase
+            $0.defaultDatabase = userPrefrerencesDatabase
         }
 
         #if canImport(Nuke)
@@ -72,7 +75,6 @@ public enum OME {
 class OrganizationViewer {
     var musicEventViewer: MusicEventViewer?
 
-
     struct OrganizationSelection: FetchableRecord {
         init(row: GRDB.Row) throws {
             self.organizationID = row["organizationID"]
@@ -83,11 +85,9 @@ class OrganizationViewer {
         let url: URL
     }
 
-
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
-
 }
 
 // MARK: WhiteLabledEntryPoint

@@ -14,10 +14,11 @@ let package = Package(
         ),
     ],
     dependencies: [
+        // Core holds things that are all platform compatable.
         .package(path: "Core"),
 
         .package(url: "https://github.com/woodymelling/swift-file-tree", branch: "android-support"),
-
+//
         .package(url: "https://source.skip.tools/skip.git", from: "1.6.0"),
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", "0.0.0"..<"2.0.0"),
         .package(url: "https://github.com/woodymelling/swift-dependencies-http-client", branch: "main"),
@@ -33,6 +34,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.0"),
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-url-routing", from: "0.6.2"),
+        .package(url: "https://github.com/pointfreeco/swift-perception", from: "2.0.0"),
 
 
         // Pin this version, 1.1 might be
@@ -66,10 +68,12 @@ let package = Package(
                 .product(name: "SkipFirebaseMessaging", package: "skip-firebase"),
 
                 .product(name: "URLRouting", package: "swift-url-routing"),
+
+                .product(name: "Perception", package: "swift-perception")
             ],
             resources: [.process("Resources")],
             plugins: [
-                .plugin(name: "skipstone", package: "skip")
+//                .plugin(name: "skipstone", package: "skip")
             ]
         ),
         .testTarget(

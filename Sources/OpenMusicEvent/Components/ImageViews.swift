@@ -14,7 +14,7 @@
 
 import Foundation
 import Observation
-import  SwiftUI; import SkipFuse
+import SwiftUI; import SkipFuse
 import Dependencies
 // import SharingGRDB
 import CoreModels
@@ -133,6 +133,27 @@ struct StageImageView: View {
         }
     }
 }
+
+
+
+extension EnvironmentValues {
+    struct DefaultDatabaseKey: EnvironmentKey {
+        typealias Value = any DatabaseWriter
+
+        static let defaultValue: any DatabaseWriter = {
+            @Dependency(\.defaultDatabase) var database
+            return database
+        }()
+    }
+
+    var defaultDatabase: any DatabaseWriter {
+        get {
+            self[DefaultDatabaseKey.self]
+        }
+        set { self[DefaultDatabaseKey.self] = newValue }
+    }
+}
+
 struct StageIconView: View {
     public init(stageID: Stage.ID) {
         self.stageID = stageID
@@ -141,7 +162,6 @@ struct StageIconView: View {
     let stageID: Stage.ID
 
     @Environment(\.colorScheme) var colorScheme
-    @Dependency(\.defaultDatabase) var database
 
     public var body: some View {
         StageLoader(stageID: stageID) { stage in
@@ -179,16 +199,16 @@ struct StageIconView: View {
 
 public struct StageLoader<Content: View>: View {
 
-    var stageID: Stage.ID
+    let stageID: Stage.ID
+    let content: (Stage) -> Content
     @State var stage: Stage?
-    var content: (Stage) -> Content
 
     init(stageID: Stage.ID, content: @escaping (Stage) -> Content) {
         self.stageID = stageID
         self.content = content
     }
 
-    @Dependency(\.defaultDatabase) var database
+    @Environment(\.defaultDatabase) var database
 
     public var body: some View {
         Group {
@@ -199,6 +219,7 @@ public struct StageLoader<Content: View>: View {
             }
         }
         .task(id: stageID) {
+            let stageID = stageID
             let query = ValueObservation.tracking { db in
                 try Stage.fetchOne(db, id: stageID)
             }

@@ -117,6 +117,15 @@ public struct CommunicationsFeatureView: View {
             }
         }
 
+        func onDelete(indexSet: IndexSet) {
+            withErrorReporting {
+                _ = try defaultDatabase.write { db in
+                    try CommunicationChannel.deleteAll(db, ids: indexSet.map { channels[$0].id })
+                }
+            }
+        }
+
+
         func didTapDeleteChannel(_ channel: CommunicationChannel.ID) {
             withErrorReporting {
                 _ = try defaultDatabase.write { db in
@@ -167,6 +176,8 @@ public struct CommunicationsFeatureView: View {
                                     store.didTapDeleteChannel(channel.id)
                                 }
                             }
+
+                        
                     }
                     .buttonStyle(.plain)
                 }
@@ -393,7 +404,6 @@ public struct CommunicationChannelView: View {
             case editPost
         }
 
-
         var destination: Destination?
 
         @ObservationIgnored
@@ -404,7 +414,9 @@ public struct CommunicationChannelView: View {
 
         func task() async {
             let channelID = id
-            let musicEventID = musicEventID
+
+            @ObservationIgnored
+            @Dependency(\.musicEventID) var musicEventID
 
             let postsObservation = ValueObservation.tracking { db in
                 let channel = try SQLRequest<CommunicationChannel.ChannelUserInfo>(

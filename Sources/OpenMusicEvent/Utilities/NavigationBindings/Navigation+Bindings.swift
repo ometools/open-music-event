@@ -61,7 +61,7 @@ extension Optional {
 
 import CasePaths
 
-extension Binding {
+extension Binding where Value: Sendable {
     public subscript<Case>(dynamicMember keyPath: CaseKeyPath<Value, Case>) -> Binding<Case>?
     where Value: CasePathable {
         #if os(Android)

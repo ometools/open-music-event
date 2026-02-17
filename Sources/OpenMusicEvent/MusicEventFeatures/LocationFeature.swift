@@ -64,24 +64,47 @@ extension LocationCoordinates {
 }
 #endif
 
+import GRDB
+import Dependencies
+
 @MainActor
 @Observable
 public class LocationFeature {
-    public var location: MusicEvent.Location
 
-    var coordinates: LocationCoordinates?
+    var location: MusicEvent.Location? = nil
+    var coordinates: LocationCoordinates? = nil
+
+    @ObservationIgnored
+    @Dependency(\.musicEventID) var musicEventID
+
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var db
 
     public func task() async {
-        if let coordinates = location.coordinates {
-            self.coordinates = LocationCoordinates(from: coordinates)
-        } else if let address = location.address {
-            self.coordinates = await geocodeAddress(address: address)
+        let query = ValueObservation.tracking { db in
+            try MusicEvent
+                .filter(key: self.musicEventID)
+                .fetchOne(db)?
+                .location
         }
+
+        await withErrorReporting {
+            for try await location in query.values(in: self.db) {
+                self.location = location
+
+                if let coordinates = location?.coordinates {
+                    self.coordinates = LocationCoordinates(from: coordinates)
+                } else if let address = location?.address {
+                    self.coordinates = await geocodeAddress(address: address)
+                }
+            }
+        }
+
     }
 
     public func didTapOpenInAppleMaps() {
         // Use direct Apple Maps link if available
-        if let appleMapsLink = location.appleMapsLink {
+        if let appleMapsLink = location?.appleMapsLink {
             openURL(appleMapsLink)
             return
         }
@@ -92,14 +115,14 @@ public class LocationFeature {
         #if canImport(MapKit)
         let placemark = MKPlacemark(coordinate: coordinates.clLocationCoordinates)
         let mapItem = MKMapItem(placemark: placemark)
-        mapItem.name = location.address
+        mapItem.name = location?.address
         mapItem.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
         #endif
     }
 
     public func didTapOpenInGoogleMaps() {
         // Use direct Google Maps link if available
-        if let googleMapsLink = location.googleMapsLink {
+        if let googleMapsLink = location?.googleMapsLink {
             openURL(googleMapsLink)
             return
         }
@@ -120,11 +143,6 @@ public class LocationFeature {
         #elseif canImport(AppKit)
         NSWorkspace.shared.open(url)
         #endif
-    }
-
-    public init(location: MusicEvent.Location) {
-        self.location = location
-        self.coordinates = location.coordinates.map { LocationCoordinates(from: $0) }
     }
 }
 
@@ -175,7 +193,7 @@ struct LocationView: View {
                             .aspectRatio(1, contentMode: .fill)
                     }
 
-                    if let address = store.location.address {
+                    if let address = store.location?.address {
                         AddressView(address: address)
                     }
 
@@ -247,7 +265,7 @@ struct LocationView: View {
 
     @ViewBuilder
     var directions: some View {
-        if let directions = store.location.directions {
+        if let directions = store.location?.directions {
             Section("Directions") {
                 Text(directions)
             }
