@@ -447,7 +447,8 @@ enum OrganizationInsertionService {
             artistPreferences: try Artist.Preferences.fetchAll(db),
             performancePreferences: try Performance.Preferences.fetchAll(db),
             channelPreferences: try CommunicationChannel.Preferences.fetchAll(db),
-            postPreferences: try CommunicationChannel.Post.Preferences.fetchAll(db)
+            postPreferences: try CommunicationChannel.Post.Preferences.fetchAll(db),
+            posterPreferences: try Poster.Preferences.fetchAll(db)
         )
     }
     
@@ -728,6 +729,14 @@ enum OrganizationInsertionService {
                 try CommunicationChannel.Post.Preferences.Draft(pref).upsert(db)
             }
         }
+        
+        // Restore poster preferences
+        for pref in preferences.posterPreferences {
+            // Only restore if post still exists
+            if try Poster.fetchOne(db, id: pref.id) != nil {
+                try Poster.Preferences.Draft(pref).upsert(db)
+            }
+        }
     }
 }
 
@@ -774,6 +783,7 @@ private struct UserPreferences {
     let performancePreferences: [Performance.Preferences]
     let channelPreferences: [CommunicationChannel.Preferences]
     let postPreferences: [CommunicationChannel.Post.Preferences]
+    let posterPreferences: [Poster.Preferences]
 }
 
 // MARK: - Updated Extension Using New Service
@@ -789,3 +799,4 @@ extension Array {
         return self[index]
     }
 }
+

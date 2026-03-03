@@ -181,6 +181,7 @@ extension EventConfiguration {
         var appleMapsLink: URL?
         var googleMapsLink: URL?
 
+
         var coordinates: MusicEvent.Location.Coordinates? {
             guard let latitude, let longitude else { return nil }
 
@@ -198,6 +199,7 @@ extension EventConfiguration {
         var startDate: CalendarDate?
         var endDate: CalendarDate?
 
+        var posters: [Poster.Draft]?
         var contactNumbers: [CoreModels.MusicEvent.ContactNumber]?
         var stages: [CoreModels.Stage.Draft]?
     }

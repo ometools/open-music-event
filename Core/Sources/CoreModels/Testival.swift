@@ -41,7 +41,7 @@ public extension MusicEvent {
         iconImageURL: nil,
         siteMapImageURL: nil,
         location: nil,
-        contactNumbers: []
+        contactNumbers: [],
     )
 }
 
@@ -70,7 +70,7 @@ public extension MusicEvent {
                 title: "General Information Line",
                 description: "For general information, questions or concerns, or to report any sanitation issues within the WW grounds, please contact this number."
             )
-        ]
+        ],
     )
 }
 

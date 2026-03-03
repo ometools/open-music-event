@@ -79,7 +79,7 @@ struct OrganizerListView: View {
                             )
                         )
                     } catch {
-                        reportIssue("failed to parse organizer-info.yml at \(url)")
+                        reportIssue("failed to parse organizer-info.yml at \(url): \(error)")
                     }
 
                 }
@@ -203,26 +203,24 @@ struct OrganizerListView: View {
         var org: Organizer.Draft
 
         var body: some View {
-            WithPerceptionTracking {
-                HStack {
-                    OrganizerIconView(organizer: org)
-                        .frame(width: 60, height: 60)
-                        .aspectRatio(contentMode: .fit)
+            HStack {
+                OrganizerIconView(organizer: org)
+                    .frame(width: 60, height: 60)
+                    .aspectRatio(contentMode: .fit)
 
-                    VStack(alignment: .leading) {
-                        Text(org.name)
-                        HStack(spacing: 8) {
-                            if let url = org.url {
-                                Text(url.absoluteString)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                VStack(alignment: .leading) {
+                    Text(org.name)
+                    HStack(spacing: 8) {
+                        if let url = org.url {
+                            Text(url.absoluteString)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .foregroundStyle(Color.primary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(Color.primary)
         }
     }
 }

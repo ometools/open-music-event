@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "open-music-event",
     defaultLocalization: "en",
-    platforms: [.iOS(.v17), .macOS(.v26), .tvOS(.v17), .watchOS(.v10)],
+    platforms: [.iOS(.v18), .macOS(.v26)],
     products: [
         .library(
             name: "OpenMusicEvent",

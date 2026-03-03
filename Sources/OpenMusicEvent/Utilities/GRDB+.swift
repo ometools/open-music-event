@@ -57,6 +57,10 @@ extension Performance.Preferences: Table {}
 extension CommunicationChannel.Preferences: Table {}
 extension CommunicationChannel.Post.Preferences: Table {}
 extension ExternalPlatform.Asset.Preferences: Table {}
+extension Poster: Table {}
+extension Poster.Draft: MutableIdentifiable, TableDraft {}
+
+extension Poster.Preferences.Draft: MutableIdentifiable, TableDraft {}
 extension Organizer.Draft:  MutableIdentifiable, TableDraft {}
 extension MusicEvent.Draft:  MutableIdentifiable, TableDraft {}
 extension Artist.Draft:  MutableIdentifiable, TableDraft {}
@@ -172,3 +176,9 @@ extension ExternalPlatform.Asset: @retroactive DatabaseValueConvertible {
 //        return self.values(in: defaultDatabase, scheduling: scheduler, bufferingPolicy: bufferingPolicy)
 //    }
 //}
+
+extension Poster.Preferences: Table {
+    public static var tableName: String {
+        "postersPreferences"
+    }
+}

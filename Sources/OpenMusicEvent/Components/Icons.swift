@@ -78,6 +78,10 @@ enum Icons {
         #endif
     }
 
+    static var posters: Image {
+        Image(systemName: "text.rectangle.page")
+    }
+
     // MARK: - Communication
     static var megaphone: Image {
         #if os(Android)

@@ -97,13 +97,13 @@ public class OrganizationRoot {
     }
 
     let id: Organization.ID
+
     private init(for id: Organization.ID) {
         self.id = id
     }
 
     var destination: Destination? = nil
     var organization: Organization?
-
 
     @CasePathable
     enum Destination {
@@ -148,14 +148,13 @@ public class OrganizationRoot {
                 .order(Column("startTime").desc)
                 .fetchAll(db)
 
-
             return (organization, events)
         }
 
-            for try await (organization, events) in query.values(in: self.database) {
-                self.events = events
-                self.organization = organization
-            }
+        for try await (organization, events) in query.values(in: self.database) {
+            self.events = events
+            self.organization = organization
+        }
     }
 
 
@@ -168,19 +167,21 @@ public class OrganizationRoot {
     var events: [MusicEvent] = []
 
 
-    public func onAppear() async {
-        await withErrorReporting {
-            try await withThrowingTaskGroup {
-
-                $0.addTask {
+    public func task() async {
+        await withTaskGroup {
+            $0.addTask {
+                await withErrorReporting {
                     try await self.observeOrganizationDetails()
                 }
-                $0.addTask {
+            }
+
+            $0.addTask {
+                await withErrorReporting {
                     try await self.observeAppState()
                 }
-
-                try await $0.waitForAll()
             }
+
+            await $0.waitForAll()
         }
     }
 
@@ -314,7 +315,7 @@ public struct OrganizationRootView: View {
             }
         }
         .animation(.default, value: store.destination == nil)
-        .onFirstAppear { Task {await store.onAppear() } }
+        .task { await store.task() }
     }
 
 
@@ -455,7 +456,15 @@ enum Current {
             .filter(Column("musicEventID") == musicEventID)
             .order(Column("startTime"))
     }
-//    
+    
+    static var posters: QueryInterfaceRequest<Poster> {
+        @Dependency(\.musicEventID) var musicEventID
+
+        return Poster
+            .filter(Column("musicEventID") == musicEventID)
+            .order(Column("sortIndex"))
+    }
+    
 //    static var performances: QueryInterfaceRequest<Performance> {
 //        @Dependency(\.musicEventID) var musicEventID
 //        return Performance
@@ -483,3 +492,4 @@ let intervalFormatter = DateIntervalFormatter()
 extension Organizer {
     static let placeholder = Organizer.omeTools
 }
+

@@ -10,11 +10,11 @@ import GRDB
 
 /// Global app state stored in user preferences database
 struct AppState: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "appState"
+
     var id: Int = 1
     var selectedOrganizationID: Organizer.ID?
     var selectedOrganizationURL: URL?
 
     var selectedEventID: MusicEvent.ID?
-
-    static let databaseTableName = "appState"
 }

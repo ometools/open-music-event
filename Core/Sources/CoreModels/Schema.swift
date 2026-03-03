@@ -129,7 +129,6 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
     public var timeZone: TimeZone
 
     public var startTime: Date?
-
     public var endTime: Date?
 
     public let iconImageURL: URL?
@@ -141,6 +140,8 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
 
 //    @Column(as: [ContactNumber].JSONRepresentation.self)
     public let contactNumbers: [ContactNumber]
+
+
 
     public struct ContactNumber: Equatable, Sendable, Codable {
         public let phoneNumber: String
@@ -191,7 +192,7 @@ public struct MusicEvent: Equatable, Identifiable, Sendable, Codable {
         iconImageURL: URL?,
         siteMapImageURL: URL?,
         location: Location?,
-        contactNumbers: [ContactNumber]
+        contactNumbers: [ContactNumber],
     ) {
         self.id = id
         self.organizerID = organizerID
@@ -257,6 +258,49 @@ public struct Artist: Identifiable, Equatable, Sendable, Codable {
 }
 
 extension Artist.Draft: Equatable, Sendable, Codable {}
+
+public struct Poster: Equatable, Sendable, Codable, Identifiable {
+    public typealias ID = OmeID<MusicEvent>
+
+    public var id: ID
+    public var musicEventID: MusicEvent.ID?
+    public var title: String?
+    public var imageURL: URL
+}
+
+extension Poster {
+    public static let tableName = "posters"
+
+    public struct Draft: Equatable, Sendable, Codable, Identifiable {
+        public typealias PrimaryTable = Poster
+
+        public var id: ID?
+        public var musicEventID: MusicEvent.ID?
+        public var title: String?
+        public var imageURL: URL
+
+        public static let tableName = Poster.tableName
+
+        public init(_ other: Poster) {
+            self.id = other.id
+            self.musicEventID = other.musicEventID
+            self.title = other.title
+            self.imageURL = other.imageURL
+        }
+
+        public init(
+            id: ID? = nil,
+            musicEventID: MusicEvent.ID?,
+            title: String? = nil,
+            imageURL: URL
+        ) {
+            self.id = id
+            self.musicEventID = musicEventID
+            self.title = title
+            self.imageURL = imageURL
+        }
+    }
+}
 
 // MARK: Stage
 //@Table
@@ -1000,3 +1044,4 @@ extension CommunicationChannel.Post {
 }
 
 extension CommunicationChannel.Post.Draft: Codable, Sendable, Equatable {}
+

@@ -92,15 +92,16 @@ class OrganizationViewer {
 
 // MARK: WhiteLabledEntryPoint
 public struct OMEWhiteLabeledEntryPoint: View {
-    public init(id: Organizer.ID, url: URL) {
-        self.init(id: id, reference: .zipURL(url))
+    public init(id: Organizer.ID, url: URL)  {
+         self.init(id: id, reference: .zipURL(url))
     }
 
     public init(id: Organizer.ID, reference: OrganizationReference) {
-        self.store = .init(id: id, organization: reference)
+
+        self.store = withErrorReporting { try .init(id: id, organization: reference) }
     }
 
-    @State var store: Model
+    @State var store: Model?
 
     @Observable
     @MainActor
@@ -111,46 +112,46 @@ public struct OMEWhiteLabeledEntryPoint: View {
         var isLoadingOrganizer: Bool = false
         var organizerLoadError: String?
 
-        init(id: Organizer.ID, organization: OrganizationReference) {
-            fatalError()
-//            self.organizerDetailStore = .init(id: id)
-//            self.organizationReference = organization
+        init(id: Organizer.ID, organization: OrganizationReference) throws {
+            self.organizationReference = organization
+            self.organizerDetailStore = try .openExistingDatabase(for: id)
+
+            Task {
+                self.isLoadingOrganizer = true
+                self.organizerLoadError = nil
+
+                await withErrorReporting {
+                    try await downloadAndStoreOrganizer(from: self.organizationReference)
+
+                    await MainActor.run {
+                        self.isLoadingOrganizer = false
+                    }
+                }
+            }
         }
 
         @ObservationIgnored
         @Dependency(\.defaultDatabase) var database
 
-        func onAppear() async {
-            self.isLoadingOrganizer = true
-            self.organizerLoadError = nil
-
-            await withTaskGroup {
-                $0.addTask {
-                    await withErrorReporting {
-                        try await downloadAndStoreOrganizer(from: self.organizationReference)
-
-                        await MainActor.run {
-                            self.isLoadingOrganizer = false
-                        }
-                    }
-                }
-            }
-        }
     }
 
     public var body: some View {
-        ZStack {
-            NavigationStack {
-                OrganizationRootView(store: store.organizerDetailStore)
-            }
+        if let store {
+            ZStack {
+                NavigationStack {
+                    OrganizationRootView(store: store.organizerDetailStore)
+                }
 
-            if let store = store.organizationViewer.musicEventViewer {
-                MusicEventView(store: store)
-            } else if store.isLoadingOrganizer {
-                LoadingScreen()
+                if let store = store.organizationViewer.musicEventViewer {
+                    MusicEventView(store: store)
+                } else if store.isLoadingOrganizer {
+                    LoadingScreen()
+                }
             }
+        } else {
+            LogsView()
         }
-        .onAppear { Task { await store.onAppear() } }
+
     }
 }
 
@@ -247,66 +248,6 @@ enum AppRoute: Hashable {
 
 
 // MARK: Bundled Entry Point
-public struct OMEBundledEntryPoint: View {
-    public init(folderURL: URL) {
-        self.folderURL = folderURL
-    }
-
-    let folderURL: URL
-    @State var store = Model()
-
-    @Observable
-    @MainActor
-    class Model {
-        var organizationViewer = OrganizationViewer()
-        var isLoading: Bool = false
-        var loadError: String?
-
-        func onAppear(folderURL: URL) async {
-            self.isLoading = true
-            self.loadError = nil
-
-            await withTaskGroup {
-                $0.addTask {
-                    await withErrorReporting {
-                        do {
-                            try await loadAndStoreLocalOrganizer(from: folderURL)
-                        } catch {
-                            await MainActor.run {
-                                self.loadError = error.localizedDescription
-                            }
-                        }
-
-                        await MainActor.run {
-                            self.isLoading = false
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    public var body: some View {
-        ZStack {
-            if let error = store.loadError {
-                VStack {
-                    Text("Error loading event")
-                        .font(.headline)
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-            } else if store.isLoading {
-                LoadingScreen()
-            } else if let store = store.organizationViewer.musicEventViewer {
-                MusicEventView(store: store)
-            }
-
-            Text("Hello World!")
-        }
-        .onAppear { Task { await store.onAppear(folderURL: folderURL) } }
-    }
-}
 
 
 // MARK: - Logging

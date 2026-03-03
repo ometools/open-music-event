@@ -185,6 +185,9 @@
     "Create Post View" : {
 
     },
+    "Create Poster" : {
+
+    },
     "Dark" : {
       "comment" : "Menu item indicating that the appearance should be in dark mode",
       "extractionState" : "stale",
@@ -248,6 +251,9 @@
     "Defaults" : {
 
     },
+    "Delete" : {
+
+    },
     "Delete %@" : {
 
     },
@@ -264,9 +270,6 @@
 
     },
     "Enable push notifications above to configure channel preferences." : {
-
-    },
-    "Error loading event" : {
 
     },
     "Exit and see previous events" : {
@@ -353,9 +356,6 @@
         }
       }
     },
-    "Hello World!" : {
-
-    },
     "Home" : {
       "comment" : "Tab bar item title for the Home tab",
       "extractionState" : "stale",
@@ -385,6 +385,12 @@
           }
         }
       }
+    },
+    "Image" : {
+
+    },
+    "Image URL" : {
+
     },
     "Invalid Repository URL" : {
 
@@ -476,10 +482,16 @@
         }
       }
     },
+    "New Poster" : {
+
+    },
     "No communication channels available for this event." : {
 
     },
     "No Organizations Yet" : {
+
+    },
+    "No Posters" : {
 
     },
     "Notes" : {
@@ -711,7 +723,6 @@
     },
     "Title" : {
       "comment" : "Label for the item editor form indicating the title of the item",
-      "extractionState" : "stale",
       "localizations" : {
         "es" : {
           "stringUnit" : {

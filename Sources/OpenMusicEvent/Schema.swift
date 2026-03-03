@@ -82,6 +82,50 @@ extension CommunicationChannel.Post {
 
 extension CommunicationChannel.Post.Preferences.Draft: Sendable, Equatable, Codable {}
 
+
+extension Poster {
+
+    public struct Preferences: Identifiable, Equatable, Sendable, Codable {
+        public init(id: Poster.ID, isRead: Bool, isFavorite: Bool) {
+            self.id = id
+            self.isRead = isRead
+            self.isFavorite = isFavorite
+        }
+        public var id: Poster.ID
+        public var isRead: Bool
+        public var isFavorite: Bool
+
+
+    }
+}
+
+extension Poster.Preferences {
+    public struct Draft {
+        public typealias PrimaryTable = Poster.Preferences
+
+        public var id: Poster.ID
+        public var isRead: Bool
+        public var isFavorite: Bool
+
+        public static let tableName = "posterPreferences"
+
+        public init(_ other: Poster.Preferences) {
+            self.id = other.id
+            self.isRead = other.isRead
+            self.isFavorite = other.isFavorite
+        }
+
+        public init(id: Poster.ID, isRead: Bool = false, isFavorite: Bool = false) {
+            self.id = id
+            self.isRead = isRead
+            self.isFavorite = isFavorite
+        }
+    }
+}
+
+extension Poster.Preferences.Draft: Sendable, Equatable, Codable {}
+
+
 import Foundation
 
 extension ExternalPlatform.Asset {
@@ -134,6 +178,8 @@ extension ExternalPlatform.Asset {
 }
 
 extension ExternalPlatform.Asset.Preferences.Draft: Sendable, Equatable, Codable {}
+
+
 
 
 extension Artist.Preferences {
@@ -308,3 +354,4 @@ extension ExternalPlatform.Asset.Preferences {
         }
     }
 }
+

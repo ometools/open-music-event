@@ -39,6 +39,7 @@ class MusicEventViewer: Identifiable {
         } operation: { @MainActor in
             return MusicEventFeatures(
                 features: [
+                    .posters,
                     .schedule,
                     .artists,
                     .communications,
@@ -116,7 +117,7 @@ extension DependencyValues {
 @Observable
 public class MusicEventFeatures: Identifiable {
     public enum Feature: String, Hashable, Codable, Sendable {
-        case schedule, artists, contactInfo, communications, siteMap, location, explore, workshops, notifications, about, more, edit
+        case schedule, artists, contactInfo, communications, siteMap, location, explore, workshops, notifications, about, more, edit, posters
     }
 
     var event: MusicEvent?
@@ -131,6 +132,7 @@ public class MusicEventFeatures: Identifiable {
     public var notifications: NotificationPreferencesView.Store?
     public var edits: EditsFeature?
     public var siteMap: SiteMapFeature?
+    public var posters: PostersFeature?
 
     var shouldShowArtistImages: Bool = true
     var isLoadingOrganizer: Bool = false
@@ -186,6 +188,9 @@ public class MusicEventFeatures: Identifiable {
 
             case .edit:
                 self.edits = EditsFeature()
+
+            case .posters:
+                self.posters = PostersFeature()
             }
         }
     }
@@ -280,6 +285,8 @@ public class MusicEventFeatures: Identifiable {
         true
     }
 }
+
+
 
 // MARK: View
 public struct MusicEventFeaturesView: View {
@@ -399,6 +406,14 @@ struct MoreView: View {
             }
 
             Section {
+                if let store = store.posters {
+                    Feature(.posters) {
+                        PostersFeatureView(store: store)
+                    } label: {
+                        Label("Posters", image: Icons.posters)
+                    }
+                }
+
                 if let contactInfo = store.contactInfo {
                     Feature(.contactInfo) {
                         ContactInfoView(store: contactInfo)
