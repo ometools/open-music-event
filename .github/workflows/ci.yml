@@ -12,6 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Swift 6.2
+        uses: fwal/setup-swift@v1
+        with:
+          swift-version: '6.2'
       - name: "Test Swift Package on Linux"
         run: swift test
       - name: "Test Swift Package on Android"
@@ -23,6 +27,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Swift 6.2
+        uses: fwal/setup-swift@v1
+        with:
+          swift-version: '6.2'
       - name: "Test Swift Package on macOS"
         run: swift test
       - name: "Test Swift Package on iOS"
