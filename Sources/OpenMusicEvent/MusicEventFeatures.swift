@@ -121,7 +121,7 @@ public class MusicEventFeatures: Identifiable {
     }
 
     var event: MusicEvent?
-    public var selectedFeature: Feature = .communications
+    public var selectedFeature: Feature = .schedule
 
     public var schedule: ScheduleFeature?
     public var workshopsSchedule: ScheduleFeature?

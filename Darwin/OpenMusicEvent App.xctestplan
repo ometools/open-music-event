@@ -1,0 +1,37 @@
+{
+  "configurations" : [
+    {
+      "id" : "F699C525-4663-437B-9643-FB90C717F4A6",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:OpenMusicEvent.xcodeproj",
+      "identifier" : "499CD4382AC5B799001AE8D8",
+      "name" : "OpenMusicEvent App"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:..",
+        "identifier" : "OpenMusicEventAppTests",
+        "name" : "OpenMusicEventAppTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:..\/..\/Core",
+        "identifier" : "OpenMusicEventParserTests",
+        "name" : "OpenMusicEventParserTests"
+      }
+    }
+  ],
+  "version" : 1
+}

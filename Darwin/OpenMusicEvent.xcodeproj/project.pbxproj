@@ -10,6 +10,7 @@
 		496BDBEE2B8A7E9C00C09264 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 496BDBED2B8A7E9C00C09264 /* Localizable.xcstrings */; };
 		499CD43B2AC5B799001AE8D8 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F90C2B2A52156200F06D93 /* Main.swift */; };
 		499CD4402AC5B799001AE8D8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 49F90C2F2A52156300F06D93 /* Assets.xcassets */; };
+		EF2A98022F6A277C00717587 /* OpenMusicEvent App.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = EF2A98012F6A277C00717587 /* OpenMusicEvent App.xctestplan */; };
 		EF9299302E149C6E00C5AB5C /* OpenMusicEvent in Frameworks */ = {isa = PBXBuildFile; productRef = EF92992F2E149C6E00C5AB5C /* OpenMusicEvent */; };
 		EF9299312E149C6E00C5AB5C /* OpenMusicEvent in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EF92992F2E149C6E00C5AB5C /* OpenMusicEvent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -40,6 +41,7 @@
 		49F90C2B2A52156200F06D93 /* Main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Main.swift; path = Sources/Main.swift; sourceTree = SOURCE_ROOT; };
 		49F90C2F2A52156300F06D93 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		49F90C312A52156300F06D93 /* Entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Entitlements.plist; sourceTree = "<group>"; };
+		EF2A98012F6A277C00717587 /* OpenMusicEvent App.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "OpenMusicEvent App.xctestplan"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +75,7 @@
 		49F90C1F2A52156200F06D93 = {
 			isa = PBXGroup;
 			children = (
+				EF2A98012F6A277C00717587 /* OpenMusicEvent App.xctestplan */,
 				496EB72F2A6AE4DE00C1253C /* README.md */,
 				496EB72F2A6AE4DE00C1253A /* Skip.env */,
 				496EB72F2A6AE4DE00C1253B /* OpenMusicEvent.xcconfig */,
@@ -167,6 +170,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				499CD4402AC5B799001AE8D8 /* Assets.xcassets in Resources */,
+				EF2A98022F6A277C00717587 /* OpenMusicEvent App.xctestplan in Resources */,
 				496BDBEE2B8A7E9C00C09264 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
