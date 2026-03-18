@@ -121,7 +121,7 @@ public class MusicEventFeatures: Identifiable {
     }
 
     var event: MusicEvent?
-    public var selectedFeature: Feature = .communications
+    public var selectedFeature: Feature = .schedule
 
     public var schedule: ScheduleFeature?
     public var workshopsSchedule: ScheduleFeature?
@@ -148,7 +148,7 @@ public class MusicEventFeatures: Identifiable {
     @ObservationIgnored
     @Dependency(\.calendar) var calendar
 
-    init(features: [Feature]) {
+    public init(features: [Feature]) {
         let musicEventID = musicEventID
 
         for feature in features {

@@ -286,57 +286,57 @@ public enum OrganizationReference: Hashable, Codable, Sendable, LosslessStringCo
     }
 }
 
-func downloadAndStoreOrganizer(from reference: OrganizationReference) async throws {
-    @Dependency(\.organizationFetchingClient) var dataFetchingClient
-    @Dependency(\.defaultDatabase) var defaultDatabase
-    @Dependency(\.notificationManager) var notificationManager
 
-    let organizer: OrganizerConfiguration = try await dataFetchingClient.fetchOrganizer(reference)
+@DependencyClient
+struct DownloadAndStoreOrganizationClient: Sendable {
+    var downloadAndStoreOrganization: @Sendable (_ reference: OrganizationReference) async throws -> Void
 
-    try await organizer.insert(url: reference.zipURL, into: defaultDatabase)
-    try await notificationManager.ensureTopicsAreSubscribed()
+    func callAsFunction(_ reference: OrganizationReference) async throws {
+        try await self.downloadAndStoreOrganization(reference: reference)
+    }
 }
 
-/// Downloads and stores organization using per-org database architecture
-func downloadAndStoreOrganizationV2(from reference: OrganizationReference) async throws -> DatabaseQueue {
-    @Dependency(\.organizationDatabaseManager) var dbManager
-
-    // Download, parse, and get source files path
-    let (config, sourceFilesPath) = try await downloadAndParseWithFiles(from: reference)
-
-    guard let organizerID = config.info.id else {
-        struct MissingOrganizerIDError: Error {}
-        throw MissingOrganizerIDError()
+extension DependencyValues {
+    var downloadAndStoreOrganization: DownloadAndStoreOrganizationClient {
+        get { self[DownloadAndStoreOrganizationClient.self] }
+        set { self[DownloadAndStoreOrganizationClient.self] = newValue }
     }
-
-    // Create final organization folder path
-    let orgPath = OrganizationDatabaseManager.organizationsDirectory
-        .appendingPathComponent("\(organizerID.rawValue)")
-
-    // Move downloaded files to final location
-    let fileManager = FileManager.default
-
-    // Ensure parent "Open Music Event" directory exists
-    try fileManager.createDirectory(
-        at: OrganizationDatabaseManager.organizationsDirectory,
-        withIntermediateDirectories: true
-    )
-
-    // Remove existing org folder if it exists
-    if fileManager.fileExists(atPath: orgPath.path()) {
-        try fileManager.removeItem(at: orgPath)
-    }
-
-    // Move temp files to final location
-    try fileManager.moveItem(at: sourceFilesPath, to: orgPath)
-    // Open organization database (creates .ome/org.db)
-    let orgDatabase = try dbManager.openDatabase(at: orgPath)
-
-    // Insert configuration into org database
-    try await OrganizationInsertionService.insert(config, into: orgDatabase)
-
-    return orgDatabase
 }
+
+extension DownloadAndStoreOrganizationClient: DependencyKey {
+
+    static let testValue = DownloadAndStoreOrganizationClient()
+    static let liveValue = DownloadAndStoreOrganizationClient.v2
+
+    static let v2 = DownloadAndStoreOrganizationClient { reference in
+
+        // Download, parse, and get source files path
+        let (config, sourceFilesPath) = try await downloadAndParseWithFiles(from: reference)
+
+        guard let organizerID = config.info.id else {
+            struct MissingOrganizerIDError: Error {}
+            throw MissingOrganizerIDError()
+        }
+
+        @Dependency(\.defaultDatabase) var defaultDatabase
+
+        // Insert configuration into org database
+        try await OrganizationInsertionService.insert(config, into: defaultDatabase)
+    }
+
+    static let v1 = DownloadAndStoreOrganizationClient { reference in
+
+        @Dependency(\.organizationFetchingClient) var dataFetchingClient
+        @Dependency(\.defaultDatabase) var defaultDatabase
+        @Dependency(\.notificationManager) var notificationManager
+
+        let organizer: OrganizerConfiguration = try await dataFetchingClient.fetchOrganizer(reference)
+
+        try await organizer.insert(url: reference.zipURL, into: defaultDatabase)
+        try await notificationManager.ensureTopicsAreSubscribed()
+    }
+}
+
 
 /// Downloads and parses organization, returning config and source files path
 /// Caller is responsible for moving/cleaning up the source files

@@ -13,6 +13,11 @@ import CoreModels
 /// Manages per-organization databases with co-located file storage
 struct OrganizationDatabaseManager {
 
+    let logger = Logger(
+        subsystem: "bundle.ome.OpenMusicEvent",
+        category: "OrganizationDatabase"
+    )
+
     // MARK: - Paths
 
     /// Root directory for all organizations
@@ -46,12 +51,15 @@ struct OrganizationDatabaseManager {
     func openDatabase(at orgPath: URL) throws -> DatabaseQueue {
         let omeDir = orgPath.appendingPathComponent(".ome")
         let dbPath = omeDir.appendingPathComponent("organization.db")
+        logger.info("Opening Database at orgPath: \(orgPath)")
 
         // Create .ome directory if needed
         try FileManager.default.createDirectory(
             at: omeDir,
             withIntermediateDirectories: true
         )
+
+        
 
         var configuration = Configuration()
         configuration.foreignKeysEnabled = true
@@ -61,7 +69,7 @@ struct OrganizationDatabaseManager {
 
             #if DEBUG
             db.trace(options: .profile) {
-                print("[\(orgPath.lastPathComponent)] \($0.expandedDescription)")
+                logger.info("[\(orgPath.lastPathComponent)] \($0.expandedDescription)")
             }
             #endif
 

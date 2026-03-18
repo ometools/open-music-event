@@ -274,12 +274,29 @@ struct OrganizerListView: View {
 
 
 
-enum OrganizationRoute: Hashable, Codable {
+
+public enum OrganizationRoute: Hashable, Codable, Sendable {
     case root
     case event(MusicEvent.ID, EventRoute?)
 }
 
-enum EventRoute: Hashable, Codable {
+@preconcurrency import URLRouting
+
+let organizationRouter = OneOf {
+    // /
+    Route(.case(OrganizationRoute.root))
+    // /events/:eventID
+    Route(.case(OrganizationRoute.event)) {
+        Path { "events" }
+        Path { Parse(.string.representing(MusicEvent.ID.self)) }
+
+        // Optional nested EventRoute
+        Optionally {
+            eventRouter
+        }
+    }
+}
+public enum EventRoute: Hashable, Codable, Sendable {
     case artists
     case artist(Artist.ID)
     case stages
@@ -289,3 +306,40 @@ enum EventRoute: Hashable, Codable {
     case channel(CommunicationChannel.ID)
 }
 
+
+let eventRouter = OneOf {
+    // /artists
+    Route(.case(EventRoute.artists)) {
+        Path { "artists" }
+    }
+    // /artists/:id
+    Route(.case(EventRoute.artist)) {
+        Path { "artists" }
+        Path { Parse(.string.representing(Artist.ID.self)) } 
+    }
+
+    // /stages
+    Route(.case(EventRoute.stages)) {
+        Path { "stages" }
+    }
+    // /stages/:id
+    Route(.case(EventRoute.stage)) {
+        Path { "stages" }
+        Path { Parse(.string.representing(Stage.ID.self)) }
+    }
+
+    // /schedule
+    Route(.case(EventRoute.schedule)) {
+        Path { "schedule" }
+    }
+
+    // /communications
+    Route(.case(EventRoute.communications)) {
+        Path { "communications" }
+    }
+    // /communications/:channelID
+    Route(.case(EventRoute.channel)) {
+        Path { "communications" }
+        Path { Parse(.string.representing(CommunicationChannel.ID.self)) }
+    }
+}

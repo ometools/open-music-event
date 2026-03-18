@@ -1,5 +1,3 @@
-
-
 import  SwiftUI; import SkipFuse
 // import Sharing
 // import SharingGRDB
@@ -13,12 +11,14 @@ import Nuke
 #endif
 
 
+#if !APPCLIP
 #if os(Android)
 import SkipFirebaseCore
 import SkipFirebaseMessaging
 #else
 import FirebaseCore
 import FirebaseMessaging
+#endif
 #endif
 
 import OpenMusicEventParser
@@ -42,7 +42,11 @@ public enum OME {
         #endif
 
         @Dependency(\.notificationManager) var notificationManager
-        UNUserNotificationCenter.current().delegate = notificationManager
+
+        #if APPCLIP
+        logger.info("prepareDependencies: APPCLIP")
+        #endif
+
 
         if enableFirebase {
             FirebaseApp.configure()
@@ -120,8 +124,9 @@ public struct OMEWhiteLabeledEntryPoint: View {
                 self.isLoadingOrganizer = true
                 self.organizerLoadError = nil
 
+                @Dependency(\.downloadAndStoreOrganization) var downloadAndStoreOrganization
                 await withErrorReporting {
-                    try await downloadAndStoreOrganizer(from: self.organizationReference)
+                    try await downloadAndStoreOrganization(self.organizationReference)
 
                     await MainActor.run {
                         self.isLoadingOrganizer = false
@@ -157,58 +162,92 @@ public struct OMEWhiteLabeledEntryPoint: View {
 
 // MARK: OMEAppEntryPoint
 
+import Dependencies
 
 public struct OMEAppEntryPoint: View {
-    public init() {}
+    public init(store: Model) {
+        self.store = store
+    }
 
-    @State var store = Model()
+    let store: Model
 
     @Observable
     @MainActor
-    class Model {
+    public class Model {
+        public init() {
+            _ = Task {
+                await self.task()
+            }
+        }
+
+
         var organizerList = OrganizerListView.Model()
-        var organization: OrganizationRoot?
+        var organizationRoot: OrganizationRoot?
 
         @ObservationIgnored
         @Dependency(\.userPreferencesDatabase) var userPrefsDB
+        
 
-        func onFirstAppear() async {
+        func task() async {
             await withErrorReporting {
                 let query = ValueObservation.tracking { db in
-                     try AppState.fetchOne(db)
+                    try AppState
+                        .select(Column("selectedOrganizationID"))
+                        .asRequest(of: Organizer.ID.self)
+                        .fetchOne(db)
                 }
 
-                for try await appState in query.values(in: userPrefsDB) {
-                    if let orgID = appState?.selectedOrganizationID,
-                       organization?.id != orgID
-                    {
-                        self.organization = try OrganizationRoot.openExistingDatabase(for: orgID)
+                for try await selectedOrganizationID in query.values(in: userPrefsDB) {
+                    if let orgID = selectedOrganizationID, organizationRoot?.id != orgID {
+                        try withDependencies(from: self) {
+                            self.organizationRoot = try OrganizationRoot.openExistingDatabase(for: orgID)
+                        }
                     }
                 }
             }
         }
 
+        public func didReceiveURL(url: URL) {
+            logger.info("OMEAPPEntryPoint.didReceiveURL(\(url.absoluteString)")
+
+            withErrorReporting {
+                let route = try appRouter.match(url: url)
+                logger.info("Parsed AppRoute: \(String(describing: route))")
+
+                try self.navigate(to: route)
+            }
+        }
+
+
         var logger = Logger(subsystem: "com.ometools.open-music-event", category: "AppEntryPoint")
-        func navigate(to route: AppRoute) throws {
+        public func navigate(to route: AppRoute) throws {
             logger.info("Navigating to \(String(describing: route))")
             switch route {
-            case .organizationList:
-                self.organization = nil
+            case .home, .organizationList:
+                self.organizationRoot = nil
+
             case .organization(let id, _):
-                if organization?.id != id {
-                    self.organization = try OrganizationRoot.openExistingDatabase(for: id)
+                // 1) Persist selection and ensure minimal organizer row exists in user prefs DB
+                try userPrefsDB.write { db in
+                    // Ensure AppState row exists and set selection
+                    var appState = try AppState.fetchOne(db, key: 1) ?? AppState()
+                    appState.selectedOrganizationID = id
+                    try appState.save(db)
                 }
+
             }
         }
     }
 
     public var body: some View {
+        let _ = Self._printChanges()
+
         Group {
-            OrganizerListView(store: store.organizerList)
-        }
-        .onFirstAppear {
-            Task {
-                await store.onFirstAppear()
+            if let organizationRoot = store.organizationRoot {
+                OrganizationRootView(store: organizationRoot)
+
+            } else {
+                OrganizerListView(store: store.organizerList)
             }
         }
     }
@@ -236,10 +275,42 @@ extension View {
 
 
 
+import DependenciesMacros
+@DependencyClient
+public struct OrgIdentifierResolutionClient: Sendable {
+    public var perform: @Sendable (Organizer.ID) async throws -> OrganizationReference
+    public func callAsFunction(id: Organizer.ID) async throws -> OrganizationReference {
+        try await self.perform(id)
+    }
+}
 
-enum AppRoute: Hashable {
+extension OrgIdentifierResolutionClient: TestDependencyKey {
+    public static let testValue: OrgIdentifierResolutionClient = Self()
+}
+
+extension DependencyValues {
+    public var resolveOrgID: OrgIdentifierResolutionClient {
+        get { self[OrgIdentifierResolutionClient.self] }
+        set { self[OrgIdentifierResolutionClient.self] = newValue }
+    }
+}
+
+public enum AppRoute: Hashable, Sendable {
+    case home
     case organizationList
     case organization(Organizer.ID, OrganizationRoute)
+}
+
+@preconcurrency import URLRouting
+public let appRouter = OneOf {
+
+    Route(.case(AppRoute.home))
+    Route(.case(AppRoute.organizationList)) { Path { "orgs" } }
+    Route(.case(AppRoute.organization)) {
+        Path { "orgs" }
+        Path { Parse(.string.representing(Organizer.ID.self)) }
+        organizationRouter
+    }
 }
 
 
@@ -290,3 +361,4 @@ class InMemoryIssueReporter: IssueReporter, @unchecked Sendable {
 //    OMEAppEntryPoint()
 //}
 //#endif
+

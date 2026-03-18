@@ -22,9 +22,11 @@ private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", cate
         }
     }
 
+    static let entryPointStore = OMEAppEntryPoint.Model()
+
     public var body: some View {
         if context == .live {
-            OMEAppEntryPoint()
+            OMEAppEntryPoint(store: OpenMusicEventRootView.entryPointStore)
         } else {
             Text("OpenMusicEventRootView: context is \(String(describing: _context.wrappedValue))")
         }

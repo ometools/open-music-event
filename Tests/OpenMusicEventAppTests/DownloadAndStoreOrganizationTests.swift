@@ -157,11 +157,12 @@ extension OpenMusicEventBaseTestSuite {
     )
     struct LiveDownloadTests {
         @Dependency(\.defaultDatabase) var database
+        @Dependency(\.downloadAndStoreOrganization) var downloadAndStoreOrganization
 
         @Test
         func shambhala420() async throws {
 
-            try await downloadAndStoreOrganizer(from: .zipURL(URL(string: "https://github.com/woodymelling/shambhala-ome/archive/966ff5b45aadfdcdb325a6f85c5f744c1e792e68.zip")!))
+            try await downloadAndStoreOrganization(.zipURL(URL(string: "https://github.com/woodymelling/shambhala-ome/archive/966ff5b45aadfdcdb325a6f85c5f744c1e792e68.zip")!))
 
             assertInlineSnapshot(of: AnyDatabaseReader(database), as: .dumpStatistics()) {
                 """
@@ -180,7 +181,7 @@ extension OpenMusicEventBaseTestSuite {
 
         @Test
         func wickedwoods420() async throws {
-            try await downloadAndStoreOrganizer(from: .zipURL(URL(string: "https://github.com/wicked-woods/wicked-woods-ome/archive/be070e28249b150522f548d1b965f0fed74b7248.zip")!))
+            try await downloadAndStoreOrganization(.zipURL(URL(string: "https://github.com/wicked-woods/wicked-woods-ome/archive/be070e28249b150522f548d1b965f0fed74b7248.zip")!))
 
             assertInlineSnapshot(of: AnyDatabaseReader(database), as: .dumpStatistics()) {
                 """

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "2600"
+   LastUpgradeVersion = "2630"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -15,9 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "499CD4382AC5B799001AE8D8"
-               BuildableName = "OpenMusicEvent.app"
-               BlueprintName = "OpenMusicEvent App"
+               BlueprintIdentifier = "EF2C3D152F6EF39B00E2F9EA"
+               BuildableName = "EventAppClip.app"
+               BlueprintName = "EventAppClip"
                ReferencedContainer = "container:OpenMusicEvent.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -27,11 +27,16 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldUseLaunchSchemeArgsEnv = "YES">
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:../Android/Darwin/OpenMusicEvent App.xctestplan">
+         </TestPlanReference>
+      </TestPlans>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
+      appClipInvocationURLString = "https://openmusicevent.app/orgs/wicked-woods"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"
@@ -44,15 +49,16 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "499CD4382AC5B799001AE8D8"
-            BuildableName = "OpenMusicEvent.app"
-            BlueprintName = "OpenMusicEvent App"
+            BlueprintIdentifier = "EF2C3D152F6EF39B00E2F9EA"
+            BuildableName = "EventAppClip.app"
+            BlueprintName = "EventAppClip"
             ReferencedContainer = "container:OpenMusicEvent.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
+      appClipInvocationURLString = "https://openmusicevent.app/orgs/wicked-woods"
       shouldUseLaunchSchemeArgsEnv = "YES"
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
@@ -61,9 +67,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "499CD4382AC5B799001AE8D8"
-            BuildableName = "OpenMusicEvent.app"
-            BlueprintName = "OpenMusicEvent App"
+            BlueprintIdentifier = "EF2C3D152F6EF39B00E2F9EA"
+            BuildableName = "EventAppClip.app"
+            BlueprintName = "EventAppClip"
             ReferencedContainer = "container:OpenMusicEvent.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

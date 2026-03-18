@@ -250,8 +250,13 @@ enum NotificationError: LocalizedError {
 }
 
 enum NotificationPermissionManagerDependencyKey: DependencyKey {
-    public static let liveValue = NotificationManager.shared
     public static let testValue = NotificationManager.shared
+    public static let liveValue = {
+        let manager = NotificationManager.shared
+        UNUserNotificationCenter.current().delegate = manager
+        return manager
+    }()
+
 }
 
 extension DependencyValues {

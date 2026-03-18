@@ -90,16 +90,21 @@ public class OrganizationRoot {
         try withDependencies {
             @Dependency(\.organizationDatabaseManager) var orgDatabaseManager
             $0.defaultDatabase = try orgDatabaseManager.openDatabase(id: id)
+            
             $0.organizerID = id
         } operation: {
             OrganizationRoot(for: id)
         }
+
     }
 
     let id: Organization.ID
 
     private init(for id: Organization.ID) {
         self.id = id
+        _ = Task {
+            await self.task()
+        }
     }
 
     var destination: Destination? = nil
@@ -140,6 +145,7 @@ public class OrganizationRoot {
     @Dependency(\.defaultDatabase) var database
 
     func observeOrganizationDetails() async throws {
+        logger.info("Observing Organization Details: \(self.id)")
         let query = ValueObservation.tracking { db in
             let organization = try Organizer
                 .fetchOne(db)
@@ -152,6 +158,7 @@ public class OrganizationRoot {
         }
 
         for try await (organization, events) in query.values(in: self.database) {
+
             self.events = events
             self.organization = organization
         }
@@ -168,6 +175,7 @@ public class OrganizationRoot {
 
 
     public func task() async {
+        logger.info("OrganizationRoot.task")
         await withTaskGroup {
             $0.addTask {
                 await withErrorReporting {
@@ -181,6 +189,19 @@ public class OrganizationRoot {
                 }
             }
 
+
+            $0.addTask {
+                await withDependencies(from: self) {
+                    await withErrorReporting {
+                        @Dependency(\.resolveOrgID) var resolveOrgID
+                        @Dependency(\.downloadAndStoreOrganization) var downloadAndStoreOrganization
+
+                        let reference = try await resolveOrgID(id: self.id)
+                        let _ = try await downloadAndStoreOrganization(reference)
+                    }
+                }
+            }
+
             await $0.waitForAll()
         }
     }
@@ -191,7 +212,7 @@ public class OrganizationRoot {
              try AppState.fetchOne(db)
         }
 
-        for try await appState in query.values(in: userPrefsDB) {
+        for try await appState in query.values(in: database) {
             if let selectedEventID = appState?.selectedEventID {
                 if case let .eventViewer(eventViewer) = destination,
                    eventViewer.id == selectedEventID {

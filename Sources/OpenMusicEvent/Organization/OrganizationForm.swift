@@ -72,7 +72,8 @@ struct OrganizationFormView: View {
 
             self.isLoading = true
             do {
-                try await downloadAndStoreOrganizationV2(from: repositoryLocation)
+                @Dependency(\.downloadAndStoreOrganization) var downloadAndStoreOrganization
+                try await downloadAndStoreOrganization(repositoryLocation)
             } catch {
                 self.errorMessage = error.localizedDescription
                 reportIssue(error)
