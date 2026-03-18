@@ -33,6 +33,22 @@ public struct ContentUnavailableView<LabelX, Description, Actions> : View where 
     var description: Description
     var actions: Actions
 
+    public init(
+        _ title: LocalizedStringKey,
+        systemImage: String,
+        description: Text
+    ) where LabelX == Label<Text, Image>, Description == Text, Actions == EmptyView {
+        self.init(
+            label: {
+                Label(title, systemImage: systemImage)
+            },
+            description: {
+                description
+            },
+            actions: { EmptyView() }
+        )
+    }
+
     public var body: some View {
         VStack {
             label

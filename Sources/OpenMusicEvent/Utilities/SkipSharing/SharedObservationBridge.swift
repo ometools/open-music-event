@@ -80,10 +80,10 @@ final class SharedShim<Value> {
         shared[dynamicMember: keyPath]
     }
 
-
-    isolated deinit {
-        self.task?.cancel()
-    }
+//
+//    isolated deinit {
+//        self.task?.cancel()
+//    }
     
 }
 

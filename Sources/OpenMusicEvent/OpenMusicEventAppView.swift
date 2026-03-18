@@ -204,11 +204,7 @@ public struct OMEAppEntryPoint: View {
 
     public var body: some View {
         Group {
-            if let org = store.organization {
-                OrganizationRootView(store: org)
-            } else {
-                OrganizerListView(store: store.organizerList)
-            }
+            OrganizerListView(store: store.organizerList)
         }
         .onFirstAppear {
             Task {

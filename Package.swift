@@ -20,8 +20,8 @@ let package = Package(
         .package(url: "https://github.com/woodymelling/swift-file-tree", branch: "android-support"),
 //
         .package(url: "https://source.skip.tools/skip.git", from: "1.6.0"),
-        .package(url: "https://source.skip.tools/skip-fuse-ui.git", "0.0.0"..<"2.0.0"),
-        .package(url: "https://github.com/woodymelling/swift-dependencies-http-client", branch: "main"),
+        .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.14.0"),
+        .package(url: "https://github.com/woodymelling/swift-dependencies-http-client", from: "0.2.0"),
         .package(url: "https://source.skip.tools/skip-firebase.git", "0.9.0"..<"2.0.0"),
         .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"]),
 
@@ -73,7 +73,7 @@ let package = Package(
             ],
             resources: [.process("Resources")],
             plugins: [
-//                .plugin(name: "skipstone", package: "skip")
+                .plugin(name: "skipstone", package: "skip")
             ]
         ),
         .testTarget(

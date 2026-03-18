@@ -155,9 +155,6 @@
     "Channel Name" : {
 
     },
-    "Channel Topic" : {
-
-    },
     "Channels" : {
 
     },
@@ -749,12 +746,6 @@
           }
         }
       }
-    },
-    "Toggle between read only and edit mode" : {
-
-    },
-    "Toggle Edit Mode" : {
-
     },
     "Unsubscribed" : {
 

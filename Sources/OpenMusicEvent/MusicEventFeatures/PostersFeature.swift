@@ -67,7 +67,6 @@ public class PostersFeature {
 
 public struct PostersFeatureView: View {
     @Bindable var store: PostersFeature
-    @Environment(\.editMode) private var editMode
 
     public var body: some View {
         Group {
@@ -131,34 +130,34 @@ public struct PostersFeatureView: View {
     }
 
 }
-
-#Preview("Empty - View Mode") {
-    let store = PostersFeature()
-    return NavigationStack {
-        PostersFeatureView(store: store)
-    }
-}
-
-#Preview("Empty - Edit Mode") {
-
-    let store = PostersFeature()
-    return NavigationStack {
-        PostersFeatureView(store: store)
-            .environment(\.editMode, .constant(.active))
-    }
-}
-
-#Preview("With Posters") {
-    let store = PostersFeature()
-    // TODO: Replace with real Poster initializers if available
-    // Assuming Poster conforms to Identifiable and has imageURL
-    // store.posterURLs = [Poster(...), Poster(...)]
-    return NavigationStack {
-        PostersFeatureView(store: store)
-    }
-}
-
-#Preview("Create Flow") {
-    let store = PostersFeature()
-    return PostersFeatureView(store: store)
-}
+//
+//#Preview("Empty - View Mode") {
+//    let store = PostersFeature()
+//    return NavigationStack {
+//        PostersFeatureView(store: store)
+//    }
+//}
+//
+//#Preview("Empty - Edit Mode") {
+//
+//    let store = PostersFeature()
+//    return NavigationStack {
+//        PostersFeatureView(store: store)
+//            .environment(\.editMode, .constant(.active))
+//    }
+//}
+//
+//#Preview("With Posters") {
+//    let store = PostersFeature()
+//    // TODO: Replace with real Poster initializers if available
+//    // Assuming Poster conforms to Identifiable and has imageURL
+//    // store.posterURLs = [Poster(...), Poster(...)]
+//    return NavigationStack {
+//        PostersFeatureView(store: store)
+//    }
+//}
+//
+//#Preview("Create Flow") {
+//    let store = PostersFeature()
+//    return PostersFeatureView(store: store)
+//}

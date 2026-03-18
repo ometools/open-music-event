@@ -167,7 +167,7 @@ public struct CommunicationsFeatureView: View {
                         store.didTapChannel(channel.id)
                     } label: {
                         Row(channel: channel)
-                            .contextMenu {
+                            .omeContextMenu {
                                 Button("Edit \(channel.name)") {
                                     store.didTapEditChannel(channel.id)
                                 }
@@ -296,8 +296,8 @@ public struct CommunicationsFeatureView: View {
 
         @Bindable var store: Store
 
-        @SharedShim(.appStorage("defaults-editChannelView-defaultsSectionExpanded"))
-        var defaultsSectionExpanded: Bool = false
+//        @SharedShim(.appStorage("defaults-editChannelView-defaultsSectionExpanded"))
+        @State var defaultsSectionExpanded: Bool = false
 
         var body: some View {
             Form {
@@ -305,14 +305,14 @@ public struct CommunicationsFeatureView: View {
                     TextField("Channel Name", text: $store.channel.name)
                 }
 
-                LabeledContent("Channel Topic") {
-                    TextEditor(text: $store.channel.description)
-//                        .border(.tertiary)
-                        .frame(height: 100)
-                        .padding(.trailing)
-                }
+//                LabeledContent("Channel Topic") {
+//                    TextEditor(text: $store.channel.description)
+////                        .border(.tertiary)
+//                        .frame(height: 100)
+//                        .padding(.trailing)
+//                }
 
-                DisclosureGroup("Defaults", isExpanded: Binding($defaultsSectionExpanded)) {
+                DisclosureGroup("Defaults", isExpanded: $defaultsSectionExpanded) {
 
                     Picker("Notifications", selection: $store.channel.defaultNotificationState ) {
                         ForEach(CommunicationChannel.DefaultNotificationState.allCases, id: \.self) {
@@ -335,7 +335,9 @@ public struct CommunicationsFeatureView: View {
                     store.didTapCancel()
                 }
             }
+            #if !os(Android)
             .formStyle(.grouped)
+            #endif
         }
     }
 

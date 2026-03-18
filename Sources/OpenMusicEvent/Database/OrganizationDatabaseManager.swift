@@ -317,7 +317,15 @@ struct OrganizationDatabaseManager {
 
 
 // MARK: - User Preferences Database
+#if canImport(OSLog)
 import OSLog
+#endif
+
+#if canImport(AndroidLogging)
+import AndroidLogging
+#endif
+
+
 extension OrganizationDatabaseManager {
 
     private static let logger = Logger(

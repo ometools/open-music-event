@@ -48,7 +48,7 @@ public final class AddPosterFeature: Identifiable {
 
 public struct AddPosterFeatureView: View {
     @Bindable var store: AddPosterFeature
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss) var dismiss
 
     public init(store: AddPosterFeature) { self.store = store }
 
@@ -62,8 +62,10 @@ public struct AddPosterFeatureView: View {
                 TextField("Image URL", text: $store.imageURLString)
                     .keyboardType(.URL)
                     .textContentType(.URL)
-                    .autocapitalization(.none)
                     .autocorrectionDisabled()
+                    #if os(iOS)
+                    .autocapitalization(.none)
+                    #endif
             }
         }
         .navigationTitle("New Poster")
@@ -82,8 +84,8 @@ public struct AddPosterFeatureView: View {
     }
 }
 
-#Preview {
-    NavigationStack {
-        AddPosterFeatureView(store: .init())
-    }
-}
+//#Preview {
+//    NavigationStack {
+//        AddPosterFeatureView(store: .init())
+//    }
+//}

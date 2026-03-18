@@ -91,7 +91,12 @@ struct OrganizerListView: View {
         @Dependency(\.userPreferencesDatabase) var userPrefsDb
 
         func didTapOrganization(_ organization: StoredOrganization) {
+            guard let id = organization.id
+            else { return }
+
             withErrorReporting {
+                self.destination = try .organizationRoot(.openExistingDatabase(for: id))
+
                 try userPrefsDb.write { db in
                     // Fetch or create the singleton row
                     var appState = try AppState.fetchOne(db, key: 1) ?? AppState()
@@ -141,61 +146,50 @@ struct OrganizerListView: View {
 
     public var body: some View {
 
-            Group {
-                switch store.destination {
-                case .organizationRoot(let store):
-                    OrganizationRootView(store: store)
-                case .addOrganization(let store):
-                    NavigationStack {
-                        OrganizationFormView(store: store)
-                            .navigationTitle("Add Organization")
-                    }
-
-                case .none:
-                    NavigationStack {
-                        List {
-                            if !store.organizations.isEmpty {
-                                ForEach(store.organizations) { item in
-                                    NavigationLinkButton {
-                                        store.didTapOrganization(item)
-                                    } label: {
-                                        Row(org: item.organization)
-                                    }
-                                }
-                                .onDelete { indexSet in
-                                    Task {
-                                        await store.didDeleteOrganization(indexSet)
-                                    }
-                                }
-                            } else {
-                                ContentUnavailableView(
-                                    "No Organizations Yet",
-                                    systemImage: "folder.badge.plus",
-                                    description: Text("Use the + button in the top right, and add a link to any Open Music Event directory")
-                                )
-                            }
-
-                        }
-                        .listStyle(.plain)
-                        .refreshable {
-                            await self.store.onPullToRefresh()
-                        }
-                        .onAppear { Task { await store.onAppear() }}
-                        .navigationTitle("Organizations")
-                        .toolbar {
-                            Button("Add Organization", image: Icons.plus) {
-                                store.didTapAddOrganizerButton()
-                            }
+        NavigationStack {
+            List {
+                if !store.organizations.isEmpty {
+                    ForEach(store.organizations) { item in
+                        NavigationLinkButton {
+                            store.didTapOrganization(item)
+                        } label: {
+                            Row(org: item.organization)
                         }
                     }
+                    .onDelete { indexSet in
+                        Task {
+                            await store.didDeleteOrganization(indexSet)
+                        }
+                    }
+                } else {
+                    ContentUnavailableView(
+                        "No Organizations Yet",
+                        systemImage: "folder.badge.plus",
+                        description: Text("Use the + button in the top right, and add a link to any Open Music Event directory")
+                    )
                 }
-    //            .sheet(item: $store.destination.addOrganization) { store in
-    //                NavigationStack {
-    //                    OrganizationFormView(store: store)
-    //                        .navigationTitle("Add Organization")
-    //                }
-    //            }
 
+            }
+            .listStyle(.plain)
+            .refreshable {
+                await self.store.onPullToRefresh()
+            }
+            .onAppear { Task { await store.onAppear() }}
+            .navigationTitle("Organizations")
+            .toolbar {
+                Button("Add Organization", image: Icons.plus) {
+                    store.didTapAddOrganizerButton()
+                }
+            }
+            .navigationDestination(item: $store.destination.organizationRoot) { store in
+                OrganizationRootView(store: store)
+            }
+            .sheet(item: $store.destination.addOrganization) { store in
+                NavigationStack {
+                    OrganizationFormView(store: store)
+                        .navigationTitle("Add Organization")
+                }
+            }
         }
     }
 

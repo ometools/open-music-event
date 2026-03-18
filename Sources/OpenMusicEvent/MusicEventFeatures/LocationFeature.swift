@@ -225,7 +225,7 @@ struct LocationView: View {
                 }
 
                 List {
-                    if let address = store.location.address {
+                    if let address = store.location?.address {
                         AddressView(address: address)
                     }
 

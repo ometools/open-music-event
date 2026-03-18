@@ -153,7 +153,7 @@ struct OrganizationFormView: View {
 
 
 struct ViewTrigger: Equatable, Sendable {
-    private var value = 0
+    var value = 0
     mutating func trigger() {
         value += 1
     }

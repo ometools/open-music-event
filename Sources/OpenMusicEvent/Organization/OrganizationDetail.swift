@@ -254,66 +254,63 @@ public struct OrganizationRootView: View {
 
     public var body: some View {
         Group {
-            switch store.destination {
-            case .eventViewer(let model):
-                MusicEventView(store: model)
-                    .transition(.opacity)
-            case .none:
-                if let organizer = store.organization {
-                    StretchyHeaderList(
-                       title: Text(organizer.name),
-                       stretchyContent: {
-                           OrganizerImageView(organizer: organizer)
-                       },
-                       listContent: {
-                           if !store.currentEvents.isEmpty {
-                               Section("Happening Now") {
-                                   ForEach(store.currentEvents) { event in
-                                       NavigationLinkButton {
-                                           store.didTapEvent(id: event.id)
-                                       } label: {
-                                           EventRowView(event: event)
-                                       }
-                                   }
-                               }
-                           }
+            if let organizer = store.organization {
+                StretchyHeaderList(
+                    title: Text(organizer.name),
+                    stretchyContent: {
+                        OrganizerImageView(organizer: organizer)
+                    },
+                    listContent: {
+                        if !store.currentEvents.isEmpty {
+                            Section("Happening Now") {
+                                ForEach(store.currentEvents) { event in
+                                    NavigationLinkButton {
+                                        store.didTapEvent(id: event.id)
+                                    } label: {
+                                        EventRowView(event: event)
+                                    }
+                                }
+                            }
+                        }
 
-                           if !store.upcomingEvents.isEmpty {
-                               Section("Upcoming Events") {
-                                   ForEach(store.upcomingEvents) { event in
-                                       NavigationLinkButton {
-                                           store.didTapEvent(id: event.id)
-                                       } label: {
-                                           EventRowView(event: event)
-                                       }
-                                   }
-                               }
-                           }
+                        if !store.upcomingEvents.isEmpty {
+                            Section("Upcoming Events") {
+                                ForEach(store.upcomingEvents) { event in
+                                    NavigationLinkButton {
+                                        store.didTapEvent(id: event.id)
+                                    } label: {
+                                        EventRowView(event: event)
+                                    }
+                                }
+                            }
+                        }
 
-                           if !store.previousEvents.isEmpty {
-                               Section("Previous Events") {
-                                   ForEach(store.previousEvents) { event in
-                                       NavigationLinkButton {
-                                           store.didTapEvent(id: event.id)
-                                       } label: {
-                                           EventRowView(event: event)
-                                       }
-                                   }
-                               }
-                           }
-                       }
-                   )
-                    .transition(.opacity)
-                   .refreshable { await store.onPullToRefresh() }
-                   .listStyle(.plain)
-               } else {
-                   VStack {
-                       Text("Organization Root View")
-                       LoadingScreen()
-                   }
-               }
+                        if !store.previousEvents.isEmpty {
+                            Section("Previous Events") {
+                                ForEach(store.previousEvents) { event in
+                                    NavigationLinkButton {
+                                        store.didTapEvent(id: event.id)
+                                    } label: {
+                                        EventRowView(event: event)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                )
+                .transition(.opacity)
+                .refreshable { await store.onPullToRefresh() }
+                .listStyle(.plain)
+            } else {
+                VStack {
+                    Text("Organization Root View")
+                    LoadingScreen()
+                }
             }
         }
+        .fullScreenCover(item: $store.destination.eventViewer, content: { store in
+            MusicEventView(store: store)
+        })
         .animation(.default, value: store.destination == nil)
         .task { await store.task() }
     }
