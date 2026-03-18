@@ -35,14 +35,16 @@ extension OpenMusicEventBaseTestSuite {
                   MusicEventFeatures(
                     _event: nil,
                     _selectedFeature: .schedule,
-                    _schedule: nil,
+                    _schedule: ScheduleFeature(…),
                     _workshopsSchedule: nil,
                     _artists: ArtistsList(…),
-                    _location: nil,
-                    _contactInfo: nil,
-                    _communications: nil,
-                    _notifications: nil,
+                    _location: LocationFeature(…),
+                    _contactInfo: ContactInfoFeature(…),
+                    _communications: CommunicationsFeatureView.Store(…),
+                    _notifications: NotificationPreferencesView.Store(…),
                     _edits: nil,
+                    _siteMap: SiteMapFeature(…),
+                    _posters: PostersFeature(…),
                     _shouldShowArtistImages: true,
                     _isLoadingOrganizer: false,
                     _errorMessage: nil,
@@ -58,8 +60,7 @@ extension OpenMusicEventBaseTestSuite {
 
         @Test
         func loadsMinimalEvent() async throws {
-            let eventViewer = MusicEventViewer(eventID:
-                                                "2")
+            let eventViewer = MusicEventViewer(eventID: "2")
 
             await eventViewer.task()
 
@@ -72,14 +73,16 @@ extension OpenMusicEventBaseTestSuite {
                   MusicEventFeatures(
                     _event: nil,
                     _selectedFeature: .schedule,
-                    _schedule: nil,
+                    _schedule: ScheduleFeature(…),
                     _workshopsSchedule: nil,
                     _artists: ArtistsList(…),
-                    _location: nil,
-                    _contactInfo: nil,
-                    _communications: nil,
-                    _notifications: nil,
+                    _location: LocationFeature(…),
+                    _contactInfo: ContactInfoFeature(…),
+                    _communications: CommunicationsFeatureView.Store(…),
+                    _notifications: NotificationPreferencesView.Store(…),
                     _edits: nil,
+                    _siteMap: SiteMapFeature(…),
+                    _posters: PostersFeature(…),
                     _shouldShowArtistImages: true,
                     _isLoadingOrganizer: false,
                     _errorMessage: nil,
