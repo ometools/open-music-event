@@ -13,7 +13,10 @@
 //  Created by Woodrow Melling on 6/15/24.
 //
 
-import SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 
 public struct NavigationLinkButtonStyle: ButtonStyle {
     @Environment(\.colorScheme) var colorScheme

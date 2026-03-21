@@ -7,7 +7,9 @@
 
 
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 
 
 ////#if !SKIP

@@ -1,10 +1,18 @@
 import OpenMusicEventParser
 import Dependencies
 import DependenciesMacros
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 import IssueReporting
 
 
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
 
 
 @DependencyClient

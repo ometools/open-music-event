@@ -1,6 +1,8 @@
 import SwiftUI
 import Sharing
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 
 
 /// Bridges @Shared to Compose recomposition on Android

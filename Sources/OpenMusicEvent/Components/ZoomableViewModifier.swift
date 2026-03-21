@@ -1,7 +1,9 @@
 
 let maxAllowedScale = 4.0
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 
 extension View {
     func _zoomable() -> some View {

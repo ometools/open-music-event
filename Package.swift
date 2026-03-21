@@ -19,11 +19,12 @@ let package = Package(
 
         .package(url: "https://github.com/woodymelling/swift-file-tree", branch: "android-support"),
 //
-        .package(url: "https://source.skip.tools/skip.git", from: "1.6.0"),
+        .package(url: "https://source.skip.tools/skip", from: "1.6.0"),
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.14.0"),
         .package(url: "https://github.com/woodymelling/swift-dependencies-http-client", from: "0.2.0"),
         .package(url: "https://source.skip.tools/skip-firebase.git", "0.9.0"..<"2.0.0"),
-        .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"]),
+        .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
+//            .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"]),
 
 //        .package(url: "https://github.com/groue/GRDBSnapshotTesting", from: "0.3.0"),
 
@@ -35,7 +36,6 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-url-routing", from: "0.6.2"),
         .package(url: "https://github.com/pointfreeco/swift-perception", from: "2.0.0"),
-
 
         // Pin this version, 1.1 might be
         .package(url: "https://github.com/pointfreeco/combine-schedulers", exact: "1.0.3"),
@@ -52,8 +52,7 @@ let package = Package(
                 .product(name: "CoreModels", package: "Core"),
                 .product(name: "OpenMusicEventParser", package: "Core"),
 
-                .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
-                .product(name: "GRDB", package: "grdb-sqlcipher"),
+                .product(name: "GRDB-dynamic", package: "GRDB.swift"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "DependenciesMacros", package: "swift-dependencies"),
                 .product(name: "Sharing", package: "swift-sharing"),
@@ -64,6 +63,8 @@ let package = Package(
                 .product(name: "NukeUI", package: "Nuke", condition: .when(platforms: [.iOS])),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
 
+
+                .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
                 .product(name: "SkipFirebaseCore", package: "skip-firebase"),
                 .product(name: "SkipFirebaseMessaging", package: "skip-firebase"),
 
@@ -102,3 +103,39 @@ if Context.environment["SKIP_BRIDGE"] ?? "0" != "0" {
         return .library(name: libraryProduct.name, type: .dynamic, targets: libraryProduct.targets)
     })
 }
+
+// Setting the SKIP_ZERO=1 environment will strip out the Skip plugin and all Skip dependencies
+//if Context.environment["SKIP_ZERO"] ?? "0" != "0" {
+if true {
+    package.targets.forEach { target in
+        // remove the Skip plugin
+        target.plugins?.removeAll(where: {
+            if case .plugin(let name, _) = $0 {
+                return name == "skipstone"
+            } else {
+                return false
+            }
+        })
+
+        // remove the Skip target dependencies
+        target.dependencies.removeAll(where: { dependency in
+            if case .productItem(_, let package, _, _) = dependency {
+                return package == "skip" || package?.hasPrefix("skip-") == true
+            } else {
+                return false
+            }
+        })
+    }
+
+    // remove the Skip package dependencies
+    package.dependencies.removeAll(where: { dependency in
+        if case .sourceControl(_, let url, _) = dependency.kind {
+            return url.hasPrefix("https://source.skip.dev/") || url.hasPrefix("https://source.skip.tools/")
+        } else {
+            return false
+        }
+
+        
+    })
+}
+

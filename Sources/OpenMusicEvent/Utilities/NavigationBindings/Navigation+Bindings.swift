@@ -7,7 +7,9 @@
 
 import IssueReporting
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 
 extension View {
     public func navigationDestination<D, C: View>(

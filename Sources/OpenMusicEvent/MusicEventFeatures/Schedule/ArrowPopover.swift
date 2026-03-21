@@ -6,7 +6,10 @@
 ////
 //
 //import Foundation
-//import  SwiftUI; import SkipFuse
+//import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 //
 //struct ArrowPopover<Content: View>: View {
 //    /// Which side to place the arrow on.

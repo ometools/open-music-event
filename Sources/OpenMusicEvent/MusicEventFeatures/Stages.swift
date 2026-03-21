@@ -1,4 +1,7 @@
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 import CoreModels
 
 //struct StagesView: View {

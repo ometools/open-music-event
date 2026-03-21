@@ -5,7 +5,10 @@
 //  Created by Woody on 2/17/22.
 //
 
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 
 struct DayStartsAtNoonEnvironmentKey: EnvironmentKey {
     static let defaultValue = true

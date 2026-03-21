@@ -13,23 +13,38 @@ import GRDB
 import UserNotifications
 #endif
 
+#if canImport(SkipFuse)
 import SkipFuse
-
-#if os(Android)
-import SkipFirebaseCore
-import SkipFirebaseMessaging
-#else
-import FirebaseCore
-import FirebaseMessaging
 #endif
 
+#if os(Android)
+#if canImport(SkipFirebaseCore)
+import SkipFirebaseCore
+#endif
+#if canImport(SkipFirebaseMessaging)
+import SkipFirebaseMessaging
+#endif
+#else
+#if canImport(FirebaseCore)
+import FirebaseCore
+#endif
+#if canImport(FirebaseMessaging)
+import FirebaseMessaging
+#endif
+#endif
+
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
 struct Box<T>: @unchecked Sendable {
     let rawValue: T
 }
 
 /* SKIP @bridge */
 @Observable
-public final class NotificationManager: NSObject, @unchecked Sendable, MessagingDelegate, UNUserNotificationCenterDelegate {
+public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNotificationCenterDelegate {
     private let logger = Logger(subsystem: "ome.OpenMusicEvent", category: "NotificationManager")
     
     private(set) var isAuthorized: Bool = false
@@ -59,14 +74,16 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
     }
     
     // MARK: - APNs Token Handling
-    
+
     public func didRegisterForRemoteNotificationsWithDeviceToken(_ deviceToken: Data) {
         #if !os(Android)
         let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         print("APNs Token: \(tokenString)")
 
         // Set APNs token for Firebase
+        #if canImport(FirebaseMessaging)
         Messaging.messaging().apnsToken = deviceToken
+        #endif
         #endif
     }
     
@@ -122,6 +139,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
 
     // MARK: - Topic Management
     public func updateTopicSubscription(_ topicID: CommunicationChannel.FirebaseTopicName, to state: CommunicationChannel.UserNotificationState) async throws {
+        #if canImport(FirebaseMessaging)
         switch state {
         case .subscribed:
             logger.debug("subscribe to topic \(topicID.rawValue)")
@@ -130,6 +148,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
             logger.info("unsubscribed from topic \(topicID.rawValue)")
             try await Messaging.messaging().unsubscribe(fromTopic: topicID.rawValue)
         }
+        #endif
     }
 
     @ObservationIgnored
@@ -160,25 +179,29 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
     }
 
     // MARK: - MessagingDelegate
+    #if canImport(FirebaseMessaging)
     public func messaging(_ messaging: Messaging, didReceiveRegistrationToken token: String?) {
         logger.info("FCM token received: \(token ?? "nil")")
-        
+
         Task { @MainActor in
             self.fcmToken = token
         }
     }
+    #endif
     
     // MARK: - UNUserNotificationCenterDelegate
     
     public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         nonisolated(unsafe) let content = notification.request.content
 
+        #if canImport(FirebaseMessaging)
         await MainActor.run {
             _ = Messaging.messaging().appDidReceiveMessage(content.userInfo)
         }
+        #endif
 
         logger.info("Will present notification: \(content.title): \(content.body)")
-        
+
         return [.banner, .sound, .badge]
     }
 
@@ -189,19 +212,11 @@ public final class NotificationManager: NSObject, @unchecked Sendable, Messaging
         nonisolated(unsafe) let content = response.notification.request.content
         logger.info("Notification tapped: \(content.title): \(content.body)")
 
+        #if canImport(FirebaseMessaging)
         await MainActor.run {
             _ = Messaging.messaging().appDidReceiveMessage(content.userInfo)
-//
-//            if let channelID = content.userInfo(for: "channel").map(CommunicationChannel.ID.init(rawValue:)),
-//               let postID = content.userInfo(for: "post-stub").map(CommunicationChannel.Post.Stub.init(rawValue:)) {
-//                    NotificationCenter.default.post(
-//                        name: .userSelectedToViewPost,
-//                        object: nil,
-//                        info: .viewPost(channelID: channelID, postID: postID)
-//                    )
-//            }
         }
-
+        #endif
     }
 
 //    #if os(iOS)
@@ -271,3 +286,7 @@ extension UNNotificationContent {
         self.userInfo[key] as? String
     }
 }
+
+#if canImport(FirebaseMessaging)
+extension NotificationManager: MessagingDelegate {}
+#endif

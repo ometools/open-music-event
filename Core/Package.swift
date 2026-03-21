@@ -21,8 +21,6 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.0"),
         .package(url: "https://github.com/pointfreeco/swift-parsing", from: "0.14.0"),
 
-        .package(url: "https://source.skip.tools/skip.git", from: "1.5.18"),
-
         .package(url: "https://github.com/woodymelling/swift-file-tree", branch: "android-support"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
     ],

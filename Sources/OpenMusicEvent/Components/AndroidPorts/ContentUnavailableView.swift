@@ -5,7 +5,9 @@
 //  Created by Woodrow Melling on 7/1/25.
 //
 
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 import SwiftUI
 
 #if os(Android)

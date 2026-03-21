@@ -5,7 +5,10 @@
 //  Created by Woodrow Melling on 5/3/25.
 //
 
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 // import SharingGRDB
 import CoreModels
 import Dependencies

@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 
 
 struct StretchyHeaderList<StretchyContent: View, ListContent: View>: View {

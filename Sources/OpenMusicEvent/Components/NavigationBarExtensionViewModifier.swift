@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 
 extension View {
     func navigationBarExtension<ExtensionContent: View>(

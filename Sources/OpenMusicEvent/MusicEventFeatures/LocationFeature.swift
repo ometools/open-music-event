@@ -5,8 +5,18 @@
 //  Created by Woodrow Melling on 2/23/25.
 //
 
-import SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 import CoreModels
+
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
+
 
 #if canImport(MapKit)
 import MapKit

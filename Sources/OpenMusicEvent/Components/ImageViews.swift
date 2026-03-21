@@ -14,7 +14,10 @@
 
 import Foundation
 import Observation
-import SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 import Dependencies
 // import SharingGRDB
 import CoreModels
@@ -96,7 +99,10 @@ struct ArtistIconView: View {
     }
 }
 
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 // import SharingGRDB
 
 

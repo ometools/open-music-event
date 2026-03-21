@@ -4,7 +4,9 @@ import Foundation
 @preconcurrency import NukeUI
 #endif
 
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 import SwiftUI
 
 public struct CachedAsyncImage<P: View>: View {

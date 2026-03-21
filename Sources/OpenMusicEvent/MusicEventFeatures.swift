@@ -1,4 +1,7 @@
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 // import SharingGRDB
 import GRDB
 import CoreModels
@@ -230,9 +233,10 @@ public class MusicEventFeatures: Identifiable {
         unimplemented()
     }
 
-    func didTapExitEvent() {
-        @Dependency(\.userPreferencesDatabase) var userPrefsDatabase
+    @ObservationIgnored
+    @Dependency(\.defaultDatabase) var userPrefsDatabase
 
+    func didTapExitEvent() {
         withAnimation {
             withErrorReporting {
                 try userPrefsDatabase.write { db in

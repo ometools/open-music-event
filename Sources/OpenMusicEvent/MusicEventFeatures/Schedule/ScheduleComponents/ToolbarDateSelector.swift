@@ -6,7 +6,10 @@
 ////
 //
 //import Foundation
-//import  SwiftUI; import SkipFuse
+//import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 //import OpenFestivalModels
 //
 //public extension View {

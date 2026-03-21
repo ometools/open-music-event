@@ -5,7 +5,10 @@
 //  Created by Woodrow Melling on 5/24/23.
 //
 
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 
 
 private struct ScheduleCardStyleKey: EnvironmentKey {

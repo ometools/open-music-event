@@ -10,7 +10,10 @@
 //// import Sharing
 //
 //
-//import  SwiftUI; import SkipFuse
+//import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 //#if os(iOS) || os(Android)
 //extension InterfaceOrientation {
 //    init?(_ orientation: UIInterfaceOrientation) {

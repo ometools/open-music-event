@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 import CoreModels
 import Dependencies
 import GRDB

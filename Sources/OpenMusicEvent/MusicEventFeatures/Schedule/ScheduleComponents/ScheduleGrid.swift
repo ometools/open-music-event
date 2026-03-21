@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 
 public struct ScheduleGrid<Content: View>: View {
     public init(@ViewBuilder content: () -> Content = { EmptyView() }) {

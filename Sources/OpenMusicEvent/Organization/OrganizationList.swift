@@ -7,7 +7,9 @@
 
 import CoreModels
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 import GRDB
 import Dependencies
 import IssueReporting
@@ -51,9 +53,6 @@ struct OrganizerListView: View {
                 await $0.waitForAll()
             }
         }
-
-        @ObservationIgnored
-        @Dependency(\.userPreferencesDatabase) var userPrefsDB
 
 
         @ObservationIgnored

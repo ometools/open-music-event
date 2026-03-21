@@ -7,7 +7,10 @@
 
 import Foundation
 import Observation
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 import Dependencies
 // import SharingGRDB
 import GRDB
@@ -15,6 +18,12 @@ import CoreModels
 import IssueReporting
 
 
+
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
 
 struct LoadingScreen: View {
     init(_ text: LocalizedStringKey? = nil) {
@@ -129,20 +138,17 @@ public class OrganizationRoot {
     public var showingLoadingScreen: Bool = false
 
     @ObservationIgnored
-    @Dependency(\.userPreferencesDatabase) var userPrefsDB
+    @Dependency(\.defaultDatabase) var database
 
     public func didTapEvent(id: MusicEvent.ID) {
         withErrorReporting {
-            try userPrefsDB.write { db in
+            try database.write { db in
                 var appState = try AppState.fetchOne(db, key: 1) ?? AppState()
                 appState.selectedEventID = id
                 try appState.save(db)
             }
         }
     }
-
-    @ObservationIgnored
-    @Dependency(\.defaultDatabase) var database
 
     func observeOrganizationDetails() async throws {
         logger.info("Observing Organization Details: \(self.id)")

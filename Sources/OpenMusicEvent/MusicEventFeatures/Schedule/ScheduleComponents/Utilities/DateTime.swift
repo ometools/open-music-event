@@ -6,7 +6,9 @@
 //
 
 import Foundation
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 import Dependencies
 
 public extension Date {

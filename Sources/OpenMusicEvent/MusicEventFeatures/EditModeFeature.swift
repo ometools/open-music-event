@@ -5,7 +5,10 @@
 //  Created by Woodrow Melling on 12/2/25.
 //
 
-import SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 import CoreModels
 
 @Observable

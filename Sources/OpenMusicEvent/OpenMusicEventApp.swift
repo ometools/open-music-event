@@ -1,9 +1,19 @@
 import Foundation
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 // import SharingGRDB
 import GRDB
 import Dependencies
 @_exported import CoreModels
+
+
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
 /// A logger for the OpenMusicEvent module.
 private let logger: Logger = Logger(subsystem: "bundle.ome.OpenMusicEvent", category: "OpenMusicEvent")
 

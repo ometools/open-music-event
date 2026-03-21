@@ -5,7 +5,10 @@
 ////  Created by Woodrow Melling on 1/10/25.
 ////
 //
-//import  SwiftUI; import SkipFuse
+//import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 //
 //@available(iOS 18.0, *)
 //extension View {

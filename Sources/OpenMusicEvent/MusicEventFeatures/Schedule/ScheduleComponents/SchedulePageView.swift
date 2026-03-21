@@ -7,7 +7,9 @@
 
 import Dependencies
 import SwiftUI
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 
 enum ScheduleHeightEnvironmentKey: EnvironmentKey {
     static let defaultValue: CGFloat = 1500

@@ -13,12 +13,21 @@
 //  Created by Woody on 2/17/2022.
 //
 
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 import Dependencies
 import GRDB
 // import SharingGRDB
 import CoreModels
 
+
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
 
 // TODO: Replace SharedKey extensions with proper state management
 // extension SharedKey where Self == InMemoryKey<Stage.ID?> {

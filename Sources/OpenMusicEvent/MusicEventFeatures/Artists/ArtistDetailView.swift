@@ -5,11 +5,20 @@
 //  Created by Woodrow Melling on 2/21/25.
 //
 
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 // import SharingGRDB
 import GRDB
 import CoreModels
 import Dependencies
+
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
 
 extension Artist {
     static let placeholder = Artist(

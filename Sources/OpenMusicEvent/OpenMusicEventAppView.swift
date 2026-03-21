@@ -1,4 +1,7 @@
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 // import Sharing
 // import SharingGRDB
 import GRDB
@@ -13,16 +16,29 @@ import Nuke
 
 #if !APPCLIP
 #if os(Android)
+#if canImport(SkipFirebaseCore)
 import SkipFirebaseCore
+#endif
+#if canImport(SkipFirebaseMessaging)
 import SkipFirebaseMessaging
+#endif
 #else
+#if canImport(FirebaseCore)
 import FirebaseCore
+#endif
+#if canImport(FirebaseMessaging)
 import FirebaseMessaging
+#endif
 #endif
 #endif
 
 import OpenMusicEventParser
 
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
 
 public enum OME {
     static let logger = Logger(subsystem: "live.openmusicevent.app", category: "OME")
@@ -49,8 +65,13 @@ public enum OME {
 
 
         if enableFirebase {
+            #if canImport(Firebase)
             FirebaseApp.configure()
+            #endif
+
+            #if canImport(FirebaseMessaging)
             Messaging.messaging().delegate = notificationManager
+            #endif
         }
 
         IssueReporters.current += [
@@ -184,10 +205,9 @@ public struct OMEAppEntryPoint: View {
         var organizerList = OrganizerListView.Model()
         var organizationRoot: OrganizationRoot?
 
-        @ObservationIgnored
-        @Dependency(\.userPreferencesDatabase) var userPrefsDB
-        
 
+        @ObservationIgnored
+        @Dependency(\.defaultDatabase) var database
         func task() async {
             await withErrorReporting {
                 let query = ValueObservation.tracking { db in
@@ -197,7 +217,7 @@ public struct OMEAppEntryPoint: View {
                         .fetchOne(db)
                 }
 
-                for try await selectedOrganizationID in query.values(in: userPrefsDB) {
+                for try await selectedOrganizationID in query.values(in: database) {
                     if let orgID = selectedOrganizationID, organizationRoot?.id != orgID {
                         try withDependencies(from: self) {
                             self.organizationRoot = try OrganizationRoot.openExistingDatabase(for: orgID)
@@ -228,7 +248,7 @@ public struct OMEAppEntryPoint: View {
 
             case .organization(let id, _):
                 // 1) Persist selection and ensure minimal organizer row exists in user prefs DB
-                try userPrefsDB.write { db in
+                try database.write { db in
                     // Ensure AppState row exists and set selection
                     var appState = try AppState.fetchOne(db, key: 1) ?? AppState()
                     appState.selectedOrganizationID = id

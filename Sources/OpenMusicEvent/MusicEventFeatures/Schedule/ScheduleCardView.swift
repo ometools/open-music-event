@@ -5,7 +5,10 @@
 //  Created by Woody on 2/20/22.
 //
 
-import  SwiftUI; import SkipFuse
+import SwiftUI
+#if canImport(SkipFuse)
+import SkipFuse
+#endif
 // import SharingGRDB
 import CasePaths
 import GRDB

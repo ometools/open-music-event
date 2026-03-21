@@ -9,8 +9,16 @@ import GRDB
 // import SharingGRDB
 import SwiftUI
 import Dependencies
+#if canImport(SkipFuse)
 import SkipFuse
+#endif
 import CoreModels
+
+#if canImport(OSLog)
+import OSLog
+#elseif canImport(AndroidLogging)
+import AndroidLogging
+#endif
 
 private let logger = Logger(
     subsystem: "bundle.ome.OpenMusicEvent",
@@ -64,7 +72,8 @@ extension DependencyValues {
   /// SwiftUI, using `prepareDependencies`:
   ///
   /// ```swift
-  /// import  SwiftUI; import SkipFuse
+  /// import SwiftUI
+    /// import SkipFuse
   ///
   /// @main
   /// struct MyApp: App {
