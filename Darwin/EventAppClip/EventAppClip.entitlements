@@ -6,5 +6,9 @@
     <array>
         <string>$(AppIdentifierPrefix)bundle.ome.OpenMusicEvent</string>
     </array>
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>appclips:openmusicevent.app</string>
+    </array>
 </dict>
 </plist>
