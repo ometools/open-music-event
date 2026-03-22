@@ -1,22 +1,18 @@
-  {
-    "applinks": {
-      "apps": [],
-      "details": [
-        {
-          "appIDs": ["bundle.ome.OpenMusicEvent"],
-          "components": [
-            {
-              "/": "/orgs/*"
-            }
-          ]
-        }
-      ]
-    },
-    "appclips": {
-      "apps": ["bundle.ome.OpenMusicEvent.Clip"]
-    }
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["bundle.ome.OpenMusicEvent"],
+        "components": [
+          {
+            "/": "/orgs/*"
+          }
+        ]
+      }
+    ]
+  },
+  "appclips": {
+    "apps": ["bundle.ome.OpenMusicEvent.Clip"]
   }
-
-
-
-
+}
