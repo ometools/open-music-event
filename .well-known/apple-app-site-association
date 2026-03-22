@@ -13,6 +13,9 @@
     ]
   },
   "appclips": {
-    "apps": ["bundle.ome.OpenMusicEvent.Clip"]
+    "apps": [
+      "bundle.ome.OpenMusicEvent.Clip",
+      "com.Festivl.WickedWoods.Clip"
+    ]
   }
 }
