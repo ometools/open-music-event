@@ -3,7 +3,10 @@
     "apps": [],
     "details": [
       {
-        "appIDs": ["FYZE6539TN.bundle.ome.OpenMusicEvent"],
+        "appIDs": [
+            "FYZE6539TN.bundle.ome.OpenMusicEvent",
+            "FYZE6539TN.com.Festivl.WickedWoods"
+        ],
         "components": [
           {
             "/": "/orgs/*"
