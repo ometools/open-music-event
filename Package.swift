@@ -8,7 +8,7 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
-        .library(name: "Models", targets: ["Models"]),
+        .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
     ],
     dependencies: [
         .package(url: "https://source.skip.tools/skip.git", from: "1.8.6"),
@@ -32,9 +32,8 @@ let package = Package(
         ),
 
         .target(
-            name: "Models",
+            name: "OpenMusicEventLexicon",
             dependencies: [
-                .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "Lexicon", package: "tcatproto"),
                 .product(name: "LexiconSQLiteData", package: "tcatproto"),
                 .product(name: "SQLiteData", package: "sqlite-data"),

@@ -160,7 +160,6 @@ extension OpenMusicEvent {
 }
 
 // MARK: - Performance  (app.openmusicevent.performance)
-
 extension OpenMusicEvent {
     @Table("performances")
     public struct Performance: Equatable, Sendable, Identifiable, TimelineRepresentable {
@@ -263,22 +262,6 @@ extension OpenMusicEvent.Channel {
 // //// MARK: - Announcement  (app.openmusicevent.announcement)
 
 
-extension OpenMusicEvent {
-    @Table("announcements")
-    public struct Announcement: Equatable, Sendable, Identifiable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.announcement")
-
-        @Column(primaryKey: true) public var id: OME.ID<Self>
-        public var channelID: OME.Channel.ID
-        public var eventID: OME.Event.ID
-
-        public var title: String
-        public var contents: String
-        public var headerImageURL: URL?
-        public var timestamp: Date?
-        public var isPinned: Bool
-    }
-}
 //
 //// MARK: - Poster  (app.openmusicevent.poster)
 //
