@@ -1,13 +1,20 @@
 import SwiftUI
 import OpenMusicEvent
+import Dependencies
 
-private typealias AppRootView = OpenMusicEventRootView
+private typealias AppRootView = OpenMusicEventApplicationRootView
 private typealias AppDelegate = OpenMusicEventAppDelegate
 
 /// The entry point to the app simply loads the App implementation from SPM module.
 @main struct AppMain: App {
     @AppDelegateAdaptor(AppMainDelegate.self) var appDelegate
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        try! prepareDependencies {
+            try OME.prepareDependencies(&$0)
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

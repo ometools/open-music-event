@@ -14,6 +14,7 @@ let package = Package(
         .package(url: "https://source.skip.tools/skip.git", from: "1.8.6"),
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0"),
 
+        .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
 
@@ -25,7 +26,10 @@ let package = Package(
         .target(
             name: "OpenMusicEvent",
             dependencies: [
-                .product(name: "SkipFuseUI", package: "skip-fuse-ui")
+                "OpenMusicEventLexicon",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
             ],
             resources: [.process("Resources")],
             plugins: [.plugin(name: "skipstone", package: "skip")]

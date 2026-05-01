@@ -7,6 +7,10 @@ import LexiconSQLiteData
 
 // MARK: - Shared types
 
+extension DID: SQLiteType {
+    public static var typeAffinity: SQLiteTypeAffinity { .text }
+}
+
 public protocol TimelineRepresentable {
     var startTime: Date { get }
     var endTime: Date { get }
@@ -24,6 +28,18 @@ public struct OMEColor: Equatable, Codable, Sendable, ExpressibleByIntegerLitera
 // @Lexicon("openmusicevent.app")
 public enum OpenMusicEvent {}
 public typealias OME = OpenMusicEvent
+
+// MARK: - Organizer  (app.openmusicevent.organizer)
+
+extension OpenMusicEvent {
+    @Table("organizers")
+    public struct Organizer: Equatable, Sendable, Identifiable {
+        public static let nsid = ATProto.NSID("app.openmusicevent.organizer")
+
+        @Column(primaryKey: true)
+        public var id: DID
+    }
+}
 
 // MARK: - Event  (app.openmusicevent.event)
 
@@ -110,6 +126,26 @@ extension OpenMusicEvent.Event {
 
     public struct CategoryConfig: Codable, Sendable, Equatable {
         public var showStageNameLabels: Bool
+    }
+}
+
+// MARK: - EventOrganizer  (app.openmusicevent.event.organizer)
+
+extension OpenMusicEvent {
+    @Table("eventOrganizers")
+    public struct EventOrganizer: Equatable, Sendable, Identifiable {
+        public static let nsid = ATProto.NSID("app.openmusicevent.event.organizer")
+
+        @Selection public struct ID: Hashable, Sendable {
+            public var eventID: OME.Event.ID
+            public var organizerID: OME.Organizer.ID
+        }
+
+        public var id: ID
+
+        public init(eventID: OME.Event.ID, organizerID: OME.Organizer.ID) {
+            self.id = ID(eventID: eventID, organizerID: organizerID)
+        }
     }
 }
 
@@ -267,7 +303,7 @@ extension OpenMusicEvent.Channel {
 //
 extension OpenMusicEvent {
     @Table("posters")
-    public struct Poster: Equatable, Sendable {
+    public struct Poster: Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.poster")
 
         @Column(primaryKey: true) public var id: OME.ID<Self>
@@ -277,42 +313,3 @@ extension OpenMusicEvent {
         public var imageURL: URL
     }
 }
-
-// MARK: - Attendee  (app.openmusicevent.attendee.*)
-
-extension OpenMusicEvent {
-    public enum Attendee {}
-}
-
-extension OpenMusicEvent.Attendee {
-    @Table("participantFavorites")
-    public struct ArtistFavorite: Equatable, Sendable, Identifiable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.attendee.artistFavorite")
-
-        @Column(primaryKey: true) public var id: OME.ID<Self>
-        public var participantID: OpenMusicEvent.Participant.ID
-        public var isFavorite: Bool
-    }
-
-    @Table("performanceMarks")
-    public struct PerformanceMark: Equatable, Sendable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.attendee.performanceMark")
-
-        @Column(primaryKey: true) public var id: OME.ID<Self>
-
-        public var performanceID: OpenMusicEvent.Performance.ID
-        public var seen: Bool
-        public var interested: Bool
-    }
-
-    @Table("channelSubscriptions")
-    public struct ChannelSubscription: Equatable, Sendable, Identifiable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.attendee.channelSubscription")
-        public typealias ID = OME.ID<Self>
-
-        @Column(primaryKey: true) public var id: ID
-        public var channelID: OpenMusicEvent.Channel.ID
-        public var notificationState: OpenMusicEvent.Channel.NotificationState
-    }
-}
-

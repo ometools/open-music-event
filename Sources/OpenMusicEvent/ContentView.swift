@@ -1,5 +1,6 @@
 import SwiftUI
 
+
 enum ContentTab: String, Hashable {
     case welcome, home, settings
 }
@@ -15,7 +16,7 @@ struct ContentView: View {
             NavigationStack {
                 WelcomeView(welcomeName: $welcomeName)
             }
-            .tabItem { Label("Welcome", systemImage: "heart.fill") }
+            .tabItem { Label("Near Me", systemImage: "heart.fill") }
             .tag(ContentTab.welcome)
 
             NavigationStack {

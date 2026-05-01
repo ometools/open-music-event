@@ -320,6 +320,9 @@
         }
       }
     },
+    "Near Me" : {
+
+    },
     "Notes" : {
       "comment" : "Item editor form label for the Notes field",
       "localizations" : {
@@ -531,6 +534,7 @@
     },
     "Welcome" : {
       "comment" : "Tab bar item title for the Welcome tab",
+      "extractionState" : "stale",
       "localizations" : {
         "es" : {
           "stringUnit" : {

@@ -1,14 +1,24 @@
 import Foundation
 import SkipFuse
 import SwiftUI
+import Dependencies
+import SQLiteData
 
 /// A logger for the OpenMusicEvent module.
 let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEvent")
 
+extension OME {
+
+    public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
+        try dependencies.bootstrapDatabase()
+    }
+
+}
+
 /// The shared top-level view for the app, loaded from the platform-specific App delegates below.
 ///
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
-/* SKIP @bridge */public struct OpenMusicEventRootView : View {
+/* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
     /* SKIP @bridge */public init() {
     }
 
@@ -30,6 +40,7 @@ let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "Ope
     }
 
     /* SKIP @bridge */public func onInit() {
+//        OME.bootstrapIfNeeded()
         logger.debug("onInit")
     }
 
