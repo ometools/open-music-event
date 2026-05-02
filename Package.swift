@@ -27,6 +27,7 @@ let package = Package(
             name: "OpenMusicEvent",
             dependencies: [
                 "OpenMusicEventLexicon",
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
@@ -40,6 +41,15 @@ let package = Package(
             dependencies: [
                 .product(name: "Lexicon", package: "tcatproto"),
                 .product(name: "LexiconSQLiteData", package: "tcatproto"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventTests",
+            dependencies: [
+                "OpenMusicEvent",
+                .product(name: "ATProto", package: "tcatproto"),
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),

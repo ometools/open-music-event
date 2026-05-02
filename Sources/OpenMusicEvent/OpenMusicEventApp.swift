@@ -3,6 +3,7 @@ import SkipFuse
 import SwiftUI
 import Dependencies
 import SQLiteData
+import ComposableArchitecture2
 
 /// A logger for the OpenMusicEvent module.
 let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEvent")
@@ -22,8 +23,13 @@ extension OME {
     /* SKIP @bridge */public init() {
     }
 
+    static let store = StoreOf<OpenMusicEventBrowser>(
+        initialState: .init()) {
+            OpenMusicEventBrowser()
+        }
+
     public var body: some View {
-        ContentView()
+        OpenMusicEventBrowserView(store: Self.store)
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }

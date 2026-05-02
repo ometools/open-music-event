@@ -2,7 +2,7 @@ import Foundation
 import OpenMusicEventLexicon
 import SQLiteData
 
-typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
+public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
 extension ExternalPlatform: SQLiteType {}
 
@@ -195,6 +195,14 @@ extension DependencyValues {
                 .execute(db)
 
             try #sql("""
+                CREATE TABLE "organizerPreferences" (
+                  "organizerID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                  "isFollowing" INTEGER NOT NULL DEFAULT 0
+                ) STRICT
+                """)
+                .execute(db)
+
+            try #sql("""
                 CREATE TABLE "participantPreferences" (
                   "participantID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
                   "isFavorite" INTEGER NOT NULL DEFAULT 0
@@ -282,6 +290,14 @@ struct AppState: Equatable, Sendable, Identifiable {
         self.id = id
         self.selectedEventID = selectedEventID
     }
+}
+
+@Table("organizerPreferences")
+public struct OrganizerPreferences: Equatable, Sendable, Identifiable {
+    @Column(primaryKey: true) public var organizerID: OMERecord.Organizer.ID
+    public var isFollowing = false
+
+    public var id: OMERecord.Organizer.ID { organizerID }
 }
 
 @Table("participantPreferences")

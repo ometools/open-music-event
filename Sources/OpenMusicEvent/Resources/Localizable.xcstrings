@@ -88,6 +88,12 @@
         }
       }
     },
+    "Browse" : {
+
+    },
+    "Browse feature stub." : {
+
+    },
     "Cancel" : {
       "comment" : "Button title indicating that the operation should be cancelled",
       "localizations" : {
@@ -116,6 +122,15 @@
           }
         }
       }
+    },
+    "Close" : {
+
+    },
+    "Create a new event" : {
+
+    },
+    "Create Event" : {
+
     },
     "Dark" : {
       "comment" : "Menu item indicating that the appearance should be in dark mode",
@@ -175,6 +190,15 @@
         }
       }
     },
+    "Event" : {
+
+    },
+    "Event Name" : {
+
+    },
+    "Event placeholder feature stub." : {
+
+    },
     "Favorite" : {
       "comment" : "Item editor title label for marking the item as a favorite",
       "localizations" : {
@@ -204,6 +228,12 @@
         }
       }
     },
+    "Following" : {
+
+    },
+    "Following feature stub." : {
+
+    },
     "Hello [%@](https://skip.dev)!" : {
       "comment" : "Welcome tab contents",
       "localizations" : {
@@ -232,6 +262,9 @@
           }
         }
       }
+    },
+    "Hello World" : {
+
     },
     "Home" : {
       "comment" : "Tab bar item title for the Home tab",
@@ -290,6 +323,9 @@
           }
         }
       }
+    },
+    "my Events" : {
+
     },
     "Name" : {
       "comment" : "Placeholder title for the Name field in a form",
@@ -352,6 +388,12 @@
         }
       }
     },
+    "Organizer" : {
+
+    },
+    "Organizer detail feature stub." : {
+
+    },
     "Powered by [Skip](https://skip.dev)" : {
       "comment" : "Link markdown text for the Powered by… label",
       "localizations" : {
@@ -410,6 +452,15 @@
         }
       }
     },
+    "Search" : {
+
+    },
+    "Search events or organizers" : {
+
+    },
+    "Search feature stub." : {
+
+    },
     "Settings" : {
       "comment" : "Tab bar item title for the Settings tab",
       "localizations" : {
@@ -467,6 +518,9 @@
           }
         }
       }
+    },
+    "Testival 2026" : {
+
     },
     "Title" : {
       "comment" : "Label for the item editor form indicating the title of the item",
