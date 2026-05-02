@@ -20,36 +20,34 @@ public struct OpenMusicEventBrowser {
 
         public var selectedTab: Tab = .myEvents
         public var browse = Spawn(Browse.State())
-        public var eventPlaceholder: EventPlaceholder.State?
+        public var eventPlaceholder: EventViewer.State?
         public var following = Spawn(Following.State())
         public var search = Spawn(Search.State())
         public var myEvents = Spawn(MyEvents.State())
+
+
+        @FetchOne(AppState.select { $0.selectedEventID })
+        public var selectedEventID: OMERecord.Event.ID?
     }
+
+
 
     public enum Action {
         case browse(Browse.Action)
-        case eventPlaceholder(EventPlaceholder.Action)
+        case eventPlaceholder(EventViewer.Action)
         case eventPlaceholderDismissed
         case following(Following.Action)
-        case restoredSelectedEventID(OMERecord.Event.ID?)
         case search(Search.Action)
         case task
     }
 
     public var body: some Feature {
+        let _ = Self._logChanges()
+
         Update { state, action in
             switch action {
-            case .browse(.eventButtonTapped(let eventID)),
-                 .following(.eventButtonTapped(let eventID)),
-                 .following(.organizerDetail(.eventButtonTapped(let eventID))),
-                 .search(.eventButtonTapped(let eventID)):
-                state.eventPlaceholder = .init(eventID: eventID)
-
             case .eventPlaceholder(.closeButtonTapped), .eventPlaceholderDismissed:
                 state.eventPlaceholder = nil
-
-            case .restoredSelectedEventID(let eventID):
-                state.eventPlaceholder = eventID.map(EventPlaceholder.State.init(eventID:))
 
             case .task:
                 break
@@ -58,6 +56,13 @@ public struct OpenMusicEventBrowser {
                 break
             }
         }
+        .onChange(of: store.selectedEventID, initial: true, { oldValue, newValue, state in
+            if let newValue {
+                state.eventPlaceholder = EventViewer.State(eventID: newValue)
+            } else {
+                state.eventPlaceholder = nil
+            }
+        })
         .spawn(\.browse) {
             Browse()
         }
@@ -69,7 +74,7 @@ public struct OpenMusicEventBrowser {
         }
         .spawn(\.myEvents) { MyEvents() }
         .ifLet(\.eventPlaceholder, action: \.eventPlaceholder) {
-            EventPlaceholder()
+            EventViewer()
         }
     }
 }
@@ -359,7 +364,7 @@ public struct SearchView: View {
 }
 
 @Feature
-public struct EventPlaceholder {
+public struct EventViewer {
     public init() {}
 
     public struct State: Identifiable {
@@ -376,20 +381,24 @@ public struct EventPlaceholder {
 
     public enum Action {
         case closeButtonTapped
-        case eventResponse(EventPlaceholderRow?)
-        case task
     }
 
     public var body: some Feature {
-        Update { _, _ in
+        Update { state, action in
+            switch action {
+            case .closeButtonTapped:
+                
+
+            }
+
         }
     }
 }
 
 public struct EventPlaceholderView: View {
-    let store: StoreOf<EventPlaceholder>
+    let store: StoreOf<EventViewer>
 
-    public init(store: StoreOf<EventPlaceholder>) {
+    public init(store: StoreOf<EventViewer>) {
         self.store = store
     }
 

@@ -186,14 +186,10 @@ extension DependencyValues {
                 """)
                 .execute(db)
 
-            try #sql("""
-                CREATE TABLE "appState" (
-                  "id" INTEGER PRIMARY KEY CHECK ("id" = 1),
-                  "selectedEventID" TEXT
-                ) STRICT
-                """)
-                .execute(db)
 
+
+
+            // MARK: OMERecord+OrganizerPreferencces
             try #sql("""
                 CREATE TABLE "organizerPreferences" (
                   "organizerID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
@@ -253,6 +249,19 @@ extension DependencyValues {
                 """)
                 .execute(db)
 
+
+            // MARK: OME App State
+            try #sql("""
+                CREATE TABLE "appState" (
+                  "id" INTEGER PRIMARY KEY CHECK ("id" = 1),
+                  "selectedEventID" TEXT
+                ) STRICT
+                """)
+                .execute(db)
+
+            try AppState.insert()
+                .execute(db)
+
             try #sql("""
                 CREATE TABLE "eventViewerState" (
                   "musicEventID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
@@ -274,7 +283,11 @@ extension DependencyValues {
                 ) STRICT
                 """)
                 .execute(db)
+
+
         }
+
+
 
         try migrator.migrate(database)
         defaultDatabase = database
@@ -290,6 +303,7 @@ struct AppState: Equatable, Sendable, Identifiable {
         self.id = id
         self.selectedEventID = selectedEventID
     }
+
 }
 
 @Table("organizerPreferences")

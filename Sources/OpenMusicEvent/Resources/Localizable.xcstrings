@@ -59,6 +59,9 @@
         }
       }
     },
+    "Add End Date" : {
+
+    },
     "Appearance" : {
       "comment" : "Settings select label for the interface style of the controls (light, dark, or default)",
       "localizations" : {
@@ -126,7 +129,7 @@
     "Close" : {
 
     },
-    "Create a new event" : {
+    "Create" : {
 
     },
     "Create Event" : {
@@ -189,6 +192,15 @@
           }
         }
       }
+    },
+    "Dates" : {
+
+    },
+    "Dates are saved using your current device time zone: %@." : {
+
+    },
+    "End Date" : {
+
     },
     "Event" : {
 
@@ -262,9 +274,6 @@
           }
         }
       }
-    },
-    "Hello World" : {
-
     },
     "Home" : {
       "comment" : "Tab bar item title for the Home tab",
@@ -357,6 +366,9 @@
       }
     },
     "Near Me" : {
+
+    },
+    "New Event" : {
 
     },
     "Notes" : {
@@ -489,6 +501,12 @@
           }
         }
       }
+    },
+    "Start Date" : {
+
+    },
+    "Start with the basics. This creates the event now so you can come back and fill in artwork, schedule, locations, and the rest later" : {
+
     },
     "System" : {
       "comment" : "Menu item indicating that the appearance should be in the default system mode",
