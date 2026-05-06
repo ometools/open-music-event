@@ -74,15 +74,27 @@ public protocol TabFeatureContent {
     var tabFeatureMetadata: [TabFeatureMetadata<Value>] { get }
 }
 
-public struct TabFeatureGroup<Value: TabFeatureValue>: TabFeatureContent, Equatable, Sendable {
-    public var tabFeatureMetadata: [TabFeatureMetadata<Value>]
+public struct TabFeatureGroup<Value: TabFeatureValue>: TabFeatureContent {
+    let content: TabFeatureBuilder<Value>.Content
 
     public init(tabFeatureMetadata: [TabFeatureMetadata<Value>] = []) {
-        self.tabFeatureMetadata = tabFeatureMetadata
+        self.content = .metadata(tabFeatureMetadata)
+    }
+
+    init(content: TabFeatureBuilder<Value>.Content) {
+        self.content = content
+    }
+
+    public var tabFeatureMetadata: [TabFeatureMetadata<Value>] {
+        self.content.tabFeatureMetadata
+    }
+
+    func featureBody(for id: TabFeatureID) -> AnyView? {
+        self.content.featureBody(for: id)
     }
 }
 
-public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent, Equatable, Sendable {
+public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent, Sendable {
     private let group: TabFeatureGroup<Value>
 
     public init(
@@ -93,6 +105,27 @@ public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent, Equatable,
 
     public var tabFeatureMetadata: [TabFeatureMetadata<Value>] {
         self.group.tabFeatureMetadata
+    }
+
+    func featureBody(for id: TabFeatureID) -> AnyView? {
+        self.group.featureBody(for: id)
+    }
+}
+
+public struct ResolvedDeclaredTabFeatures<Value: TabFeatureValue>: Equatable, Sendable {
+    public var visibleFeatures: [TabFeatureMetadata<Value>]
+    public var overflowFeatures: [TabFeatureMetadata<Value>]
+
+    public init(
+        visibleFeatures: [TabFeatureMetadata<Value>],
+        overflowFeatures: [TabFeatureMetadata<Value>]
+    ) {
+        self.visibleFeatures = visibleFeatures
+        self.overflowFeatures = overflowFeatures
+    }
+
+    public var showsMore: Bool {
+        !self.overflowFeatures.isEmpty
     }
 }
 
@@ -164,14 +197,59 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
     func makeBody() -> Content {
         self.content
     }
+
+    var anyNode: TabFeatureBuilder<Value>.AnyTabFeatureNode {
+        .init(
+            metadata: self.metadata,
+            content: AnyView(self.content)
+        )
+    }
 }
 
 @resultBuilder
 public enum TabFeatureBuilder<Value: TabFeatureValue> {
+    indirect enum Content {
+        case feature(AnyTabFeatureNode)
+        case group([Content])
+        case metadata([TabFeatureMetadata<Value>])
+
+        var tabFeatureMetadata: [TabFeatureMetadata<Value>] {
+            switch self {
+            case .feature(let node):
+                [node.metadata]
+            case .group(let children):
+                children.flatMap(\.tabFeatureMetadata)
+            case .metadata(let metadata):
+                metadata
+            }
+        }
+
+        func featureBody(for id: TabFeatureID) -> AnyView? {
+            switch self {
+            case .feature(let node):
+                node.metadata.id == id ? node.content : nil
+            case .group(let children):
+                for child in children {
+                    if let body = child.featureBody(for: id) {
+                        return body
+                    }
+                }
+                return nil
+            case .metadata:
+                return nil
+            }
+        }
+    }
+
+    struct AnyTabFeatureNode {
+        let metadata: TabFeatureMetadata<Value>
+        let content: AnyView
+    }
+
     public static func buildExpression<Content: View>(
         _ expression: TabFeature<Value, Content>
     ) -> TabFeatureGroup<Value> {
-        TabFeatureGroup(tabFeatureMetadata: expression.tabFeatureMetadata)
+        TabFeatureGroup(content: .feature(expression.anyNode))
     }
 
     public static func buildExpression(
@@ -183,9 +261,7 @@ public enum TabFeatureBuilder<Value: TabFeatureValue> {
     public static func buildBlock(
         _ components: TabFeatureGroup<Value>...
     ) -> TabFeatureGroup<Value> {
-        TabFeatureGroup(
-            tabFeatureMetadata: components.flatMap(\.tabFeatureMetadata)
-        )
+        TabFeatureGroup(content: .group(components.map(\.content)))
     }
 
     public static func buildOptional(
@@ -209,9 +285,7 @@ public enum TabFeatureBuilder<Value: TabFeatureValue> {
     public static func buildArray(
         _ components: [TabFeatureGroup<Value>]
     ) -> TabFeatureGroup<Value> {
-        TabFeatureGroup(
-            tabFeatureMetadata: components.flatMap(\.tabFeatureMetadata)
-        )
+        TabFeatureGroup(content: .group(components.map(\.content)))
     }
 
     public static func buildLimitedAvailability(
@@ -224,6 +298,25 @@ public enum TabFeatureBuilder<Value: TabFeatureValue> {
 public extension TabFeatureContent {
     var tabFeatureItems: [TabFeatureItem] {
         self.tabFeatureMetadata.map(\.item)
+    }
+
+    func resolve(
+        layout: TabFeatureLayout,
+        policy: TabFeaturePolicy
+    ) -> ResolvedDeclaredTabFeatures<Value> {
+        let metadataByID = Dictionary(
+            uniqueKeysWithValues: self.tabFeatureMetadata.map { ($0.id, $0) }
+        )
+        let resolved = TabFeatureResolver.resolve(
+            availableItems: self.tabFeatureItems,
+            layout: layout,
+            policy: policy
+        )
+
+        return ResolvedDeclaredTabFeatures(
+            visibleFeatures: resolved.visibleIDs.compactMap { metadataByID[$0] },
+            overflowFeatures: resolved.overflowIDs.compactMap { metadataByID[$0] }
+        )
     }
 }
 
@@ -284,6 +377,65 @@ import CustomDump
 
 #if !SKIP
 #Playground {
+    let resolved = features.resolve(
+        layout: .init(preferredIDs: [.init("stage4"), .init("stage2")]),
+        policy: .init(fixedVisibleIDs: [.init("search")], maxVisibleTabs: 3)
+    )
+
     customDump(features.tabFeatureMetadata)
+    customDump(features.tabFeatureItems)
+    customDump(resolved.visibleFeatures)
+    customDump(resolved.overflowFeatures)
 }
 #endif
+
+@available(iOS 18, *)
+public struct TabFeaturesView<Value: TabFeatureValue>: View {
+    @Binding var selection: Value
+    @Binding var layout: TabFeatureLayout
+
+    let policy: TabFeaturePolicy
+    let features: TabFeatures<Value>
+
+    public init(
+        selection: Binding<Value>,
+        layout: Binding<TabFeatureLayout>,
+        policy: TabFeaturePolicy,
+        @TabFeatureBuilder<Value> content: () -> TabFeatureGroup<Value>
+    ) {
+        self._selection = selection
+        self._layout = layout
+        self.policy = policy
+        self.features = TabFeatures(content: content)
+    }
+
+    public var body: some View {
+        let resolved = features.resolve(layout: layout, policy: policy)
+
+        TabView(selection: $selection) {
+            if !resolved.visibleFeatures.isEmpty {
+//                ForEach(resolved.visibleFeatures, id: \.value) { feature in
+//                    featureTab(for: feature)
+//                }
+            }
+
+            // visible tabs
+
+            // conditional More tab
+        }
+    }
+
+    @ViewBuilder
+    func featureTab(for metadata: TabFeatureMetadata<Value>) ->  some View {
+        let first = features.tabFeatureItems.first {
+            $0.id == metadata.id
+        }
+
+        
+
+
+
+
+
+    }
+}

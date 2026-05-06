@@ -7,24 +7,24 @@ struct SwiftUITabFeaturesTests {
     @Test func `builder preserves declaration order`() {
         let features = TabFeatures<DemoTab> {
             TabFeature(
-                "Schedule",
-                systemImage: "calendar",
-                value: .schedule
+                .schedule,
+                title: "Schedule",
+                systemImage: "calendar"
             ) {
                 EmptyView()
             }
 
             TabFeature(
-                value: .search,
+                .search,
                 role: .search
             ) {
                 EmptyView()
             }
 
             TabFeature(
-                "Main Stage",
-                systemImage: "music.note",
-                value: .mainStage
+                .mainStage,
+                title: "Main Stage",
+                systemImage: "music.note"
             ) {
                 EmptyView()
             }
@@ -35,9 +35,9 @@ struct SwiftUITabFeaturesTests {
 
     @Test func `labeled tabs extract title symbol and value`() {
         let feature = TabFeature(
-            "Schedule",
+            DemoTab.schedule,
+            title: "Schedule",
             systemImage: "calendar",
-            value: DemoTab.schedule,
             navigation: .stack
         ) {
             EmptyView()
@@ -51,7 +51,7 @@ struct SwiftUITabFeaturesTests {
 
     @Test func `search role derives metadata and identity from value`() {
         let feature = TabFeature(
-            value: DemoTab.search,
+            DemoTab.search,
             role: .search
         ) {
             EmptyView()
@@ -59,8 +59,8 @@ struct SwiftUITabFeaturesTests {
 
         #expect(feature.metadata.value == .search)
         #expect(feature.metadata.role == .search)
-        #expect(feature.metadata.title == nil)
-        #expect(feature.metadata.systemImage == nil)
+        #expect(feature.metadata.title == "Search")
+        #expect(feature.metadata.systemImage == symbol("magnifyingglass"))
         #expect(feature.metadata.id == id("search"))
         #expect(feature.item.title == "Search")
         #expect(feature.item.systemImage == symbol("magnifyingglass"))
@@ -68,17 +68,17 @@ struct SwiftUITabFeaturesTests {
 
     @Test func `navigation metadata records stack when present`() {
         let stacked = TabFeature(
-            "Schedule",
+            DemoTab.schedule,
+            title: "Schedule",
             systemImage: "calendar",
-            value: DemoTab.schedule,
             navigation: .stack
         ) {
             EmptyView()
         }
         let plain = TabFeature(
-            "About",
-            systemImage: "info.circle",
-            value: DemoTab.about
+            DemoTab.about,
+            title: "About",
+            systemImage: "info.circle"
         ) {
             EmptyView()
         }
@@ -89,9 +89,9 @@ struct SwiftUITabFeaturesTests {
 
     @Test func `derived ID matches lossless string value`() {
         let feature = TabFeature(
-            "Main Stage",
-            systemImage: "music.note",
-            value: DemoTab.mainStage
+            DemoTab.mainStage,
+            title: "Main Stage",
+            systemImage: "music.note"
         ) {
             EmptyView()
         }
@@ -102,9 +102,9 @@ struct SwiftUITabFeaturesTests {
     @Test func `open string convertible value supports custom tabs`() {
         let pinned = DemoTab(rawValue: "stage:sunrise")
         let feature = TabFeature(
-            "Sunrise Stage",
-            systemImage: "sun.max",
-            value: pinned
+            pinned,
+            title: "Sunrise Stage",
+            systemImage: "sun.max"
         ) {
             EmptyView()
         }
@@ -115,36 +115,36 @@ struct SwiftUITabFeaturesTests {
 
     @Test func `declared features bridge into resolver items`() {
         let features = TabFeatures<DemoTab> {
-            TabFeature(value: .search, role: .search) {
+            TabFeature(.search, role: .search) {
                 EmptyView()
             }
 
             TabFeature(
-                "Schedule",
+                .schedule,
+                title: "Schedule",
                 systemImage: "calendar",
-                value: .schedule,
                 navigation: .stack
             ) {
                 EmptyView()
             }
 
             TabFeature(
-                "Main Stage",
-                systemImage: "music.note",
-                value: .mainStage
+                .mainStage,
+                title: "Main Stage",
+                systemImage: "music.note"
             ) {
                 EmptyView()
             }
         }
-        let resolved = TabFeatureResolver.resolve(
-            availableItems: features.tabFeatureItems,
+        let resolved = features.resolve(
             layout: .init(preferredIDs: [id("stage:main")]),
             policy: .init(fixedVisibleIDs: [id("search")], maxVisibleTabs: 2)
         )
 
         #expect(features.tabFeatureItems.map(\.id) == [id("search"), id("schedule"), id("stage:main")])
-        #expect(resolved.visibleIDs == [id("search"), id("stage:main")])
-        #expect(resolved.overflowIDs == [id("schedule")])
+        #expect(resolved.visibleFeatures.map(\.id) == [id("search"), id("stage:main")])
+        #expect(resolved.overflowFeatures.map(\.id) == [id("schedule")])
+        #expect(resolved.showsMore)
     }
 
     @Test func `keeps fixed IDs first`() {
