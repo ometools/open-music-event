@@ -94,7 +94,7 @@ public struct TabFeatureGroup<Value: TabFeatureValue>: TabFeatureContent {
     }
 }
 
-public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent, Sendable {
+public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent {
     private let group: TabFeatureGroup<Value>
 
     public init(
@@ -125,7 +125,20 @@ public struct ResolvedDeclaredTabFeatures<Value: TabFeatureValue>: Equatable, Se
     }
 
     public var showsMore: Bool {
-        !self.overflowFeatures.isEmpty
+        !self.nonSearchOverflowFeatures.isEmpty
+    }
+
+    public var searchTab: TabFeatureMetadata<Value>? {
+        self.visibleFeatures.first(where: \.isSearchTab)
+            ?? self.overflowFeatures.first(where: \.isSearchTab)
+    }
+
+    public var nonSearchVisibleFeatures: [TabFeatureMetadata<Value>] {
+        self.visibleFeatures.filter { !$0.isSearchTab }
+    }
+
+    public var nonSearchOverflowFeatures: [TabFeatureMetadata<Value>] {
+        self.overflowFeatures.filter { !$0.isSearchTab }
     }
 }
 
@@ -206,6 +219,12 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
     }
 }
 
+extension TabFeatureMetadata {
+    var isSearchTab: Bool {
+        self.role == .search
+    }
+}
+
 @resultBuilder
 public enum TabFeatureBuilder<Value: TabFeatureValue> {
     indirect enum Content {
@@ -227,7 +246,7 @@ public enum TabFeatureBuilder<Value: TabFeatureValue> {
         func featureBody(for id: TabFeatureID) -> AnyView? {
             switch self {
             case .feature(let node):
-                node.metadata.id == id ? node.content : nil
+                return node.metadata.id == id ? node.content : nil
             case .group(let children):
                 for child in children {
                     if let body = child.featureBody(for: id) {
@@ -342,6 +361,7 @@ struct DemoTab: TabFeatureValue {
 }
 
 
+@MainActor
 let features = TabFeatures<DemoTab> {
     TabFeature(
         .schedule,
@@ -350,10 +370,12 @@ let features = TabFeatures<DemoTab> {
         navigation: .stack
     ) {
         Text("Schedule TAB")
+            .navigationTitle("Schedule")
     }
 
     TabFeature(.search, role: .search, navigation: .stack) {
         Text("Search View")
+            .navigationTitle("Search")
     }
 
     TabFeature(.init(rawValue: "stage1"), title: "Stage1", systemImage: "square", navigation: .stack) {
@@ -413,10 +435,61 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         let resolved = features.resolve(layout: layout, policy: policy)
 
         TabView(selection: $selection) {
-            if !resolved.visibleFeatures.isEmpty {
-//                ForEach(resolved.visibleFeatures, id: \.value) { feature in
-//                    featureTab(for: feature)
-//                }
+            if !resolved.nonSearchVisibleFeatures.isEmpty {
+                
+                ForEach(resolved.nonSearchVisibleFeatures, id: \.value) { feature in
+                    Group {
+                        let body = features.featureBody(for: feature.id)
+                        switch feature.navigation  {
+                        case .stack:
+                            NavigationStack {
+                                body
+                            }
+                        case .none:
+                            body
+                        }
+                    }
+                    .tabItem {
+                        Label(feature.effectiveTitle, systemImage: feature.effectiveSystemImage.rawValue)
+                    }
+                }
+            }
+
+            if resolved.showsMore {
+                NavigationStack {
+                    List {
+                        ForEach(resolved.nonSearchOverflowFeatures, id: \.value) { feature in
+                            NavigationLink {
+                                features.featureBody(for: feature.id)
+                            } label: {
+
+                                Label(feature.effectiveTitle, systemImage: feature.effectiveSystemImage.rawValue)
+                            }
+                        }
+
+                    }
+                    .navigationTitle("More")
+                }
+                .tabItem {
+                    Label("More", systemImage: "ellipsis")
+                }
+            }
+
+            if let searchTab = resolved.searchTab {
+                Group {
+                    let body = features.featureBody(for: searchTab.id)
+                    switch searchTab.navigation {
+                    case .stack:
+                        NavigationStack {
+                            body
+                        }
+                    case .none:
+                        body
+                    }
+                }
+                .tabItem {
+                    Label(searchTab.effectiveTitle, systemImage: searchTab.effectiveSystemImage.rawValue)
+                }
             }
 
             // visible tabs
@@ -425,17 +498,60 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         }
     }
 
-    @ViewBuilder
-    func featureTab(for metadata: TabFeatureMetadata<Value>) ->  some View {
-        let first = features.tabFeatureItems.first {
-            $0.id == metadata.id
+
+}
+
+#if !SKIP
+#Preview {
+    @Previewable @State var selection: DemoTab = .schedule
+    @Previewable @State var layout: TabFeatureLayout = .init()
+    if #available(iOS 18, *) {
+        TabFeaturesView(selection: $selection, layout: $layout, policy: .init(maxVisibleTabs: 2)) {
+            TabFeature(
+                .schedule,
+                title: "Schedule",
+                systemImage: "calendar",
+                navigation: .stack
+            ) {
+                Text("Schedule TAB")
+                    .navigationTitle("Schedule")
+            }
+            
+            TabFeature(.search, role: .search, navigation: .stack) {
+                Text("Search View")
+                    .navigationTitle("Search")
+            }
+            
+            TabFeature(.init(rawValue: "stage1"), title: "Stage1", systemImage: "square", navigation: .stack) {
+                Text("Stage1 View")
+                    .navigationTitle("Stage 1")
+            }
+            
+            TabFeature(.init(rawValue: "stage2"), title: "Stage2", systemImage: "square", navigation: .stack) {
+                Text("Stage2 View")
+                    .navigationTitle("Stage 2")
+            }
+
+            TabFeature(.init(rawValue: "stage3"), title: "Stage3", systemImage: "square", navigation: .stack) {
+                VStack {
+                    List {
+                        NavigationLink("Forward") {
+                            Text("Huzzah")
+                                .navigationTitle("Deeper")
+                        }
+                    }
+
+                }
+                .navigationTitle("Stage 3")
+            }
+
+            TabFeature(.init(rawValue: "stage4"), title: "Stage4", systemImage: "square", navigation: .stack) {
+                Text("Stage4 View")
+                    .navigationTitle("Stage 4")
+            }
         }
-
-        
-
-
-
-
-
+    } else {
+        // Fallback on earlier versions
     }
 }
+#endif
