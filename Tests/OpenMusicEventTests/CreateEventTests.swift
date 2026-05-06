@@ -11,7 +11,9 @@ struct CreateEventTests {
     @Test
     func rejectsWhitespaceOnlyNames() {
         let store = TestStore(
-            initialState: CreateEvent.State(eventName: "   ")
+            initialState: makeState {
+                $0.eventName = "   "
+            }
         ) {
             CreateEvent()
         }
@@ -24,13 +26,13 @@ struct CreateEventTests {
     @Test
     func rejectsInvalidDateRange() {
         let store = TestStore(
-            initialState: CreateEvent.State(
-                eventName: "Testival",
-                hasStartDate: true,
-                startDate: Date(timeIntervalSince1970: 86_400),
-                hasEndDate: true,
-                endDate: .init(timeIntervalSince1970: 0)
-            )
+            initialState: makeState {
+                $0.eventName = "Testival"
+                $0.hasStartDate = true
+                $0.startDate = Date(timeIntervalSince1970: 86_400)
+                $0.hasEndDate = true
+                $0.endDate = .init(timeIntervalSince1970: 0)
+            }
         ) {
             CreateEvent()
         }
@@ -44,26 +46,24 @@ struct CreateEventTests {
     func savesMinimalEvent() async throws {
         let database = try makePreparedDatabase()
         let store = makeStore(
-            initialState: CreateEvent.State(
-                eventName: "Testival 2026",
-                hasStartDate: true,
-                startDate: Date(timeIntervalSince1970: 86_400),
-                hasEndDate: true,
-                endDate: Date(timeIntervalSince1970: 172_800)
-            ),
+            initialState: makeState {
+                $0.eventName = "Testival 2026"
+                $0.hasStartDate = true
+                $0.startDate = Date(timeIntervalSince1970: 86_400)
+                $0.hasEndDate = true
+                $0.endDate = Date(timeIntervalSince1970: 172_800)
+            },
             database: database,
             uuid: UUID(1)
         )
 
-        store.send(.saveButtonTapped) {
-            $0.isSaving = true
-        }
-        await store.receive(\.saveSucceeded) {
-            $0.didCreateEvent = true
-            $0.isSaving = false
-        }
+        await store.send(.saveButtonTapped)?.value
 
-        let events = try database.read { db in
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+
+        let events = try await database.read { db in
             try OMERecord.Event.fetchAll(db)
         }
         #expect(events.count == 1)
@@ -94,18 +94,20 @@ struct CreateEventTests {
             try SQLiteData.defaultDatabase()
         }
         let store = makeStore(
-            initialState: CreateEvent.State(eventName: "Broken Event"),
+            initialState: makeState {
+                $0.eventName = "Broken Event"
+            },
             database: database
         )
 
-        store.send(.saveButtonTapped) {
-            $0.isSaving = true
-        }
-        await store.receive(\.saveFailed)
+        await store.send(.saveButtonTapped) {
+            $0.isSaving = false
+            $0.errorMessage = "Unable to create event."
+        }?.value
 
         #expect(store.state.isSaving == false)
-        #expect(store.state.didCreateEvent == false)
-        #expect(store.state.errorMessage?.isEmpty == false)
+        #expect(store.state.errorMessage == "Unable to create event.")
+        #expect(store.isPresented == true)
     }
 
     private func makePreparedDatabase() throws -> any DatabaseWriter {
@@ -125,12 +127,26 @@ struct CreateEventTests {
     ) -> TestStore<CreateEvent> {
         withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.uuid = .constant(uuid)
         } operation: {
             TestStore(initialState: initialState) {
                 CreateEvent()
             }
+        }
+    }
+
+    private func makeState(
+        _ update: (inout CreateEvent.State) -> Void
+    ) -> CreateEvent.State {
+        withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+        } operation: {
+            var state = CreateEvent.State()
+            update(&state)
+            return state
         }
     }
 }

@@ -6,9 +6,10 @@
 //
 
 import ComposableArchitecture2
-import SwiftUI
+import OpenMusicEventAppEventViewer
 import OpenMusicEventLexicon
 import SQLiteData
+import SwiftUI
 
 @Feature
 public struct MyEvents {
@@ -38,8 +39,6 @@ public struct MyEvents {
         case createEvent(Spawn<CreateEvent>)
     }
 
-    @Dependency(\.defaultDatabase) var database
-
     public var body: some Feature {
         let _ = Self._logChanges()
         Update { state, action in
@@ -47,15 +46,12 @@ public struct MyEvents {
             case .didTapCreateEvent:
                 state.destination = .createEvent(Spawn(CreateEvent.State()))
             case .didTapEvent(let event):
-                _ = withErrorReporting {
-                    try database.write { db in
-                        try AppState.update {
-                            $0.selectedEventID = #bind(event.id)
-                        }
-                        .execute(db)
-                    }
+                store.addTask {
+                    try store.post(
+                        key: NavigationRequested.self,
+                        value: .event(event.id, nil)
+                    )
                 }
-
 
             case .destination:
                 return
@@ -163,4 +159,3 @@ struct EventRowView: View {
         }
     }
 }
-

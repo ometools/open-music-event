@@ -1,8 +1,7 @@
 import ComposableArchitecture2
-import Foundation
+import OpenMusicEventAppEventViewer
 import SwiftUI
 import Tagged
-import SQLiteData
 
 @Feature
 public struct OpenMusicEventBrowser {
@@ -20,49 +19,24 @@ public struct OpenMusicEventBrowser {
 
         public var selectedTab: Tab = .myEvents
         public var browse = Spawn(Browse.State())
-        public var eventPlaceholder: EventViewer.State?
         public var following = Spawn(Following.State())
         public var search = Spawn(Search.State())
         public var myEvents = Spawn(MyEvents.State())
-
-
-        @FetchOne(AppState.select { $0.selectedEventID })
-        public var selectedEventID: OMERecord.Event.ID?
     }
 
-
-
     public enum Action {
-        case browse(Browse.Action)
-        case eventPlaceholder(EventViewer.Action)
-        case eventPlaceholderDismissed
-        case following(Following.Action)
-        case search(Search.Action)
         case task
     }
 
     public var body: some Feature {
         let _ = Self._logChanges()
 
-        Update { state, action in
+        Update { _, action in
             switch action {
-            case .eventPlaceholder(.closeButtonTapped), .eventPlaceholderDismissed:
-                state.eventPlaceholder = nil
-
             case .task:
-                break
-
-            case .browse, .eventPlaceholder, .following, .search:
                 break
             }
         }
-        .onChange(of: store.selectedEventID, initial: true, { oldValue, newValue, state in
-            if let newValue {
-                state.eventPlaceholder = EventViewer.State(eventID: newValue)
-            } else {
-                state.eventPlaceholder = nil
-            }
-        })
         .spawn(\.browse) {
             Browse()
         }
@@ -73,9 +47,6 @@ public struct OpenMusicEventBrowser {
             Search()
         }
         .spawn(\.myEvents) { MyEvents() }
-        .ifLet(\.eventPlaceholder, action: \.eventPlaceholder) {
-            EventViewer()
-        }
     }
 }
 
@@ -87,6 +58,81 @@ public struct OpenMusicEventBrowserView: View {
     @Bindable var store: StoreOf<OpenMusicEventBrowser>
 
     public var body: some View {
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            iosTabView
+        } else {
+            legacyiOSTabView
+        }
+        #else
+        defaultTabView
+        #endif
+    }
+
+    #if os(iOS)
+    @available(iOS 18.0, *)
+    private var iosTabView: some View {
+        TabView(selection: $store.selectedTab) {
+            Tab("Browse", systemImage: "sparkles", value: OpenMusicEventBrowser.Tab.browse) {
+                NavigationStack {
+                    BrowseView(store: store.spawn(\.browse))
+                }
+            }
+
+            Tab("Following", systemImage: "person.2.fill", value: OpenMusicEventBrowser.Tab.following) {
+                NavigationStack {
+                    FollowingView(store: store.spawn(\.following))
+                }
+            }
+
+            Tab("My Events", systemImage: "star", value: OpenMusicEventBrowser.Tab.myEvents) {
+                NavigationStack {
+                    MyEventsView(store: store.spawn(\.myEvents))
+                }
+            }
+
+            Tab(value: OpenMusicEventBrowser.Tab.search, role: .search) {
+                SearchView(store: store.spawn(\.search))
+            }
+        }
+    }
+
+    private var legacyiOSTabView: some View {
+        TabView(selection: $store.selectedTab) {
+            NavigationStack {
+                BrowseView(store: store.spawn(\.browse))
+            }
+            .tabItem {
+                Label("Browse", systemImage: "sparkles")
+            }
+            .tag(OpenMusicEventBrowser.Tab.browse)
+
+            NavigationStack {
+                FollowingView(store: store.spawn(\.following))
+            }
+            .tabItem {
+                Label("Following", systemImage: "person.2.fill")
+            }
+            .tag(OpenMusicEventBrowser.Tab.following)
+//
+            NavigationStack {
+                MyEventsView(store: store.spawn(\.myEvents))
+            }
+            .tabItem {
+                Label("My Events", systemImage: "star")
+            }
+            .tag(OpenMusicEventBrowser.Tab.myEvents)
+
+            SearchView(store: store.spawn(\.search))
+                .tabItem {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .tag(OpenMusicEventBrowser.Tab.search)
+        }
+    }
+    #endif
+
+    private var defaultTabView: some View {
         TabView(selection: $store.selectedTab) {
             NavigationStack {
                 BrowseView(store: store.spawn(\.browse))
@@ -108,7 +154,7 @@ public struct OpenMusicEventBrowserView: View {
                 MyEventsView(store: store.spawn(\.myEvents))
             }
             .tabItem {
-                Label("my Events", systemImage: "star")
+                Label("My Events", systemImage: "star")
             }
             .tag(OpenMusicEventBrowser.Tab.myEvents)
 
@@ -119,19 +165,6 @@ public struct OpenMusicEventBrowserView: View {
                 Label("Search", systemImage: "magnifyingglass")
             }
             .tag(OpenMusicEventBrowser.Tab.search)
-        }
-        .task {
-            await store.send(.task)?.value
-        }
-        .fullScreenCover(
-            item: $store.scope(state: \.eventPlaceholder, action: \.eventPlaceholder),
-            onDismiss: {
-                store.send(.eventPlaceholderDismissed)
-            }
-        ) { placeholderStore in
-            NavigationStack {
-                EventPlaceholderView(store: placeholderStore)
-            }
         }
     }
 }
@@ -155,7 +188,19 @@ public struct Browse {
     }
 
     public var body: some Feature {
-        Update { _, _ in
+        Update { _, action in
+            switch action {
+            case .eventButtonTapped(let eventID):
+                store.addTask {
+                    try store.post(
+                        key: NavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
+                }
+
+            case .browseResponse, .didPullToRefresh, .task:
+                break
+            }
         }
     }
 }
@@ -215,8 +260,15 @@ public struct Following {
             case .organizerRowTapped(let organizerID):
                 state.organizerDetail = .init(organizerID: organizerID)
 
+            case .eventButtonTapped(let eventID):
+                store.addTask {
+                    try store.post(
+                        key: NavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
+                }
+
             case .didPullToRefresh,
-                 .eventButtonTapped,
                  .followedOrganizersResponse,
                  .organizerDetail,
                  .task,
@@ -278,7 +330,22 @@ public struct OrganizerDetail {
     }
 
     public var body: some Feature {
-        Update { _, _ in
+        Update { _, action in
+            switch action {
+            case .eventButtonTapped(let eventID):
+                store.addTask {
+                    try store.post(
+                        key: NavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
+                }
+
+            case .followStateResponse,
+                 .organizerDetailResponse,
+                 .task,
+                 .toggleFollowButtonTapped:
+                break
+            }
         }
     }
 }
@@ -325,11 +392,18 @@ public struct Search {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .eventButtonTapped(let eventID):
+                store.addTask {
+                    try store.post(
+                        key: NavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
+                }
+
             case .queryEdited(let query):
                 state.query = query
 
             case .didPullToRefresh,
-                 .eventButtonTapped,
                  .searchResponse,
                  .task:
                 break
@@ -346,81 +420,35 @@ public struct SearchView: View {
     }
 
     public var body: some View {
-        List {
-            Section {
-                TextField("Search events or organizers", text: $store.query)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
+        content
+    }
 
-            EmptyBrowserState(
-                title: "Search",
-                systemImage: "magnifyingglass",
-                message: "Search feature stub."
-            )
+    private var content: some View {
+        NavigationStack {
+            List {
+                EmptyBrowserState(
+                    title: "Search",
+                    systemImage: "magnifyingglass",
+                    message: "Search feature stub."
+                )
+            }
+            .navigationTitle("Search")
         }
-        .navigationTitle("Search")
-    }
-}
-
-@Feature
-public struct EventViewer {
-    public init() {}
-
-    public struct State: Identifiable {
-        public init(eventID: OMERecord.Event.ID) {
-            self.eventID = eventID
-        }
-
-        public let eventID: OMERecord.Event.ID
-        public var event: EventPlaceholderRow?
-        public var isLoading = false
-
-        public var id: OMERecord.Event.ID { eventID }
+        .searchable(
+            text: $store.query,
+            prompt: "Search events or organizers"
+        )
     }
 
-    public enum Action {
-        case closeButtonTapped
-    }
-
-    public var body: some Feature {
-        Update { state, action in
-            switch action {
-            case .closeButtonTapped:
-                
-
-            }
-
-        }
-    }
-}
-
-public struct EventPlaceholderView: View {
-    let store: StoreOf<EventViewer>
-
-    public init(store: StoreOf<EventViewer>) {
-        self.store = store
-    }
-
-    public var body: some View {
-        List {
-            Section {
-                Text(store.eventID.description)
-                    .font(.headline)
-            }
-
-            Section {
-                Text("Event placeholder feature stub.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Button("Close") {
-                    store.send(.closeButtonTapped)
-                }
-            }
-        }
-        .navigationTitle("Event")
+    @ViewBuilder
+    private var searchField: some View {
+        #if os(iOS)
+        TextField("Search events or organizers", text: $store.query)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        #else
+        TextField("Search events or organizers", text: $store.query)
+        #endif
     }
 }
 
@@ -458,30 +486,6 @@ public struct FollowedOrganizerRow: Equatable, Identifiable, Sendable {
     }
 
     public var id: OMERecord.Organizer.ID { organizerID }
-}
-
-public struct EventPlaceholderRow: Equatable, Identifiable, Sendable {
-    public let eventID: OMERecord.Event.ID
-    public let eventName: String
-    public let startsAt: Date?
-    public let endsAt: Date?
-    public let organizerIDs: [OMERecord.Organizer.ID]
-
-    public init(
-        eventID: OMERecord.Event.ID,
-        eventName: String,
-        startsAt: Date?,
-        endsAt: Date?,
-        organizerIDs: [OMERecord.Organizer.ID]
-    ) {
-        self.eventID = eventID
-        self.eventName = eventName
-        self.startsAt = startsAt
-        self.endsAt = endsAt
-        self.organizerIDs = organizerIDs
-    }
-
-    public var id: OMERecord.Event.ID { eventID }
 }
 
 struct EmptyBrowserState: View {

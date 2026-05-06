@@ -108,8 +108,10 @@ public struct CreateEvent {
                             }
                             try store.dismiss()
                         } catch {
-
-
+                            try store.modify {
+                                $0.errorMessage = "Unable to create event."
+                                $0.isSaving = false
+                            }
                         }
 
                     }

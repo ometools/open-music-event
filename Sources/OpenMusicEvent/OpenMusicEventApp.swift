@@ -23,13 +23,13 @@ extension OME {
     /* SKIP @bridge */public init() {
     }
 
-    static let store = StoreOf<OpenMusicEventBrowser>(
+    static let store = StoreOf<OpenMusicEventAppRoot>(
         initialState: .init()) {
-            OpenMusicEventBrowser()
+            OpenMusicEventAppRoot()
         }
 
     public var body: some View {
-        OpenMusicEventBrowserView(store: Self.store)
+        OpenMusicEventAppRootView(store: Self.store)
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }

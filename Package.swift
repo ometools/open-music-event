@@ -8,6 +8,7 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
+        .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
     ],
     dependencies: [
@@ -26,6 +27,7 @@ let package = Package(
         .target(
             name: "OpenMusicEvent",
             dependencies: [
+                "OpenMusicEventAppEventViewer",
                 "OpenMusicEventLexicon",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
@@ -33,6 +35,15 @@ let package = Package(
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ],
             resources: [.process("Resources")],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "OpenMusicEventAppEventViewer",
+            dependencies: [
+                "OpenMusicEventLexicon",
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),
 

@@ -1,0 +1,52 @@
+import ComposableArchitecture2
+import Foundation
+
+public enum EventTarget: Equatable, Sendable {
+    case schedule
+    case participant(OMERecord.Participant.ID)
+    case stage(OMERecord.Stage.ID)
+    case communications
+    case contactInfo
+    case location
+    case siteMap
+    case posters
+    case notifications
+    case search
+    case about
+    case edit
+
+    public var eventFeature: EventViewer.EventFeature {
+        switch self {
+        case .schedule:
+            .schedule
+        case .participant, .stage, .search:
+            .search
+        case .communications:
+            .communications
+        case .contactInfo:
+            .contactInfo
+        case .location:
+            .location
+        case .siteMap:
+            .siteMap
+        case .posters:
+            .posters
+        case .notifications:
+            .notifications
+        case .about:
+            .about
+        case .edit:
+            .edit
+        }
+    }
+}
+
+public struct NavigationRequested: FeatureEventKey {
+    public init() {}
+    public typealias Value = NavigationRequest
+}
+
+public enum NavigationRequest: Equatable, Sendable {
+    case event(OMERecord.Event.ID, EventTarget?)
+    case externalURL(URL)
+}

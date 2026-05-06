@@ -126,9 +126,6 @@
         }
       }
     },
-    "Close" : {
-
-    },
     "Create" : {
 
     },
@@ -202,13 +199,7 @@
     "End Date" : {
 
     },
-    "Event" : {
-
-    },
     "Event Name" : {
-
-    },
-    "Event placeholder feature stub." : {
 
     },
     "Favorite" : {
@@ -333,7 +324,7 @@
         }
       }
     },
-    "my Events" : {
+    "My Events" : {
 
     },
     "Name" : {
