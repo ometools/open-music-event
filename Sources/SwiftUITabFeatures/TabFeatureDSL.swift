@@ -405,7 +405,7 @@ import CustomDump
 }
 #endif
 
-@available(iOS 18, *)
+@available(iOS 18, macOS 15, tvOS 18, visionOS 2, watchOS 11, *)
 public struct TabFeaturesView<Value: TabFeatureValue>: View {
     @Binding var selection: Value
     @Binding var layout: TabFeatureLayout
@@ -430,78 +430,150 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
 
         TabView(selection: $selection) {
             if !resolved.visibleFeatures.isEmpty {
-                
                 ForEach(resolved.visibleFeatures, id: \.value) { feature in
-                    Group {
-                        let body = features.featureBody(for: feature.id)
-                        switch feature.navigation  {
-                        case .stack:
-                            NavigationStack {
-                                body
-                            }
-                        case .none:
-                            body
-                        }
-                    }
-                    .tabItem {
-                        Label(feature.effectiveTitle, systemImage: feature.effectiveSystemImage.rawValue)
+                    Tab(
+                        feature.effectiveTitle,
+                        systemImage: feature.effectiveSystemImage.rawValue,
+                        value: feature.value
+                    ) {
+                        primaryFeatureDestination(for: feature)
                     }
                 }
             }
 
             if resolved.showsMore {
-                NavigationStack {
-                    List {
-                        ForEach(resolved.overflowFeatures, id: \.value) { feature in
-                            NavigationLink {
-                                features.featureBody(for: feature.id)
-                            } label: {
-
-                                Label(feature.effectiveTitle, systemImage: feature.effectiveSystemImage.rawValue)
-                            }
-                        }
-
-                    }
-                    .navigationTitle("More")
-                }
-                .tabItem {
-                    Label("More", systemImage: "ellipsis")
+                Tab("More", systemImage: "ellipsis", value: moreTabValue) {
+                    TabFeaturesMoreView(
+                        overflowFeatures: resolved.overflowFeatures,
+                        metadata: metadata(for:),
+                        overflowFeatureBody: overflowFeatureBody(for:)
+                    )
                 }
             }
 
             if let searchTab = resolved.searchTab {
-                Group {
-                    let body = features.featureBody(for: searchTab.id)
-                    switch searchTab.navigation {
-                    case .stack:
-                        NavigationStack {
-                            body
-                        }
-                    case .none:
-                        body
-                    }
-                }
-//                .search)
-                .tabItem {
-                    Label(searchTab.effectiveTitle, systemImage: searchTab.effectiveSystemImage.rawValue)
+                Tab(value: searchTab.value, role: .search) {
+                    primaryFeatureDestination(for: searchTab)
                 }
             }
-
-            // visible tabs
-
-            // conditional More tab
         }
     }
 
+    private var moreTabValue: Value {
+        guard let value = Value("__swiftui_tab_features_more__") else {
+            preconditionFailure("Value \(Value.self) could not represent the internal More tab")
+        }
+        return value
+    }
 
+    @ViewBuilder
+    private func primaryFeatureDestination(for feature: TabFeatureMetadata<Value>) -> some View {
+        if let body = features.featureBody(for: feature.id) {
+            switch feature.navigation {
+            case .stack:
+                NavigationStack {
+                    body
+                }
+            case .none:
+                body
+            }
+        } else {
+            EmptyView()
+        }
+    }
+
+    private func overflowFeatureBody(for feature: TabFeatureMetadata<Value>) -> AnyView? {
+        self.features.featureBody(for: feature.id)
+    }
+
+    private func metadata(for value: Value) -> TabFeatureMetadata<Value>? {
+        self.features.tabFeatureMetadata.first { $0.value == value }
+    }
+}
+
+struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
+    let overflowFeatures: [TabFeatureMetadata<Value>]
+    let metadata: (Value) -> TabFeatureMetadata<Value>?
+    let overflowFeatureBody: (TabFeatureMetadata<Value>) -> AnyView?
+
+    @State var path: [Value] = []
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            List {
+                ForEach(overflowFeatures, id: \.value) { feature in
+                    NavigationLinkButton {
+                        path.append(feature.value)
+                    } label: {
+                        TabFeatureMoreRow(
+                            title: feature.effectiveTitle,
+                            systemImage: feature.effectiveSystemImage
+                        )
+                    }
+                }
+            }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #endif
+            .navigationTitle("More")
+            .navigationDestination(for: Value.self) { value in
+                if let feature = metadata(value), let body = overflowFeatureBody(feature) {
+                    body
+                }
+            }
+        }
+    }
+}
+
+struct TabFeatureMoreRow: View {
+    let title: String
+    let systemImage: TabFeatureSymbolName
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.tint)
+                    .frame(width: 28, height: 28)
+
+                Image(systemName: systemImage.rawValue)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+
+            Text(title)
+                .foregroundStyle(.primary)
+        }
+    }
 }
 
 #if !SKIP
 #Preview {
     @Previewable @State var selection: DemoTab = .schedule
-    @Previewable @State var layout: TabFeatureLayout = .init()
-    if #available(iOS 18, *) {
-        TabFeaturesView(selection: $selection, layout: $layout, policy: .init(maxVisibleTabs: 2)) {
+    @Previewable @State var layout: TabFeatureLayout = .init(preferredIDs: [
+        "stage1",
+        "stage4"
+    ])
+
+
+    if #available(iOS 18, macOS 15, tvOS 18, visionOS 2, watchOS 11, *) {
+        TabFeaturesView(
+            selection: $selection,
+            layout: $layout,
+            policy: .init(
+                fixedVisibleIDs: ["schedule"],
+                maxVisibleTabs: 3
+            )
+        ) {
+
+            TabFeature(.search, role: .search) {
+                NavigationStack {
+                    Text("Search View")
+                        .navigationTitle("Search")
+                }
+                .searchable(text: .constant(""))
+            }
+
             TabFeature(
                 .schedule,
                 title: "Schedule",
@@ -509,14 +581,15 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                 navigation: .stack
             ) {
                 Text("Schedule TAB")
+                    .toolbar {
+                        NavigationLink("Go") {
+
+                        }
+                    }
                     .navigationTitle("Schedule")
+                    .tint(.red)
             }
-            
-            TabFeature(.search, role: .search, navigation: .stack) {
-                Text("Search View")
-                    .navigationTitle("Search")
-            }
-            
+
             TabFeature(.init(rawValue: "stage1"), title: "Stage1", systemImage: "square", navigation: .stack) {
                 Text("Stage1 View")
                     .navigationTitle("Stage 1")
@@ -544,6 +617,8 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                 Text("Stage4 View")
                     .navigationTitle("Stage 4")
             }
+
+
         }
     } else {
         // Fallback on earlier versions
