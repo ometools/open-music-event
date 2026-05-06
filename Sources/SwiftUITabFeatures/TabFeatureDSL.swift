@@ -641,6 +641,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     let metadata: (Value) -> TabFeatureMetadata<Value>?
     let overflowFeatureBody: (TabFeatureMetadata<Value>) -> AnyView?
 
+    @State var presentedOverflowFeature: Value?
     @State var path: [Value] = []
 
     var body: some View {
@@ -663,7 +664,10 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             #endif
             .navigationTitle("More")
             .onChange(of: selection, initial: true) { _, newValue in
-                syncPath(for: newValue)
+                syncFromExternalSelection(newValue)
+            }
+            .onChange(of: path, initial: true) { _, newPath in
+                syncPresentedOverflowFeature(from: newPath)
             }
             .navigationDestination(for: Value.self) { value in
                 if let feature = metadata(value), let body = overflowFeatureBody(feature) {
@@ -674,20 +678,35 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     }
 
     private func navigate(to value: Value) {
-        if selection == value {
-            path = [value]
-        } else {
+        presentedOverflowFeature = value
+        path = [value]
+
+        if selection != value {
             selection = value
         }
     }
 
-    private func syncPath(for value: Value) {
+    private func syncFromExternalSelection(_ value: Value) {
         if overflowFeatures.contains(where: { $0.value == value }) {
+            presentedOverflowFeature = value
+
             if path != [value] {
                 path = [value]
             }
-        } else if !path.isEmpty {
-            path = []
+        } else {
+            presentedOverflowFeature = nil
+
+            if !path.isEmpty {
+                path = []
+            }
+        }
+    }
+
+    private func syncPresentedOverflowFeature(from path: [Value]) {
+        if let value = path.first {
+            presentedOverflowFeature = value
+        } else {
+            presentedOverflowFeature = nil
         }
     }
 }
