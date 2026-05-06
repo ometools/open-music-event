@@ -87,6 +87,19 @@ struct SwiftUITabFeaturesTests {
         #expect(plain.metadata.navigation == nil)
     }
 
+    @Test func `label tint is preserved in metadata`() {
+        let feature = TabFeature(
+            DemoTab.schedule,
+            title: "Schedule",
+            systemImage: "calendar",
+            labelTint: .red
+        ) {
+            EmptyView()
+        }
+
+        #expect(feature.metadata.labelTint != nil)
+    }
+
     @Test func `derived ID matches lossless string value`() {
         let feature = TabFeature(
             DemoTab.mainStage,

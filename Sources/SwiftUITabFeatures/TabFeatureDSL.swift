@@ -26,10 +26,11 @@ public enum TabFeatureRole: Equatable, Sendable {
     }
 }
 
-public struct TabFeatureMetadata<Value: TabFeatureValue>: Equatable, Sendable {
+public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
     public var value: Value
     public var title: String?
     public var systemImage: TabFeatureSymbolName?
+    public var labelTint: Color?
     public var role: TabFeatureRole?
     public var navigation: TabFeatureNavigation?
 
@@ -37,12 +38,14 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Equatable, Sendable {
         value: Value,
         title: String? = nil,
         systemImage: TabFeatureSymbolName? = nil,
+        labelTint: Color? = nil,
         role: TabFeatureRole? = nil,
         navigation: TabFeatureNavigation? = nil
     ) {
         self.value = value
         self.title = title
         self.systemImage = systemImage
+        self.labelTint = labelTint
         self.role = role
         self.navigation = navigation
     }
@@ -112,7 +115,7 @@ public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent {
     }
 }
 
-public struct ResolvedDeclaredTabFeatures<Value: TabFeatureValue>: Equatable, Sendable {
+public struct ResolvedDeclaredTabFeatures<Value: TabFeatureValue>: Sendable {
     public var visibleFeatures: [TabFeatureMetadata<Value>]
     public var overflowFeatures: [TabFeatureMetadata<Value>]
     public var searchTab: TabFeatureMetadata<Value>?
@@ -136,6 +139,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
     public let value: Value
     public let title: String?
     public let systemImage: TabFeatureSymbolName?
+    public let labelTint: Color?
     public let role: TabFeatureRole?
     public let navigation: TabFeatureNavigation?
     public let content: Content
@@ -144,12 +148,14 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         _ value: Value,
         title: String,
         systemImage: String,
+        labelTint: Color? = nil,
         navigation: TabFeatureNavigation? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.value = value
         self.title = title
         self.systemImage = .init(systemImage)
+        self.labelTint = labelTint
         self.role = nil
         self.navigation = navigation
         self.content = content()
@@ -158,6 +164,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
     public init(
         _ value: Value,
         role: TabFeatureRole? = nil,
+        labelTint: Color? = nil,
         navigation: TabFeatureNavigation? = nil,
         @ViewBuilder content: () -> Content
     ) {
@@ -170,6 +177,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             self.title = nil
             self.systemImage = nil
         }
+        self.labelTint = labelTint
         self.role = role
         self.navigation = navigation
         self.content = content()
@@ -184,6 +192,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             value: self.value,
             title: self.title,
             systemImage: self.systemImage,
+            labelTint: self.labelTint,
             role: self.role,
             navigation: self.navigation
         )
@@ -428,13 +437,13 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     public var body: some View {
         let resolved = features.resolve(layout: layout, policy: policy)
 
-        TabView(selection: $selection) {
+        TabView(selection: tabSelection(for: resolved)) {
             if !resolved.visibleFeatures.isEmpty {
                 ForEach(resolved.visibleFeatures, id: \.value) { feature in
                     Tab(
                         feature.effectiveTitle,
                         systemImage: feature.effectiveSystemImage.rawValue,
-                        value: feature.value
+                        value: TabFeaturesSelection.feature(feature.value)
                     ) {
                         primaryFeatureDestination(for: feature)
                     }
@@ -442,8 +451,9 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
             }
 
             if resolved.showsMore {
-                Tab("More", systemImage: "ellipsis", value: moreTabValue) {
+                Tab("More", systemImage: "ellipsis", value: TabFeaturesSelection.more) {
                     TabFeaturesMoreView(
+                        selection: $selection,
                         overflowFeatures: resolved.overflowFeatures,
                         metadata: metadata(for:),
                         overflowFeatureBody: overflowFeatureBody(for:)
@@ -452,18 +462,30 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
             }
 
             if let searchTab = resolved.searchTab {
-                Tab(value: searchTab.value, role: .search) {
+                Tab(value: TabFeaturesSelection.feature(searchTab.value), role: .search) {
                     primaryFeatureDestination(for: searchTab)
                 }
             }
         }
     }
 
-    private var moreTabValue: Value {
-        guard let value = Value("__swiftui_tab_features_more__") else {
-            preconditionFailure("Value \(Value.self) could not represent the internal More tab")
+    private func tabSelection(
+        for resolved: ResolvedDeclaredTabFeatures<Value>
+    ) -> Binding<TabFeaturesSelection<Value>> {
+        Binding {
+            if resolved.overflowFeatures.contains(where: { $0.value == selection }) {
+                .more
+            } else {
+                .feature(selection)
+            }
+        } set: { newValue in
+            switch newValue {
+            case .feature(let value):
+                selection = value
+            case .more:
+                break
+            }
         }
-        return value
     }
 
     @ViewBuilder
@@ -491,7 +513,13 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     }
 }
 
+enum TabFeaturesSelection<Value: TabFeatureValue>: Hashable {
+    case feature(Value)
+    case more
+}
+
 struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
+    @Binding var selection: Value
     let overflowFeatures: [TabFeatureMetadata<Value>]
     let metadata: (Value) -> TabFeatureMetadata<Value>?
     let overflowFeatureBody: (TabFeatureMetadata<Value>) -> AnyView?
@@ -503,11 +531,13 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             List {
                 ForEach(overflowFeatures, id: \.value) { feature in
                     NavigationLinkButton {
+                        selection = feature.value
                         path.append(feature.value)
                     } label: {
                         TabFeatureMoreRow(
                             title: feature.effectiveTitle,
-                            systemImage: feature.effectiveSystemImage
+                            systemImage: feature.effectiveSystemImage,
+                            labelTint: feature.labelTint
                         )
                     }
                 }
@@ -516,6 +546,13 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             .listStyle(.insetGrouped)
             #endif
             .navigationTitle("More")
+            .task(id: selection) {
+                if overflowFeatures.contains(where: { $0.value == selection }) {
+                    path = [selection]
+                } else {
+                    path = []
+                }
+            }
             .navigationDestination(for: Value.self) { value in
                 if let feature = metadata(value), let body = overflowFeatureBody(feature) {
                     body
@@ -528,12 +565,13 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
 struct TabFeatureMoreRow: View {
     let title: String
     let systemImage: TabFeatureSymbolName
+    let labelTint: Color?
 
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.tint)
+                    .fill(labelTint ?? .accentColor)
                     .frame(width: 28, height: 28)
 
                 Image(systemName: systemImage.rawValue)
@@ -600,7 +638,15 @@ struct TabFeatureMoreRow: View {
                     .navigationTitle("Stage 2")
             }
 
-            TabFeature(.init(rawValue: "stage3"), title: "Stage3", systemImage: "square", navigation: .stack) {
+            TabFeature(
+                .init(
+                    rawValue: "stage3"
+                ),
+                title: "Stage3",
+                systemImage: "square",
+                labelTint: .red,
+                navigation: .stack
+            ) {
                 VStack {
                     List {
                         NavigationLink("Forward") {

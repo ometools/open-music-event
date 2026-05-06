@@ -44,6 +44,7 @@ let package = Package(
             name: "OpenMusicEventAppEventViewer",
             dependencies: [
                 "OpenMusicEventLexicon",
+                "SwiftUITabFeatures",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],

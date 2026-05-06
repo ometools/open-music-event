@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import SwiftUI
+import SwiftUITabFeatures
 import Tagged
 
 private enum ViewerEventIDKey: DependencyKey {
@@ -18,7 +19,7 @@ extension DependencyValues {
 public struct EventViewer {
     public init() {}
 
-    public enum EventFeature: String, CaseIterable, Hashable, Sendable {
+    public enum EventFeature: String, CaseIterable, Hashable, Sendable, LosslessStringConvertible {
         case schedule
         case communications
         case contactInfo
@@ -29,6 +30,27 @@ public struct EventViewer {
         case search
         case about
         case edit
+
+        public static let allCases: [Self] = [
+            .schedule,
+            .communications,
+            .contactInfo,
+            .location,
+            .siteMap,
+            .posters,
+            .notifications,
+            .search,
+            .about,
+            .edit,
+        ]
+
+        public init?(_ description: String) {
+            self.init(rawValue: description)
+        }
+
+        public var description: String {
+            self.rawValue
+        }
 
         var title: String {
             switch self {
@@ -57,6 +79,21 @@ public struct EventViewer {
             case .search: "magnifyingglass"
             case .about: "info.circle"
             case .edit: "pencil"
+            }
+        }
+
+        var labelTint: Color? {
+            switch self {
+            case .schedule: .green
+            case .communications: .orange
+            case .contactInfo: .green
+            case .location: .blue
+            case .siteMap: .teal
+            case .posters: .purple
+            case .notifications: .red
+            case .search: nil
+            case .about: .gray
+            case .edit: .brown
             }
         }
 
@@ -238,95 +275,115 @@ public struct EventViewerView: View {
     @available(iOS 18.0, *)
     struct iOS18TabView: View {
         @Bindable var store: StoreOf<EventViewer>
-
-        init(store: StoreOf<EventViewer>) {
-            self.store = store
-        }
-
-        @AppStorage("eventViewerTabCustomization")
-        var customization: TabViewCustomization = .init()
+        @AppStorage("eventViewerTabLayout")
+        var storedLayout = ""
 
         var body: some View {
-            TabView(selection: $store.selectedFeature) {
-
+            TabFeaturesView(
+                selection: $store.selectedFeature,
+                layout: tabLayout,
+                policy: .init(maxVisibleTabs: 4)
+            ) {
                 if store.installedFeatures.contains(.search) {
-                    Tab(value: EventViewer.EventFeature.search, role: .search) {
+                    TabFeature(.search, role: .search) {
                         EventSearchView(store: store.spawn(\.eventSearch))
                     }
-                    .customizationID(EventViewer.EventFeature.search.customizationID)
-                    .customizationBehavior(.disabled, for: .sidebar, .tabBar)
                 }
-                
+
                 if let featureStore = store.spawn(\.scheduleViewer) {
-                    Tab("Schedule", systemImage: "calendar", value: EventViewer.EventFeature.schedule) {
-                        NavigationStack {
-                            ScheduleViewerView(store: featureStore)
-                        }
+                    TabFeature(
+                        .schedule,
+                        title: EventViewer.EventFeature.schedule.title,
+                        systemImage: EventViewer.EventFeature.schedule.systemImage,
+                        labelTint: EventViewer.EventFeature.schedule.labelTint,
+                        navigation: .stack
+                    ) {
+                        ScheduleViewerView(store: featureStore)
                     }
-                    .customizationID(EventViewer.EventFeature.schedule.customizationID)
                 }
 
                 if let featureStore = store.spawn(\.communicationsViewer) {
-                    Tab("Comms", systemImage: "megaphone", value: EventViewer.EventFeature.communications) {
-                        NavigationStack {
-                            CommunicationsViewerView(store: featureStore)
-                        }
+                    TabFeature(
+                        .communications,
+                        title: EventViewer.EventFeature.communications.title,
+                        systemImage: EventViewer.EventFeature.communications.systemImage,
+                        labelTint: EventViewer.EventFeature.communications.labelTint,
+                        navigation: .stack
+                    ) {
+                        CommunicationsViewerView(store: featureStore)
                     }
-                    .customizationID(EventViewer.EventFeature.communications.customizationID)
                 }
 
                 if let featureStore = store.spawn(\.contactInfoViewer) {
-                    Tab("Contact", systemImage: "phone", value: EventViewer.EventFeature.contactInfo) {
-                        NavigationStack {
-                            ContactInfoViewerView(store: featureStore)
-                        }
+                    TabFeature(
+                        .contactInfo,
+                        title: EventViewer.EventFeature.contactInfo.title,
+                        systemImage: EventViewer.EventFeature.contactInfo.systemImage,
+                        labelTint: EventViewer.EventFeature.contactInfo.labelTint,
+                        navigation: .stack
+                    ) {
+                        ContactInfoViewerView(store: featureStore)
                     }
-                    .customizationID(EventViewer.EventFeature.contactInfo.customizationID)
                 }
 
-
                 if let featureStore = store.spawn(\.locationViewer) {
-                    Tab("Location", systemImage: "mappin.and.ellipse", value: EventViewer.EventFeature.location) {
-                        NavigationStack {
-                            LocationViewerView(store: featureStore)
-                        }
+                    TabFeature(
+                        .location,
+                        title: EventViewer.EventFeature.location.title,
+                        systemImage: EventViewer.EventFeature.location.systemImage,
+                        labelTint: EventViewer.EventFeature.location.labelTint,
+                        navigation: .stack
+                    ) {
+                        LocationViewerView(store: featureStore)
                     }
-                    .customizationID(EventViewer.EventFeature.location.customizationID)
                 }
 
                 if let featureStore = store.spawn(\.siteMapViewer) {
-                    Tab("Site Map", systemImage: "map", value: EventViewer.EventFeature.siteMap) {
-                        NavigationStack {
-                            SiteMapViewerView(store: featureStore)
-                        }
+                    TabFeature(
+                        .siteMap,
+                        title: EventViewer.EventFeature.siteMap.title,
+                        systemImage: EventViewer.EventFeature.siteMap.systemImage,
+                        labelTint: EventViewer.EventFeature.siteMap.labelTint,
+                        navigation: .stack
+                    ) {
+                        SiteMapViewerView(store: featureStore)
                     }
-                    .customizationID(EventViewer.EventFeature.siteMap.customizationID)
                 }
 
                 if let featureStore = store.spawn(\.postersViewer) {
-                    Tab("Posters", systemImage: "photo.on.rectangle", value: EventViewer.EventFeature.posters) {
-                        NavigationStack {
-                            PostersViewerView(store: featureStore)
-                        }
+                    TabFeature(
+                        .posters,
+                        title: EventViewer.EventFeature.posters.title,
+                        systemImage: EventViewer.EventFeature.posters.systemImage,
+                        labelTint: EventViewer.EventFeature.posters.labelTint,
+                        navigation: .stack
+                    ) {
+                        PostersViewerView(store: featureStore)
                     }
-                    .customizationID(EventViewer.EventFeature.posters.customizationID)
                 }
 
                 if let featureStore = store.spawn(\.notificationsViewer) {
-                    Tab("Alerts", systemImage: "bell", value: EventViewer.EventFeature.notifications) {
-                        NavigationStack {
-                            NotificationsViewerView(store: featureStore)
-                        }
+                    TabFeature(
+                        .notifications,
+                        title: EventViewer.EventFeature.notifications.title,
+                        systemImage: EventViewer.EventFeature.notifications.systemImage,
+                        labelTint: EventViewer.EventFeature.notifications.labelTint,
+                        navigation: .stack
+                    ) {
+                        NotificationsViewerView(store: featureStore)
                     }
-                    .customizationID(EventViewer.EventFeature.notifications.customizationID)
                 }
 
                 if let featureStore = store.spawn(\.aboutViewer) {
-                    Tab("About", systemImage: "info.circle", value: EventViewer.EventFeature.about) {
-                        NavigationStack {
-                            AboutViewerView(store: featureStore)
-                        }
-                        .toolbar {
+                    TabFeature(
+                        .about,
+                        title: EventViewer.EventFeature.about.title,
+                        systemImage: EventViewer.EventFeature.about.systemImage,
+                        labelTint: EventViewer.EventFeature.about.labelTint,
+                        navigation: .stack
+                    ) {
+                        AboutViewerView(store: featureStore)
+                            .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button("Close") {
                                     store.send(.closeButtonTapped)
@@ -334,21 +391,50 @@ public struct EventViewerView: View {
                             }
                         }
                     }
-                    .customizationID(EventViewer.EventFeature.about.customizationID)
                 }
 
                 if let featureStore = store.spawn(\.edit) {
-                    Tab("Edit", systemImage: "pencil", value: EventViewer.EventFeature.edit) {
-                        NavigationStack {
-                            EditView(store: featureStore)
-                        }
+                    TabFeature(
+                        .edit,
+                        title: EventViewer.EventFeature.edit.title,
+                        systemImage: EventViewer.EventFeature.edit.systemImage,
+                        labelTint: EventViewer.EventFeature.edit.labelTint,
+                        navigation: .stack
+                    ) {
+                        EditView(store: featureStore)
                     }
-                    .customizationID(EventViewer.EventFeature.edit.customizationID)
                 }
-
             }
-            .tabViewStyle(.sidebarAdaptable)
-            .tabViewCustomization($customization)
+        }
+
+        private var tabLayout: Binding<TabFeatureLayout> {
+            Binding {
+                Self.decodeLayout(storedLayout)
+            } set: { newValue in
+                storedLayout = Self.encodeLayout(newValue)
+            }
+        }
+
+        private static func decodeLayout(_ rawValue: String) -> TabFeatureLayout {
+            guard
+                let data = rawValue.data(using: .utf8),
+                let preferredIDs = try? JSONDecoder().decode([String].self, from: data)
+            else {
+                return .init()
+            }
+
+            return .init(preferredIDs: preferredIDs.map(TabFeatureID.init))
+        }
+
+        private static func encodeLayout(_ layout: TabFeatureLayout) -> String {
+            guard
+                let data = try? JSONEncoder().encode(layout.preferredIDs.map(\.rawValue)),
+                let string = String(data: data, encoding: .utf8)
+            else {
+                return ""
+            }
+
+            return string
         }
     }
     #endif
