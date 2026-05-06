@@ -3,7 +3,7 @@ import Dependencies
 import SwiftUI
 
 @Feature
-public struct AboutViewer {
+public struct EventInfoViewer {
     public init() {}
 
     public struct State {
@@ -21,9 +21,9 @@ public struct AboutViewer {
 }
 
 public struct EventInfoViewerView: View {
-    let store: StoreOf<AboutViewer>
+    let store: StoreOf<EventInfoViewer>
 
-    public init(store: StoreOf<AboutViewer>) {
+    public init(store: StoreOf<EventInfoViewer>) {
         self.store = store
     }
 

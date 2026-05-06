@@ -142,7 +142,7 @@ public struct EventViewer {
                 case .search:
                     self.eventSearch = Spawn(EventSearch.State())
                 case .about:
-                    self.aboutViewer = Spawn(AboutViewer.State())
+                    self.eventInfoViewer = Spawn(EventInfoViewer.State())
                 case .edit:
                     self.edit = Spawn(Edit.State())
                 }
@@ -170,7 +170,7 @@ public struct EventViewer {
         public var postersViewer: Spawn<PostersViewer>?
         public var notificationsViewer: Spawn<NotificationsViewer>?
         public var eventSearch = Spawn(EventSearch.State())
-        public var aboutViewer: Spawn<AboutViewer>?
+        public var eventInfoViewer: Spawn<EventInfoViewer>?
         public var edit: Spawn<Edit>?
 
         public var id: OMERecord.Event.ID { eventID }
@@ -240,8 +240,8 @@ public struct EventViewer {
             NotificationsViewer()
                 .dependency(\.viewerEventID, store.eventID)
         }
-        .ifLet(\.aboutViewer) {
-            AboutViewer()
+        .ifLet(\.eventInfoViewer) {
+            EventInfoViewer()
                 .dependency(\.viewerEventID, store.eventID)
         }
         .ifLet(\.edit) {
@@ -373,7 +373,7 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.spawn(\.aboutViewer) {
+                if let featureStore = store.spawn(\.eventInfoViewer) {
                     TabFeature(
                         .about,
                         title: EventViewer.EventFeature.about.title,
@@ -467,7 +467,7 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.notifications)
             }
 
-            if let featureStore = store.spawn(\.aboutViewer) {
+            if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
                     EventInfoViewerView(store: featureStore)
                 }
@@ -537,7 +537,7 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.notifications)
             }
 
-            if let featureStore = store.spawn(\.aboutViewer) {
+            if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
                     EventInfoViewerView(store: featureStore)
                 }
