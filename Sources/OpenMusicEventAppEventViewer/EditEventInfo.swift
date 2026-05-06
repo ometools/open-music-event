@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import IssueReporting
 import Lexicon
 import SQLiteData
 import SwiftUI
@@ -10,62 +11,37 @@ public struct EditEventInfo {
     public init() {}
 
     public struct State {
-        @FetchOne(OMERecord.Event.defaultEvent) public var event: OMERecord.Event?
-
         public init() {
-            @Dependency(\.date) var date
-            self.startDate = date()
-            self.endDate = date()
-            self.timeZone = TimeZone.current.identifier
+            self.draft = .placeholder
         }
 
-        var eventName = ""
-        var eventDescription = ""
-        var hasLoadedFormValues = false
-        var hasStartDate = false
-        var startDate: Date
-        var hasEndDate = false
-        var endDate: Date
-        var status: OMERecord.Event.Status = .planned
-        var mode = EditEventInfoMode.inPerson
-        var customMode = ""
-        var timeZone: String
+        var draft: OMERecord.Event.Draft
+        var hasLoadedDraft = false
         var isSaving = false
         var errorMessage: String?
 
         var trimmedEventName: String {
-            eventName.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         var trimmedDescription: String {
-            eventDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
 
         var trimmedCustomMode: String {
-            customMode.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.mode.customValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
 
         var trimmedTimeZone: String {
-            timeZone.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.timeZone.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        var descriptionValue: String? {
-            trimmedDescription.isEmpty ? nil : trimmedDescription
-        }
-
-        var modeValue: Open<OMERecord.Event.Mode> {
-            mode.openValue(customValue: trimmedCustomMode)
-        }
-
-        var startDateValue: Date? {
-            hasStartDate ? startDate : nil
-        }
-
-        var endDateValue: Date? {
-            hasEndDate ? endDate : nil
+        var mode: EditEventInfoMode {
+            EditEventInfoMode(draft.mode)
         }
 
         var validationMessage: String? {
+            guard hasLoadedDraft else { return nil }
             if trimmedEventName.isEmpty {
                 return "Enter an event name."
             }
@@ -75,29 +51,25 @@ public struct EditEventInfo {
             if trimmedTimeZone.isEmpty {
                 return "Enter a time zone."
             }
-            if let startDate = startDateValue, let endDate = endDateValue, endDate < startDate {
+            if let startDate = draft.startsAt, let endDate = draft.endsAt, endDate < startDate {
                 return "End date must be on or after the start date."
             }
             return nil
         }
 
         var canSubmit: Bool {
-            !isSaving && validationMessage == nil
+            hasLoadedDraft && !isSaving && validationMessage == nil
         }
 
-        mutating func hydrate(from event: OMERecord.Event) {
-            guard !hasLoadedFormValues else { return }
-            eventName = event.name
-            eventDescription = event.description ?? ""
-            hasStartDate = event.startsAt != nil
-            startDate = event.startsAt ?? startDate
-            hasEndDate = event.endsAt != nil
-            endDate = event.endsAt ?? endDate
-            status = event.status
-            mode = EditEventInfoMode(event.mode)
-            customMode = event.mode.customValue ?? ""
-            timeZone = event.timeZone
-            hasLoadedFormValues = true
+        var preparedDraft: OMERecord.Event.Draft {
+            var draft = draft
+            draft.name = trimmedEventName
+            draft.description = trimmedDescription.nilIfEmpty
+            if mode == .custom {
+                draft.mode = .unknown(.string(trimmedCustomMode))
+            }
+            draft.timeZone = trimmedTimeZone
+            return draft
         }
     }
 
@@ -107,6 +79,7 @@ public struct EditEventInfo {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.defaultEventID) var defaultEventID
 
     public var body: some Feature {
         Update { state, action in
@@ -118,31 +91,14 @@ public struct EditEventInfo {
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
-
-                guard let event = state.event else {
+                guard state.hasLoadedDraft else {
                     state.errorMessage = "This event could not be loaded."
                     return
                 }
 
-                guard let validationMessage = state.validationMessage else {
-                    let updatedEvent = OMERecord.Event.Draft(
-                        id: event.id,
-                        name: state.trimmedEventName,
-                        description: state.descriptionValue,
-                        startsAt: state.startDateValue,
-                        endsAt: state.endDateValue,
-                        status: state.status,
-                        mode: state.modeValue,
-                        locations: event.locations,
-                        uris: event.uris,
-                        timeZone: state.trimmedTimeZone,
-                        imageURL: event.imageURL,
-                        iconImageURL: event.iconImageURL,
-                        siteMapImageURL: event.siteMapImageURL,
-                        contactNumbers: event.contactNumbers,
-                        categoryConfigs: event.categoryConfigs
-                    )
+                let draft = state.preparedDraft
 
+                guard let validationMessage = state.validationMessage else {
                     state.errorMessage = nil
                     state.isSaving = true
 
@@ -150,7 +106,7 @@ public struct EditEventInfo {
                         do {
                             try database.write { db in
                                 try OMERecord.Event.upsert {
-                                    updatedEvent
+                                    draft
                                 }
                                 .execute(db)
                             }
@@ -172,9 +128,23 @@ public struct EditEventInfo {
                 state.errorMessage = validationMessage
             }
         }
-        .onChange(of: store.event, initial: true) { _, event, state in
-            if let event {
-                state.hydrate(from: event)
+        .onMount { state in
+            guard !state.hasLoadedDraft else { return }
+
+            do {
+                if let event = try database.read({ db in
+                    try OMERecord.Event.where { $0.id.eq(defaultEventID) }.fetchOne(db)
+                }) {
+                    state.draft = .init(event)
+                    state.hasLoadedDraft = true
+                    state.errorMessage = nil
+                } else {
+                    reportIssue("Unable to load the event draft for editing.")
+                    state.errorMessage = "This event could not be loaded."
+                }
+            } catch {
+                reportIssue(error)
+                state.errorMessage = "This event could not be loaded."
             }
         }
     }
@@ -188,64 +158,75 @@ public struct EditEventInfoView: View {
     }
 
     public var body: some View {
-        Form {
-            Section("Event Name") {
-                TextField("Event Name", text: $store.eventName)
-            }
+        Group {
+            if store.hasLoadedDraft {
+                Form {
+                    Section("Event Name") {
+                        TextField("Event Name", text: $store.draft.name)
+                    }
 
-            Section("Description") {
-                TextField("Description", text: $store.eventDescription, axis: .vertical)
-                    .lineLimit(4...8)
-            }
+                    Section("Description") {
+                        TextField("Description", text: $store.draft.description[coalesce: ""], axis: .vertical)
+                            .lineLimit(4...8)
+                    }
 
-            Section("Dates") {
-                Toggle("Start Date", isOn: $store.hasStartDate.animation())
-                if store.hasStartDate {
-                    DatePicker(
-                        "Start Date",
-                        selection: $store.startDate,
-                        displayedComponents: .date
-                    )
-                }
+                    Section("Times") {
+                        Toggle("Start Date", isOn: $store.draft.hasStartDate.animation())
+                        if store.draft.hasStartDate {
+                            DatePicker(
+                                "Start Date",
+                                selection: $store.draft.startsAt[coalesce: Date()],
+                                displayedComponents: .date
+                            )
+                        }
 
-                Toggle("End Date", isOn: $store.hasEndDate.animation())
-                if store.hasEndDate {
-                    DatePicker(
-                        "End Date",
-                        selection: $store.endDate,
-                        displayedComponents: .date
-                    )
-                }
-            }
+                        Toggle("End Date", isOn: $store.draft.hasEndDate.animation())
+                        if store.draft.hasEndDate {
+                            DatePicker(
+                                "End Date",
+                                selection: $store.draft.endsAt[coalesce: Date()],
+                                displayedComponents: .date
+                            )
+                        }
+                        
+                        TextField("Time Zone", text: $store.draft.timeZone)
+                    }
 
-            Section("Details") {
-                Picker("Status", selection: $store.status) {
-                    ForEach(OMERecord.Event.Status.allCases, id: \.self) { status in
-                        Text(status.editTitle)
-                            .tag(status)
+                    Section("Details") {
+                        Picker("Status", selection: $store.draft.status) {
+                            ForEach(OMERecord.Event.Status.allCases, id: \.self) { status in
+                                Text(status.editTitle)
+                                    .tag(status)
+                            }
+                        }
+
+                        Picker("Mode", selection: $store.draft.editMode) {
+                            ForEach(EditEventInfoMode.allCases, id: \.self) { mode in
+                                Text(mode.title)
+                                    .tag(mode)
+                            }
+                        }
+
+                        if store.draft.editMode == .custom {
+                            TextField("Custom Mode", text: $store.draft.customModeText)
+                        }
+
+                    }
+
+                    if let errorMessage = store.errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
                     }
                 }
-
-                Picker("Mode", selection: $store.mode) {
-                    ForEach(EditEventInfoMode.allCases, id: \.self) { mode in
-                        Text(mode.title)
-                            .tag(mode)
-                    }
-                }
-
-                if store.mode == .custom {
-                    TextField("Custom Mode", text: $store.customMode)
-                }
-
-                TextField("Time Zone", text: $store.timeZone)
-            }
-
-            if let errorMessage = store.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
+            } else {
+                ViewerPlaceholderView(
+                    title: "Edit Event Info",
+                    systemImage: "pencil",
+                    description: "This event could not be loaded."
+                )
             }
         }
         .disabled(store.isSaving)
@@ -323,6 +304,48 @@ private extension Open where Known == OMERecord.Event.Mode {
     }
 }
 
+private extension OMERecord.Event.Draft {
+    static var placeholder: Self {
+        .init(
+            id: .init("-1"),
+            name: "",
+            description: nil,
+            startsAt: nil,
+            endsAt: nil,
+            status: .planned,
+            mode: .known(.inPerson),
+            locations: nil,
+            uris: nil,
+            timeZone: TimeZone.current.identifier,
+            imageURL: nil,
+            iconImageURL: nil,
+            siteMapImageURL: nil,
+            contactNumbers: nil,
+            categoryConfigs: nil
+        )
+    }
+
+    var hasStartDate: Bool {
+        get { startsAt != nil }
+        set { startsAt = newValue ? (startsAt ?? Date()) : nil }
+    }
+
+    var hasEndDate: Bool {
+        get { endsAt != nil }
+        set { endsAt = newValue ? (endsAt ?? Date()) : nil }
+    }
+
+    var editMode: EditEventInfoMode {
+        get { .init(mode) }
+        set { mode = newValue.openValue(customValue: mode.customValue ?? "") }
+    }
+
+    var customModeText: String {
+        get { mode.customValue ?? "" }
+        set { mode = .unknown(.string(newValue)) }
+    }
+}
+
 extension OMERecord.Event.Status: CaseIterable {
     public static var allCases: [Self] {
         [
@@ -349,5 +372,18 @@ private extension OMERecord.Event.Status {
         case .postponed:
             "Postponed"
         }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+}
+
+private extension Optional {
+    subscript(coalesce coalesce: Wrapped) -> Wrapped {
+        get { self ?? coalesce }
+        set { self = newValue }
     }
 }
