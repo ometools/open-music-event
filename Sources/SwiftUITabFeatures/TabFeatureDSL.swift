@@ -505,18 +505,22 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.verticalSizeClass) var verticalSizeClass
 
+    @State var localOverflowSelection: Value?
     let policy: TabFeaturePolicy?
+    let overflowSelection: Binding<Value?>?
     let features: TabFeatures<Value>
 
     public init(
         selection: Binding<Value>,
         layout: Binding<TabFeatureLayout>,
         policy: TabFeaturePolicy? = nil,
+        overflowSelection: Binding<Value?>? = nil,
         @TabFeatureBuilder<Value> content: () -> TabFeatureGroup<Value>
     ) {
         self._selection = selection
         self._layout = layout
         self.policy = policy
+        self.overflowSelection = overflowSelection
         self.features = TabFeatures(content: content)
     }
 
@@ -540,6 +544,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                 Tab("More", systemImage: "ellipsis", value: TabFeaturesSelection.more) {
                     TabFeaturesMoreView(
                         selection: $selection,
+                        overflowSelection: resolvedOverflowSelection,
                         overflowFeatures: resolved.overflowFeatures,
                         metadata: metadata(for:),
                         overflowFeatureBody: overflowFeatureBody(for:)
@@ -598,6 +603,10 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         self.features.tabFeatureMetadata.first { $0.value == value }
     }
 
+    private var resolvedOverflowSelection: Binding<Value?> {
+        self.overflowSelection ?? $localOverflowSelection
+    }
+
     private var effectivePolicy: TabFeaturePolicy {
         self.policy
             ?? self.features.defaultPolicy(
@@ -637,11 +646,10 @@ enum TabFeaturesSelection<Value: TabFeatureValue>: Hashable {
 
 struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     @Binding var selection: Value
+    @Binding var overflowSelection: Value?
     let overflowFeatures: [TabFeatureMetadata<Value>]
     let metadata: (Value) -> TabFeatureMetadata<Value>?
     let overflowFeatureBody: (TabFeatureMetadata<Value>) -> AnyView?
-
-    @State var presentedOverflowFeature: Value?
     @State var path: [Value] = []
 
     var body: some View {
@@ -663,11 +671,11 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             .listStyle(.insetGrouped)
             #endif
             .navigationTitle("More")
-            .onChange(of: selection, initial: true) { _, newValue in
-                syncFromExternalSelection(newValue)
+            .onChange(of: overflowSelection, initial: true) { _, newValue in
+                syncFromExternalOverflowSelection(newValue)
             }
             .onChange(of: path, initial: true) { _, newPath in
-                syncPresentedOverflowFeature(from: newPath)
+                syncOverflowSelection(from: newPath)
             }
             .navigationDestination(for: Value.self) { value in
                 if let feature = metadata(value), let body = overflowFeatureBody(feature) {
@@ -678,7 +686,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     }
 
     private func navigate(to value: Value) {
-        presentedOverflowFeature = value
+        overflowSelection = value
         path = [value]
 
         if selection != value {
@@ -686,27 +694,25 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
         }
     }
 
-    private func syncFromExternalSelection(_ value: Value) {
-        if overflowFeatures.contains(where: { $0.value == value }) {
-            presentedOverflowFeature = value
-
+    private func syncFromExternalOverflowSelection(_ value: Value?) {
+        if let value, overflowFeatures.contains(where: { $0.value == value }) {
             if path != [value] {
                 path = [value]
             }
         } else {
-            presentedOverflowFeature = nil
-
             if !path.isEmpty {
                 path = []
             }
         }
     }
 
-    private func syncPresentedOverflowFeature(from path: [Value]) {
+    private func syncOverflowSelection(from path: [Value]) {
         if let value = path.first {
-            presentedOverflowFeature = value
-        } else {
-            presentedOverflowFeature = nil
+            if overflowSelection != value {
+                overflowSelection = value
+            }
+        } else if overflowSelection != nil {
+            overflowSelection = nil
         }
     }
 }
