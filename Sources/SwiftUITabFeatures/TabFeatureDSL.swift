@@ -664,7 +664,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             List {
                 ForEach(overflowFeatures, id: \.value) { feature in
                     NavigationLinkButton {
-                        navigate(to: feature.value)
+                        navigationLinkButtonTapped(feature.value)
                     } label: {
                         TabFeatureMoreRow(
                             title: feature.effectiveTitle,
@@ -678,13 +678,13 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             .listStyle(.insetGrouped)
             #endif
             .navigationTitle("More")
-            .onChange(of: overflowSelection, initial: true) { _, newValue in
-                syncFromExternalOverflowSelection(newValue)
-            }
             .onChange(of: path, initial: true) { _, newPath in
-                print(newPath)
-                syncOverflowSelection(from: newPath)
+                onChangeOfPath(newPath)
             }
+            .onChange(of: overflowSelection, initial: true) { _, newValue in
+                onChangeOfOverflowSelection(newValue)
+            }
+
             .navigationDestination(for: Value.self) { value in
                 if let feature = metadata(value), let body = overflowFeatureBody(feature) {
                     body
@@ -693,16 +693,15 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
         }
     }
 
-    private func navigate(to value: Value) {
+    private func navigationLinkButtonTapped(_ value: Value) {
         overflowSelection = value
         path = [value]
     }
 
-    private func syncFromExternalOverflowSelection(_ value: Value?) {
+    private func onChangeOfOverflowSelection(_ value: Value?) {
+        print("onChangeOfOverflowSelection: \(value), \(path)")
         if let value, overflowFeatures.contains(where: { $0.value == value }) {
-            if path != [value] {
-                path = [value]
-            }
+
         } else {
             if !path.isEmpty {
                 path = []
@@ -710,7 +709,8 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
         }
     }
 
-    private func syncOverflowSelection(from path: [Value]) {
+     func onChangeOfPath(_ path: [Value]) {
+        print("onChangeOfPath: \(path)")
         if let value = path.first {
             if overflowSelection != value {
                 overflowSelection = value
