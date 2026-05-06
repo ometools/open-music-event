@@ -10,12 +10,14 @@ let package = Package(
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+        .library(name: "SwiftUITabFeatures", targets: ["SwiftUITabFeatures"]),
     ],
     dependencies: [
         .package(url: "https://source.skip.tools/skip.git", from: "1.8.6"),
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0"),
 
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
+        .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
 
@@ -55,6 +57,13 @@ let package = Package(
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),
+        .target(
+            name: "SwiftUITabFeatures",
+            dependencies: [
+                .product(name: "Tagged", package: "swift-tagged"),
+            ],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
         .testTarget(
             name: "OpenMusicEventTests",
             dependencies: [
@@ -62,6 +71,12 @@ let package = Package(
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
+        ),
+        .testTarget(
+            name: "SwiftUITabFeaturesTests",
+            dependencies: [
+                "SwiftUITabFeatures",
             ]
         ),
     ]
