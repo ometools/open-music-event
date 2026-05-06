@@ -505,6 +505,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.verticalSizeClass) var verticalSizeClass
 
+    @State var isMoreSelected = false
     @State var localOverflowSelection: Value?
     let policy: TabFeaturePolicy?
     let overflowSelection: Binding<Value?>?
@@ -543,7 +544,6 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
             if resolved.showsMore {
                 Tab("More", systemImage: "ellipsis", value: TabFeaturesSelection.more) {
                     TabFeaturesMoreView(
-                        selection: $selection,
                         overflowSelection: resolvedOverflowSelection,
                         overflowFeatures: resolved.overflowFeatures,
                         metadata: metadata(for:),
@@ -564,7 +564,11 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         for resolved: ResolvedDeclaredTabFeatures<Value>
     ) -> Binding<TabFeaturesSelection<Value>> {
         Binding {
-            if resolved.overflowFeatures.contains(where: { $0.value == selection }) {
+            if let overflowSelection = resolvedOverflowSelection.wrappedValue,
+                resolved.overflowFeatures.contains(where: { $0.value == overflowSelection })
+            {
+                .more
+            } else if isMoreSelected && resolved.showsMore {
                 .more
             } else {
                 .feature(selection)
@@ -572,9 +576,13 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         } set: { newValue in
             switch newValue {
             case .feature(let value):
+                isMoreSelected = false
+                if resolvedOverflowSelection.wrappedValue != nil {
+                    resolvedOverflowSelection.wrappedValue = nil
+                }
                 selection = value
             case .more:
-                break
+                isMoreSelected = true
             }
         }
     }
@@ -645,7 +653,6 @@ enum TabFeaturesSelection<Value: TabFeatureValue>: Hashable {
 }
 
 struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
-    @Binding var selection: Value
     @Binding var overflowSelection: Value?
     let overflowFeatures: [TabFeatureMetadata<Value>]
     let metadata: (Value) -> TabFeatureMetadata<Value>?
@@ -675,6 +682,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
                 syncFromExternalOverflowSelection(newValue)
             }
             .onChange(of: path, initial: true) { _, newPath in
+                print(newPath)
                 syncOverflowSelection(from: newPath)
             }
             .navigationDestination(for: Value.self) { value in
@@ -688,10 +696,6 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     private func navigate(to value: Value) {
         overflowSelection = value
         path = [value]
-
-        if selection != value {
-            selection = value
-        }
     }
 
     private func syncFromExternalOverflowSelection(_ value: Value?) {
