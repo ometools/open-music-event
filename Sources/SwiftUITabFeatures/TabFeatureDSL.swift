@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 public protocol TabFeatureValue: Hashable, LosslessStringConvertible, Sendable {}
@@ -23,6 +24,67 @@ public enum TabFeatureRole: Equatable, Sendable {
         case .search:
             .init("magnifyingglass")
         }
+    }
+}
+
+public enum TabFeaturePlatform: Sendable {
+    case iOS
+    case macOS
+    case tvOS
+    case visionOS
+    case watchOS
+}
+
+public struct TabFeatureMaxVisibleTabsContext: Sendable {
+    public var platform: TabFeaturePlatform
+    public var operatingSystemVersion: OperatingSystemVersion
+    public var horizontalSizeClass: UserInterfaceSizeClass?
+    public var verticalSizeClass: UserInterfaceSizeClass?
+
+    public init(
+        platform: TabFeaturePlatform,
+        operatingSystemVersion: OperatingSystemVersion,
+        horizontalSizeClass: UserInterfaceSizeClass? = nil,
+        verticalSizeClass: UserInterfaceSizeClass? = nil
+    ) {
+        self.platform = platform
+        self.operatingSystemVersion = operatingSystemVersion
+        self.horizontalSizeClass = horizontalSizeClass
+        self.verticalSizeClass = verticalSizeClass
+    }
+}
+
+public typealias TabFeatureMaxVisibleTabsResolver = @Sendable (TabFeatureMaxVisibleTabsContext) -> Int
+
+func defaultTabFeatureMaxVisibleTabs(
+    for context: TabFeatureMaxVisibleTabsContext
+) -> Int {
+    switch context.platform {
+    case .macOS:
+        .max
+    case .iOS where context.horizontalSizeClass == .regular:
+        .max
+    default:
+        3
+    }
+}
+
+private struct TabFeatureMaxVisibleTabsResolverKey: EnvironmentKey {
+    static let defaultValue: TabFeatureMaxVisibleTabsResolver = defaultTabFeatureMaxVisibleTabs
+}
+
+extension EnvironmentValues {
+    var tabFeatureMaxVisibleTabsResolver: TabFeatureMaxVisibleTabsResolver {
+        get { self[TabFeatureMaxVisibleTabsResolverKey.self] }
+        set { self[TabFeatureMaxVisibleTabsResolverKey.self] = newValue }
+    }
+}
+
+public extension View {
+    func tabFeatureMaxVisibleTabs(
+        _ resolver: @escaping TabFeatureMaxVisibleTabsResolver
+    ) -> some View {
+        environment(\.tabFeatureMaxVisibleTabsResolver, resolver)
     }
 }
 
@@ -340,6 +402,27 @@ public extension TabFeatureContent {
             searchTab: searchTab
         )
     }
+
+    func defaultPolicy(
+        for context: TabFeatureMaxVisibleTabsContext
+    ) -> TabFeaturePolicy {
+        self.defaultPolicy(
+            for: context,
+            maxVisibleTabsResolver: defaultTabFeatureMaxVisibleTabs
+        )
+    }
+
+    func defaultPolicy(
+        for context: TabFeatureMaxVisibleTabsContext,
+        maxVisibleTabsResolver: TabFeatureMaxVisibleTabsResolver
+    ) -> TabFeaturePolicy {
+        TabFeaturePolicy(
+            fixedVisibleIDs: self.tabFeatureMetadata
+                .filter(\.isSearchTab)
+                .map(\.id),
+            maxVisibleTabs: maxVisibleTabsResolver(context)
+        )
+    }
 }
 
 
@@ -418,14 +501,17 @@ import CustomDump
 public struct TabFeaturesView<Value: TabFeatureValue>: View {
     @Binding var selection: Value
     @Binding var layout: TabFeatureLayout
+    @Environment(\.tabFeatureMaxVisibleTabsResolver) var maxVisibleTabsResolver
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @Environment(\.verticalSizeClass) var verticalSizeClass
 
-    let policy: TabFeaturePolicy
+    let policy: TabFeaturePolicy?
     let features: TabFeatures<Value>
 
     public init(
         selection: Binding<Value>,
         layout: Binding<TabFeatureLayout>,
-        policy: TabFeaturePolicy,
+        policy: TabFeaturePolicy? = nil,
         @TabFeatureBuilder<Value> content: () -> TabFeatureGroup<Value>
     ) {
         self._selection = selection
@@ -435,7 +521,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     }
 
     public var body: some View {
-        let resolved = features.resolve(layout: layout, policy: policy)
+        let resolved = features.resolve(layout: layout, policy: effectivePolicy)
 
         TabView(selection: tabSelection(for: resolved)) {
             if !resolved.visibleFeatures.isEmpty {
@@ -511,6 +597,37 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     private func metadata(for value: Value) -> TabFeatureMetadata<Value>? {
         self.features.tabFeatureMetadata.first { $0.value == value }
     }
+
+    private var effectivePolicy: TabFeaturePolicy {
+        self.policy
+            ?? self.features.defaultPolicy(
+                for: maxVisibleTabsContext,
+                maxVisibleTabsResolver: maxVisibleTabsResolver
+            )
+    }
+
+    private var maxVisibleTabsContext: TabFeatureMaxVisibleTabsContext {
+        TabFeatureMaxVisibleTabsContext(
+            platform: currentPlatform,
+            operatingSystemVersion: ProcessInfo.processInfo.operatingSystemVersion,
+            horizontalSizeClass: horizontalSizeClass,
+            verticalSizeClass: verticalSizeClass
+        )
+    }
+
+    private var currentPlatform: TabFeaturePlatform {
+        #if os(iOS)
+        .iOS
+        #elseif os(macOS)
+        .macOS
+        #elseif os(tvOS)
+        .tvOS
+        #elseif os(visionOS)
+        .visionOS
+        #elseif os(watchOS)
+        .watchOS
+        #endif
+    }
 }
 
 enum TabFeaturesSelection<Value: TabFeatureValue>: Hashable {
@@ -531,8 +648,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             List {
                 ForEach(overflowFeatures, id: \.value) { feature in
                     NavigationLinkButton {
-                        selection = feature.value
-                        path.append(feature.value)
+                        navigate(to: feature.value)
                     } label: {
                         TabFeatureMoreRow(
                             title: feature.effectiveTitle,
@@ -546,18 +662,32 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             .listStyle(.insetGrouped)
             #endif
             .navigationTitle("More")
-            .task(id: selection) {
-                if overflowFeatures.contains(where: { $0.value == selection }) {
-                    path = [selection]
-                } else {
-                    path = []
-                }
+            .onChange(of: selection, initial: true) { _, newValue in
+                syncPath(for: newValue)
             }
             .navigationDestination(for: Value.self) { value in
                 if let feature = metadata(value), let body = overflowFeatureBody(feature) {
                     body
                 }
             }
+        }
+    }
+
+    private func navigate(to value: Value) {
+        if selection == value {
+            path = [value]
+        } else {
+            selection = value
+        }
+    }
+
+    private func syncPath(for value: Value) {
+        if overflowFeatures.contains(where: { $0.value == value }) {
+            if path != [value] {
+                path = [value]
+            }
+        } else if !path.isEmpty {
+            path = []
         }
     }
 }

@@ -280,8 +280,7 @@ public struct EventViewerView: View {
         var body: some View {
             TabFeaturesView(
                 selection: $store.selectedFeature,
-                layout: $tabLayout,
-                policy: .init(maxVisibleTabs: 4)
+                layout: $tabLayout
             ) {
                 if store.installedFeatures.contains(.search) {
                     TabFeature(.search, role: .search) {

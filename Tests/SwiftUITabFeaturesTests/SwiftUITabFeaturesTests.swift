@@ -190,6 +190,55 @@ struct SwiftUITabFeaturesTests {
         #expect(resolved.showsMore)
     }
 
+    @Test func `default policy infers search as fixed`() {
+        let features = TabFeatures<DemoTab> {
+            TabFeature(.schedule, title: "Schedule", systemImage: "calendar") {
+                EmptyView()
+            }
+
+            TabFeature(.search, role: .search) {
+                EmptyView()
+            }
+
+            TabFeature(.about, title: "About", systemImage: "info.circle") {
+                EmptyView()
+            }
+        }
+
+        let policy = features.defaultPolicy(for: compactIPhoneContext)
+
+        #expect(policy.fixedVisibleIDs == [id("search")])
+        #expect(policy.maxVisibleTabs == 3)
+    }
+
+    @Test func `default policy keeps search out of overflow`() {
+        let features = TabFeatures<DemoTab> {
+            TabFeature(.schedule, title: "Schedule", systemImage: "calendar") {
+                EmptyView()
+            }
+
+            TabFeature(.search, role: .search) {
+                EmptyView()
+            }
+
+            TabFeature(.mainStage, title: "Main Stage", systemImage: "music.note") {
+                EmptyView()
+            }
+
+            TabFeature(.about, title: "About", systemImage: "info.circle") {
+                EmptyView()
+            }
+        }
+        let resolved = features.resolve(
+            layout: .init(preferredIDs: [id("stage:main"), id("about")]),
+            policy: features.defaultPolicy(for: compactIPhoneContext)
+        )
+
+        #expect(resolved.visibleFeatures.map(\.id) == [id("stage:main"), id("about"), id("schedule")])
+        #expect(resolved.overflowFeatures.isEmpty)
+        #expect(resolved.searchTab?.id == id("search"))
+    }
+
     @Test func `keeps fixed IDs first`() {
         let resolved = TabFeatureResolver.resolve(
             availableItems: makeItems("search", "schedule", "about"),
@@ -264,6 +313,44 @@ struct SwiftUITabFeaturesTests {
         #expect(resolved.showsMore)
     }
 
+    @Test func `default max visible tabs is compact iphone friendly`() {
+        #expect(defaultTabFeatureMaxVisibleTabs(for: compactIPhoneContext) == 3)
+    }
+
+    @Test func `default max visible tabs is unlimited on regular iOS`() {
+        #expect(defaultTabFeatureMaxVisibleTabs(for: regularIOSContext) == .max)
+    }
+
+    @Test func `default max visible tabs is unlimited on macOS`() {
+        #expect(defaultTabFeatureMaxVisibleTabs(for: macOSContext) == .max)
+    }
+
+    @Test func `explicit policy bypasses default inference`() {
+        let features = TabFeatures<DemoTab> {
+            TabFeature(.schedule, title: "Schedule", systemImage: "calendar") {
+                EmptyView()
+            }
+
+            TabFeature(.search, role: .search) {
+                EmptyView()
+            }
+
+            TabFeature(.mainStage, title: "Main Stage", systemImage: "music.note") {
+                EmptyView()
+            }
+        }
+        let policy = TabFeaturePolicy(maxVisibleTabs: 1)
+        let resolved = features.resolve(
+            layout: .init(preferredIDs: [id("stage:main")]),
+            policy: policy
+        )
+
+        #expect(policy.fixedVisibleIDs.isEmpty)
+        #expect(resolved.visibleFeatures.map(\.id) == [id("stage:main")])
+        #expect(resolved.overflowFeatures.map(\.id) == [id("schedule")])
+        #expect(resolved.searchTab?.id == id("search"))
+    }
+
     @Test func `resolves deterministically with empty saved layout`() {
         let resolved = TabFeatureResolver.resolve(
             availableItems: makeItems("search", "schedule", "about", "alerts"),
@@ -312,6 +399,31 @@ struct SwiftUITabFeaturesTests {
 
     private func symbol(_ rawValue: String) -> TabFeatureSymbolName {
         .init(rawValue)
+    }
+
+    private var compactIPhoneContext: TabFeatureMaxVisibleTabsContext {
+        TabFeatureMaxVisibleTabsContext(
+            platform: .iOS,
+            operatingSystemVersion: .init(majorVersion: 18, minorVersion: 0, patchVersion: 0),
+            horizontalSizeClass: .compact,
+            verticalSizeClass: .regular
+        )
+    }
+
+    private var regularIOSContext: TabFeatureMaxVisibleTabsContext {
+        TabFeatureMaxVisibleTabsContext(
+            platform: .iOS,
+            operatingSystemVersion: .init(majorVersion: 18, minorVersion: 0, patchVersion: 0),
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular
+        )
+    }
+
+    private var macOSContext: TabFeatureMaxVisibleTabsContext {
+        TabFeatureMaxVisibleTabsContext(
+            platform: .macOS,
+            operatingSystemVersion: .init(majorVersion: 15, minorVersion: 0, patchVersion: 0)
+        )
     }
 
     private func acceptID(_ id: TabFeatureID) {}
