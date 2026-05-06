@@ -11,19 +11,35 @@ public struct EventInfoViewer {
 
     public struct State {
         @FetchOne public var event: OMERecord.Event?
+        public var destination: Destination.State?
 
-        public init() {
-
+        public init(destination: Destination.State? = nil) {
+            self.destination = destination
         }
     }
 
-    public enum Action {}
+    public enum Action {
+        case destination(Destination.Action)
+        case editButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case edit(Spawn<Edit>)
+    }
 
     @Dependency(\.viewerEventID) var viewerEventID
 
     public var body: some Feature {
-        let _ = viewerEventID
-        Update { _, _ in }
+        Update { state, action in
+            switch action {
+            case .destination:
+                break
+
+            case .editButtonTapped:
+                state.destination = .edit(Spawn(Edit.State()))
+            }
+        }
             .onMount { state in
                 store.addTask {
                     try await store.$event.load(
@@ -31,56 +47,74 @@ public struct EventInfoViewer {
                     )
                 }
             }
+            .ifLet(\.destination, action: \.destination) {
+                Destination.body
+                    .dependency(\.viewerEventID, viewerEventID)
+            }
     }
 }
 
 public struct EventInfoViewerView: View {
-    let store: StoreOf<EventInfoViewer>
+    @Bindable var store: StoreOf<EventInfoViewer>
 
     public init(store: StoreOf<EventInfoViewer>) {
         self.store = store
     }
 
     public var body: some View {
-        if let event = store.event {
-            List {
-                if let description = event.eventInfoDescription {
-                    Section("About") {
-                        Text(description)
+        Group {
+            if let event = store.event {
+                List {
+                    if let description = event.eventInfoDescription {
+                        Section("About") {
+                            Text(description)
+                        }
                     }
-                }
 
-                if event.hasEventInfoDates {
-                    Section("Dates") {
-                        if let dateInterval = event.dateIntervalText {
-                            EventInfoRow(title: "Dates", value: dateInterval)
-                        } else {
-                            if let startsAt = event.startsAtText {
-                                EventInfoRow(title: "Starts", value: startsAt)
-                            }
-                            if let endsAt = event.endsAtText {
-                                EventInfoRow(title: "Ends", value: endsAt)
+                    if event.hasEventInfoDates {
+                        Section("Dates") {
+                            if let dateInterval = event.dateIntervalText {
+                                EventInfoRow(title: "Dates", value: dateInterval)
+                            } else {
+                                if let startsAt = event.startsAtText {
+                                    EventInfoRow(title: "Starts", value: startsAt)
+                                }
+                                if let endsAt = event.endsAtText {
+                                    EventInfoRow(title: "Ends", value: endsAt)
+                                }
                             }
                         }
                     }
-                }
 
-                Section("Details") {
-                    EventInfoRow(title: "Status", value: event.status.eventInfoText)
-                    EventInfoRow(title: "Mode", value: event.mode.eventInfoText)
+                    Section("Details") {
+                        EventInfoRow(title: "Status", value: event.status.eventInfoText)
+                        EventInfoRow(title: "Mode", value: event.mode.eventInfoText)
 
-                    if let timeZone = event.eventInfoTimeZone {
-                        EventInfoRow(title: "Time Zone", value: timeZone)
+                        if let timeZone = event.eventInfoTimeZone {
+                            EventInfoRow(title: "Time Zone", value: timeZone)
+                        }
                     }
                 }
+                .navigationTitle(event.name)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Edit") {
+                            store.send(.editButtonTapped)
+                        }
+                    }
+                }
+            } else {
+                ViewerPlaceholderView(
+                    title: "About",
+                    systemImage: "info.circle",
+                    description: "This event could not be loaded."
+                )
             }
-            .navigationTitle(event.name)
-        } else {
-            ViewerPlaceholderView(
-                title: "About",
-                systemImage: "info.circle",
-                description: "This event could not be loaded."
-            )
+        }
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).edit) { editStore in
+            NavigationStack {
+                EditView(store: editStore)
+            }
         }
     }
 }

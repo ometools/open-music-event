@@ -29,7 +29,6 @@ public struct EventViewer {
         case notifications
         case search
         case about
-        case edit
 
         public static let allCases: [Self] = [
             .schedule,
@@ -41,7 +40,6 @@ public struct EventViewer {
             .notifications,
             .search,
             .about,
-            .edit,
         ]
 
         public init?(_ description: String) {
@@ -63,7 +61,6 @@ public struct EventViewer {
             case .notifications: "Alerts"
             case .search: "Search"
             case .about: "About"
-            case .edit: "Edit"
             }
         }
 
@@ -78,7 +75,6 @@ public struct EventViewer {
             case .notifications: "bell"
             case .search: "magnifyingglass"
             case .about: "info.circle"
-            case .edit: "pencil"
             }
         }
 
@@ -93,7 +89,6 @@ public struct EventViewer {
             case .notifications: .red
             case .search: nil
             case .about: .gray
-            case .edit: .brown
             }
         }
 
@@ -108,7 +103,6 @@ public struct EventViewer {
             case .notifications: "openMusicEvent.eventViewer.notifications"
             case .search: "openMusicEvent.eventViewer.search"
             case .about: "openMusicEvent.eventViewer.about"
-            case .edit: "openMusicEvent.eventViewer.edit"
             }
         }
     }
@@ -143,8 +137,6 @@ public struct EventViewer {
                     self.eventSearch = Spawn(EventSearch.State())
                 case .about:
                     self.eventInfoViewer = Spawn(EventInfoViewer.State())
-                case .edit:
-                    self.edit = Spawn(Edit.State())
                 }
             }
         }
@@ -171,7 +163,6 @@ public struct EventViewer {
         public var notificationsViewer: Spawn<NotificationsViewer>?
         public var eventSearch = Spawn(EventSearch.State())
         public var eventInfoViewer: Spawn<EventInfoViewer>?
-        public var edit: Spawn<Edit>?
 
         public var id: OMERecord.Event.ID { eventID }
 
@@ -186,8 +177,16 @@ public struct EventViewer {
             switch target {
             case .participant, .stage, .search:
                 self.eventSearch.state = EventSearch.State.route(target: target)
+                self.eventInfoViewer?.state.destination = nil
+            case .edit:
+                self.eventSearch.state = EventSearch.State()
+                if self.eventInfoViewer == nil {
+                    self.eventInfoViewer = Spawn(EventInfoViewer.State())
+                }
+                self.eventInfoViewer?.state.destination = .edit(Spawn(Edit.State()))
             default:
                 self.eventSearch.state = EventSearch.State()
+                self.eventInfoViewer?.state.destination = nil
             }
         }
     }
@@ -242,10 +241,6 @@ public struct EventViewer {
         }
         .ifLet(\.eventInfoViewer) {
             EventInfoViewer()
-                .dependency(\.viewerEventID, store.eventID)
-        }
-        .ifLet(\.edit) {
-            Edit()
                 .dependency(\.viewerEventID, store.eventID)
         }
     }
@@ -391,17 +386,6 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.spawn(\.edit) {
-                    TabFeature(
-                        .edit,
-                        title: EventViewer.EventFeature.edit.title,
-                        systemImage: EventViewer.EventFeature.edit.systemImage,
-                        labelTint: EventViewer.EventFeature.edit.labelTint,
-                        navigation: .stack
-                    ) {
-                        EditView(store: featureStore)
-                    }
-                }
             }
         }
     }
@@ -473,14 +457,6 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.about)
             }
 
-            if let featureStore = store.spawn(\.edit) {
-                viewerTab(.edit) {
-                    EditView(store: featureStore)
-                }
-                .tag(EventViewer.EventFeature.edit)
-            }
-
-
         }
     }
     #endif
@@ -541,13 +517,6 @@ public struct EventViewerView: View {
                     EventInfoViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.about)
-            }
-
-            if let featureStore = store.spawn(\.edit) {
-                viewerTab(.edit) {
-                    EditView(store: featureStore)
-                }
-                .tag(EventViewer.EventFeature.edit)
             }
 
             if store.installedFeatures.contains(.search) {
