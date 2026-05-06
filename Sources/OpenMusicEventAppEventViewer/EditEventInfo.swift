@@ -10,7 +10,7 @@ public struct EditEventInfo {
     public init() {}
 
     public struct State {
-        @FetchOne public var event: OMERecord.Event?
+        @FetchOne(OMERecord.Event.defaultEvent) public var event: OMERecord.Event?
 
         public init() {
             @Dependency(\.date) var date
@@ -107,7 +107,6 @@ public struct EditEventInfo {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.viewerEventID) var viewerEventID
 
     public var body: some Feature {
         Update { state, action in
@@ -173,15 +172,9 @@ public struct EditEventInfo {
                 state.errorMessage = validationMessage
             }
         }
-        .onMount { state in
-            store.addTask {
-                try await store.$event.load(
-                    OMERecord.Event.where { $0.id.eq(viewerEventID) }
-                )
-                try store.modify {
-                    guard let event = $0.event else { return }
-                    $0.hydrate(from: event)
-                }
+        .onChange(of: store.event, initial: true) { _, event, state in
+            if let event {
+                state.hydrate(from: event)
             }
         }
     }

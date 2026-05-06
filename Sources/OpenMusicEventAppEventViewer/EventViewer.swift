@@ -1,18 +1,27 @@
 import ComposableArchitecture2
 import Dependencies
+import SQLiteData
 import SwiftUI
 import SwiftUITabFeatures
 import Tagged
 
-private enum ViewerEventIDKey: DependencyKey {
-    static let liveValue: OMERecord.Event.ID = .init("-1")
+private enum DefaultEventIDKey: DependencyKey {
+    static let liveValue: OMERecord.Event.ID =
+        unimplemented("DependencyValues.defaultEventID", placeholder: .init("-1"))
 }
 
 extension DependencyValues {
-    var viewerEventID: OMERecord.Event.ID {
-        get { self[ViewerEventIDKey.self] }
-        set { self[ViewerEventIDKey.self] = newValue }
+    var defaultEventID: OMERecord.Event.ID {
+        get { self[DefaultEventIDKey.self] }
+        set { self[DefaultEventIDKey.self] = newValue }
     }
+}
+
+extension OMERecord.Event {
+  static var defaultEvent: some SelectStatementOf<OMERecord.Event> {
+    @Dependency(\.defaultEventID) var defaultEventID
+    return Self.where { $0.id.eq(defaultEventID) }
+  }
 }
 
 @Feature
@@ -113,30 +122,36 @@ public struct EventViewer {
         }
 
         public init(eventID: OMERecord.Event.ID, features: [EventFeature]) {
+
             self.eventID = eventID
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule
 
-            for feature in features {
-                switch feature {
-                case .schedule:
-                    self.scheduleViewer = Spawn(ScheduleViewer.State())
-                case .communications:
-                    self.communicationsViewer = Spawn(CommunicationsViewer.State())
-                case .contactInfo:
-                    self.contactInfoViewer = Spawn(ContactInfoViewer.State())
-                case .location:
-                    self.locationViewer = Spawn(LocationViewer.State())
-                case .siteMap:
-                    self.siteMapViewer = Spawn(SiteMapViewer.State())
-                case .posters:
-                    self.postersViewer = Spawn(PostersViewer.State())
-                case .notifications:
-                    self.notificationsViewer = Spawn(NotificationsViewer.State())
-                case .search:
-                    self.eventSearch = Spawn(EventSearch.State())
-                case .about:
-                    self.eventInfoViewer = Spawn(EventInfoViewer.State())
+            withDependencies {
+                $0.defaultEventID = eventID
+            } operation: {
+
+                for feature in features {
+                    switch feature {
+                    case .schedule:
+                        self.scheduleViewer = Spawn(ScheduleViewer.State())
+                    case .communications:
+                        self.communicationsViewer = Spawn(CommunicationsViewer.State())
+                    case .contactInfo:
+                        self.contactInfoViewer = Spawn(ContactInfoViewer.State())
+                    case .location:
+                        self.locationViewer = Spawn(LocationViewer.State())
+                    case .siteMap:
+                        self.siteMapViewer = Spawn(SiteMapViewer.State())
+                    case .posters:
+                        self.postersViewer = Spawn(PostersViewer.State())
+                    case .notifications:
+                        self.notificationsViewer = Spawn(NotificationsViewer.State())
+                    case .search:
+                        self.eventSearch = Spawn(EventSearch.State())
+                    case .about:
+                        self.eventInfoViewer = Spawn(EventInfoViewer.State())
+                    }
                 }
             }
         }
@@ -209,40 +224,32 @@ public struct EventViewer {
         }
         .ifLet(\.scheduleViewer) {
             ScheduleViewer()
-                .dependency(\.viewerEventID, store.eventID)
         }
         .spawn(\.eventSearch) {
             EventSearch()
-                .dependency(\.viewerEventID, store.eventID)
         }
         .ifLet(\.communicationsViewer) {
             CommunicationsViewer()
-                .dependency(\.viewerEventID, store.eventID)
         }
         .ifLet(\.contactInfoViewer) {
             ContactInfoViewer()
-                .dependency(\.viewerEventID, store.eventID)
         }
         .ifLet(\.locationViewer) {
             LocationViewer()
-                .dependency(\.viewerEventID, store.eventID)
         }
         .ifLet(\.siteMapViewer) {
             SiteMapViewer()
-                .dependency(\.viewerEventID, store.eventID)
         }
         .ifLet(\.postersViewer) {
             PostersViewer()
-                .dependency(\.viewerEventID, store.eventID)
         }
         .ifLet(\.notificationsViewer) {
             NotificationsViewer()
-                .dependency(\.viewerEventID, store.eventID)
         }
         .ifLet(\.eventInfoViewer) {
             EventInfoViewer()
-                .dependency(\.viewerEventID, store.eventID)
         }
+        .dependency(\.defaultEventID, store.eventID)
     }
 }
 

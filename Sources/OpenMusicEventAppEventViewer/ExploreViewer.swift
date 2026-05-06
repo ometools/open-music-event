@@ -48,7 +48,7 @@ public struct EventSearch {
         case stageDetail(Spawn<StageDetail>)
     }
 
-    @Dependency(\.viewerEventID) var viewerEventID
+    @Dependency(\.defaultEventID) var defaultEventID
 
     public var body: some Feature {
         Update { state, action in
@@ -60,7 +60,7 @@ public struct EventSearch {
                 store.addTask {
                     try store.post(
                         key: NavigationRequested.self,
-                        value: .event(viewerEventID, .participant(participantID))
+                        value: .event(defaultEventID, .participant(participantID))
                     )
                 }
 
@@ -68,7 +68,7 @@ public struct EventSearch {
                 store.addTask {
                     try store.post(
                         key: NavigationRequested.self,
-                        value: .event(viewerEventID, .stage(stageID))
+                        value: .event(defaultEventID, .stage(stageID))
                     )
                 }
             }

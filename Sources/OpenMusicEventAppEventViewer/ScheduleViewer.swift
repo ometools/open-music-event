@@ -12,10 +12,10 @@ public struct ScheduleViewer {
 
     public enum Action {}
 
-    @Dependency(\.viewerEventID) var viewerEventID
+    @Dependency(\.defaultEventID) var defaultEventID
 
     public var body: some Feature {
-        let _ = viewerEventID
+        let _ = defaultEventID
         return Update { _, _ in }
     }
 }

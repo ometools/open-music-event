@@ -47,7 +47,7 @@ struct NavigationTests {
         withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.viewerEventID = eventID
+            $0.defaultEventID = eventID
         } operation: {
             store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
         }
@@ -69,7 +69,7 @@ struct NavigationTests {
         withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.viewerEventID = eventID
+            $0.defaultEventID = eventID
         } operation: {
             store.send(.root(.handleNavigationRequest(.event(eventID, .participant(participantID)))))
         }
@@ -90,7 +90,7 @@ struct NavigationTests {
         withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.viewerEventID = eventID
+            $0.defaultEventID = eventID
         } operation: {
             store.send(.root(.handleNavigationRequest(.event(eventID, .stage(stageID)))))
         }
@@ -206,7 +206,7 @@ struct NavigationTests {
         withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.viewerEventID = eventID
+            $0.defaultEventID = eventID
         } operation: {
             TestStore(initialState: RootHarness.State()) {
                 RootHarness()
@@ -221,7 +221,7 @@ struct NavigationTests {
         return withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.viewerEventID = eventID
+            $0.defaultEventID = eventID
         } operation: {
             TestStore(initialState: EventViewerHarness.State(eventID: eventID)) {
                 EventViewerHarness()

@@ -10,7 +10,7 @@ public struct EventInfoViewer {
     public init() {}
 
     public struct State {
-        @FetchOne public var event: OMERecord.Event?
+        @FetchOne(OMERecord.Event.defaultEvent) public var event: OMERecord.Event?
         public var destination: Destination.State?
 
         public init(destination: Destination.State? = nil) {
@@ -28,7 +28,6 @@ public struct EventInfoViewer {
         case editEventInfo(Spawn<EditEventInfo>)
     }
 
-    @Dependency(\.viewerEventID) var viewerEventID
 
     public var body: some Feature {
         Update { state, action in
@@ -37,20 +36,24 @@ public struct EventInfoViewer {
                 break
 
             case .editButtonTapped:
-                state.destination = .editEventInfo(Spawn(EditEventInfo.State()))
-            }
-        }
-            .onMount { state in
-                store.addTask {
-                    try await store.$event.load(
-                        OMERecord.Event.where { $0.id.eq(viewerEventID) }
-                    )
+                store.withDependencies {
+                    state.destination = .editEventInfo(Spawn(EditEventInfo.State()))
                 }
             }
-            .ifLet(\.destination, action: \.destination) {
-                Destination.body
-                    .dependency(\.viewerEventID, viewerEventID)
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
+    }
+}
+
+extension _FeatureStore {
+    func withDependencies<T>(operation: () -> T) -> T? {
+        withErrorReporting {
+            try Dependencies.withDependencies { $0 = try self.dependencies } operation: {
+                operation()
             }
+        }
     }
 }
 
