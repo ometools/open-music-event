@@ -142,8 +142,38 @@ struct SwiftUITabFeaturesTests {
         )
 
         #expect(features.tabFeatureItems.map(\.id) == [id("search"), id("schedule"), id("stage:main")])
-        #expect(resolved.visibleFeatures.map(\.id) == [id("search"), id("stage:main")])
+        #expect(resolved.visibleFeatures.map(\.id) == [id("stage:main"), id("schedule")])
+        #expect(resolved.overflowFeatures.isEmpty)
+        #expect(resolved.searchTab?.id == id("search"))
+        #expect(resolved.showsMore == false)
+    }
+
+    @Test func `declared resolve keeps search out of overflow and off capacity`() {
+        let features = TabFeatures<DemoTab> {
+            TabFeature(.schedule, title: "Schedule", systemImage: "calendar") {
+                EmptyView()
+            }
+
+            TabFeature(.search, role: .search) {
+                EmptyView()
+            }
+
+            TabFeature(.mainStage, title: "Main Stage", systemImage: "music.note") {
+                EmptyView()
+            }
+
+            TabFeature(.about, title: "About", systemImage: "info.circle") {
+                EmptyView()
+            }
+        }
+        let resolved = features.resolve(
+            layout: .init(preferredIDs: [id("stage:main"), id("about")]),
+            policy: .init(fixedVisibleIDs: [id("search")], maxVisibleTabs: 2)
+        )
+
+        #expect(resolved.visibleFeatures.map(\.id) == [id("stage:main"), id("about")])
         #expect(resolved.overflowFeatures.map(\.id) == [id("schedule")])
+        #expect(resolved.searchTab?.id == id("search"))
         #expect(resolved.showsMore)
     }
 

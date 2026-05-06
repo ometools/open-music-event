@@ -115,30 +115,20 @@ public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent {
 public struct ResolvedDeclaredTabFeatures<Value: TabFeatureValue>: Equatable, Sendable {
     public var visibleFeatures: [TabFeatureMetadata<Value>]
     public var overflowFeatures: [TabFeatureMetadata<Value>]
+    public var searchTab: TabFeatureMetadata<Value>?
 
     public init(
         visibleFeatures: [TabFeatureMetadata<Value>],
-        overflowFeatures: [TabFeatureMetadata<Value>]
+        overflowFeatures: [TabFeatureMetadata<Value>],
+        searchTab: TabFeatureMetadata<Value>? = nil
     ) {
         self.visibleFeatures = visibleFeatures
         self.overflowFeatures = overflowFeatures
+        self.searchTab = searchTab
     }
 
     public var showsMore: Bool {
-        !self.nonSearchOverflowFeatures.isEmpty
-    }
-
-    public var searchTab: TabFeatureMetadata<Value>? {
-        self.visibleFeatures.first(where: \.isSearchTab)
-            ?? self.overflowFeatures.first(where: \.isSearchTab)
-    }
-
-    public var nonSearchVisibleFeatures: [TabFeatureMetadata<Value>] {
-        self.visibleFeatures.filter { !$0.isSearchTab }
-    }
-
-    public var nonSearchOverflowFeatures: [TabFeatureMetadata<Value>] {
-        self.overflowFeatures.filter { !$0.isSearchTab }
+        !self.overflowFeatures.isEmpty
     }
 }
 
@@ -323,18 +313,22 @@ public extension TabFeatureContent {
         layout: TabFeatureLayout,
         policy: TabFeaturePolicy
     ) -> ResolvedDeclaredTabFeatures<Value> {
+        let searchTab = self.tabFeatureMetadata.first(where: \.isSearchTab)
+        let nonSearchMetadata = self.tabFeatureMetadata.filter { !$0.isSearchTab }
         let metadataByID = Dictionary(
-            uniqueKeysWithValues: self.tabFeatureMetadata.map { ($0.id, $0) }
+            uniqueKeysWithValues: nonSearchMetadata.map { ($0.id, $0) }
         )
+        let nonSearchItems = nonSearchMetadata.map(\.item)
         let resolved = TabFeatureResolver.resolve(
-            availableItems: self.tabFeatureItems,
+            availableItems: nonSearchItems,
             layout: layout,
             policy: policy
         )
 
         return ResolvedDeclaredTabFeatures(
             visibleFeatures: resolved.visibleIDs.compactMap { metadataByID[$0] },
-            overflowFeatures: resolved.overflowIDs.compactMap { metadataByID[$0] }
+            overflowFeatures: resolved.overflowIDs.compactMap { metadataByID[$0] },
+            searchTab: searchTab
         )
     }
 }
@@ -435,9 +429,9 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         let resolved = features.resolve(layout: layout, policy: policy)
 
         TabView(selection: $selection) {
-            if !resolved.nonSearchVisibleFeatures.isEmpty {
+            if !resolved.visibleFeatures.isEmpty {
                 
-                ForEach(resolved.nonSearchVisibleFeatures, id: \.value) { feature in
+                ForEach(resolved.visibleFeatures, id: \.value) { feature in
                     Group {
                         let body = features.featureBody(for: feature.id)
                         switch feature.navigation  {
@@ -458,7 +452,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
             if resolved.showsMore {
                 NavigationStack {
                     List {
-                        ForEach(resolved.nonSearchOverflowFeatures, id: \.value) { feature in
+                        ForEach(resolved.overflowFeatures, id: \.value) { feature in
                             NavigationLink {
                                 features.featureBody(for: feature.id)
                             } label: {
@@ -487,6 +481,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                         body
                     }
                 }
+//                .search)
                 .tabItem {
                     Label(searchTab.effectiveTitle, systemImage: searchTab.effectiveSystemImage.rawValue)
                 }
