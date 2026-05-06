@@ -19,7 +19,7 @@ extension DependencyValues {
 public struct EventViewer {
     public init() {}
 
-    public enum EventFeature: String, CaseIterable, Hashable, Sendable, LosslessStringConvertible {
+    public enum EventFeature: String, CaseIterable, Hashable, Sendable, LosslessStringConvertible, TabFeatureValue {
         case schedule
         case communications
         case contactInfo
@@ -275,13 +275,12 @@ public struct EventViewerView: View {
     @available(iOS 18.0, *)
     struct iOS18TabView: View {
         @Bindable var store: StoreOf<EventViewer>
-        @AppStorage("eventViewerTabLayout")
-        var storedLayout = ""
+        @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
             TabFeaturesView(
                 selection: $store.selectedFeature,
-                layout: tabLayout,
+                layout: $tabLayout,
                 policy: .init(maxVisibleTabs: 4)
             ) {
                 if store.installedFeatures.contains(.search) {
@@ -382,7 +381,7 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.about.labelTint,
                         navigation: .stack
                     ) {
-                        AboutViewerView(store: featureStore)
+                        EventInfoViewerView(store: featureStore)
                             .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button("Close") {
@@ -405,36 +404,6 @@ public struct EventViewerView: View {
                     }
                 }
             }
-        }
-
-        private var tabLayout: Binding<TabFeatureLayout> {
-            Binding {
-                Self.decodeLayout(storedLayout)
-            } set: { newValue in
-                storedLayout = Self.encodeLayout(newValue)
-            }
-        }
-
-        private static func decodeLayout(_ rawValue: String) -> TabFeatureLayout {
-            guard
-                let data = rawValue.data(using: .utf8),
-                let preferredIDs = try? JSONDecoder().decode([String].self, from: data)
-            else {
-                return .init()
-            }
-
-            return .init(preferredIDs: preferredIDs.map(TabFeatureID.init))
-        }
-
-        private static func encodeLayout(_ layout: TabFeatureLayout) -> String {
-            guard
-                let data = try? JSONEncoder().encode(layout.preferredIDs.map(\.rawValue)),
-                let string = String(data: data, encoding: .utf8)
-            else {
-                return ""
-            }
-
-            return string
         }
     }
     #endif
@@ -500,7 +469,7 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.aboutViewer) {
                 viewerTab(.about) {
-                    AboutViewerView(store: featureStore)
+                    EventInfoViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.about)
             }
@@ -570,7 +539,7 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.aboutViewer) {
                 viewerTab(.about) {
-                    AboutViewerView(store: featureStore)
+                    EventInfoViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.about)
             }

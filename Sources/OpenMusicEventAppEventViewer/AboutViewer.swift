@@ -20,7 +20,7 @@ public struct AboutViewer {
     }
 }
 
-public struct AboutViewerView: View {
+public struct EventInfoViewerView: View {
     let store: StoreOf<AboutViewer>
 
     public init(store: StoreOf<AboutViewer>) {
