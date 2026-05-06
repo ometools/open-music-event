@@ -18,6 +18,7 @@ let package = Package(
 
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
+        .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
 
@@ -61,6 +62,7 @@ let package = Package(
             name: "SwiftUITabFeatures",
             dependencies: [
                 .product(name: "Tagged", package: "swift-tagged"),
+                .product(name: "CustomDump", package: "swift-custom-dump")
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),
