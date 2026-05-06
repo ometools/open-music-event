@@ -1,5 +1,8 @@
 import ComposableArchitecture2
 import Dependencies
+import Foundation
+import Lexicon
+import SQLiteData
 import SwiftUI
 
 @Feature
@@ -7,7 +10,11 @@ public struct EventInfoViewer {
     public init() {}
 
     public struct State {
-        public init() {}
+        @FetchOne public var event: OMERecord.Event?
+
+        public init() {
+
+        }
     }
 
     public enum Action {}
@@ -16,7 +23,14 @@ public struct EventInfoViewer {
 
     public var body: some Feature {
         let _ = viewerEventID
-        return Update { _, _ in }
+        Update { _, _ in }
+            .onMount { state in
+                store.addTask {
+                    try await store.$event.load(
+                        OMERecord.Event.where { $0.id.eq(viewerEventID) }
+                    )
+                }
+            }
     }
 }
 
@@ -28,10 +42,142 @@ public struct EventInfoViewerView: View {
     }
 
     public var body: some View {
-        ViewerPlaceholderView(
-            title: "About",
-            systemImage: "info.circle",
-            description: "No about information has been added to this event yet."
-        )
+        if let event = store.event {
+            List {
+                if let description = event.eventInfoDescription {
+                    Section("About") {
+                        Text(description)
+                    }
+                }
+
+                if event.hasEventInfoDates {
+                    Section("Dates") {
+                        if let dateInterval = event.dateIntervalText {
+                            EventInfoRow(title: "Dates", value: dateInterval)
+                        } else {
+                            if let startsAt = event.startsAtText {
+                                EventInfoRow(title: "Starts", value: startsAt)
+                            }
+                            if let endsAt = event.endsAtText {
+                                EventInfoRow(title: "Ends", value: endsAt)
+                            }
+                        }
+                    }
+                }
+
+                Section("Details") {
+                    EventInfoRow(title: "Status", value: event.status.eventInfoText)
+                    EventInfoRow(title: "Mode", value: event.mode.eventInfoText)
+
+                    if let timeZone = event.eventInfoTimeZone {
+                        EventInfoRow(title: "Time Zone", value: timeZone)
+                    }
+                }
+            }
+            .navigationTitle(event.name)
+        } else {
+            ViewerPlaceholderView(
+                title: "About",
+                systemImage: "info.circle",
+                description: "This event could not be loaded."
+            )
+        }
+    }
+}
+
+struct EventInfoRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(title)
+            Spacer(minLength: 12)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+private extension OMERecord.Event {
+    var eventInfoDescription: String? {
+        let description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return description?.isEmpty == false ? description : nil
+    }
+
+    var eventInfoTimeZone: String? {
+        let timeZone = timeZone.trimmingCharacters(in: .whitespacesAndNewlines)
+        return timeZone.isEmpty ? nil : timeZone
+    }
+
+    var hasEventInfoDates: Bool {
+        startsAt != nil || endsAt != nil
+    }
+
+    var dateIntervalText: String? {
+        guard let startsAt, let endsAt else { return nil }
+        return Self.eventInfoDateIntervalFormatter.string(from: startsAt, to: endsAt)
+    }
+
+    var startsAtText: String? {
+        startsAt?.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    var endsAtText: String? {
+        endsAt?.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    static let eventInfoDateIntervalFormatter: DateIntervalFormatter = {
+        let formatter = DateIntervalFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter
+    }()
+}
+
+private extension OMERecord.Event.Status {
+    var eventInfoText: String {
+        switch self {
+        case .planned:
+            "Planned"
+        case .scheduled:
+            "Scheduled"
+        case .rescheduled:
+            "Rescheduled"
+        case .cancelled:
+            "Cancelled"
+        case .postponed:
+            "Postponed"
+        }
+    }
+}
+
+private extension OMERecord.Event.Mode {
+    var eventInfoText: String {
+        switch self {
+        case .inPerson:
+            "In Person"
+        case .virtual:
+            "Virtual"
+        case .hybrid:
+            "Hybrid"
+        }
+    }
+}
+
+private extension Open where Known == OMERecord.Event.Mode {
+    var eventInfoText: String {
+        switch self {
+        case .known(let mode):
+            return mode.eventInfoText
+        case .unknown(let value):
+            if let stringValue = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !stringValue.isEmpty {
+                return stringValue
+            } else {
+                return "Unknown"
+            }
+        }
     }
 }

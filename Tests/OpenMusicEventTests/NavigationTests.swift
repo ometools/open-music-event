@@ -2,11 +2,11 @@ import ComposableArchitecture2
 import Dependencies
 import DebugSnapshots
 import Foundation
-import OpenMusicEventAppEventViewer
 import SQLiteData
 import Testing
 
 @testable import OpenMusicEvent
+@testable import OpenMusicEventAppEventViewer
 
 @MainActor
 struct NavigationTests {
@@ -41,10 +41,16 @@ struct NavigationTests {
     @Test
     func navigationRequestSelectsEventAndMountsViewer() async throws {
         let database = try makePreparedDatabase()
-        let store = makeRootHarnessStore(database: database)
         let eventID = OMERecord.Event.ID(.init("event-1"))
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
 
-        store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.viewerEventID = eventID
+        } operation: {
+            store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
+        }
 
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
@@ -56,11 +62,17 @@ struct NavigationTests {
     @Test
     func navigationRequestSelectsParticipantSearchDestination() throws {
         let database = try makePreparedDatabase()
-        let store = makeRootHarnessStore(database: database)
         let eventID = OMERecord.Event.ID(.init("event-1"))
         let participantID = OMERecord.Participant.ID(.init("participant-1"))
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
 
-        store.send(.root(.handleNavigationRequest(.event(eventID, .participant(participantID)))))
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.viewerEventID = eventID
+        } operation: {
+            store.send(.root(.handleNavigationRequest(.event(eventID, .participant(participantID)))))
+        }
 
         #expect(store.state.root.eventViewer?.selectedFeature == .search)
         #expect(
@@ -71,11 +83,17 @@ struct NavigationTests {
     @Test
     func navigationRequestSelectsStageSearchDestination() throws {
         let database = try makePreparedDatabase()
-        let store = makeRootHarnessStore(database: database)
         let eventID = OMERecord.Event.ID(.init("event-1"))
         let stageID = OMERecord.Stage.ID(.init("stage-1"))
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
 
-        store.send(.root(.handleNavigationRequest(.event(eventID, .stage(stageID)))))
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.viewerEventID = eventID
+        } operation: {
+            store.send(.root(.handleNavigationRequest(.event(eventID, .stage(stageID)))))
+        }
 
         #expect(store.state.root.eventViewer?.selectedFeature == .search)
         #expect(
@@ -84,11 +102,9 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerConsumesParticipantNavigationFromSearchDescendant() async {
+    func eventViewerConsumesParticipantNavigationFromSearchDescendant() async throws {
         let participantID = OMERecord.Participant.ID(.init("participant-1"))
-        let store = TestStore(initialState: EventViewerHarness.State()) {
-            EventViewerHarness()
-        }
+        let store = try makeEventViewerHarnessStore()
 
         await store.send(to: \.eventViewer.eventSearch, .openParticipant(participantID))?.value
         await Task.yield()
@@ -101,11 +117,9 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerConsumesStageNavigationFromSearchDescendant() async {
+    func eventViewerConsumesStageNavigationFromSearchDescendant() async throws {
         let stageID = OMERecord.Stage.ID(.init("stage-1"))
-        let store = TestStore(initialState: EventViewerHarness.State()) {
-            EventViewerHarness()
-        }
+        let store = try makeEventViewerHarnessStore()
 
         await store.send(to: \.eventViewer.eventSearch, .openStage(stageID))?.value
         await Task.yield()
@@ -164,7 +178,7 @@ struct NavigationTests {
             .execute(db)
         }
 
-        let store = makeRootHarnessStore(database: database)
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
         #expect(store.state.root.eventViewer?.eventID == eventID)
 
         store.send(.root(.eventViewerDismissed))
@@ -186,14 +200,31 @@ struct NavigationTests {
     }
 
     private func makeRootHarnessStore(
-        database: any DatabaseWriter
+        database: any DatabaseWriter,
+        eventID: OMERecord.Event.ID = .init(.init("event-1"))
     ) -> TestStore<RootHarness> {
         withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.viewerEventID = eventID
         } operation: {
             TestStore(initialState: RootHarness.State()) {
                 RootHarness()
+            }
+        }
+    }
+
+    private func makeEventViewerHarnessStore(
+        eventID: OMERecord.Event.ID = .init(.init("event-1"))
+    ) throws -> TestStore<EventViewerHarness> {
+        let database = try makePreparedDatabase()
+        return withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.viewerEventID = eventID
+        } operation: {
+            TestStore(initialState: EventViewerHarness.State(eventID: eventID)) {
+                EventViewerHarness()
             }
         }
     }
@@ -241,12 +272,16 @@ private struct MyEventsEventHarness {
 @Feature
 private struct EventViewerHarness {
     struct State {
+        init(eventID: OMERecord.Event.ID = .init(.init("event-1"))) {
+            self.eventViewer = EventViewer.State.route(
+                eventID: eventID,
+                target: nil
+            )
+        }
+
         var lastRequest: NavigationRequest?
         @DebugSnapshotIgnored
-        var eventViewer = EventViewer.State.route(
-            eventID: .init(.init("event-1")),
-            target: nil
-        )
+        var eventViewer: EventViewer.State
     }
 
     enum Action {
