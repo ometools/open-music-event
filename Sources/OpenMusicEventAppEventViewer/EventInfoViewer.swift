@@ -25,7 +25,7 @@ public struct EventInfoViewer {
 
     @Feature
     public enum Destination {
-        case edit(Spawn<Edit>)
+        case editEventInfo(Spawn<EditEventInfo>)
     }
 
     @Dependency(\.viewerEventID) var viewerEventID
@@ -37,7 +37,7 @@ public struct EventInfoViewer {
                 break
 
             case .editButtonTapped:
-                state.destination = .edit(Spawn(Edit.State()))
+                state.destination = .editEventInfo(Spawn(EditEventInfo.State()))
             }
         }
             .onMount { state in
@@ -111,9 +111,9 @@ public struct EventInfoViewerView: View {
                 )
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).edit) { editStore in
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).editEventInfo) { editStore in
             NavigationStack {
-                EditView(store: editStore)
+                EditEventInfoView(store: editStore)
             }
         }
     }

@@ -6,7 +6,7 @@ import SQLiteData
 import SwiftUI
 
 @Feature
-public struct Edit {
+public struct EditEventInfo {
     public init() {}
 
     public struct State {
@@ -27,7 +27,7 @@ public struct Edit {
         var hasEndDate = false
         var endDate: Date
         var status: OMERecord.Event.Status = .planned
-        var mode = EditableMode.inPerson
+        var mode = EditEventInfoMode.inPerson
         var customMode = ""
         var timeZone: String
         var isSaving = false
@@ -94,7 +94,7 @@ public struct Edit {
             hasEndDate = event.endsAt != nil
             endDate = event.endsAt ?? endDate
             status = event.status
-            mode = EditableMode(event.mode)
+            mode = EditEventInfoMode(event.mode)
             customMode = event.mode.customValue ?? ""
             timeZone = event.timeZone
             hasLoadedFormValues = true
@@ -178,19 +178,19 @@ public struct Edit {
                 try await store.$event.load(
                     OMERecord.Event.where { $0.id.eq(viewerEventID) }
                 )
+                try store.modify {
+                    guard let event = $0.event else { return }
+                    $0.hydrate(from: event)
+                }
             }
-        }
-        .onChange(of: store.event) { _, newValue, state in
-            guard let newValue else { return }
-            state.hydrate(from: newValue)
         }
     }
 }
 
-public struct EditView: View {
-    @Bindable var store: StoreOf<Edit>
+public struct EditEventInfoView: View {
+    @Bindable var store: StoreOf<EditEventInfo>
 
-    public init(store: StoreOf<Edit>) {
+    public init(store: StoreOf<EditEventInfo>) {
         self.store = store
     }
 
@@ -234,7 +234,7 @@ public struct EditView: View {
                 }
 
                 Picker("Mode", selection: $store.mode) {
-                    ForEach(EditableMode.allCases, id: \.self) { mode in
+                    ForEach(EditEventInfoMode.allCases, id: \.self) { mode in
                         Text(mode.title)
                             .tag(mode)
                     }
@@ -277,7 +277,7 @@ public struct EditView: View {
     }
 }
 
-public enum EditableMode: String, CaseIterable, Hashable, Sendable {
+public enum EditEventInfoMode: String, CaseIterable, Hashable, Sendable {
     case inPerson
     case virtual
     case hybrid

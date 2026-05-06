@@ -183,7 +183,7 @@ public struct EventViewer {
                 if self.eventInfoViewer == nil {
                     self.eventInfoViewer = Spawn(EventInfoViewer.State())
                 }
-                self.eventInfoViewer?.state.destination = .edit(Spawn(Edit.State()))
+                self.eventInfoViewer?.state.destination = .editEventInfo(Spawn(EditEventInfo.State()))
             default:
                 self.eventSearch.state = EventSearch.State()
                 self.eventInfoViewer?.state.destination = nil
