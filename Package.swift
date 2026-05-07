@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+        .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
         .library(name: "SwiftUITabFeatures", targets: ["SwiftUITabFeatures"]),
     ],
     dependencies: [
@@ -54,8 +55,15 @@ let package = Package(
         .target(
             name: "OpenMusicEventLexicon",
             dependencies: [
+                "OpenMusicEventTimeZones",
                 .product(name: "Lexicon", package: "tcatproto"),
                 .product(name: "LexiconSQLiteData", package: "tcatproto"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
+        ),
+        .target(
+            name: "OpenMusicEventTimeZones",
+            dependencies: [
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),
@@ -73,6 +81,13 @@ let package = Package(
                 "OpenMusicEvent",
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventTimeZonesTests",
+            dependencies: [
+                "OpenMusicEventTimeZones",
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),

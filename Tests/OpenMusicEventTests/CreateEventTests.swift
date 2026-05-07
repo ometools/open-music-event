@@ -75,7 +75,7 @@ struct CreateEventTests {
         #expect(event.endsAt == Date(timeIntervalSince1970: 172_800))
         #expect(event.status == .planned)
         #expect(event.mode == .known(.inPerson))
-        #expect(event.timeZone == TimeZone.current.identifier)
+        #expect(event.timeZone.identifier == TimeZone.current.identifier)
         #expect(event.description == nil)
         #expect(event.locations == nil)
         #expect(event.uris == nil)

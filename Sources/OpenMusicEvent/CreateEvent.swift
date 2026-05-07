@@ -146,7 +146,7 @@ public struct CreateEvent {
             mode: .known(.inPerson),
             locations: nil,
             uris: nil,
-            timeZone: TimeZone.current.identifier,
+            timeZone: TimeZone.current,
             imageURL: nil,
             iconImageURL: nil,
             siteMapImageURL: nil,

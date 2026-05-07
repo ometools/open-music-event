@@ -13,9 +13,11 @@ public struct EditEventInfo {
     public struct State {
         public init() {
             self.draft = .placeholder
+            self.timeZoneIdentifier = TimeZone.current.identifier
         }
 
         var draft: OMERecord.Event.Draft
+        var timeZoneIdentifier: String
         var hasLoadedDraft = false
         var isSaving = false
         var errorMessage: String?
@@ -33,7 +35,7 @@ public struct EditEventInfo {
         }
 
         var trimmedTimeZone: String {
-            draft.timeZone.trimmingCharacters(in: .whitespacesAndNewlines)
+            timeZoneIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         var mode: EditEventInfoMode {
@@ -48,8 +50,8 @@ public struct EditEventInfo {
             if mode == .custom && trimmedCustomMode.isEmpty {
                 return "Enter a custom event mode."
             }
-            if trimmedTimeZone.isEmpty {
-                return "Enter a time zone."
+            if trimmedTimeZone.isEmpty || TimeZone(identifier: trimmedTimeZone) == nil {
+                return "Enter a valid time zone identifier."
             }
             if let startDate = draft.startsAt, let endDate = draft.endsAt, endDate < startDate {
                 return "End date must be on or after the start date."
@@ -68,7 +70,7 @@ public struct EditEventInfo {
             if mode == .custom {
                 draft.mode = .unknown(.string(trimmedCustomMode))
             }
-            draft.timeZone = trimmedTimeZone
+            draft.timeZone = TimeZone(identifier: trimmedTimeZone) ?? .current
             return draft
         }
     }
@@ -136,6 +138,7 @@ public struct EditEventInfo {
                     try OMERecord.Event.where { $0.id.eq(defaultEventID) }.fetchOne(db)
                 }) {
                     state.draft = .init(event)
+                    state.timeZoneIdentifier = event.timeZone.identifier
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
@@ -188,8 +191,8 @@ public struct EditEventInfoView: View {
                                 displayedComponents: .date
                             )
                         }
-                        
-                        TextField("Time Zone", text: $store.draft.timeZone)
+
+                        TextField("Time Zone", text: $store.timeZoneIdentifier)
                     }
 
                     Section("Details") {
@@ -316,7 +319,7 @@ private extension OMERecord.Event.Draft {
             mode: .known(.inPerson),
             locations: nil,
             uris: nil,
-            timeZone: TimeZone.current.identifier,
+            timeZone: TimeZone.current,
             imageURL: nil,
             iconImageURL: nil,
             siteMapImageURL: nil,

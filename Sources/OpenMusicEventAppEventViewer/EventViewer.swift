@@ -101,7 +101,7 @@ public struct EventViewer {
             }
         }
 
-        var customizationID: String {
+        var customizationID: TabFeatureID {
             switch self {
             case .schedule: "openMusicEvent.eventViewer.schedule"
             case .communications: "openMusicEvent.eventViewer.communications"
@@ -277,7 +277,7 @@ public struct EventViewerView: View {
     @available(iOS 18.0, *)
     struct iOS18TabView: View {
         @Bindable var store: StoreOf<EventViewer>
-        @State var tabLayout = TabFeatureLayout()
+        @State var tabLayout = TabFeatureLayout(preferredIDs: [EventViewer.EventFeature.about.customizationID])
 
         var body: some View {
             TabFeaturesView(

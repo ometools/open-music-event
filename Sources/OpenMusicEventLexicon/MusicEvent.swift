@@ -1,9 +1,10 @@
 import ATProto
-import SQLiteData
 import Foundation
-import Tagged
 import Lexicon
 import LexiconSQLiteData
+import OpenMusicEventTimeZones
+import SQLiteData
+import Tagged
 
 // MARK: - Shared types
 
@@ -73,7 +74,7 @@ extension OpenMusicEvent {
         public var uris: [EventURI]?
 
         // ome-specific
-        public var timeZone: String
+        public var timeZone: TimeZone
         public var imageURL: URL?
         public var iconImageURL: URL?
         public var siteMapImageURL: URL?

@@ -144,8 +144,7 @@ private extension OMERecord.Event {
     }
 
     var eventInfoTimeZone: String? {
-        let timeZone = timeZone.trimmingCharacters(in: .whitespacesAndNewlines)
-        return timeZone.isEmpty ? nil : timeZone
+        timeZone.identifier
     }
 
     var hasEventInfoDates: Bool {
