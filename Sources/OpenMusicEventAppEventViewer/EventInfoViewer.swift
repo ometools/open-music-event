@@ -74,20 +74,10 @@ public struct EventInfoViewerView: View {
                         }
                     }
 
-                    if event.hasEventInfoDates {
-                        Section("Dates") {
-                            if let dateInterval = event.dateIntervalText {
-                                EventInfoRow(title: "Dates", value: dateInterval)
-                            } else {
-                                if let startsAt = event.startsAtText {
-                                    EventInfoRow(title: "Starts", value: startsAt)
-                                }
-                                if let endsAt = event.endsAtText {
-                                    EventInfoRow(title: "Ends", value: endsAt)
-                                }
-                            }
-                        }
-                    }
+//                    if event.hasEventInfoDates {
+//                        TODO(LocalDate): Reintroduce event date display once the UI is
+//                        redesigned around LocalDate instead of Date-backed formatting.
+//                    }
 
                     Section("Details") {
                         EventInfoRow(title: "Status", value: event.status.eventInfoText)
@@ -147,29 +137,6 @@ private extension OMERecord.Event {
         timeZone.identifier
     }
 
-    var hasEventInfoDates: Bool {
-        startsAt != nil || endsAt != nil
-    }
-
-    var dateIntervalText: String? {
-        guard let startsAt, let endsAt else { return nil }
-        return Self.eventInfoDateIntervalFormatter.string(from: startsAt, to: endsAt)
-    }
-
-    var startsAtText: String? {
-        startsAt?.formatted(date: .abbreviated, time: .omitted)
-    }
-
-    var endsAtText: String? {
-        endsAt?.formatted(date: .abbreviated, time: .omitted)
-    }
-
-    static let eventInfoDateIntervalFormatter: DateIntervalFormatter = {
-        let formatter = DateIntervalFormatter()
-        formatter.dateStyle = .long
-        formatter.timeStyle = .none
-        return formatter
-    }()
 }
 
 private extension OMERecord.Event.Status {

@@ -63,8 +63,8 @@ extension DependencyValues {
                   "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
                   "name" TEXT NOT NULL,
                   "description" TEXT,
-                  "startsAt" TEXT,
-                  "endsAt" TEXT,
+                  "startDate" TEXT,
+                  "endDate" TEXT,
                   "status" TEXT NOT NULL,
                   "mode" TEXT NOT NULL,
                   "locations" TEXT,
@@ -109,6 +109,7 @@ extension DependencyValues {
                 CREATE TABLE "schedules" (
                   "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
                   "eventID" TEXT NOT NULL REFERENCES "events"("id") ON DELETE CASCADE,
+                  "date" TEXT NOT NULL,
                   "startsAt" TEXT,
                   "endsAt" TEXT,
                   "customTitle" TEXT

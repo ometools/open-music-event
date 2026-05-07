@@ -79,6 +79,7 @@ let package = Package(
             name: "OpenMusicEventTests",
             dependencies: [
                 "OpenMusicEvent",
+                "OpenMusicEventLexicon",
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "SQLiteData", package: "sqlite-data"),

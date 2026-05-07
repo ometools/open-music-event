@@ -24,34 +24,11 @@ struct CreateEventTests {
     }
 
     @Test
-    func rejectsInvalidDateRange() {
-        let store = TestStore(
-            initialState: makeState {
-                $0.eventName = "Testival"
-                $0.hasStartDate = true
-                $0.startDate = Date(timeIntervalSince1970: 86_400)
-                $0.hasEndDate = true
-                $0.endDate = .init(timeIntervalSince1970: 0)
-            }
-        ) {
-            CreateEvent()
-        }
-
-        store.send(.saveButtonTapped) {
-            $0.errorMessage = "End date must be on or after the start date."
-        }
-    }
-
-    @Test
     func savesMinimalEvent() async throws {
         let database = try makePreparedDatabase()
         let store = makeStore(
             initialState: makeState {
                 $0.eventName = "Testival 2026"
-                $0.hasStartDate = true
-                $0.startDate = Date(timeIntervalSince1970: 86_400)
-                $0.hasEndDate = true
-                $0.endDate = Date(timeIntervalSince1970: 172_800)
             },
             database: database,
             uuid: UUID(1)
@@ -71,8 +48,8 @@ struct CreateEventTests {
         let event = try #require(events.first)
         #expect(event.id.rawValue.rawValue == UUID(1).uuidString.lowercased())
         #expect(event.name == "Testival 2026")
-        #expect(event.startsAt == Date(timeIntervalSince1970: 86_400))
-        #expect(event.endsAt == Date(timeIntervalSince1970: 172_800))
+        #expect(event.startDate == nil)
+        #expect(event.endDate == nil)
         #expect(event.status == .planned)
         #expect(event.mode == .known(.inPerson))
         #expect(event.timeZone.identifier == TimeZone.current.identifier)
@@ -127,7 +104,6 @@ struct CreateEventTests {
     ) -> TestStore<CreateEvent> {
         withDependencies {
             $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.uuid = .constant(uuid)
         } operation: {
@@ -142,7 +118,6 @@ struct CreateEventTests {
     ) -> CreateEvent.State {
         withDependencies {
             $0.context = .test
-            $0.date = .constant(Date(timeIntervalSince1970: 0))
         } operation: {
             var state = CreateEvent.State()
             update(&state)

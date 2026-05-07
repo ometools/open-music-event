@@ -103,30 +103,7 @@ import SwiftUI
 struct EventRowView: View {
     var event: OMERecord.Event
 
-    static let intervalFormatter = {
-        let f = DateIntervalFormatter()
-        f.dateStyle = .long
-        f.timeStyle = .none
-        return f
-    }()
-
-    var eventDateString: String? {
-        if let startTime = event.startsAt, let endTime = event.endsAt {
-            guard startTime <= endTime
-            else {
-                reportIssue("Start time (\(String(describing: startTime))) is after end time (\(String(describing: endTime)))")
-                return nil
-            }
-
-            return Self.intervalFormatter.string(from: startTime, to: endTime)
-        } else if let startTime = event.startsAt {
-            return startTime.formatted()
-        } else {
-            return nil
-        }
-    }
-
-//    @Environment(\.date) var date
+    //    @Environment(\.date) var date
 
     var body: some View {
         HStack(spacing: 10) {
@@ -138,11 +115,8 @@ struct EventRowView: View {
             HStack {
                 VStack(alignment: .leading) {
                     Text(event.name)
-                    if let eventDateString {
-                        Text(eventDateString)
-                            .lineLimit(1)
-                            .font(.caption2)
-                    }
+//                    TODO(LocalDate): Reintroduce event date display once the UI is
+//                    redesigned around LocalDate instead of Date-backed formatting.
                 }
             }
 

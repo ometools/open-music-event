@@ -8,6 +8,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventLexicon
 import SQLiteData
 import SwiftUI
 
@@ -19,19 +20,9 @@ public struct CreateEvent {
     @Dependency(\.uuid) var uuid
 
     public struct State {
-        public init() {
-            @Dependency(\.date) var date
-            self.startDate = date()
-            self.endDate = date()
-        }
+        public init() {}
 
         var eventName = ""
-
-        var hasStartDate = false
-        var startDate: Date
-
-        var hasEndDate = false
-        var endDate: Date
 
         var isSaving = false
         var errorMessage: String?
@@ -40,20 +31,9 @@ public struct CreateEvent {
             eventName.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        var startDateValue: Date? {
-            hasStartDate ? startDate : nil
-        }
-
-        var endDateValue: Date? {
-            hasEndDate ? endDate : nil
-        }
-
         var validationMessage: String? {
             if !eventName.isEmpty && trimmedEventName.isEmpty {
                 return "Enter an event name."
-            }
-            if let startDate = startDateValue, let endDate = endDateValue, endDate < startDate {
-                return "End date must be on or after the start date."
             }
             return nil
         }
@@ -85,9 +65,7 @@ public struct CreateEvent {
                     let eventID = Self.makeEventID(from: uuid())
                     let event = Self.makeEventDraft(
                         id: eventID,
-                        name: state.trimmedEventName,
-                        startDate: state.startDateValue,
-                        endDate: state.endDateValue
+                        name: state.trimmedEventName
                     )
 
                     state.errorMessage = nil
@@ -133,15 +111,15 @@ public struct CreateEvent {
     static func makeEventDraft(
         id: OMERecord.Event.ID,
         name: String,
-        startDate: Date?,
-        endDate: Date?
+        startDate: LocalDate? = nil,
+        endDate: LocalDate? = nil
     ) -> OMERecord.Event.Draft {
         OMERecord.Event.Draft(
             id: id,
             name: name,
             description: nil,
-            startsAt: startDate,
-            endsAt: endDate,
+            startDate: startDate,
+            endDate: endDate,
             status: .planned,
             mode: .known(.inPerson),
             locations: nil,
@@ -178,31 +156,11 @@ struct CreateEventView: View {
                 }
             }
 
-            Section {
-                Toggle("Start Date", isOn: $store.hasStartDate.animation())
-                if store.hasStartDate {
-                    DatePicker(
-                        "Start Date",
-                        selection: $store.startDate,
-                        displayedComponents: .date
-                    )
-                    .labelsHidden()
-                }
-
-                Toggle("Add End Date", isOn: $store.hasEndDate.animation())
-                if store.hasEndDate {
-                    DatePicker(
-                        "End Date",
-                        selection: $store.endDate,
-                        displayedComponents: .date
-                    )
-                    .labelsHidden()
-                }
-            } header: {
-                Text("Dates")
-            } footer: {
-                Text("Dates are saved using your current device time zone: \(TimeZone.current.identifier).")
-            }
+//            Section {
+//                TODO(LocalDate): Reintroduce event date editing with a LocalDate-first UI.
+//            } header: {
+//                Text("Dates")
+//            }
 
             if let errorMessage = store.errorMessage {
                 Section {

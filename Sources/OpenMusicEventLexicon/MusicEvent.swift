@@ -61,8 +61,8 @@ extension OpenMusicEvent {
         // community.lexicon.calendar.event superset
         public var name: String
         public var description: String?
-        public var startsAt: Date?
-        public var endsAt: Date?
+        public var startDate: LocalDate?
+        public var endDate: LocalDate?
         public var status: Status
 
         public var mode: Open<Mode>
@@ -190,6 +190,7 @@ extension OpenMusicEvent {
         @Column(primaryKey: true) public var id: OME.ID<Self>
         public var eventID: OME.Event.ID
 
+        public var date: LocalDate
         public var startsAt: Date?
         public var endsAt: Date?
         public var customTitle: String?

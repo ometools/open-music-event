@@ -53,9 +53,6 @@ public struct EditEventInfo {
             if trimmedTimeZone.isEmpty || TimeZone(identifier: trimmedTimeZone) == nil {
                 return "Enter a valid time zone identifier."
             }
-            if let startDate = draft.startsAt, let endDate = draft.endsAt, endDate < startDate {
-                return "End date must be on or after the start date."
-            }
             return nil
         }
 
@@ -174,24 +171,8 @@ public struct EditEventInfoView: View {
                     }
 
                     Section("Times") {
-                        Toggle("Start Date", isOn: $store.draft.hasStartDate.animation())
-                        if store.draft.hasStartDate {
-                            DatePicker(
-                                "Start Date",
-                                selection: $store.draft.startsAt[coalesce: Date()],
-                                displayedComponents: .date
-                            )
-                        }
-
-                        Toggle("End Date", isOn: $store.draft.hasEndDate.animation())
-                        if store.draft.hasEndDate {
-                            DatePicker(
-                                "End Date",
-                                selection: $store.draft.endsAt[coalesce: Date()],
-                                displayedComponents: .date
-                            )
-                        }
-
+                        // TODO(LocalDate): Reintroduce event date editing once the UI is
+                        // redesigned around LocalDate instead of Date-backed pickers.
                         TextField("Time Zone", text: $store.timeZoneIdentifier)
                     }
 
@@ -313,8 +294,8 @@ private extension OMERecord.Event.Draft {
             id: .init("-1"),
             name: "",
             description: nil,
-            startsAt: nil,
-            endsAt: nil,
+            startDate: nil,
+            endDate: nil,
             status: .planned,
             mode: .known(.inPerson),
             locations: nil,
@@ -326,16 +307,6 @@ private extension OMERecord.Event.Draft {
             contactNumbers: nil,
             categoryConfigs: nil
         )
-    }
-
-    var hasStartDate: Bool {
-        get { startsAt != nil }
-        set { startsAt = newValue ? (startsAt ?? Date()) : nil }
-    }
-
-    var hasEndDate: Bool {
-        get { endsAt != nil }
-        set { endsAt = newValue ? (endsAt ?? Date()) : nil }
     }
 
     var editMode: EditEventInfoMode {

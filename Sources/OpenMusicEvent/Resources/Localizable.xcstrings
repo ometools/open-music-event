@@ -59,9 +59,6 @@
         }
       }
     },
-    "Add End Date" : {
-
-    },
     "Appearance" : {
       "comment" : "Settings select label for the interface style of the controls (light, dark, or default)",
       "localizations" : {
@@ -189,15 +186,6 @@
           }
         }
       }
-    },
-    "Dates" : {
-
-    },
-    "Dates are saved using your current device time zone: %@." : {
-
-    },
-    "End Date" : {
-
     },
     "Event Name" : {
 
@@ -492,9 +480,6 @@
           }
         }
       }
-    },
-    "Start Date" : {
-
     },
     "Start with the basics. This creates the event now so you can come back and fill in artwork, schedule, locations, and the rest later" : {
 
