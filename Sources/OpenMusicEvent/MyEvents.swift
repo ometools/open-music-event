@@ -102,8 +102,10 @@ import SwiftUI
 
 struct EventRowView: View {
     var event: OMERecord.Event
-
-    //    @Environment(\.date) var date
+    
+    var eventDateString: String? {
+        event.eventDateText(dateStyle: .long)
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -115,8 +117,11 @@ struct EventRowView: View {
             HStack {
                 VStack(alignment: .leading) {
                     Text(event.name)
-//                    TODO(LocalDate): Reintroduce event date display once the UI is
-//                    redesigned around LocalDate instead of Date-backed formatting.
+                    if let eventDateString {
+                        Text(eventDateString)
+                            .lineLimit(1)
+                            .font(.caption2)
+                    }
                 }
             }
 
@@ -131,5 +136,40 @@ struct EventRowView: View {
         var body: some View {
 
         }
+    }
+}
+
+private extension OMERecord.Event {
+    func eventDateText(dateStyle: DateFormatter.Style) -> String? {
+        switch (startDate, endDate) {
+        case let (.some(startDate), .some(endDate)):
+            let formatter = DateIntervalFormatter()
+            formatter.timeZone = timeZone
+            formatter.dateStyle = .long
+            formatter.timeStyle = .none
+            return formatter.string(
+                from: startDate.atStartOfDay(in: timeZone),
+                to: endDate.atStartOfDay(in: timeZone)
+            )
+
+        case let (.some(startDate), .none):
+            return startDate.formatted(dateStyle: dateStyle, in: timeZone)
+
+        case let (.none, .some(endDate)):
+            return endDate.formatted(dateStyle: dateStyle, in: timeZone)
+
+        case (.none, .none):
+            return nil
+        }
+    }
+}
+
+private extension LocalDate {
+    func formatted(dateStyle: DateFormatter.Style, in timeZone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.timeZone = timeZone
+        formatter.dateStyle = dateStyle
+        formatter.timeStyle = .none
+        return formatter.string(from: atStartOfDay(in: timeZone))
     }
 }

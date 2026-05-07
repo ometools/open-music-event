@@ -74,18 +74,30 @@ public struct EventInfoViewerView: View {
                         }
                     }
 
-//                    if event.hasEventInfoDates {
-//                        TODO(LocalDate): Reintroduce event date display once the UI is
-//                        redesigned around LocalDate instead of Date-backed formatting.
-//                    }
+                    if event.hasEventInfoDates {
+                        Section("Dates") {
+                            if let dateInterval = event.dateIntervalText {
+                                EventInfoRow(title: "Dates", value: dateInterval)
+                            } else {
+                                if let startDate = event.startDateText {
+                                    EventInfoRow(title: "Starts", value: startDate)
+                                }
+                                
+                                if let endDate = event.endDateText {
+                                    EventInfoRow(title: "Ends", value: endDate)
+                                }
+
+                                if let timeZone = event.eventInfoTimeZone {
+                                    EventInfoRow(title: "Time Zone", value: timeZone)
+                                }
+                            }
+                        }
+                    }
 
                     Section("Details") {
                         EventInfoRow(title: "Status", value: event.status.eventInfoText)
                         EventInfoRow(title: "Mode", value: event.mode.eventInfoText)
 
-                        if let timeZone = event.eventInfoTimeZone {
-                            EventInfoRow(title: "Time Zone", value: timeZone)
-                        }
                     }
                 }
                 .navigationTitle(event.name)
@@ -137,6 +149,40 @@ private extension OMERecord.Event {
         timeZone.identifier
     }
 
+    var hasEventInfoDates: Bool {
+        startDate != nil || endDate != nil
+    }
+
+    var dateIntervalText: String? {
+        guard let startDate, let endDate else { return nil }
+
+        let formatter = DateIntervalFormatter()
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter.string(
+            from: startDate.atStartOfDay(in: timeZone),
+            to: endDate.atStartOfDay(in: timeZone)
+        )
+    }
+
+    var startDateText: String? {
+        startDate?.formatted(dateStyle: .medium, in: timeZone)
+    }
+
+    var endDateText: String? {
+        endDate?.formatted(dateStyle: .medium, in: timeZone)
+    }
+}
+
+private extension LocalDate {
+    func formatted(dateStyle: DateFormatter.Style, in timeZone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.timeZone = timeZone
+        formatter.dateStyle = dateStyle
+        formatter.timeStyle = .none
+        return formatter.string(from: atStartOfDay(in: timeZone))
+    }
 }
 
 private extension OMERecord.Event.Status {

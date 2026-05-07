@@ -11,24 +11,14 @@ public struct TimeZonePicker: View {
     }
 
     public var body: some View {
-        List {
-            if query.isEmpty {
-                Section {
-                    if let selectedTimeZone {
-                        timeZoneButton(selectedTimeZone, showsCurrentBadge: selectedTimeZone.identifier == currentTimeZone.identifier)
-                    }
-
-                    if let currentTimeZone = pinnedCurrentTimeZone {
-                        timeZoneButton(currentTimeZone, showsCurrentBadge: true)
-                    }
-                }
-
-            }
-
-            Section(query.isEmpty ? "All Time Zones" : "Results") {
-                ForEach(filteredTimeZones, id: \.identifier) { timeZone in
-                    timeZoneButton(timeZone, showsCurrentBadge: timeZone.identifier == currentTimeZone.identifier)
-                }
+        List(displayedTimeZones, id: \.identifier) { timeZone in
+            TimeZonePickerButtonRow(
+                timeZone: timeZone,
+                isCurrent: timeZone.identifier == currentTimeZone.identifier,
+                isSelected: timeZone.identifier == selection.identifier
+            ) {
+                selection = timeZone
+                dismiss()
             }
         }
         .navigationTitle("Time Zone")
@@ -42,11 +32,10 @@ public struct TimeZonePicker: View {
         }
     }
 
-    private var filteredTimeZones: [TimeZone] {
+    private var displayedTimeZones: [TimeZone] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
-            let excludedIdentifiers = Set(pinnedTimeZones.map(\.identifier))
-            return Self.allTimeZones.filter { !excludedIdentifiers.contains($0.identifier) }
+            return pinnedTimeZones + remainingTimeZones
         }
 
         let normalizedQuery = trimmedQuery.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
@@ -72,19 +61,9 @@ public struct TimeZonePicker: View {
         [selectedTimeZone, pinnedCurrentTimeZone].compactMap { $0 }
     }
 
-    @ViewBuilder
-    private func timeZoneButton(_ timeZone: TimeZone, showsCurrentBadge: Bool) -> some View {
-        Button {
-            selection = timeZone
-            dismiss()
-        } label: {
-            TimeZoneRow(
-                timeZone: timeZone,
-                isCurrent: showsCurrentBadge,
-                isSelected: timeZone.identifier == selection.identifier
-            )
-        }
-        .buttonStyle(.plain)
+    private var remainingTimeZones: [TimeZone] {
+        let excludedIdentifiers = Set(pinnedTimeZones.map(\.identifier))
+        return Self.allTimeZones.filter { !excludedIdentifiers.contains($0.identifier) }
     }
 
     private static let allTimeZones: [TimeZone] = TimeZone.knownTimeZoneIdentifiers
@@ -95,6 +74,24 @@ public struct TimeZonePicker: View {
             }
             return $0.pickerTitle < $1.pickerTitle
         }
+}
+
+struct TimeZonePickerButtonRow: View {
+    let timeZone: TimeZone
+    let isCurrent: Bool
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            TimeZoneRow(
+                timeZone: timeZone,
+                isCurrent: isCurrent,
+                isSelected: isSelected
+            )
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 struct TimeZoneRow: View {

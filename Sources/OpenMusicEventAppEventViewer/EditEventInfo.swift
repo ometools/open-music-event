@@ -185,7 +185,6 @@ public struct EditEventInfo {
 
 public struct EditEventInfoView: View {
     @Bindable var store: StoreOf<EditEventInfo>
-    @State var isTimeZonePickerPresented = false
 
     public init(store: StoreOf<EditEventInfo>) {
         self.store = store
@@ -205,29 +204,34 @@ public struct EditEventInfoView: View {
                     }
 
                     Section("Times") {
-                        Toggle("Start Date", isOn: $store.hasStartDate.animation())
-                        if store.hasStartDate {
-                            DatePicker(
-                                "Start Date",
-                                selection: $store.startDateSelection,
-                                displayedComponents: .date
-                            )
-                            .labelsHidden()
-                            .environment(\.timeZone, store.timeZoneSelection)
+                        HStack {
+                            Toggle("Start Date", isOn: $store.hasStartDate.animation())
+                            if store.hasStartDate {
+                                DatePicker(
+                                    "Start Date",
+                                    selection: $store.startDateSelection,
+                                    displayedComponents: .date
+                                )
+                                .labelsHidden()
+                                .environment(\.timeZone, store.timeZoneSelection)
+                            }
                         }
 
-                        Toggle("End Date", isOn: $store.hasEndDate.animation())
-                        if store.hasEndDate {
-                            DatePicker(
-                                "End Date",
-                                selection: $store.endDateSelection,
-                                displayedComponents: .date
-                            )
-                            .labelsHidden()
-                            .environment(\.timeZone, store.timeZoneSelection)
+                        HStack {
+                            Toggle("End Date", isOn: $store.hasEndDate.animation())
+                            if store.hasEndDate {
+                                DatePicker(
+                                    "End Date",
+                                    selection: $store.endDateSelection,
+                                    displayedComponents: .date
+                                )
+                                .labelsHidden()
+                                .environment(\.timeZone, store.timeZoneSelection)
+                            }
                         }
-                        Button {
-                            isTimeZonePickerPresented = true
+
+                        NavigationLink {
+                            TimeZonePicker(selection: $store.timeZoneSelection)
                         } label: {
                             HStack {
                                 Text("Time Zone")
@@ -278,9 +282,6 @@ public struct EditEventInfoView: View {
         }
         .disabled(store.isSaving)
         .navigationTitle("Edit Event Info")
-        .navigationDestination(isPresented: $isTimeZonePickerPresented) {
-            TimeZonePicker(selection: $store.timeZoneSelection)
-        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
