@@ -59,4 +59,27 @@ struct LocalDateTests {
         #expect(components.minute == 45)
         #expect(components.second == 30)
     }
+
+    @Test
+    func derivesLocalDateFromDateInTimeZone() throws {
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let date = try #require(
+            calendar.date(
+                from: DateComponents(
+                    timeZone: timeZone,
+                    year: 2025,
+                    month: 8,
+                    day: 29,
+                    hour: 18,
+                    minute: 15
+                )
+            )
+        )
+
+        let localDate = LocalDate(date, in: timeZone)
+
+        #expect(localDate == LocalDate(year: 2025, month: 8, day: 29))
+    }
 }

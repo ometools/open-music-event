@@ -16,7 +16,7 @@ public struct ScheduleViewer {
 
     public var body: some Feature {
         let _ = defaultEventID
-        return Update { _, _ in }
+        Update { _, _ in }
     }
 }
 

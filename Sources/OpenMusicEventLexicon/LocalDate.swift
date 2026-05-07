@@ -13,6 +13,16 @@ public struct LocalDate: Equatable, Hashable, Sendable, LosslessStringConvertibl
         self.day = day
     }
 
+    public init(_ date: Date, in timeZone: TimeZone) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        self.year = components.year!
+        self.month = components.month!
+        self.day = components.day!
+    }
+
     public init?(_ description: String) {
         guard description.count == 10 else { return nil }
 
@@ -152,5 +162,13 @@ public struct InvalidLocalDateStringError: Error, Equatable, Sendable {
 
     public init(rawValue: String) {
         self.rawValue = rawValue
+    }
+}
+
+extension LocalDate: Comparable {
+    public static func < (lhs: LocalDate, rhs: LocalDate) -> Bool {
+        if lhs.year != rhs.year { return lhs.year < rhs.year }
+        if lhs.month != rhs.month { return lhs.month < rhs.month }
+        return lhs.day < rhs.day
     }
 }

@@ -12,12 +12,22 @@ public struct EditEventInfo {
 
     public struct State {
         public init() {
+            @Dependency(\.date) var date
+            let now = date()
             self.draft = .placeholder
             self.timeZoneIdentifier = TimeZone.current.identifier
+            self.hasStartDate = false
+            self.startDateSelection = now
+            self.hasEndDate = false
+            self.endDateSelection = now
         }
 
         var draft: OMERecord.Event.Draft
         var timeZoneIdentifier: String
+        var hasStartDate: Bool
+        var startDateSelection: Date
+        var hasEndDate: Bool
+        var endDateSelection: Date
         var hasLoadedDraft = false
         var isSaving = false
         var errorMessage: String?
@@ -38,6 +48,18 @@ public struct EditEventInfo {
             timeZoneIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        var selectedTimeZone: TimeZone {
+            TimeZone(identifier: trimmedTimeZone) ?? draft.timeZone
+        }
+
+        var startDate: LocalDate? {
+            hasStartDate ? LocalDate(startDateSelection, in: selectedTimeZone) : nil
+        }
+
+        var endDate: LocalDate? {
+            hasEndDate ? LocalDate(endDateSelection, in: selectedTimeZone) : nil
+        }
+
         var mode: EditEventInfoMode {
             EditEventInfoMode(draft.mode)
         }
@@ -53,6 +75,9 @@ public struct EditEventInfo {
             if trimmedTimeZone.isEmpty || TimeZone(identifier: trimmedTimeZone) == nil {
                 return "Enter a valid time zone identifier."
             }
+            if let startDate, let endDate, endDate < startDate {
+                return "End date must be on or after the start date."
+            }
             return nil
         }
 
@@ -67,7 +92,9 @@ public struct EditEventInfo {
             if mode == .custom {
                 draft.mode = .unknown(.string(trimmedCustomMode))
             }
-            draft.timeZone = TimeZone(identifier: trimmedTimeZone) ?? .current
+            draft.timeZone = selectedTimeZone
+            draft.startDate = startDate
+            draft.endDate = endDate
             return draft
         }
     }
@@ -136,6 +163,10 @@ public struct EditEventInfo {
                 }) {
                     state.draft = .init(event)
                     state.timeZoneIdentifier = event.timeZone.identifier
+                    state.hasStartDate = event.startDate != nil
+                    state.startDateSelection = event.startDate?.atStartOfDay(in: event.timeZone) ?? state.startDateSelection
+                    state.hasEndDate = event.endDate != nil
+                    state.endDateSelection = event.endDate?.atStartOfDay(in: event.timeZone) ?? state.endDateSelection
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
@@ -171,8 +202,28 @@ public struct EditEventInfoView: View {
                     }
 
                     Section("Times") {
-                        // TODO(LocalDate): Reintroduce event date editing once the UI is
-                        // redesigned around LocalDate instead of Date-backed pickers.
+                        Toggle("Start Date", isOn: $store.hasStartDate.animation())
+                        if store.hasStartDate {
+                            DatePicker(
+                                "Start Date",
+                                selection: $store.startDateSelection,
+                                displayedComponents: .date
+                            )
+                            .labelsHidden()
+                            .environment(\.timeZone, store.selectedTimeZone)
+                        }
+
+                        Toggle("End Date", isOn: $store.hasEndDate.animation())
+                        if store.hasEndDate {
+                            DatePicker(
+                                "End Date",
+                                selection: $store.endDateSelection,
+                                displayedComponents: .date
+                            )
+                            .labelsHidden()
+                            .environment(\.timeZone, store.selectedTimeZone)
+                        }
+
                         TextField("Time Zone", text: $store.timeZoneIdentifier)
                     }
 

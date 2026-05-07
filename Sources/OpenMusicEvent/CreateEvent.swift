@@ -20,9 +20,18 @@ public struct CreateEvent {
     @Dependency(\.uuid) var uuid
 
     public struct State {
-        public init() {}
+        public init() {
+            @Dependency(\.date) var date
+            let now = date()
+            self.startDateSelection = now
+            self.endDateSelection = now
+        }
 
         var eventName = ""
+        var hasStartDate = false
+        var startDateSelection: Date
+        var hasEndDate = false
+        var endDateSelection: Date
 
         var isSaving = false
         var errorMessage: String?
@@ -31,9 +40,20 @@ public struct CreateEvent {
             eventName.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        var startDate: LocalDate? {
+            hasStartDate ? LocalDate(startDateSelection, in: .current) : nil
+        }
+
+        var endDate: LocalDate? {
+            hasEndDate ? LocalDate(endDateSelection, in: .current) : nil
+        }
+
         var validationMessage: String? {
             if !eventName.isEmpty && trimmedEventName.isEmpty {
                 return "Enter an event name."
+            }
+            if let startDate, let endDate, endDate < startDate {
+                return "End date must be on or after the start date."
             }
             return nil
         }
@@ -65,7 +85,9 @@ public struct CreateEvent {
                     let eventID = Self.makeEventID(from: uuid())
                     let event = Self.makeEventDraft(
                         id: eventID,
-                        name: state.trimmedEventName
+                        name: state.trimmedEventName,
+                        startDate: state.startDate,
+                        endDate: state.endDate
                     )
 
                     state.errorMessage = nil
@@ -156,11 +178,31 @@ struct CreateEventView: View {
                 }
             }
 
-//            Section {
-//                TODO(LocalDate): Reintroduce event date editing with a LocalDate-first UI.
-//            } header: {
-//                Text("Dates")
-//            }
+            Section {
+                Toggle("Start Date", isOn: $store.hasStartDate.animation())
+                if store.hasStartDate {
+                    DatePicker(
+                        "Start Date",
+                        selection: $store.startDateSelection,
+                        displayedComponents: .date
+                    )
+                    .labelsHidden()
+                }
+
+                Toggle("Add End Date", isOn: $store.hasEndDate.animation())
+                if store.hasEndDate {
+                    DatePicker(
+                        "End Date",
+                        selection: $store.endDateSelection,
+                        displayedComponents: .date
+                    )
+                    .labelsHidden()
+                }
+            } header: {
+                Text("Dates")
+            } footer: {
+                Text("Dates are saved as local calendar dates in \(TimeZone.current.identifier).")
+            }
 
             if let errorMessage = store.errorMessage {
                 Section {
