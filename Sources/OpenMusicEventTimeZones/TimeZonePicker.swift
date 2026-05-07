@@ -11,17 +11,25 @@ public struct TimeZonePicker: View {
     }
 
     public var body: some View {
-        List(filteredTimeZones, id: \.identifier) { timeZone in
-            Button {
-                selection = timeZone
-                dismiss()
-            } label: {
-                TimeZoneRow(
-                    timeZone: timeZone,
-                    isSelected: timeZone.identifier == selection.identifier
-                )
+        List {
+            if query.isEmpty {
+                Section {
+                    if let selectedTimeZone {
+                        timeZoneButton(selectedTimeZone, showsCurrentBadge: selectedTimeZone.identifier == currentTimeZone.identifier)
+                    }
+
+                    if let currentTimeZone = pinnedCurrentTimeZone {
+                        timeZoneButton(currentTimeZone, showsCurrentBadge: true)
+                    }
+                }
+
             }
-            .buttonStyle(.plain)
+
+            Section(query.isEmpty ? "All Time Zones" : "Results") {
+                ForEach(filteredTimeZones, id: \.identifier) { timeZone in
+                    timeZoneButton(timeZone, showsCurrentBadge: timeZone.identifier == currentTimeZone.identifier)
+                }
+            }
         }
         .navigationTitle("Time Zone")
         .searchable(text: $query, prompt: "Search city or identifier")
@@ -36,12 +44,47 @@ public struct TimeZonePicker: View {
 
     private var filteredTimeZones: [TimeZone] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else { return Self.allTimeZones }
+        guard !trimmedQuery.isEmpty else {
+            let excludedIdentifiers = Set(pinnedTimeZones.map(\.identifier))
+            return Self.allTimeZones.filter { !excludedIdentifiers.contains($0.identifier) }
+        }
 
         let normalizedQuery = trimmedQuery.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         return Self.allTimeZones.filter { timeZone in
             timeZone.searchText.localizedStandardContains(normalizedQuery)
         }
+    }
+
+    private var currentTimeZone: TimeZone {
+        .current
+    }
+
+    private var selectedTimeZone: TimeZone? {
+        TimeZone(identifier: selection.identifier)
+    }
+
+    private var pinnedCurrentTimeZone: TimeZone? {
+        guard currentTimeZone.identifier != selectedTimeZone?.identifier else { return nil }
+        return currentTimeZone
+    }
+
+    private var pinnedTimeZones: [TimeZone] {
+        [selectedTimeZone, pinnedCurrentTimeZone].compactMap { $0 }
+    }
+
+    @ViewBuilder
+    private func timeZoneButton(_ timeZone: TimeZone, showsCurrentBadge: Bool) -> some View {
+        Button {
+            selection = timeZone
+            dismiss()
+        } label: {
+            TimeZoneRow(
+                timeZone: timeZone,
+                isCurrent: showsCurrentBadge,
+                isSelected: timeZone.identifier == selection.identifier
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private static let allTimeZones: [TimeZone] = TimeZone.knownTimeZoneIdentifiers
@@ -56,6 +99,7 @@ public struct TimeZonePicker: View {
 
 struct TimeZoneRow: View {
     let timeZone: TimeZone
+    let isCurrent: Bool
     let isSelected: Bool
 
     var body: some View {
@@ -74,6 +118,10 @@ struct TimeZoneRow: View {
             if isSelected {
                 Image(systemName: "checkmark")
                     .foregroundStyle(.tint)
+            } else if isCurrent {
+                Text("Current")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .contentShape(Rectangle())
