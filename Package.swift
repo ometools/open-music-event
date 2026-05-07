@@ -33,6 +33,7 @@ let package = Package(
             dependencies: [
                 "OpenMusicEventAppEventViewer",
                 "OpenMusicEventLexicon",
+                "OpenMusicEventTimeZones",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
@@ -45,6 +46,7 @@ let package = Package(
             name: "OpenMusicEventAppEventViewer",
             dependencies: [
                 "OpenMusicEventLexicon",
+                "OpenMusicEventTimeZones",
                 "SwiftUITabFeatures",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
@@ -65,7 +67,8 @@ let package = Package(
             name: "OpenMusicEventTimeZones",
             dependencies: [
                 .product(name: "SQLiteData", package: "sqlite-data"),
-            ]
+            ],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
         ),
         .target(
             name: "SwiftUITabFeatures",

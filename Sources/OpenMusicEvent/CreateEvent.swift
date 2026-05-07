@@ -9,6 +9,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventLexicon
+import OpenMusicEventTimeZones
 import SQLiteData
 import SwiftUI
 
@@ -32,6 +33,7 @@ public struct CreateEvent {
         var startDateSelection: Date
         var hasEndDate = false
         var endDateSelection: Date
+        var timeZone: TimeZone = .current
 
         var isSaving = false
         var errorMessage: String?
@@ -41,11 +43,27 @@ public struct CreateEvent {
         }
 
         var startDate: LocalDate? {
-            hasStartDate ? LocalDate(startDateSelection, in: .current) : nil
+            hasStartDate ? LocalDate(startDateSelection, in: timeZone) : nil
         }
 
         var endDate: LocalDate? {
-            hasEndDate ? LocalDate(endDateSelection, in: .current) : nil
+            hasEndDate ? LocalDate(endDateSelection, in: timeZone) : nil
+        }
+
+        var timeZoneSelection: TimeZone {
+            get { timeZone }
+            set {
+                guard newValue.identifier != timeZone.identifier else { return }
+                if hasStartDate {
+                    startDateSelection = LocalDate(startDateSelection, in: timeZone)
+                        .atStartOfDay(in: newValue)
+                }
+                if hasEndDate {
+                    endDateSelection = LocalDate(endDateSelection, in: timeZone)
+                        .atStartOfDay(in: newValue)
+                }
+                timeZone = newValue
+            }
         }
 
         var validationMessage: String? {
@@ -87,7 +105,8 @@ public struct CreateEvent {
                         id: eventID,
                         name: state.trimmedEventName,
                         startDate: state.startDate,
-                        endDate: state.endDate
+                        endDate: state.endDate,
+                        timeZone: state.timeZone
                     )
 
                     state.errorMessage = nil
@@ -134,7 +153,8 @@ public struct CreateEvent {
         id: OMERecord.Event.ID,
         name: String,
         startDate: LocalDate? = nil,
-        endDate: LocalDate? = nil
+        endDate: LocalDate? = nil,
+        timeZone: TimeZone = .current
     ) -> OMERecord.Event.Draft {
         OMERecord.Event.Draft(
             id: id,
@@ -146,7 +166,7 @@ public struct CreateEvent {
             mode: .known(.inPerson),
             locations: nil,
             uris: nil,
-            timeZone: TimeZone.current,
+            timeZone: timeZone,
             imageURL: nil,
             iconImageURL: nil,
             siteMapImageURL: nil,
@@ -159,6 +179,7 @@ public struct CreateEvent {
 struct CreateEventView: View {
     @Environment(\.dismiss) var dismiss
     @Bindable var store: StoreOf<CreateEvent>
+    @State var isTimeZonePickerPresented = false
 
     var body: some View {
         Form {
@@ -187,6 +208,7 @@ struct CreateEventView: View {
                         displayedComponents: .date
                     )
                     .labelsHidden()
+                    .environment(\.timeZone, store.timeZone)
                 }
 
                 Toggle("Add End Date", isOn: $store.hasEndDate.animation())
@@ -197,11 +219,24 @@ struct CreateEventView: View {
                         displayedComponents: .date
                     )
                     .labelsHidden()
+                    .environment(\.timeZone, store.timeZone)
                 }
+
+                Button {
+                    isTimeZonePickerPresented = true
+                } label: {
+                    HStack {
+                        Text("Time Zone")
+                        Spacer()
+                        Text(store.timeZone.identifier)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
             } header: {
                 Text("Dates")
             } footer: {
-                Text("Dates are saved as local calendar dates in \(TimeZone.current.identifier).")
+                Text("Dates are saved as local calendar dates in \(store.timeZone.identifier).")
             }
 
             if let errorMessage = store.errorMessage {
@@ -214,6 +249,9 @@ struct CreateEventView: View {
         }
         .disabled(store.isSaving)
         .navigationTitle("New Event")
+        .sheet(isPresented: $isTimeZonePickerPresented) {
+            TimeZonePicker(selection: $store.timeZoneSelection)
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {

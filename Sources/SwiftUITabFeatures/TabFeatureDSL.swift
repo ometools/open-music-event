@@ -699,7 +699,6 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     }
 
     private func onChangeOfOverflowSelection(_ value: Value?) {
-        print("onChangeOfOverflowSelection: \(value), \(path)")
         if let value, overflowFeatures.contains(where: { $0.value == value }) {
 
         } else {

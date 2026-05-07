@@ -3,6 +3,7 @@ import Dependencies
 import Foundation
 import IssueReporting
 import Lexicon
+import OpenMusicEventTimeZones
 import SQLiteData
 import SwiftUI
 
@@ -15,7 +16,6 @@ public struct EditEventInfo {
             @Dependency(\.date) var date
             let now = date()
             self.draft = .placeholder
-            self.timeZoneIdentifier = TimeZone.current.identifier
             self.hasStartDate = false
             self.startDateSelection = now
             self.hasEndDate = false
@@ -23,7 +23,6 @@ public struct EditEventInfo {
         }
 
         var draft: OMERecord.Event.Draft
-        var timeZoneIdentifier: String
         var hasStartDate: Bool
         var startDateSelection: Date
         var hasEndDate: Bool
@@ -44,20 +43,28 @@ public struct EditEventInfo {
             draft.mode.customValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
 
-        var trimmedTimeZone: String {
-            timeZoneIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        var selectedTimeZone: TimeZone {
-            TimeZone(identifier: trimmedTimeZone) ?? draft.timeZone
-        }
-
         var startDate: LocalDate? {
-            hasStartDate ? LocalDate(startDateSelection, in: selectedTimeZone) : nil
+            hasStartDate ? LocalDate(startDateSelection, in: draft.timeZone) : nil
         }
 
         var endDate: LocalDate? {
-            hasEndDate ? LocalDate(endDateSelection, in: selectedTimeZone) : nil
+            hasEndDate ? LocalDate(endDateSelection, in: draft.timeZone) : nil
+        }
+
+        var timeZoneSelection: TimeZone {
+            get { draft.timeZone }
+            set {
+                guard newValue.identifier != draft.timeZone.identifier else { return }
+                if hasStartDate {
+                    startDateSelection = LocalDate(startDateSelection, in: draft.timeZone)
+                        .atStartOfDay(in: newValue)
+                }
+                if hasEndDate {
+                    endDateSelection = LocalDate(endDateSelection, in: draft.timeZone)
+                        .atStartOfDay(in: newValue)
+                }
+                draft.timeZone = newValue
+            }
         }
 
         var mode: EditEventInfoMode {
@@ -71,9 +78,6 @@ public struct EditEventInfo {
             }
             if mode == .custom && trimmedCustomMode.isEmpty {
                 return "Enter a custom event mode."
-            }
-            if trimmedTimeZone.isEmpty || TimeZone(identifier: trimmedTimeZone) == nil {
-                return "Enter a valid time zone identifier."
             }
             if let startDate, let endDate, endDate < startDate {
                 return "End date must be on or after the start date."
@@ -92,7 +96,6 @@ public struct EditEventInfo {
             if mode == .custom {
                 draft.mode = .unknown(.string(trimmedCustomMode))
             }
-            draft.timeZone = selectedTimeZone
             draft.startDate = startDate
             draft.endDate = endDate
             return draft
@@ -162,7 +165,6 @@ public struct EditEventInfo {
                     try OMERecord.Event.where { $0.id.eq(defaultEventID) }.fetchOne(db)
                 }) {
                     state.draft = .init(event)
-                    state.timeZoneIdentifier = event.timeZone.identifier
                     state.hasStartDate = event.startDate != nil
                     state.startDateSelection = event.startDate?.atStartOfDay(in: event.timeZone) ?? state.startDateSelection
                     state.hasEndDate = event.endDate != nil
@@ -183,6 +185,7 @@ public struct EditEventInfo {
 
 public struct EditEventInfoView: View {
     @Bindable var store: StoreOf<EditEventInfo>
+    @State var isTimeZonePickerPresented = false
 
     public init(store: StoreOf<EditEventInfo>) {
         self.store = store
@@ -210,7 +213,7 @@ public struct EditEventInfoView: View {
                                 displayedComponents: .date
                             )
                             .labelsHidden()
-                            .environment(\.timeZone, store.selectedTimeZone)
+                            .environment(\.timeZone, store.timeZoneSelection)
                         }
 
                         Toggle("End Date", isOn: $store.hasEndDate.animation())
@@ -221,10 +224,19 @@ public struct EditEventInfoView: View {
                                 displayedComponents: .date
                             )
                             .labelsHidden()
-                            .environment(\.timeZone, store.selectedTimeZone)
+                            .environment(\.timeZone, store.timeZoneSelection)
                         }
-
-                        TextField("Time Zone", text: $store.timeZoneIdentifier)
+                        Button {
+                            isTimeZonePickerPresented = true
+                        } label: {
+                            HStack {
+                                Text("Time Zone")
+                                Spacer()
+                                Text(store.timeZoneSelection.identifier)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     Section("Details") {
@@ -266,6 +278,9 @@ public struct EditEventInfoView: View {
         }
         .disabled(store.isSaving)
         .navigationTitle("Edit Event Info")
+        .navigationDestination(isPresented: $isTimeZonePickerPresented) {
+            TimeZonePicker(selection: $store.timeZoneSelection)
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
