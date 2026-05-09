@@ -480,10 +480,10 @@ let features = TabFeatures<DemoTab> {
     }
 }
 
+#if canImport(Playgrounds) && canImport(CustomDump) && !SKIP
 import Playgrounds
 import CustomDump
 
-#if !SKIP
 #Playground {
     let resolved = features.resolve(
         layout: .init(preferredIDs: [.init("stage4"), .init("stage2")]),

@@ -8,11 +8,18 @@ public enum AppRoute: Equatable, Sendable {
         let segments = url.path.split(separator: "/").map(String.init)
         guard !segments.isEmpty else { return nil }
 
-        switch segments[0] {
-        case "events":
-            guard segments.count >= 2 else { return nil }
-            let eventID = OMERecord.Event.ID(.init(segments[1]))
-            let tail = Array(segments.dropFirst(2))
+        if segments.count >= 4,
+           segments[0] == "organizers",
+           segments[2] == "events" {
+            guard
+                  let organizerID = OMERecord.Organizer.ID(segments[1].removingPercentEncoding ?? segments[1])
+            else { return nil }
+            let localEventID = OMERecord.ID<OMERecord.Event>(.init(segments[3]))
+            let eventID = OMERecord.Event.ID(
+                organizerID: organizerID,
+                eventID: localEventID
+            )
+            let tail = Array(segments.dropFirst(4))
 
             if tail.isEmpty {
                 self = .event(eventID, nil)
@@ -45,8 +52,7 @@ public enum AppRoute: Equatable, Sendable {
             } else {
                 return nil
             }
-
-        default:
+        } else {
             return nil
         }
     }
@@ -54,7 +60,9 @@ public enum AppRoute: Equatable, Sendable {
     public var path: String {
         switch self {
         case let .event(eventID, target):
-            let base = "/events/\(eventID.rawValue.rawValue)"
+            let organizerID = eventID.organizerID.description.urlPathSegmentEncoded
+            let localEventID = eventID.eventID.rawValue.rawValue
+            let base = "/organizers/\(organizerID)/events/\(localEventID)"
             guard let target else { return base }
 
             switch target {
@@ -91,5 +99,12 @@ public enum AppRoute: Equatable, Sendable {
         case let .event(eventID, target):
             .event(eventID, target)
         }
+    }
+}
+
+private extension String {
+    var urlPathSegmentEncoded: String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return addingPercentEncoding(withAllowedCharacters: allowed) ?? self
     }
 }

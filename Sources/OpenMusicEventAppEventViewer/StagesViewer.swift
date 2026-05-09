@@ -7,13 +7,13 @@ public struct StageDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public let stageID: OMERecord.Stage.ID
+        public let stageID: OMERecord.ID<OMERecord.Stage>
 
-        public init(stageID: OMERecord.Stage.ID) {
+        public init(stageID: OMERecord.ID<OMERecord.Stage>) {
             self.stageID = stageID
         }
 
-        public var id: OMERecord.Stage.ID { stageID }
+        public var id: OMERecord.ID<OMERecord.Stage> { stageID }
     }
 
     public enum Action {}

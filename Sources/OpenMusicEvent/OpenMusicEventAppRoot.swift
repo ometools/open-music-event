@@ -14,8 +14,12 @@ public struct OpenMusicEventAppRoot {
         public var browser = Spawn(OpenMusicEventBrowser.State())
         public var eventViewer: EventViewer.State?
 
-        @FetchOne(AppState.select { $0.selectedEventID })
-        public var selectedEventID: OMERecord.Event.ID?
+        @FetchOne(AppState.find(1))
+        public var appState: AppState?
+
+        public var selectedEventID: OMERecord.Event.ID? {
+            appState?.selectedEventID
+        }
     }
 
     public enum Action {
@@ -38,7 +42,8 @@ public struct OpenMusicEventAppRoot {
                 state.eventViewer = nil
                 try? database.write { db in
                     try AppState.update {
-                        $0.selectedEventID = #bind(nil)
+                        $0.organizerID = #bind(nil as OMERecord.Organizer.ID?)
+                        $0.eventID = #bind(nil as OMERecord.ID<OMERecord.Event>?)
                     }
                     .execute(db)
                 }
@@ -53,7 +58,8 @@ public struct OpenMusicEventAppRoot {
                     if state.selectedEventID != eventID {
                         try? database.write { db in
                             try AppState.update {
-                                $0.selectedEventID = #bind(eventID)
+                                $0.organizerID = #bind(eventID.organizerID)
+                                $0.eventID = #bind(eventID.eventID)
                             }
                             .execute(db)
                         }
@@ -68,7 +74,8 @@ public struct OpenMusicEventAppRoot {
                     state.eventViewer = .route(eventID: eventID, target: target)
                     try? database.write { db in
                         try AppState.update {
-                            $0.selectedEventID = #bind(eventID)
+                            $0.organizerID = #bind(eventID.organizerID)
+                            $0.eventID = #bind(eventID.eventID)
                         }
                         .execute(db)
                     }

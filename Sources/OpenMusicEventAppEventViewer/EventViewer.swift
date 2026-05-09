@@ -7,7 +7,13 @@ import Tagged
 
 private enum DefaultEventIDKey: DependencyKey {
     static let liveValue: OMERecord.Event.ID =
-        unimplemented("DependencyValues.defaultEventID", placeholder: .init("-1"))
+        unimplemented(
+            "DependencyValues.defaultEventID",
+            placeholder: .init(
+                organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
+                eventID: .init("-1")
+            )
+        )
 }
 
 extension DependencyValues {
@@ -575,7 +581,12 @@ struct ViewerPlaceholderView: View {
 #Preview {
     EventViewerView(
         store: Store(
-            initialState: EventViewer.State(eventID: .init("preview"))
+            initialState: EventViewer.State(
+                eventID: .init(
+                    organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
+                    eventID: .init("preview")
+                )
+            )
         ) {
             EventViewer()
         }

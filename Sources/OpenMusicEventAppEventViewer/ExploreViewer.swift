@@ -38,8 +38,8 @@ public struct EventSearch {
 
     public enum Action {
         case destination(Destination.Action)
-        case openParticipant(OMERecord.Participant.ID)
-        case openStage(OMERecord.Stage.ID)
+        case openParticipant(OMERecord.ID<OMERecord.Participant>)
+        case openStage(OMERecord.ID<OMERecord.Stage>)
     }
 
     @Feature

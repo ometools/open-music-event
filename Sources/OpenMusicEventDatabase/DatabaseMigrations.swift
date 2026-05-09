@@ -14,7 +14,8 @@ public extension OME {
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "events" (
-                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                      "organizerID" TEXT NOT NULL REFERENCES "organizers"("id") ON DELETE CASCADE,
+                      "eventID" TEXT NOT NULL,
                       "name" TEXT NOT NULL,
                       "description" TEXT,
                       "startDate" TEXT,
@@ -28,23 +29,30 @@ public extension OME {
                       "iconImageURL" TEXT,
                       "siteMapImageURL" TEXT,
                       "contactNumbers" TEXT,
-                      "categoryConfigs" TEXT
+                      "categoryConfigs" TEXT,
+                      PRIMARY KEY ("organizerID", "eventID") ON CONFLICT REPLACE
                     ) STRICT
                     """)
                     .execute(db)
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "eventOrganizers" (
-                      "eventID" TEXT NOT NULL REFERENCES "events"("id") ON DELETE CASCADE,
-                      "organizerID" TEXT NOT NULL REFERENCES "organizers"("id") ON DELETE CASCADE,
-                      PRIMARY KEY ("eventID", "organizerID")
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "eventOrganizerID" TEXT NOT NULL REFERENCES "organizers"("id") ON DELETE CASCADE,
+                      PRIMARY KEY ("organizerID", "eventID", "eventOrganizerID"),
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "stages" (
-                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "stageID" TEXT NOT NULL,
                       "name" TEXT NOT NULL,
                       "color" INTEGER NOT NULL,
                       "category" TEXT,
@@ -54,32 +62,47 @@ public extension OME {
                       "iconShortCode" TEXT,
                       "imageURL" TEXT,
                       "posterImageURL" TEXT,
-                      "lineup" TEXT
+                      "lineup" TEXT,
+                      PRIMARY KEY ("organizerID", "eventID", "stageID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "schedules" (
-                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
-                      "eventID" TEXT NOT NULL REFERENCES "events"("id") ON DELETE CASCADE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "scheduleID" TEXT NOT NULL,
                       "date" TEXT NOT NULL,
                       "startsAt" TEXT,
                       "endsAt" TEXT,
-                      "customTitle" TEXT
+                      "customTitle" TEXT,
+                      PRIMARY KEY ("organizerID", "eventID", "scheduleID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "participants" (
-                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "participantID" TEXT NOT NULL,
                       "name" TEXT NOT NULL,
                       "bio" TEXT,
                       "imageURL" TEXT,
                       "logoURL" TEXT,
                       "kind" TEXT,
-                      "links" TEXT
+                      "links" TEXT,
+                      PRIMARY KEY ("organizerID", "eventID", "participantID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)
@@ -87,56 +110,90 @@ public extension OME {
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "participantClaims" (
                       "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
-                      "participantID" TEXT NOT NULL REFERENCES "participants"("id") ON DELETE CASCADE
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "participantID" TEXT NOT NULL,
+                      FOREIGN KEY ("organizerID", "eventID", "participantID")
+                        REFERENCES "participants"("organizerID", "eventID", "participantID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "channels" (
-                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
-                      "eventID" TEXT NOT NULL REFERENCES "events"("id") ON DELETE CASCADE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "channelID" TEXT NOT NULL,
                       "name" TEXT NOT NULL,
                       "description" TEXT NOT NULL,
                       "iconImageURL" TEXT,
                       "headerImageURL" TEXT,
                       "sortIndex" INTEGER,
                       "defaultNotificationState" TEXT NOT NULL,
-                      "notificationsRequired" INTEGER NOT NULL DEFAULT 0
+                      "notificationsRequired" INTEGER NOT NULL DEFAULT 0,
+                      PRIMARY KEY ("organizerID", "eventID", "channelID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "posters" (
-                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
-                      "eventID" TEXT NOT NULL REFERENCES "events"("id") ON DELETE CASCADE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "posterID" TEXT NOT NULL,
                       "title" TEXT,
-                      "imageURL" TEXT NOT NULL
+                      "imageURL" TEXT NOT NULL,
+                      PRIMARY KEY ("organizerID", "eventID", "posterID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "performances" (
-                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
-                      "eventID" TEXT NOT NULL REFERENCES "events"("id") ON DELETE CASCADE,
-                      "stageID" TEXT NOT NULL REFERENCES "stages"("id") ON DELETE CASCADE,
-                      "scheduleID" TEXT REFERENCES "schedules"("id") ON DELETE CASCADE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "performanceID" TEXT NOT NULL,
+                      "stageID" TEXT NOT NULL,
+                      "scheduleID" TEXT,
                       "startTime" TEXT NOT NULL,
                       "endTime" TEXT NOT NULL,
                       "title" TEXT NOT NULL,
                       "description" TEXT,
-                      "recordings" TEXT NOT NULL
+                      "recordings" TEXT NOT NULL,
+                      PRIMARY KEY ("organizerID", "eventID", "performanceID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE,
+                      FOREIGN KEY ("organizerID", "eventID", "stageID")
+                        REFERENCES "stages"("organizerID", "eventID", "stageID")
+                        ON DELETE CASCADE,
+                      FOREIGN KEY ("organizerID", "eventID", "scheduleID")
+                        REFERENCES "schedules"("organizerID", "eventID", "scheduleID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)
 
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "performanceParticipants" (
-                      "performanceID" TEXT NOT NULL REFERENCES "performances"("id") ON DELETE CASCADE,
-                      "participantID" TEXT REFERENCES "participants"("id") ON DELETE CASCADE,
-                      "anonymousName" TEXT
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "performanceID" TEXT NOT NULL,
+                      "participantID" TEXT,
+                      "anonymousName" TEXT,
+                      FOREIGN KEY ("organizerID", "eventID", "performanceID")
+                        REFERENCES "performances"("organizerID", "eventID", "performanceID")
+                        ON DELETE CASCADE,
+                      FOREIGN KEY ("organizerID", "eventID", "participantID")
+                        REFERENCES "participants"("organizerID", "eventID", "participantID")
+                        ON DELETE CASCADE
                     ) STRICT
                     """)
                     .execute(db)

@@ -1,5 +1,4 @@
 ---
-id: artist-one
 name: Artist One
 imageURL: https://example.com/artist-one.jpg
 kind: Live Performance

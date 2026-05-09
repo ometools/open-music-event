@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import ATProto
 import Dependencies
 import DebugSnapshots
 import Foundation
@@ -8,25 +9,46 @@ import Testing
 @testable import OpenMusicEvent
 @testable import OpenMusicEventAppEventViewer
 
+private let testOrganizerID = OMERecord.Organizer.ID("did:web:example.com")!
+
+private func eventID(_ string: String) -> OMERecord.Event.ID {
+    OMERecord.Event.ID(
+        organizerID: testOrganizerID,
+        eventID: eventLocalID(string)
+    )
+}
+
+private func eventLocalID(_ string: String) -> OMERecord.ID<OMERecord.Event> {
+    OMERecord.ID<OMERecord.Event>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private func participantLocalID(_ string: String) -> OMERecord.ID<OMERecord.Participant> {
+    OMERecord.ID<OMERecord.Participant>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private func stageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
+    OMERecord.ID<OMERecord.Stage>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
 @MainActor
 struct NavigationTests {
     @Test(
         arguments: [
             (
-                "https://openmusicevent.app/events/event-1",
-                AppRoute.event(.init(.init("event-1")), nil)
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1",
+                AppRoute.event(eventID("event-1"), nil)
             ),
             (
-                "https://openmusicevent.app/events/event-1/schedule",
-                AppRoute.event(.init(.init("event-1")), .schedule)
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/schedule",
+                AppRoute.event(eventID("event-1"), .schedule)
             ),
             (
-                "https://openmusicevent.app/events/event-1/participants/artist-1",
-                AppRoute.event(.init(.init("event-1")), .participant(.init(.init("artist-1"))))
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/participants/artist-1",
+                AppRoute.event(eventID("event-1"), .participant(participantLocalID("artist-1")))
             ),
             (
-                "https://openmusicevent.app/events/event-1/stages/stage-1",
-                AppRoute.event(.init(.init("event-1")), .stage(.init(.init("stage-1"))))
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1",
+                AppRoute.event(eventID("event-1"), .stage(stageLocalID("stage-1")))
             ),
         ]
     )
@@ -35,13 +57,13 @@ struct NavigationTests {
         let route = try #require(AppRoute(url: url))
 
         #expect(route == expected)
-        #expect(route.path == url.path)
+        #expect(route.path == url.path(percentEncoded: true))
     }
 
     @Test
     func navigationRequestSelectsEventAndMountsViewer() async throws {
         let database = try makePreparedDatabase()
-        let eventID = OMERecord.Event.ID(.init("event-1"))
+        let eventID = eventID("event-1")
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         withDependencies {
@@ -62,8 +84,8 @@ struct NavigationTests {
     @Test
     func navigationRequestSelectsParticipantSearchDestination() throws {
         let database = try makePreparedDatabase()
-        let eventID = OMERecord.Event.ID(.init("event-1"))
-        let participantID = OMERecord.Participant.ID(.init("participant-1"))
+        let eventID = eventID("event-1")
+        let participantID = participantLocalID("participant-1")
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         withDependencies {
@@ -83,8 +105,8 @@ struct NavigationTests {
     @Test
     func navigationRequestSelectsStageSearchDestination() throws {
         let database = try makePreparedDatabase()
-        let eventID = OMERecord.Event.ID(.init("event-1"))
-        let stageID = OMERecord.Stage.ID(.init("stage-1"))
+        let eventID = eventID("event-1")
+        let stageID = stageLocalID("stage-1")
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         withDependencies {
@@ -103,7 +125,7 @@ struct NavigationTests {
 
     @Test
     func eventViewerConsumesParticipantNavigationFromSearchDescendant() async throws {
-        let participantID = OMERecord.Participant.ID(.init("participant-1"))
+        let participantID = participantLocalID("participant-1")
         let store = try makeEventViewerHarnessStore()
 
         await store.send(to: \.eventViewer.eventSearch, .openParticipant(participantID))?.value
@@ -118,7 +140,7 @@ struct NavigationTests {
 
     @Test
     func eventViewerConsumesStageNavigationFromSearchDescendant() async throws {
-        let stageID = OMERecord.Stage.ID(.init("stage-1"))
+        let stageID = stageLocalID("stage-1")
         let store = try makeEventViewerHarnessStore()
 
         await store.send(to: \.eventViewer.eventSearch, .openStage(stageID))?.value
@@ -134,8 +156,12 @@ struct NavigationTests {
     @Test
     func myEventsPostsNavigationRequest() async throws {
         let database = try makePreparedDatabase()
-        let eventID = OMERecord.Event.ID(.init("event-1"))
+        let eventID = eventID("event-1")
         try await database.write { db in
+            try OMERecord.Organizer.insert {
+                OMERecord.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
             let eventDraft = CreateEvent.makeEventDraft(
                 id: eventID,
                 name: "Test Event",
@@ -169,11 +195,12 @@ struct NavigationTests {
 
     @Test
     func dismissClearsSelectedEvent() async throws {
-        let eventID = OMERecord.Event.ID(.init("event-1"))
+        let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         try await database.write { db in
             try AppState.update {
-                $0.selectedEventID = #bind(eventID)
+                $0.organizerID = #bind(eventID.organizerID)
+                $0.eventID = #bind(eventID.eventID)
             }
             .execute(db)
         }
@@ -201,7 +228,7 @@ struct NavigationTests {
 
     private func makeRootHarnessStore(
         database: any DatabaseWriter,
-        eventID: OMERecord.Event.ID = .init(.init("event-1"))
+        eventID: OMERecord.Event.ID = eventID("event-1")
     ) -> TestStore<RootHarness> {
         withDependencies {
             $0.context = .test
@@ -215,7 +242,7 @@ struct NavigationTests {
     }
 
     private func makeEventViewerHarnessStore(
-        eventID: OMERecord.Event.ID = .init(.init("event-1"))
+        eventID: OMERecord.Event.ID = eventID("event-1")
     ) throws -> TestStore<EventViewerHarness> {
         let database = try makePreparedDatabase()
         return withDependencies {
@@ -272,7 +299,7 @@ private struct MyEventsEventHarness {
 @Feature
 private struct EventViewerHarness {
     struct State {
-        init(eventID: OMERecord.Event.ID = .init(.init("event-1"))) {
+        init(eventID: OMERecord.Event.ID = eventID("event-1")) {
             self.eventViewer = EventViewer.State.route(
                 eventID: eventID,
                 target: nil

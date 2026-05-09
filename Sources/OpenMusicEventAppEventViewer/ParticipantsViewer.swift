@@ -7,13 +7,13 @@ public struct ParticipantDetail {
     public init() {}
 
     public struct State: Identifiable {
-    public let participantID: OMERecord.Participant.ID
+    public let participantID: OMERecord.ID<OMERecord.Participant>
 
-        public init(participantID: OMERecord.Participant.ID) {
-            self.participantID = participantID
-        }
+    public init(participantID: OMERecord.ID<OMERecord.Participant>) {
+        self.participantID = participantID
+    }
 
-        public var id: OMERecord.Participant.ID { participantID }
+    public var id: OMERecord.ID<OMERecord.Participant> { participantID }
     }
 
     public enum Action {}

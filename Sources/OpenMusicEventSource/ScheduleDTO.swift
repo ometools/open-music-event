@@ -2,8 +2,8 @@ import Foundation
 import OpenMusicEventLexicon
 
 public struct ScheduleDTO: Codable, Equatable, Sendable {
-    public var id: OMERecord.Schedule.ID?
-    public var eventID: OMERecord.Event.ID?
+    public var id: OMERecord.ID<OMERecord.Schedule>?
+    public var eventID: OMERecord.ID<OMERecord.Event>?
     public var date: LocalDate
     public var startsAt: String?
     public var endsAt: String?
@@ -11,8 +11,8 @@ public struct ScheduleDTO: Codable, Equatable, Sendable {
     public var performances: [String: [Performance]]
 
     public init(
-        id: OMERecord.Schedule.ID? = nil,
-        eventID: OMERecord.Event.ID? = nil,
+        id: OMERecord.ID<OMERecord.Schedule>? = nil,
+        eventID: OMERecord.ID<OMERecord.Event>? = nil,
         date: LocalDate,
         startsAt: String? = nil,
         endsAt: String? = nil,
@@ -31,22 +31,22 @@ public struct ScheduleDTO: Codable, Equatable, Sendable {
 
 extension ScheduleDTO {
     public struct Performance: Codable, Equatable, Sendable {
-        public var id: OMERecord.Performance.ID?
+        public var id: OMERecord.ID<OMERecord.Performance>?
         public var title: String
         public var description: String?
         public var startTime: String
         public var endTime: String?
-        public var participantIDs: [OMERecord.Participant.ID]?
+        public var participantIDs: [OMERecord.ID<OMERecord.Participant>]?
         public var participantNames: [String]?
         public var recordings: [ExternalPlatform.Asset]?
 
         public init(
-            id: OMERecord.Performance.ID? = nil,
+            id: OMERecord.ID<OMERecord.Performance>? = nil,
             title: String,
             description: String? = nil,
             startTime: String,
             endTime: String? = nil,
-            participantIDs: [OMERecord.Participant.ID]? = nil,
+            participantIDs: [OMERecord.ID<OMERecord.Participant>]? = nil,
             participantNames: [String]? = nil,
             recordings: [ExternalPlatform.Asset]? = nil
         ) {

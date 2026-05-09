@@ -66,10 +66,22 @@ struct CreateEventTests {
         let events = try await database.read { db in
             try OMERecord.Event.fetchAll(db)
         }
+        let organizers = try await database.read { db in
+            try OMERecord.Organizer.fetchAll(db)
+        }
+        let eventOrganizerCount = try await database.read { db in
+            try OMERecord.EventOrganizer.fetchCount(db)
+        }
         #expect(events.count == 1)
+        #expect(organizers.count == 1)
+        #expect(eventOrganizerCount == 0)
 
         let event = try #require(events.first)
-        #expect(event.id.rawValue.rawValue == UUID(1).uuidString.lowercased())
+        let organizer = try #require(organizers.first)
+        let organizerID = OMERecord.Organizer.ID("did:web:local.openmusicevent")!
+        #expect(organizer.id == organizerID)
+        #expect(event.id.organizerID == organizerID)
+        #expect(event.id.eventID.rawValue.rawValue == UUID(1).uuidString.lowercased())
         #expect(event.name == "Testival 2026")
         #expect(event.startDate == LocalDate(year: 1970, month: 1, day: 2))
         #expect(event.endDate == LocalDate(year: 1970, month: 1, day: 3))

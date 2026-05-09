@@ -27,7 +27,7 @@ struct SourceDatabaseInsertionTests {
         expectNoDifference(
             insertion.events.map(\.id),
             [
-                id("testival-2026")
+                eventID("testival-2026", organizerID: organizerID)
             ]
         )
         expectNoDifference(
@@ -35,22 +35,34 @@ struct SourceDatabaseInsertionTests {
             [
                 OME.EventOrganizer.Draft(
                     id: .init(
+                        organizerID: organizerID,
                         eventID: id("testival-2026"),
-                        organizerID: organizerID
+                        eventOrganizerID: organizerID
                     )
                 )
             ]
         )
-        expectNoDifference(insertion.stages.map(\.id), [id("meadow")])
-        expectNoDifference(insertion.participants.map(\.id), [id("artist-one")])
-        expectNoDifference(insertion.channels.map(\.id), [id("general")])
-        expectNoDifference(insertion.posters.map(\.id), [id("lineup")])
+        expectNoDifference(
+            insertion.stages.map(\.id),
+            [stageID("meadow", eventID: "testival-2026", organizerID: organizerID)]
+        )
+        expectNoDifference(
+            insertion.participants.map(\.id),
+            [participantID("artist-one", eventID: "testival-2026", organizerID: organizerID)]
+        )
+        expectNoDifference(
+            insertion.channels.map(\.id),
+            [channelID("general", eventID: "testival-2026", organizerID: organizerID)]
+        )
+        expectNoDifference(
+            insertion.posters.map(\.id),
+            [posterID("lineup", eventID: "testival-2026", organizerID: organizerID)]
+        )
         expectNoDifference(
             insertion.schedules,
             [
                 OME.Schedule.Draft(
-                    id: id("saturday"),
-                    eventID: id("testival-2026"),
+                    id: scheduleID("saturday", eventID: "testival-2026", organizerID: organizerID),
                     date: scheduleDate,
                     startsAt: try localDate(scheduleDate, atHour: 18, in: timeZone),
                     endsAt: try localDate(scheduleDate, atHour: 22, minute: 30, in: timeZone),
@@ -62,8 +74,7 @@ struct SourceDatabaseInsertionTests {
             insertion.performances,
             [
                 OME.Performance.Draft(
-                    id: id("opening-set"),
-                    eventID: id("testival-2026"),
+                    id: performanceID("opening-set", eventID: "testival-2026", organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
                     startTime: try localDate(scheduleDate, atHour: 18, in: timeZone),
@@ -73,8 +84,7 @@ struct SourceDatabaseInsertionTests {
                     recordings: []
                 ),
                 OME.Performance.Draft(
-                    id: id("saturday-meadow-2"),
-                    eventID: id("testival-2026"),
+                    id: performanceID("saturday-meadow-2", eventID: "testival-2026", organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
                     startTime: try localDate(scheduleDate, atHour: 20, in: timeZone),
@@ -84,8 +94,7 @@ struct SourceDatabaseInsertionTests {
                     recordings: []
                 ),
                 OME.Performance.Draft(
-                    id: id("closing-set"),
-                    eventID: id("testival-2026"),
+                    id: performanceID("closing-set", eventID: "testival-2026", organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
                     startTime: try localDate(scheduleDate, atHour: 21, in: timeZone),
@@ -100,14 +109,128 @@ struct SourceDatabaseInsertionTests {
             insertion.performanceParticipants,
             [
                 OME.Performance.Participants.Draft(
+                    organizerID: organizerID,
+                    eventID: id("testival-2026"),
                     performanceID: id("opening-set"),
                     participantID: id("artist-one"),
                     anonymousName: nil
                 ),
                 OME.Performance.Participants.Draft(
+                    organizerID: organizerID,
+                    eventID: id("testival-2026"),
                     performanceID: id("saturday-meadow-2"),
                     participantID: nil,
                     anonymousName: "Guest Artist"
+                ),
+            ]
+        )
+    }
+
+    @Test
+    func importsSameLocalEventIDForDifferentOrganizers() async throws {
+        let source = try makeSourceRepository(eventDirectoryName: "2025")
+        let firstOrganizerID = try #require(OME.Organizer.ID("did:plc:firstorg"))
+        let secondOrganizerID = try #require(OME.Organizer.ID("did:plc:secondorg"))
+        let firstInsertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: firstOrganizerID)
+        )
+        let secondInsertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: secondOrganizerID)
+        )
+        let database = try makeCoreDatabase()
+
+        try await firstInsertion.insert(into: database)
+        try await secondInsertion.insert(into: database)
+
+        let events = try await database.read { db in
+            try OME.Event.fetchAll(db)
+        }
+        let stages = try await database.read { db in
+            try OME.Stage.fetchAll(db)
+        }
+
+        expectNoDifference(
+            Set(events.map(\.id)),
+            Set([
+                eventID("2025", organizerID: firstOrganizerID),
+                eventID("2025", organizerID: secondOrganizerID),
+            ])
+        )
+        expectNoDifference(
+            Set(stages.map(\.id)),
+            Set([
+                stageID("meadow", eventID: "2025", organizerID: firstOrganizerID),
+                stageID("meadow", eventID: "2025", organizerID: secondOrganizerID),
+            ])
+        )
+    }
+
+    @Test
+    func resolvesAfterMidnightPerformanceTimes() throws {
+        let source = try makeSourceRepository(
+            eventDirectoryName: "2025",
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("late-night"),
+                        title: "Late Night",
+                        startTime: "23:30"
+                    ),
+                    .init(
+                        id: id("after-midnight"),
+                        title: "After Midnight",
+                        startTime: "00:15",
+                        endTime: "01:00"
+                    ),
+                ]
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let scheduleDate = try #require(LocalDate("2026-08-01"))
+
+        expectNoDifference(
+            insertion.performances,
+            [
+                OME.Performance.Draft(
+                    id: performanceID("late-night", eventID: "2025", organizerID: organizerID),
+                    stageID: id("meadow"),
+                    scheduleID: id("saturday"),
+                    startTime: try localDate(scheduleDate, atHour: 23, minute: 30, in: timeZone),
+                    endTime: try localDate(
+                        scheduleDate,
+                        atHour: 0,
+                        minute: 15,
+                        dayOffset: 1,
+                        in: timeZone
+                    ),
+                    title: "Late Night",
+                    description: nil,
+                    recordings: []
+                ),
+                OME.Performance.Draft(
+                    id: performanceID("after-midnight", eventID: "2025", organizerID: organizerID),
+                    stageID: id("meadow"),
+                    scheduleID: id("saturday"),
+                    startTime: try localDate(
+                        scheduleDate,
+                        atHour: 0,
+                        minute: 15,
+                        dayOffset: 1,
+                        in: timeZone
+                    ),
+                    endTime: try localDate(
+                        scheduleDate,
+                        atHour: 1,
+                        dayOffset: 1,
+                        in: timeZone
+                    ),
+                    title: "After Midnight",
+                    description: nil,
+                    recordings: []
                 ),
             ]
         )
@@ -133,7 +256,7 @@ struct SourceDatabaseInsertionTests {
             expectNoDifference(
                 error,
                 .missingPerformanceEndTime(
-                    scheduleID: id("saturday"),
+                    scheduleID: scheduleID("saturday", eventID: "testival-2026", organizerID: organizerID),
                     stageID: id("meadow"),
                     performanceIndex: 1
                 )
@@ -150,10 +273,7 @@ struct SourceDatabaseInsertionTests {
         let insertion = try OME.SourceDatabaseInsertion(
             .init(source: source, organizerID: organizerID)
         )
-        let database = try SQLiteData.defaultDatabase()
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(database)
+        let database = try makeCoreDatabase()
 
         try await insertion.insert(into: database)
 
@@ -181,6 +301,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     private func makeSourceRepository(
+        eventDirectoryName: String = "testival-2026",
         performances: [String: [ScheduleDTO.Performance]] = [
             "meadow": [
                 .init(
@@ -211,7 +332,7 @@ struct SourceDatabaseInsertionTests {
         return OpenMusicEventSourceRepository(
             events: [
                 DirectoryContent(
-                    directoryName: "testival-2026",
+                    directoryName: eventDirectoryName,
                     components: OpenMusicEventSourceEvent(
                         event: OME.Event.Draft(
                             id: nil,
@@ -270,7 +391,6 @@ struct SourceDatabaseInsertionTests {
                                 fileType: nil,
                                 data: OME.Poster.Draft(
                                     id: nil,
-                                    eventID: id("testival-2026"),
                                     title: "Lineup",
                                     imageURL: URL(string: "https://example.com/lineup.png")!
                                 )
@@ -297,7 +417,6 @@ struct SourceDatabaseInsertionTests {
                                 fileType: nil,
                                 data: OME.Channel.Draft(
                                     id: nil,
-                                    eventID: id("testival-2026"),
                                     name: "General",
                                     description: "Official fixture announcements.",
                                     iconImageURL: nil,
@@ -313,17 +432,113 @@ struct SourceDatabaseInsertionTests {
             ]
         )
     }
+
+    private func makeCoreDatabase() throws -> any DatabaseWriter {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        return database
+    }
 }
 
 private func id<Record>(_ string: String) -> OME.ID<Record> {
     OME.ID<Record>(.init(string))
 }
 
+private func eventID(
+    _ eventID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.Event.ID {
+    OME.Event.ID(
+        organizerID: organizerID,
+        eventID: id(eventID)
+    )
+}
+
+private func stageID(
+    _ stageID: String,
+    eventID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.Stage.ID {
+    OME.Stage.ID(
+        organizerID: organizerID,
+        eventID: id(eventID),
+        stageID: id(stageID)
+    )
+}
+
+private func scheduleID(
+    _ scheduleID: String,
+    eventID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.Schedule.ID {
+    OME.Schedule.ID(
+        organizerID: organizerID,
+        eventID: id(eventID),
+        scheduleID: id(scheduleID)
+    )
+}
+
+private func participantID(
+    _ participantID: String,
+    eventID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.Participant.ID {
+    OME.Participant.ID(
+        organizerID: organizerID,
+        eventID: id(eventID),
+        participantID: id(participantID)
+    )
+}
+
+private func channelID(
+    _ channelID: String,
+    eventID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.Channel.ID {
+    OME.Channel.ID(
+        organizerID: organizerID,
+        eventID: id(eventID),
+        channelID: id(channelID)
+    )
+}
+
+private func posterID(
+    _ posterID: String,
+    eventID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.Poster.ID {
+    OME.Poster.ID(
+        organizerID: organizerID,
+        eventID: id(eventID),
+        posterID: id(posterID)
+    )
+}
+
+private func performanceID(
+    _ performanceID: String,
+    eventID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.Performance.ID {
+    OME.Performance.ID(
+        organizerID: organizerID,
+        eventID: id(eventID),
+        performanceID: id(performanceID)
+    )
+}
+
 private func localDate(
     _ date: LocalDate,
     atHour hour: Int,
     minute: Int = 0,
+    dayOffset: Int = 0,
     in timeZone: TimeZone
 ) throws -> Date {
-    try #require(date.at(hour: hour, minute: minute, in: timeZone))
+    let resolvedDate = try #require(date.at(hour: hour, minute: minute, in: timeZone))
+    guard dayOffset != 0 else { return resolvedDate }
+
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    return try #require(calendar.date(byAdding: .day, value: dayOffset, to: resolvedDate))
 }

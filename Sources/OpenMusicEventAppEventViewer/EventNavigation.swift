@@ -3,8 +3,8 @@ import Foundation
 
 public enum EventTarget: Equatable, Sendable {
     case schedule
-    case participant(OMERecord.Participant.ID)
-    case stage(OMERecord.Stage.ID)
+    case participant(OMERecord.ID<OMERecord.Participant>)
+    case stage(OMERecord.ID<OMERecord.Stage>)
     case communications
     case contactInfo
     case location

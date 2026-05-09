@@ -13,10 +13,23 @@ import OpenMusicEventTimeZones
 import SQLiteData
 import SwiftUI
 
+private enum AppEventOrganizerIDKey: DependencyKey {
+    static let liveValue = OMERecord.Organizer.ID("did:web:local.openmusicevent")!
+    static let testValue = OMERecord.Organizer.ID("did:web:local.openmusicevent")!
+}
+
+extension DependencyValues {
+    var appEventOrganizerID: OMERecord.Organizer.ID {
+        get { self[AppEventOrganizerIDKey.self] }
+        set { self[AppEventOrganizerIDKey.self] = newValue }
+    }
+}
+
 @Feature
 public struct CreateEvent {
     public init() {}
 
+    @Dependency(\.appEventOrganizerID) var appEventOrganizerID
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.uuid) var uuid
 
@@ -100,7 +113,11 @@ public struct CreateEvent {
                 }
 
                 guard let validationMessage = state.validationMessage else {
-                    let eventID = Self.makeEventID(from: uuid())
+                    let localEventID = Self.makeLocalEventID(from: uuid())
+                    let eventID = OMERecord.Event.ID(
+                        organizerID: appEventOrganizerID,
+                        eventID: localEventID
+                    )
                     let event = Self.makeEventDraft(
                         id: eventID,
                         name: state.trimmedEventName,
@@ -115,6 +132,10 @@ public struct CreateEvent {
                     store.addTask {
                         do {
                             try database.write { db in
+                                try OMERecord.Organizer.insert {
+                                    OMERecord.Organizer.Draft(id: appEventOrganizerID)
+                                }
+                                .execute(db)
                                 try OMERecord.Event.insert {
                                     event
                                 }
@@ -145,8 +166,8 @@ public struct CreateEvent {
         }
     }
 
-    static func makeEventID(from uuid: UUID) -> OMERecord.Event.ID {
-        OMERecord.Event.ID(.init(uuid.uuidString.lowercased()))
+    static func makeLocalEventID(from uuid: UUID) -> OMERecord.ID<OMERecord.Event> {
+        OMERecord.ID<OMERecord.Event>(.init(uuid.uuidString.lowercased()))
     }
 
     static func makeEventDraft(

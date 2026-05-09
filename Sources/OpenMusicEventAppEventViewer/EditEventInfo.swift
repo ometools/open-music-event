@@ -358,7 +358,10 @@ private extension Open where Known == OMERecord.Event.Mode {
 private extension OMERecord.Event.Draft {
     static var placeholder: Self {
         .init(
-            id: .init("-1"),
+            id: .init(
+                organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
+                eventID: .init("-1")
+            ),
             name: "",
             description: nil,
             startDate: nil,

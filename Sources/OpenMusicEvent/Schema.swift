@@ -69,34 +69,46 @@ private func registerOpenMusicEventAppMigrations(into migrator: inout DatabaseMi
 
         try #sql("""
             CREATE TABLE IF NOT EXISTS "participantPreferences" (
-              "participantID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
-              "isFavorite" INTEGER NOT NULL DEFAULT 0
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "participantID" TEXT NOT NULL,
+              "isFavorite" INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY ("organizerID", "eventID", "participantID") ON CONFLICT REPLACE
             ) STRICT
             """)
             .execute(db)
 
         try #sql("""
             CREATE TABLE IF NOT EXISTS "performancePreferences" (
-              "performanceID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "performanceID" TEXT NOT NULL,
               "interested" INTEGER NOT NULL DEFAULT 0,
-              "seen" INTEGER NOT NULL DEFAULT 0
+              "seen" INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY ("organizerID", "eventID", "performanceID") ON CONFLICT REPLACE
             ) STRICT
             """)
             .execute(db)
 
         try #sql("""
             CREATE TABLE IF NOT EXISTS "channelPreferences" (
-              "channelID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
-              "notificationState" TEXT NOT NULL
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "channelID" TEXT NOT NULL,
+              "notificationState" TEXT NOT NULL,
+              PRIMARY KEY ("organizerID", "eventID", "channelID") ON CONFLICT REPLACE
             ) STRICT
             """)
             .execute(db)
 
         try #sql("""
             CREATE TABLE IF NOT EXISTS "posterPreferences" (
-              "posterID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "posterID" TEXT NOT NULL,
               "isRead" INTEGER NOT NULL DEFAULT 0,
-              "isFavorite" INTEGER NOT NULL DEFAULT 0
+              "isFavorite" INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY ("organizerID", "eventID", "posterID") ON CONFLICT REPLACE
             ) STRICT
             """)
             .execute(db)
@@ -121,35 +133,39 @@ private func registerOpenMusicEventAppMigrations(into migrator: inout DatabaseMi
         try #sql("""
             CREATE TABLE IF NOT EXISTS "appState" (
               "id" INTEGER PRIMARY KEY CHECK ("id" = 1),
-              "selectedEventID" TEXT
+              "organizerID" TEXT,
+              "eventID" TEXT
             ) STRICT
             """)
             .execute(db)
 
         try #sql("""
-            INSERT OR IGNORE INTO "appState" ("id", "selectedEventID")
-            VALUES (1, NULL)
+            INSERT OR IGNORE INTO "appState" ("id", "organizerID", "eventID")
+            VALUES (1, NULL, NULL)
             """)
             .execute(db)
 
         try #sql("""
             CREATE TABLE IF NOT EXISTS "eventViewerState" (
-              "musicEventID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
-              "selectedScheduleID" TEXT
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "selectedScheduleID" TEXT,
+              PRIMARY KEY ("organizerID", "eventID") ON CONFLICT REPLACE
             ) STRICT
             """)
             .execute(db)
 
         try #sql("""
             CREATE TABLE IF NOT EXISTS "scheduleViewerState" (
-              "musicEventID" TEXT NOT NULL,
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
               "category" TEXT,
               "selectedStageID" TEXT,
               "showStageNameLabels" INTEGER NOT NULL DEFAULT 0,
               "filteringFavorites" INTEGER NOT NULL DEFAULT 0,
               "filteringInterested" INTEGER NOT NULL DEFAULT 0,
               "scheduleKind" TEXT NOT NULL DEFAULT 'singleStageAtOnce',
-              PRIMARY KEY ("musicEventID", "category")
+              PRIMARY KEY ("organizerID", "eventID", "category")
             ) STRICT
             """)
             .execute(db)
@@ -157,13 +173,20 @@ private func registerOpenMusicEventAppMigrations(into migrator: inout DatabaseMi
 }
 
 @Table("appState")
-struct AppState: Equatable, Sendable, Identifiable {
-    let id: Int
-    var selectedEventID: OMERecord.Event.ID?
+public struct AppState: Equatable, Sendable, Identifiable {
+    public let id: Int
+    public var organizerID: OMERecord.Organizer.ID?
+    public var eventID: OMERecord.ID<OMERecord.Event>?
 
-    init(id: Int = 1, selectedEventID: OMERecord.Event.ID? = nil) {
+    public init(id: Int = 1, selectedEventID: OMERecord.Event.ID? = nil) {
         self.id = id
-        self.selectedEventID = selectedEventID
+        self.organizerID = selectedEventID?.organizerID
+        self.eventID = selectedEventID?.eventID
+    }
+
+    public var selectedEventID: OMERecord.Event.ID? {
+        guard let organizerID, let eventID else { return nil }
+        return OMERecord.Event.ID(organizerID: organizerID, eventID: eventID)
     }
 }
 
@@ -177,36 +200,28 @@ public struct OrganizerPreferences: Equatable, Sendable, Identifiable {
 
 @Table("participantPreferences")
 struct ParticipantPreferences: Equatable, Sendable, Identifiable {
-    @Column(primaryKey: true) var participantID: OMERecord.Participant.ID
+    var id: OMERecord.Participant.ID
     var isFavorite = false
-
-    var id: OMERecord.Participant.ID { participantID }
 }
 
 @Table("performancePreferences")
 struct PerformancePreferences: Equatable, Sendable, Identifiable {
-    @Column(primaryKey: true) var performanceID: OMERecord.Performance.ID
+    var id: OMERecord.Performance.ID
     var interested = false
     var seen = false
-
-    var id: OMERecord.Performance.ID { performanceID }
 }
 
 @Table("channelPreferences")
 struct ChannelPreferences: Equatable, Sendable, Identifiable {
-    @Column(primaryKey: true) var channelID: OMERecord.Channel.ID
+    var id: OMERecord.Channel.ID
     var notificationState: OMERecord.Channel.NotificationState
-
-    var id: OMERecord.Channel.ID { channelID }
 }
 
 @Table("posterPreferences")
 struct PosterPreferences: Equatable, Sendable, Identifiable {
-    @Column(primaryKey: true) var posterID: OMERecord.Poster.ID
+    var id: OMERecord.Poster.ID
     var isRead = false
     var isFavorite = false
-
-    var id: OMERecord.Poster.ID { posterID }
 }
 
 @Table("externalAssetPreferences")
@@ -228,10 +243,8 @@ struct ExternalAssetPreferences: Equatable, Sendable, Identifiable {
 
 @Table("eventViewerState")
 struct EventViewerState: Equatable, Sendable, Identifiable {
-    @Column(primaryKey: true) var musicEventID: OMERecord.Event.ID
-    var selectedScheduleID: OMERecord.Schedule.ID?
-
-    var id: OMERecord.Event.ID { musicEventID }
+    var id: OMERecord.Event.ID
+    var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
 }
 
 enum ScheduleKind: String, Codable, Sendable, CaseIterable, SQLiteType {
@@ -242,12 +255,12 @@ enum ScheduleKind: String, Codable, Sendable, CaseIterable, SQLiteType {
 @Table("scheduleViewerState")
 struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     @Selection struct ID: Hashable, Sendable {
-        var musicEventID: OMERecord.Event.ID
+        var eventID: OMERecord.Event.ID
         var category: OMERecord.Stage.Category?
     }
 
     let id: ID
-    var selectedStageID: OMERecord.Stage.ID?
+    var selectedStageID: OMERecord.ID<OMERecord.Stage>?
     var showStageNameLabels = false
     var filteringFavorites = false
     var filteringInterested = false

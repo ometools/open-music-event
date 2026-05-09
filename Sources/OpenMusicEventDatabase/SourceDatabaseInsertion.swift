@@ -21,7 +21,7 @@ public extension OME {
             case invalidLocalTime(String)
             case missingPerformanceEndTime(
                 scheduleID: OME.Schedule.ID,
-                stageID: OME.Stage.ID,
+                stageID: OME.ID<OME.Stage>,
                 performanceIndex: Int
             )
         }
@@ -65,22 +65,34 @@ public extension OME {
             eventDirectoryName: String,
             organizerID: OME.Organizer.ID
         ) throws {
-            let eventID = sourceEvent.event.id
-                ?? Self.id(eventDirectoryName)
+            let localEventID = sourceEvent.event.id?.eventID
+                ?? Self.localID(eventDirectoryName)
+            let eventID = OME.Event.ID(
+                organizerID: organizerID,
+                eventID: localEventID
+            )
 
             var event = sourceEvent.event
             event.id = eventID
             events.append(event)
             eventOrganizers.append(
                 OME.EventOrganizer.Draft(
-                    id: .init(eventID: eventID, organizerID: organizerID)
+                    id: .init(
+                        organizerID: organizerID,
+                        eventID: localEventID,
+                        eventOrganizerID: organizerID
+                    )
                 )
             )
 
             stages.append(
                 contentsOf: sourceEvent.stages?.map { stage in
                     var draft = stage.data
-                    draft.id = draft.id ?? Self.id(stage.fileName)
+                    draft.id = draft.id ?? .init(
+                        organizerID: organizerID,
+                        eventID: localEventID,
+                        stageID: Self.localID(stage.fileName)
+                    )
                     return draft
                 } ?? []
             )
@@ -88,7 +100,11 @@ public extension OME {
             participants.append(
                 contentsOf: sourceEvent.participants?.map { participant in
                     var draft = participant.data
-                    draft.id = draft.id ?? Self.id(participant.fileName)
+                    draft.id = draft.id ?? .init(
+                        organizerID: organizerID,
+                        eventID: localEventID,
+                        participantID: Self.localID(participant.fileName)
+                    )
                     return draft
                 } ?? []
             )
@@ -96,7 +112,11 @@ public extension OME {
             channels.append(
                 contentsOf: sourceEvent.channels?.map { channel in
                     var draft = channel.data
-                    draft.id = draft.id ?? Self.id(channel.fileName)
+                    draft.id = draft.id ?? .init(
+                        organizerID: organizerID,
+                        eventID: localEventID,
+                        channelID: Self.localID(channel.fileName)
+                    )
                     return draft
                 } ?? []
             )
@@ -104,7 +124,11 @@ public extension OME {
             posters.append(
                 contentsOf: sourceEvent.posters?.map { poster in
                     var draft = poster.data
-                    draft.id = draft.id ?? Self.id(poster.fileName)
+                    draft.id = draft.id ?? .init(
+                        organizerID: organizerID,
+                        eventID: localEventID,
+                        posterID: Self.localID(poster.fileName)
+                    )
                     return draft
                 } ?? []
             )
@@ -113,7 +137,8 @@ public extension OME {
                 try append(
                     schedule: schedule.data,
                     scheduleFileName: schedule.fileName,
-                    eventID: eventID,
+                    organizerID: organizerID,
+                    eventID: localEventID,
                     timeZone: event.timeZone
                 )
             }
@@ -122,15 +147,20 @@ public extension OME {
         private mutating func append(
             schedule: ScheduleDTO,
             scheduleFileName: String,
-            eventID: OME.Event.ID,
+            organizerID: OME.Organizer.ID,
+            eventID: OME.ID<OME.Event>,
             timeZone: TimeZone
         ) throws {
-            let scheduleID = schedule.id ?? Self.id(scheduleFileName)
+            let scheduleID = schedule.id ?? Self.localID(scheduleFileName)
+            let scopedScheduleID = OME.Schedule.ID(
+                organizerID: organizerID,
+                eventID: eventID,
+                scheduleID: scheduleID
+            )
 
             schedules.append(
                 OME.Schedule.Draft(
-                    id: scheduleID,
-                    eventID: schedule.eventID ?? eventID,
+                    id: scopedScheduleID,
                     date: schedule.date,
                     startsAt: try schedule.startsAt?.localTimeDate(
                         on: schedule.date,
@@ -146,31 +176,34 @@ public extension OME {
 
             for stageIDString in schedule.performances.keys.sorted() {
                 let sourcePerformances = schedule.performances[stageIDString] ?? []
-                let stageID = OME.Stage.ID(.init(stageIDString))
+                let stageID = OME.ID<OME.Stage>(.init(stageIDString))
+                let resolvedStarts = try sourcePerformances.resolvedStartTimes(
+                    on: schedule.date,
+                    in: timeZone
+                )
 
                 for (offset, sourcePerformance) in sourcePerformances.enumerated() {
                     let index = offset + 1
                     let performanceID = sourcePerformance.id
-                        ?? Self.id("\(scheduleID.rawValue.rawValue)-\(stageID.rawValue.rawValue)-\(index)")
-                    let startTime = try sourcePerformance.startTime.localTimeDate(
-                        on: schedule.date,
-                        in: timeZone
+                        ?? Self.localID("\(scheduleID.rawValue.rawValue)-\(stageID.rawValue.rawValue)-\(index)")
+                    let scopedPerformanceID = OME.Performance.ID(
+                        organizerID: organizerID,
+                        eventID: eventID,
+                        performanceID: performanceID
                     )
+                    let startTime = resolvedStarts[offset]
                     let endTime: Date
 
                     if let explicitEndTime = sourcePerformance.endTime {
                         endTime = try explicitEndTime.localTimeDate(
                             on: schedule.date,
                             in: timeZone
-                        )
+                        ).advancedPast(startTime, in: timeZone)
                     } else if sourcePerformances.indices.contains(offset + 1) {
-                        endTime = try sourcePerformances[offset + 1].startTime.localTimeDate(
-                            on: schedule.date,
-                            in: timeZone
-                        )
+                        endTime = resolvedStarts[offset + 1]
                     } else {
                         throw Error.missingPerformanceEndTime(
-                            scheduleID: scheduleID,
+                            scheduleID: scopedScheduleID,
                             stageID: stageID,
                             performanceIndex: index
                         )
@@ -178,8 +211,7 @@ public extension OME {
 
                     performances.append(
                         OME.Performance.Draft(
-                            id: performanceID,
-                            eventID: eventID,
+                            id: scopedPerformanceID,
                             stageID: stageID,
                             scheduleID: scheduleID,
                             startTime: startTime,
@@ -193,6 +225,8 @@ public extension OME {
                     performanceParticipants.append(
                         contentsOf: (sourcePerformance.participantIDs ?? []).map {
                             OME.Performance.Participants.Draft(
+                                organizerID: organizerID,
+                                eventID: eventID,
                                 performanceID: performanceID,
                                 participantID: $0,
                                 anonymousName: nil
@@ -202,6 +236,8 @@ public extension OME {
                     performanceParticipants.append(
                         contentsOf: (sourcePerformance.participantNames ?? []).map {
                             OME.Performance.Participants.Draft(
+                                organizerID: organizerID,
+                                eventID: eventID,
                                 performanceID: performanceID,
                                 participantID: nil,
                                 anonymousName: $0
@@ -212,9 +248,29 @@ public extension OME {
             }
         }
 
-        private static func id<Record>(_ string: String) -> OME.ID<Record> {
+        private static func localID<Record>(_ string: String) -> OME.ID<Record> {
             OME.ID<Record>(.init(string))
         }
+    }
+}
+
+private extension Array where Element == ScheduleDTO.Performance {
+    func resolvedStartTimes(on date: LocalDate, in timeZone: TimeZone) throws -> [Date] {
+        var resolved: [Date] = []
+        resolved.reserveCapacity(count)
+
+        for performance in self {
+            var startTime = try performance.startTime.localTimeDate(
+                on: date,
+                in: timeZone
+            )
+            if let previousStartTime = resolved.last {
+                startTime = startTime.advancedPast(previousStartTime, in: timeZone)
+            }
+            resolved.append(startTime)
+        }
+
+        return resolved
     }
 }
 
@@ -230,6 +286,20 @@ private extension String {
             throw OME.SourceDatabaseInsertion.Error.invalidLocalTime(self)
         }
 
+        return date
+    }
+}
+
+private extension Date {
+    func advancedPast(_ previousDate: Date, in timeZone: TimeZone) -> Date {
+        var date = self
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        while date <= previousDate {
+            guard let nextDate = calendar.date(byAdding: .day, value: 1, to: date)
+            else { break }
+            date = nextDate
+        }
         return date
     }
 }

@@ -1,3 +1,4 @@
+import ATProto
 import Dependencies
 import Foundation
 import SQLiteData
@@ -10,8 +11,16 @@ struct SchedulePersistenceTests {
     @Test
     func roundTripsScheduleDateAndOptionalBounds() async throws {
         let database = try makePreparedDatabase()
-        let eventID = OMERecord.Event.ID(.init("event-1"))
-        let scheduleID = OMERecord.Schedule.ID(.init("schedule-1"))
+        let organizerID = OMERecord.Organizer.ID("did:web:example.com")!
+        let eventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: eventLocalID("event-1")
+        )
+        let scheduleID = OMERecord.Schedule.ID(
+            organizerID: organizerID,
+            eventID: eventLocalID("event-1"),
+            scheduleID: scheduleLocalID("schedule-1")
+        )
         let eventStartDate = try #require(LocalDate("2025-08-29"))
         let eventEndDate = try #require(LocalDate("2025-08-31"))
         let scheduleDate = try #require(LocalDate("2025-08-29"))
@@ -20,6 +29,11 @@ struct SchedulePersistenceTests {
         let endsAt = try #require(scheduleDate.at(hour: 23, minute: 59, in: timeZone))
 
         try await database.write { db in
+            try OMERecord.Organizer.insert {
+                OMERecord.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+
             try OMERecord.Event.insert {
                 OMERecord.Event.Draft(
                     id: eventID,
@@ -44,7 +58,6 @@ struct SchedulePersistenceTests {
             try OMERecord.Schedule.insert {
                 OMERecord.Schedule.Draft(
                     id: scheduleID,
-                    eventID: eventID,
                     date: scheduleDate,
                     startsAt: startsAt,
                     endsAt: endsAt,
@@ -68,7 +81,6 @@ struct SchedulePersistenceTests {
         #expect(event.endDate == eventEndDate)
         #expect(event.timeZone.identifier == timeZone.identifier)
         #expect(schedule.id == scheduleID)
-        #expect(schedule.eventID == eventID)
         #expect(schedule.date == scheduleDate)
         #expect(schedule.startsAt == startsAt)
         #expect(schedule.endsAt == endsAt)
@@ -84,4 +96,12 @@ struct SchedulePersistenceTests {
             return database
         }
     }
+}
+
+private func eventLocalID(_ string: String) -> OMERecord.ID<OMERecord.Event> {
+    OMERecord.ID<OMERecord.Event>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private func scheduleLocalID(_ string: String) -> OMERecord.ID<OMERecord.Schedule> {
+    OMERecord.ID<OMERecord.Schedule>(rawValue: ATProto.Record.Key(rawValue: string))
 }

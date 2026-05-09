@@ -28,9 +28,11 @@ public struct MyEvents {
     }
 
     static let query = OMERecord.Event.where { event in
-        OMERecord.EventOrganizer.where {
-            $0.id.eventID.eq(event.id)
-        }.exists().not()
+        OMERecord.EventOrganizer
+            .where { $0.id.organizerID.eq(event.id.organizerID) }
+            .where { $0.id.eventID.eq(event.id.eventID) }
+            .exists()
+            .not()
 
     }
 
