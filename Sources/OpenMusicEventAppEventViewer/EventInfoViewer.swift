@@ -94,10 +94,16 @@ public struct EventInfoViewerView: View {
                         }
                     }
 
-                    Section("Details") {
-                        EventInfoRow(title: "Status", value: event.status.eventInfoText)
-                        EventInfoRow(title: "Mode", value: event.mode.eventInfoText)
+                    if event.hasEventInfoDetails {
+                        Section("Details") {
+                            if let status = event.status?.eventInfoText {
+                                EventInfoRow(title: "Status", value: status)
+                            }
 
+                            if let mode = event.mode?.eventInfoText {
+                                EventInfoRow(title: "Mode", value: mode)
+                            }
+                        }
                     }
                 }
                 .navigationTitle(event.name)
@@ -151,6 +157,10 @@ private extension OMERecord.Event {
 
     var hasEventInfoDates: Bool {
         startDate != nil || endDate != nil
+    }
+
+    var hasEventInfoDetails: Bool {
+        status != nil || mode != nil
     }
 
     var dateIntervalText: String? {
@@ -211,6 +221,22 @@ private extension OMERecord.Event.Mode {
             "Virtual"
         case .hybrid:
             "Hybrid"
+        }
+    }
+}
+
+private extension Open where Known == OMERecord.Event.Status {
+    var eventInfoText: String {
+        switch self {
+        case .known(let status):
+            return status.eventInfoText
+        case .unknown(let value):
+            if let stringValue = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !stringValue.isEmpty {
+                return stringValue
+            } else {
+                return "Unknown"
+            }
         }
     }
 }

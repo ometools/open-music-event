@@ -41,7 +41,7 @@ struct SchedulePersistenceTests {
                     description: nil,
                     startDate: eventStartDate,
                     endDate: eventEndDate,
-                    status: .planned,
+                    status: .known(.planned),
                     mode: .known(.inPerson),
                     locations: nil,
                     uris: nil,

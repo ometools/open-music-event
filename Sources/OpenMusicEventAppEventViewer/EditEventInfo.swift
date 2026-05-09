@@ -39,8 +39,12 @@ public struct EditEventInfo {
             draft.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
 
+        var trimmedCustomStatus: String {
+            draft.status?.customValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+
         var trimmedCustomMode: String {
-            draft.mode.customValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            draft.mode?.customValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
 
         var startDate: LocalDate? {
@@ -67,6 +71,10 @@ public struct EditEventInfo {
             }
         }
 
+        var status: EditEventInfoStatus {
+            EditEventInfoStatus(draft.status)
+        }
+
         var mode: EditEventInfoMode {
             EditEventInfoMode(draft.mode)
         }
@@ -75,6 +83,9 @@ public struct EditEventInfo {
             guard hasLoadedDraft else { return nil }
             if trimmedEventName.isEmpty {
                 return "Enter an event name."
+            }
+            if status == .custom && trimmedCustomStatus.isEmpty {
+                return "Enter a custom event status."
             }
             if mode == .custom && trimmedCustomMode.isEmpty {
                 return "Enter a custom event mode."
@@ -93,8 +104,11 @@ public struct EditEventInfo {
             var draft = draft
             draft.name = trimmedEventName
             draft.description = trimmedDescription.nilIfEmpty
+            if status == .custom {
+                draft.status = .some(.unknown(.string(trimmedCustomStatus)))
+            }
             if mode == .custom {
-                draft.mode = .unknown(.string(trimmedCustomMode))
+                draft.mode = .some(.unknown(.string(trimmedCustomMode)))
             }
             draft.startDate = startDate
             draft.endDate = endDate
@@ -244,11 +258,15 @@ public struct EditEventInfoView: View {
                     }
 
                     Section("Details") {
-                        Picker("Status", selection: $store.draft.status) {
-                            ForEach(OMERecord.Event.Status.allCases, id: \.self) { status in
-                                Text(status.editTitle)
+                        Picker("Status", selection: $store.draft.editStatus) {
+                            ForEach(EditEventInfoStatus.allCases, id: \.self) { status in
+                                Text(status.title)
                                     .tag(status)
                             }
+                        }
+
+                        if store.draft.editStatus == .custom {
+                            TextField("Custom Status", text: $store.draft.customStatusText)
                         }
 
                         Picker("Mode", selection: $store.draft.editMode) {
@@ -261,7 +279,6 @@ public struct EditEventInfoView: View {
                         if store.draft.editMode == .custom {
                             TextField("Custom Mode", text: $store.draft.customModeText)
                         }
-
                     }
 
                     if let errorMessage = store.errorMessage {
@@ -302,13 +319,89 @@ public struct EditEventInfoView: View {
     }
 }
 
+public enum EditEventInfoStatus: String, CaseIterable, Hashable, Sendable {
+    case unspecified
+    case planned
+    case scheduled
+    case rescheduled
+    case cancelled
+    case postponed
+    case custom
+
+    init(_ status: Open<OMERecord.Event.Status>?) {
+        guard let status else {
+            self = .unspecified
+            return
+        }
+
+        switch status {
+        case .known(.planned):
+            self = .planned
+        case .known(.scheduled):
+            self = .scheduled
+        case .known(.rescheduled):
+            self = .rescheduled
+        case .known(.cancelled):
+            self = .cancelled
+        case .known(.postponed):
+            self = .postponed
+        case .unknown:
+            self = .custom
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .unspecified:
+            "Unspecified"
+        case .planned:
+            "Planned"
+        case .scheduled:
+            "Scheduled"
+        case .rescheduled:
+            "Rescheduled"
+        case .cancelled:
+            "Cancelled"
+        case .postponed:
+            "Postponed"
+        case .custom:
+            "Custom"
+        }
+    }
+
+    func openValue(customValue: String) -> Open<OMERecord.Event.Status>? {
+        switch self {
+        case .unspecified:
+            nil
+        case .planned:
+            .known(.planned)
+        case .scheduled:
+            .known(.scheduled)
+        case .rescheduled:
+            .known(.rescheduled)
+        case .cancelled:
+            .known(.cancelled)
+        case .postponed:
+            .known(.postponed)
+        case .custom:
+            .unknown(.string(customValue))
+        }
+    }
+}
+
 public enum EditEventInfoMode: String, CaseIterable, Hashable, Sendable {
+    case unspecified
     case inPerson
     case virtual
     case hybrid
     case custom
 
-    init(_ mode: Open<OMERecord.Event.Mode>) {
+    init(_ mode: Open<OMERecord.Event.Mode>?) {
+        guard let mode else {
+            self = .unspecified
+            return
+        }
+
         switch mode {
         case .known(.inPerson):
             self = .inPerson
@@ -323,6 +416,8 @@ public enum EditEventInfoMode: String, CaseIterable, Hashable, Sendable {
 
     var title: String {
         switch self {
+        case .unspecified:
+            "Unspecified"
         case .inPerson:
             "In Person"
         case .virtual:
@@ -334,8 +429,10 @@ public enum EditEventInfoMode: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    func openValue(customValue: String) -> Open<OMERecord.Event.Mode> {
+    func openValue(customValue: String) -> Open<OMERecord.Event.Mode>? {
         switch self {
+        case .unspecified:
+            nil
         case .inPerson:
             .known(.inPerson)
         case .virtual:
@@ -345,6 +442,13 @@ public enum EditEventInfoMode: String, CaseIterable, Hashable, Sendable {
         case .custom:
             .unknown(.string(customValue))
         }
+    }
+}
+
+private extension Open where Known == OMERecord.Event.Status {
+    var customValue: String? {
+        guard case let .unknown(value) = self else { return nil }
+        return value.stringValue
     }
 }
 
@@ -366,8 +470,8 @@ private extension OMERecord.Event.Draft {
             description: nil,
             startDate: nil,
             endDate: nil,
-            status: .planned,
-            mode: .known(.inPerson),
+            status: nil,
+            mode: nil,
             locations: nil,
             uris: nil,
             timeZone: TimeZone.current,
@@ -379,14 +483,24 @@ private extension OMERecord.Event.Draft {
         )
     }
 
+    var editStatus: EditEventInfoStatus {
+        get { .init(status) }
+        set { status = newValue.openValue(customValue: status?.customValue ?? "") }
+    }
+
+    var customStatusText: String {
+        get { status?.customValue ?? "" }
+        set { status = .some(.unknown(.string(newValue))) }
+    }
+
     var editMode: EditEventInfoMode {
         get { .init(mode) }
-        set { mode = newValue.openValue(customValue: mode.customValue ?? "") }
+        set { mode = newValue.openValue(customValue: mode?.customValue ?? "") }
     }
 
     var customModeText: String {
-        get { mode.customValue ?? "" }
-        set { mode = .unknown(.string(newValue)) }
+        get { mode?.customValue ?? "" }
+        set { mode = .some(.unknown(.string(newValue))) }
     }
 }
 

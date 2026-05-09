@@ -104,9 +104,9 @@ extension OpenMusicEvent {
         public var description: String?
         public var startDate: LocalDate?
         public var endDate: LocalDate?
-        public var status: Status
+        public var status: Open<Status>?
 
-        public var mode: Open<Mode>
+        public var mode: Open<Mode>?
 
         @Column(as: [Location].JSONRepresentation?.self)
         public var locations: [Location]?
@@ -130,7 +130,7 @@ extension OpenMusicEvent {
 
 
 extension OpenMusicEvent.Event {
-    public enum Status: String, Codable, Sendable, Equatable, SQLiteType {
+    public enum Status: String, Codable, Sendable, Hashable, SQLiteType, OpenValue {
         case planned, scheduled, rescheduled, cancelled, postponed
     }
 

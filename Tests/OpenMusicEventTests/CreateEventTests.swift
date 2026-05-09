@@ -85,7 +85,7 @@ struct CreateEventTests {
         #expect(event.name == "Testival 2026")
         #expect(event.startDate == LocalDate(year: 1970, month: 1, day: 2))
         #expect(event.endDate == LocalDate(year: 1970, month: 1, day: 3))
-        #expect(event.status == .planned)
+        #expect(event.status == .known(.planned))
         #expect(event.mode == .known(.inPerson))
         #expect(event.timeZone.identifier == TimeZone.current.identifier)
         #expect(event.description == nil)

@@ -183,7 +183,7 @@ public struct CreateEvent {
             description: nil,
             startDate: startDate,
             endDate: endDate,
-            status: .planned,
+            status: .known(.planned),
             mode: .known(.inPerson),
             locations: nil,
             uris: nil,

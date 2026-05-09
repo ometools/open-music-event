@@ -340,7 +340,7 @@ struct SourceDatabaseInsertionTests {
                             description: "A small fixture event.",
                             startDate: eventStartDate,
                             endDate: eventEndDate,
-                            status: .scheduled,
+                            status: .known(.scheduled),
                             mode: .known(.inPerson),
                             locations: nil,
                             uris: nil,

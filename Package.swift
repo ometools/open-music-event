@@ -7,6 +7,7 @@ let package = Package(
     defaultLocalization: "en",
     platforms: [.iOS(.v17), .macOS(.v15)],
     products: [
+        .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
         .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
@@ -24,6 +25,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
         .package(path: "../../Core/swift-file-tree"),
 
@@ -100,6 +102,16 @@ let package = Package(
                 .product(name: "CustomDump", package: "swift-custom-dump")
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .executableTarget(
+            name: "OpenMusicEventCLI",
+            dependencies: [
+                "OpenMusicEventDatabase",
+                "OpenMusicEventLexicon",
+                "OpenMusicEventSource",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "FileTree", package: "swift-file-tree"),
+            ]
         ),
         .testTarget(
             name: "OpenMusicEventTests",
