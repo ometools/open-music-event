@@ -155,48 +155,29 @@ struct SourceDatabaseInsertionTests {
         OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
 
-        try await database.write { db in
-            for draft in insertion.organizers {
-                try OME.Organizer.insert { draft }.execute(db)
-            }
-            for draft in insertion.events {
-                try OME.Event.insert { draft }.execute(db)
-            }
-            for draft in insertion.eventOrganizers {
-                try OME.EventOrganizer.insert { draft }.execute(db)
-            }
-            for draft in insertion.stages {
-                try OME.Stage.insert { draft }.execute(db)
-            }
-            for draft in insertion.schedules {
-                try OME.Schedule.insert { draft }.execute(db)
-            }
-            for draft in insertion.participants {
-                try OME.Participant.insert { draft }.execute(db)
-            }
-            for draft in insertion.channels {
-                try OME.Channel.insert { draft }.execute(db)
-            }
-            for draft in insertion.posters {
-                try OME.Poster.insert { draft }.execute(db)
-            }
-            for draft in insertion.performances {
-                try OME.Performance.insert { draft }.execute(db)
-            }
-            for draft in insertion.performanceParticipants {
-                try OME.Performance.Participants.insert { draft }.execute(db)
-            }
-        }
+        try await insertion.insert(into: database)
 
+        let organizerCount = try await database.read { db in
+            try OME.Organizer.fetchCount(db)
+        }
         let eventCount = try await database.read { db in
             try OME.Event.fetchCount(db)
+        }
+        let eventOrganizerCount = try await database.read { db in
+            try OME.EventOrganizer.fetchCount(db)
         }
         let performanceCount = try await database.read { db in
             try OME.Performance.fetchCount(db)
         }
+        let performanceParticipantCount = try await database.read { db in
+            try OME.Performance.Participants.fetchCount(db)
+        }
 
+        #expect(organizerCount == 1)
         #expect(eventCount == 1)
+        #expect(eventOrganizerCount == 1)
         #expect(performanceCount == 3)
+        #expect(performanceParticipantCount == 2)
     }
 
     private func makeSourceRepository(
