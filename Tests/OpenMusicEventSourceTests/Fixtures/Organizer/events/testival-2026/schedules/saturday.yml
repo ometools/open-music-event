@@ -13,6 +13,10 @@ performances:
     recordings:
     - url: https://example.com/opening-set.mp3
   - title: Late Set
-    startTime: "23:00"
+    startTime: "20:00"
     participantNames:
     - Guest Artist
+  - id: closing-set
+    title: Closing Set
+    startTime: "21:00"
+    endTime: "22:00"

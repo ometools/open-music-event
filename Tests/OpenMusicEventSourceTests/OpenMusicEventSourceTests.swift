@@ -61,6 +61,7 @@ struct OpenMusicEventSourceTests {
             [
                 "opening-set",
                 nil,
+                "closing-set",
             ]
         )
         #expect(performances[0].participantIDs?.first?.rawValue.rawValue == "artist-one")

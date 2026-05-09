@@ -9,6 +9,7 @@ let package = Package(
     products: [
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
+        .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
         .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
         .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
@@ -35,6 +36,7 @@ let package = Package(
             name: "OpenMusicEvent",
             dependencies: [
                 "OpenMusicEventAppEventViewer",
+                "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventTimeZones",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
@@ -55,6 +57,16 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "OpenMusicEventDatabase",
+            dependencies: [
+                "OpenMusicEventLexicon",
+                "OpenMusicEventSource",
+                "OpenMusicEventTimeZones",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
         ),
 
         .target(
@@ -97,6 +109,13 @@ let package = Package(
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventDatabaseTests",
+            dependencies: [
+                "OpenMusicEventDatabase",
+                .product(name: "CustomDump", package: "swift-custom-dump"),
             ]
         ),
         .testTarget(

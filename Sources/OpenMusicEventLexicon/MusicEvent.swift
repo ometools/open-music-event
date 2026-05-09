@@ -168,6 +168,10 @@ extension OpenMusicEvent {
         public static let nsid = ATProto.NSID("app.openmusicevent.event.organizer")
 
         @Selection public struct ID: Hashable, Sendable {
+            public init(eventID: OME.Event.ID, organizerID: OME.Organizer.ID) {
+                self.eventID = eventID
+                self.organizerID = organizerID
+            }
             public var eventID: OME.Event.ID
             public var organizerID: OME.Organizer.ID
         }
@@ -251,10 +255,20 @@ extension OpenMusicEvent {
 extension OpenMusicEvent.Performance {
     @Table("performanceParticipants")
     public struct Participants: Equatable, Sendable, Codable {
+        public init(performanceID: OpenMusicEvent.Performance.ID, participantID: OpenMusicEvent.Participant.ID? = nil, anonymousName: String? = nil) {
+            self.performanceID = performanceID
+            self.participantID = participantID
+            self.anonymousName = anonymousName
+        }
+        
         public var performanceID: OpenMusicEvent.Performance.ID
         public var participantID: OpenMusicEvent.Participant.ID?
         public var anonymousName: String?
     }
+}
+
+extension OpenMusicEvent.Performance.Participants {
+    public typealias Draft = Self
 }
 
 // MARK: - Participant  (app.openmusicevent.participant)
@@ -346,8 +360,12 @@ extension OpenMusicEvent {
     }
 }
 
+extension OpenMusicEvent.Organizer.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Event.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.EventOrganizer.Draft: Equatable, Sendable {}
 extension OpenMusicEvent.Stage.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.Schedule.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.Performance.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Participant.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Poster.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Channel.Draft: Codable, Equatable, Sendable {}
