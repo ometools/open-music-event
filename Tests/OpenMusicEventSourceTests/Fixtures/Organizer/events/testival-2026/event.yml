@@ -1,0 +1,19 @@
+id: testival-2026
+name: Testival 2026
+description: A small fixture event.
+startDate: "2026-08-01"
+endDate: "2026-08-03"
+status: scheduled
+mode: community.lexicon.calendar.event#inperson
+locations:
+- address: 1 Fixture Road
+  directions: Follow the tests.
+timeZone:
+  identifier: America/Denver
+imageURL: https://example.com/event.jpg
+iconImageURL: https://example.com/icon.png
+siteMapImageURL: https://example.com/map.png
+contactNumbers:
+- phoneNumber: "555-0100"
+  title: Info
+  description: Fixture contact number.

@@ -5,11 +5,12 @@ import PackageDescription
 let package = Package(
     name: "open-music-event",
     defaultLocalization: "en",
-    platforms: [.iOS(.v17), .macOS(.v14)],
+    platforms: [.iOS(.v17), .macOS(.v15)],
     products: [
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+        .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
         .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
         .library(name: "SwiftUITabFeatures", targets: ["SwiftUITabFeatures"]),
     ],
@@ -22,6 +23,8 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
+        .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
+        .package(path: "../../Core/swift-file-tree"),
 
 
         .package(url: "https://source.woody.fm/tcatproto", branch: "main"),
@@ -64,6 +67,14 @@ let package = Package(
             ]
         ),
         .target(
+            name: "OpenMusicEventSource",
+            dependencies: [
+                "OpenMusicEventLexicon",
+                .product(name: "FileTree", package: "swift-file-tree"),
+                "Yams",
+            ]
+        ),
+        .target(
             name: "OpenMusicEventTimeZones",
             dependencies: [
                 .product(name: "SQLiteData", package: "sqlite-data"),
@@ -86,6 +97,16 @@ let package = Package(
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventSourceTests",
+            dependencies: [
+                "OpenMusicEventSource",
+                .product(name: "CustomDump", package: "swift-custom-dump"),
+            ],
+            resources: [
+                .copy("Fixtures")
             ]
         ),
         .testTarget(

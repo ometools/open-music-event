@@ -1,0 +1,8 @@
+id: meadow
+name: Meadow
+color: "0x00aaee"
+category: music
+sortIndex: 1
+iconImageURL: https://example.com/meadow-icon.png
+lineup:
+- artist-one

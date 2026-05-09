@@ -1,0 +1,18 @@
+id: saturday
+eventID: testival-2026
+date: "2026-08-01"
+customTitle: Saturday
+performances:
+  meadow:
+  - id: opening-set
+    title: Opening Set
+    startTime: "18:00"
+    endTime: "19:00"
+    participantIDs:
+    - artist-one
+    recordings:
+    - url: https://example.com/opening-set.mp3
+  - title: Late Set
+    startTime: "23:00"
+    participantNames:
+    - Guest Artist

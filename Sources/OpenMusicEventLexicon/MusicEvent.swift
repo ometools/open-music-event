@@ -23,6 +23,36 @@ public struct OMEColor: Equatable, Codable, Sendable, ExpressibleByIntegerLitera
     public init(rawValue: Int) { self.rawValue = rawValue }
     public init(_ rawValue: Int) { self.rawValue = rawValue }
     public init(integerLiteral value: Int) { self.rawValue = value }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Int.self) {
+            self.rawValue = value
+            return
+        }
+
+        let string = try container.decode(String.self)
+        let value: Int?
+        if string.hasPrefix("0x") || string.hasPrefix("0X") {
+            value = Int(string.dropFirst(2), radix: 16)
+        } else {
+            value = Int(string)
+        }
+
+        guard let value else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid OME color: \(string)"
+            )
+        }
+
+        self.rawValue = value
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 // MARK: - Namespace
@@ -93,7 +123,7 @@ extension OpenMusicEvent.Event {
         case planned, scheduled, rescheduled, cancelled, postponed
     }
 
-    public enum Mode: String, Codable, Sendable, Equatable, SQLiteType {
+    public enum Mode: String, Codable, Sendable, Equatable, OpenValue, SQLiteType {
         case inPerson = "community.lexicon.calendar.event#inperson"
         case virtual  = "community.lexicon.calendar.event#virtual"
         case hybrid   = "community.lexicon.calendar.event#hybrid"
@@ -315,3 +345,9 @@ extension OpenMusicEvent {
         public var imageURL: URL
     }
 }
+
+extension OpenMusicEvent.Event.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.Stage.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.Participant.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.Poster.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.Channel.Draft: Codable, Equatable, Sendable {}

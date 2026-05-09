@@ -1,0 +1,8 @@
+id: general
+eventID: testival-2026
+name: General
+description: Official fixture announcements.
+iconImageURL: https://example.com/general.png
+sortIndex: 1
+defaultNotificationState: subscribed
+notificationsRequired: false
