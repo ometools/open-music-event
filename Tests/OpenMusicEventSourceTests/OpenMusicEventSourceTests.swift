@@ -1,5 +1,7 @@
+import ATProto
 import CustomDump
 import Foundation
+import OpenMusicEventLexicon
 import OpenMusicEventSource
 import Testing
 
@@ -64,6 +66,20 @@ struct OpenMusicEventSourceTests {
             ]
         )
         #expect(performances[0].participantIDs?.first?.rawValue.rawValue == "artist-one")
+        expectNoDifference(
+            performances[0].recordings,
+            [
+                ExternalPlatform.Asset(
+                    url: URL(string: "https://example.com/opening-set.mp3")!
+                ),
+                ExternalPlatform.Asset(
+                    record: .init(
+                        uri: ATProto.URI("at://did:plc:streamer/place.stream.livestream/3k5nobkf2w72g")!,
+                        cid: "bafyreibvlzqnyqbyq2xlxzyelbnzczd3i2cppmx7xghg42yyjz7dss6xju"
+                    )
+                ),
+            ]
+        )
         #expect(performances[1].participantNames == ["Guest Artist"])
 
         let minimal = try #require(

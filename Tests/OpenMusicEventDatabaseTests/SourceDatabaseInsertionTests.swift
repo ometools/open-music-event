@@ -1,3 +1,4 @@
+import ATProto
 import CustomDump
 import FileTree
 import Foundation
@@ -232,6 +233,49 @@ struct SourceDatabaseInsertionTests {
                     description: nil,
                     recordings: []
                 ),
+            ]
+        )
+    }
+
+    @Test
+    func preservesRecordingAssets() throws {
+        let externalRecording = ExternalPlatform.Asset(
+            url: URL(string: "https://soundcloud.com/example/recording")!
+        )
+        let atprotoRecording = ExternalPlatform.Asset(
+            record: .init(
+                uri: ATProto.URI("at://did:plc:streamer/place.stream.livestream/3k5nobkf2w72g")!,
+                cid: "bafyreibvlzqnyqbyq2xlxzyelbnzczd3i2cppmx7xghg42yyjz7dss6xju"
+            )
+        )
+        let source = try makeSourceRepository(
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("recorded-set"),
+                        title: "Recorded Set",
+                        startTime: "18:00",
+                        endTime: "19:00",
+                        recordings: [
+                            externalRecording,
+                            atprotoRecording,
+                        ]
+                    )
+                ]
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+
+        expectNoDifference(
+            insertion.performances.map(\.recordings),
+            [
+                [
+                    externalRecording,
+                    atprotoRecording,
+                ]
             ]
         )
     }

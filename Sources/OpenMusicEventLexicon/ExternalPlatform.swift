@@ -5,6 +5,7 @@
 //  Created by Woodrow Melling on 10/2/25.
 //
 
+import ATProto
 import Foundation
 
 public enum ExternalPlatform: String, Equatable, Codable, Sendable, CaseIterable {
@@ -108,11 +109,24 @@ public extension ExternalPlatform {
 
         public init(url: URL) {
             self.url = url
+            self.record = nil
         }
 
-        public let url: URL
+        public init(record: RecordReference) {
+            self.url = nil
+            self.record = record
+        }
+
+        public init(url: URL? = nil, record: RecordReference? = nil) {
+            self.url = url
+            self.record = record
+        }
+
+        public var url: URL?
+        public var record: RecordReference?
+
         public var platform: ExternalPlatform {
-            .detectPlatform(from: url)
+            url.map(ExternalPlatform.detectPlatform(from:)) ?? .atproto
         }
 
 
@@ -129,6 +143,15 @@ public extension ExternalPlatform {
 }
 
 extension ExternalPlatform.Asset {
+    public struct RecordReference: Equatable, Codable, Sendable {
+        public init(uri: ATProto.URI, cid: ATProto.CID? = nil) {
+            self.uri = uri
+            self.cid = cid
+        }
+
+        public var uri: ATProto.URI
+        public var cid: ATProto.CID?
+    }
 
     public struct VideoMetadata: Equatable, Codable, Sendable {
         public var durationSeconds: Int?
@@ -200,4 +223,3 @@ extension ExternalPlatform.Asset {
         }
     }
 }
-

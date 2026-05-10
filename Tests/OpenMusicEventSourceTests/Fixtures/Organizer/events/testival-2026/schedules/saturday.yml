@@ -10,6 +10,9 @@ performances:
     - artist-one
     recordings:
     - url: https://example.com/opening-set.mp3
+    - record:
+        uri: at://did:plc:streamer/place.stream.livestream/3k5nobkf2w72g
+        cid: bafyreibvlzqnyqbyq2xlxzyelbnzczd3i2cppmx7xghg42yyjz7dss6xju
   - title: Late Set
     startTime: "20:00"
     participantNames:

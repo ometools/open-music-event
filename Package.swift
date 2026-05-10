@@ -75,6 +75,7 @@ let package = Package(
             name: "OpenMusicEventLexicon",
             dependencies: [
                 "OpenMusicEventTimeZones",
+                .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "Lexicon", package: "tcatproto"),
                 .product(name: "LexiconSQLiteData", package: "tcatproto"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
@@ -128,13 +129,16 @@ let package = Package(
             name: "OpenMusicEventDatabaseTests",
             dependencies: [
                 "OpenMusicEventDatabase",
+                .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
             ]
         ),
         .testTarget(
             name: "OpenMusicEventSourceTests",
             dependencies: [
+                "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
+                .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
             ],
             resources: [
