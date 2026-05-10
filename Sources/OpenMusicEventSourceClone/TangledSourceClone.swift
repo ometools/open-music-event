@@ -1,9 +1,10 @@
 import ArgumentParser
 import Dependencies
 import Foundation
+import Gzip
 import HTTPClient
+import Tar
 
-#if os(macOS)
 public struct TangledSourceCloneCommand: AsyncParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "clone",
@@ -59,7 +60,6 @@ public struct TangledSourceCloneCommand: AsyncParsableCommand {
             .standardizedFileURL
     }
 }
-#endif
 
 public struct TangledRepositoryReference: Equatable, Sendable {
     public var host: String
@@ -150,7 +150,6 @@ public struct TangledRepositoryReference: Equatable, Sendable {
     }
 }
 
-#if os(macOS)
 public struct TangledSourceArchiveExtractor: Sendable {
     public init() {}
 
@@ -164,7 +163,6 @@ public struct TangledSourceArchiveExtractor: Sendable {
         let fileManager = FileManager.default
         let temporaryRoot = fileManager.temporaryDirectory
             .appending(path: "ome-source-clone-\(UUID().uuidString)")
-        let archiveURL = temporaryRoot.appending(path: "source.tar.gz")
         let extractionURL = temporaryRoot.appending(path: "extract")
 
         try fileManager.createDirectory(at: extractionURL, withIntermediateDirectories: true)
@@ -172,26 +170,15 @@ public struct TangledSourceArchiveExtractor: Sendable {
             try? fileManager.removeItem(at: temporaryRoot)
         }
 
-        try archiveData.write(to: archiveURL, options: [.atomic])
-        try runTarExtracting(archiveURL: archiveURL, destinationURL: extractionURL)
-        try moveExtractedContents(from: extractionURL, to: outputURL)
-    }
-
-    private func runTarExtracting(archiveURL: URL, destinationURL: URL) throws {
-        let process = Process()
-        process.executableURL = URL(filePath: "/usr/bin/tar")
-        process.arguments = [
-            "-xzf",
-            archiveURL.path(),
-            "-C",
-            destinationURL.path()
-        ]
-
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            throw ValidationError("Failed to extract Tangled source archive.")
+        do {
+            let tarData = try archiveData.gunzipped()
+            let archive = Archive(data: Array(tarData))
+            _ = try TarExtractor().extract(archive, to: extractionURL.path())
+            try moveExtractedContents(from: extractionURL, to: outputURL)
+        } catch let error as ValidationError {
+            throw error
+        } catch {
+            throw ValidationError("Failed to extract Tangled source archive: \(error)")
         }
     }
 
@@ -241,7 +228,6 @@ extension DependencyValues {
         set { self[TangledSourceArchiveExtractorKey.self] = newValue }
     }
 }
-#endif
 
 private extension String {
     var droppingGitSuffix: String {

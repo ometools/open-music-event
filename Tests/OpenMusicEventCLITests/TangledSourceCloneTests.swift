@@ -174,6 +174,28 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func archiveExtractorExtractsGzippedTarAndFlattensTopLevelDirectory() throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-cli-source-extract-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+
+        // Gzipped tar containing repo/event.yml, so the flattening behavior is observable.
+        let fixture = try #require(Data(base64Encoded: """
+        H4sIAAAAAAAAEytKLcjXZ6AtMDAwMDA3NQXTBgYG6DQWtpm5oRGDgimN3QUGpcUliUUMBgb0sGsQgiJQ/KeWpeaV6FXm5tDGDlCkmpmY4I5/Q2PU+Dc0MDU1YFCgS5yM8PjPS8xNtVIISS0u4Rpop4yCUTAKRsEooCMAAN9H+rQACgAA
+        """))
+
+        try TangledSourceArchiveExtractor().extract(fixture, to: outputURL)
+
+        expectNoDifference(
+            try String(contentsOf: outputURL.appending(path: "event.yml"), encoding: .utf8),
+            "name: Test\n"
+        )
+        #expect(!FileManager.default.fileExists(atPath: outputURL.appending(path: "repo").path()))
+    }
+
+    @Test
     func cloneCommandDownloadsExpectedArchivePathWithExplicitOutput() async throws {
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-cli-source-clone-\(UUID().uuidString)")
