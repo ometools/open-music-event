@@ -3,10 +3,11 @@ import FileTree
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSourceClone
 import OpenMusicEventSource
 
 @main
-struct OpenMusicEventCommand: ParsableCommand {
+struct OpenMusicEventCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ome",
         abstract: "OpenMusicEvent source repository tools.",
@@ -17,11 +18,12 @@ struct OpenMusicEventCommand: ParsableCommand {
 }
 
 extension OpenMusicEventCommand {
-    struct Source: ParsableCommand {
+    struct Source: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "source",
             abstract: "Work with organizer-owned OpenMusicEvent source repositories.",
             subcommands: [
+                TangledSourceCloneCommand.self,
                 Validate.self
             ],
             defaultSubcommand: Validate.self

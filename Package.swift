@@ -28,6 +28,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
         .package(path: "../../Core/swift-file-tree"),
+        .package(url: "https://tangled.org/woody.fm/swift-dependencies-http-client", branch: "main"),
 
 
         .package(url: "https://source.woody.fm/tcatproto", branch: "main"),
@@ -91,6 +92,14 @@ let package = Package(
             ]
         ),
         .target(
+            name: "OpenMusicEventSourceClone",
+            dependencies: [
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+            ]
+        ),
+        .target(
             name: "OpenMusicEventTimeZones",
             dependencies: [
                 .product(name: "SQLiteData", package: "sqlite-data"),
@@ -111,8 +120,18 @@ let package = Package(
                 "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
+                "OpenMusicEventSourceClone",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "FileTree", package: "swift-file-tree"),
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventCLITests",
+            dependencies: [
+                "OpenMusicEventSourceClone",
+                .product(name: "CustomDump", package: "swift-custom-dump"),
             ]
         ),
         .testTarget(
