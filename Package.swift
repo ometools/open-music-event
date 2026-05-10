@@ -97,6 +97,7 @@ let package = Package(
             name: "OpenMusicEventSourceClone",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Gzip", package: "gzipswift"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),

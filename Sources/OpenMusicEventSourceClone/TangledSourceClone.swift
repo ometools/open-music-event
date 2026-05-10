@@ -1,4 +1,5 @@
 import ArgumentParser
+import ATProto
 import Dependencies
 import Foundation
 import Gzip
@@ -150,6 +151,27 @@ public struct TangledRepositoryReference: Equatable, Sendable {
 
     public var displayName: String {
         "\(owner)/\(repository)"
+    }
+
+    public func resolvedOwnerDID() async throws -> String {
+        if let did = DID(owner) {
+            return did.description
+        }
+
+        let handle = owner.hasPrefix("@") ? String(owner.dropFirst()) : owner
+        guard !handle.isEmpty else {
+            throw ValidationError("Repository owner is not a valid handle.")
+        }
+
+        do {
+            @Dependency(Atmosphere.Account.Client.self) var accountClient
+            let (account, _) = try await accountClient.resolveHandle(
+                Atmosphere.Account.Handle(handle)
+            )
+            return account.id.rawValue.description
+        } catch {
+            throw ValidationError("Could not resolve repository owner \(owner) to a DID: \(error)")
+        }
     }
 
     public func archiveURL(ref: String) throws -> URL {

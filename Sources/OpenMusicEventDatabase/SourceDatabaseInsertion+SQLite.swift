@@ -1,7 +1,20 @@
+import Dependencies
 import OpenMusicEventLexicon
 import SQLiteData
 
 public extension OME.SourceDatabaseInsertion {
+    func migrateAndInsertIntoDefaultDatabase() async throws {
+        @Dependency(\.defaultDatabase) var database
+        try await migrateAndInsert(into: database)
+    }
+
+    func migrateAndInsert(into database: any DatabaseWriter) async throws {
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        try await insert(into: database)
+    }
+
     func insert(into database: any DatabaseWriter) async throws {
         try await database.write { db in
             try insert(into: db)

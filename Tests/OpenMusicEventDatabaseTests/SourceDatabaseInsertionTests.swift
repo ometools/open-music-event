@@ -1,5 +1,6 @@
 import ATProto
 import CustomDump
+import Dependencies
 import FileTree
 import Foundation
 import OpenMusicEventDatabase
@@ -342,6 +343,32 @@ struct SourceDatabaseInsertionTests {
         #expect(eventOrganizerCount == 1)
         #expect(performanceCount == 3)
         #expect(performanceParticipantCount == 2)
+    }
+
+    @Test
+    func insertsIntoDefaultDatabaseAfterRunningMigrations() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try SQLiteData.defaultDatabase()
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            try await insertion.migrateAndInsertIntoDefaultDatabase()
+        }
+
+        let eventCount = try await database.read { db in
+            try OME.Event.fetchCount(db)
+        }
+        let performanceCount = try await database.read { db in
+            try OME.Performance.fetchCount(db)
+        }
+
+        expectNoDifference(eventCount, 1)
+        expectNoDifference(performanceCount, 3)
     }
 
     private func makeSourceRepository(

@@ -1,4 +1,5 @@
 import ArgumentParser
+import ATProto
 import CustomDump
 import Dependencies
 import Foundation
@@ -112,6 +113,111 @@ struct TangledSourceCloneTests {
             try repository.archiveURL(ref: ref).absoluteString,
             expectedURLString
         )
+    }
+
+    @Test
+    func resolvesDIDOwnerWithoutHTTP() async throws {
+        let repository = try TangledRepositoryReference(
+            parsing: "https://tangled.org/did:plc:wshs7t2adsemcrrd4snkeqli/core"
+        )
+
+        let did = try await withDependencies {
+            $0.httpClient = .testClient { _, path, _ in
+                Issue.record("Did not expect HTTP request for DID owner: \(path)")
+                return Data()
+            }
+        } operation: {
+            try await repository.resolvedOwnerDID()
+        }
+
+        expectNoDifference(did, "did:plc:wshs7t2adsemcrrd4snkeqli")
+    }
+
+    @Test
+    func resolvesHandleOwnerThroughATProtoClient() async throws {
+        let repository = try TangledRepositoryReference(
+            parsing: "https://tangled.org/woody.fm/shambhala-ome"
+        )
+        let expectedDID = try #require(DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu"))
+        let expectedHandle = Atmosphere.Account.Handle("woody.fm")
+
+        let did = try await withDependencies {
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    expectNoDifference(handle, expectedHandle)
+                    return (
+                        Atmosphere.Account(id: .init(expectedDID), handle: handle),
+                        try didDocument(did: expectedDID, handle: handle)
+                    )
+                },
+                resolveDID: { did in
+                    Issue.record("Did not expect DID resolution: \(did)")
+                    return (
+                        Atmosphere.Account(id: .init(expectedDID), handle: expectedHandle),
+                        try didDocument(did: expectedDID, handle: expectedHandle)
+                    )
+                }
+            )
+        } operation: {
+            try await repository.resolvedOwnerDID()
+        }
+
+        expectNoDifference(did, "did:plc:cqqtuv75m7e5s4uj6nw4czyu")
+    }
+
+    @Test
+    func resolvesAtHandleOwnerThroughATProtoClient() async throws {
+        let repository = try TangledRepositoryReference(parsing: "@woody.fm/shambhala-ome")
+        let expectedDID = try #require(DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu"))
+        let expectedHandle = Atmosphere.Account.Handle("woody.fm")
+
+        let did = try await withDependencies {
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    expectNoDifference(handle, expectedHandle)
+                    return (
+                        Atmosphere.Account(id: .init(expectedDID), handle: handle),
+                        try didDocument(did: expectedDID, handle: handle)
+                    )
+                },
+                resolveDID: { did in
+                    Issue.record("Did not expect DID resolution: \(did)")
+                    return (
+                        Atmosphere.Account(id: .init(expectedDID), handle: expectedHandle),
+                        try didDocument(did: expectedDID, handle: expectedHandle)
+                    )
+                }
+            )
+        } operation: {
+            try await repository.resolvedOwnerDID()
+        }
+
+        expectNoDifference(did, "did:plc:cqqtuv75m7e5s4uj6nw4czyu")
+    }
+
+    @Test
+    func rejectsHandleOwnerResolutionWithoutDID() async throws {
+        let repository = try TangledRepositoryReference(parsing: "woody.fm/shambhala-ome")
+
+        do {
+            _ = try await withDependencies {
+                $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                    resolveHandle: { _ in
+                        throw ValidationError("not a did")
+                    },
+                    resolveDID: { did in
+                        Issue.record("Did not expect DID resolution: \(did)")
+                        throw ValidationError("not a did")
+                    }
+                )
+            } operation: {
+                try await repository.resolvedOwnerDID()
+            }
+            Issue.record("Expected handle owner resolution to reject a non-DID response.")
+        } catch is ValidationError {
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test(arguments: [
@@ -304,4 +410,23 @@ struct TangledSourceCloneTests {
             try await command.run()
         }
     }
+}
+
+private func didDocument(
+    did: DID,
+    handle: Atmosphere.Account.Handle
+) throws -> DID.Document {
+    try JSONDecoder().decode(
+        DID.Document.self,
+        from: Data(
+            """
+            {
+                "id": "\(did)",
+                "alsoKnownAs": ["at://\(handle.rawValue)"],
+                "verificationMethod": [],
+                "service": []
+            }
+            """.utf8
+        )
+    )
 }

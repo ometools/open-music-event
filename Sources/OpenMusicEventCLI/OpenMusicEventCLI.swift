@@ -36,14 +36,14 @@ extension OpenMusicEventCommand.Source {
     struct Validate: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "validate",
-            abstract: "Parse a source repository and prepare database insertion rows."
+            abstract: "Parse, validate, and insert a source repository."
         )
 
         @Argument(help: "Path to a local source repository root or a Tangled repository reference.")
         var source: String
 
-        @Option(help: "Organizer DID used to scope imported event records.")
-        var organizerID: String
+        @Option(help: "Organizer DID used to scope imported event records. If omitted for a Tangled repository, the owner DID is resolved from the repository reference.")
+        var organizerID: String?
 
         @Option(help: "Git ref to download when source is a Tangled repository reference.")
         var ref = "HEAD"
@@ -55,12 +55,9 @@ extension OpenMusicEventCommand.Source {
         var verbose = false
 
         func run() async throws {
-            guard let organizerID = OME.Organizer.ID(organizerID)
-            else {
-                throw ValidationError("Invalid organizer ID: \(organizerID)")
-            }
-
-            let (repositoryURL, cleanupURL) = try await resolvedRepositoryURL()
+            let location = try SourceRepositoryLocation(parsing: source)
+            let organizerID = try await resolvedOrganizerID(for: location)
+            let (repositoryURL, cleanupURL) = try await resolvedRepositoryURL(for: location)
             defer {
                 if let cleanupURL {
                     try? FileManager.default.removeItem(at: cleanupURL)
@@ -71,6 +68,8 @@ extension OpenMusicEventCommand.Source {
             let insertion = try OME.SourceDatabaseInsertion(
                 .init(source: source, organizerID: organizerID)
             )
+            try await insertion.migrateAndInsertIntoDefaultDatabase()
+
             let summary = SourceValidationSummary(
                 source: source,
                 insertion: insertion
@@ -86,8 +85,29 @@ extension OpenMusicEventCommand.Source {
             }
         }
 
-        private func resolvedRepositoryURL() async throws -> (repositoryURL: URL, cleanupURL: URL?) {
-            switch try SourceRepositoryLocation(parsing: source) {
+        private func resolvedOrganizerID(for location: SourceRepositoryLocation) async throws -> OME.Organizer.ID {
+            if let organizerID {
+                guard let organizerID = OME.Organizer.ID(organizerID) else {
+                    throw ValidationError("Invalid organizer ID: \(organizerID)")
+                }
+                return organizerID
+            }
+
+            switch location {
+            case .local:
+                throw ValidationError("Cannot infer organizer ID from a local source path. Pass --organizer-id.")
+
+            case let .tangled(repository):
+                let did = try await repository.resolvedOwnerDID()
+                guard let organizerID = OME.Organizer.ID(did) else {
+                    throw ValidationError("Repository owner did not resolve to a valid organizer DID: \(did)")
+                }
+                return organizerID
+            }
+        }
+
+        private func resolvedRepositoryURL(for location: SourceRepositoryLocation) async throws -> (repositoryURL: URL, cleanupURL: URL?) {
+            switch location {
             case let .local(repositoryURL):
                 guard output == nil else {
                     throw ValidationError("--output can only be used when validating a Tangled repository reference.")
@@ -162,7 +182,7 @@ struct SourceValidationSummary: CustomStringConvertible {
 
     var description: String {
         """
-        Source repository is valid.
+        Source repository is valid and inserted.
         Events: \(events.count)
         Stages: \(stageCount)
         Schedules: \(scheduleCount)
