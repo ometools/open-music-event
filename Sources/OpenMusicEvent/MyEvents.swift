@@ -6,6 +6,7 @@
 //
 
 import ComposableArchitecture2
+import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventLexicon
 import SQLiteData
@@ -23,6 +24,7 @@ public struct MyEvents {
 
     public enum Action {
         case didTapCreateEvent
+        case didTapImportSource
         case didTapEvent(OMERecord.Event)
         case destination(Destination.Action)
     }
@@ -39,6 +41,7 @@ public struct MyEvents {
     @Feature
     public enum Destination {
         case createEvent(Spawn<CreateEvent>)
+        case sourceImport(Spawn<TangledSourceDownload>)
     }
 
     public var body: some Feature {
@@ -47,6 +50,10 @@ public struct MyEvents {
             switch action {
             case .didTapCreateEvent:
                 state.destination = .createEvent(Spawn(CreateEvent.State()))
+
+            case .didTapImportSource:
+                state.destination = .sourceImport(Spawn(TangledSourceDownload.State()))
+
             case .didTapEvent(let event):
                 store.addTask {
                     try store.post(
@@ -78,15 +85,25 @@ struct MyEventsView: View {
                 }
             }
         }
+        .navigationTitle("My Events")
         .listStyle(.plain)
         .toolbar {
-                Button("Create Event", systemImage: "plus") {
-                    store.send(.didTapCreateEvent)
-                }
+            Button("Import Source", systemImage: "arrow.down.doc") {
+                store.send(.didTapImportSource)
             }
+
+            Button("Create Event", systemImage: "plus") {
+                store.send(.didTapCreateEvent)
+            }
+        }
         .sheet(item: $store.scope(state: \.destination, action: \.destination).createEvent) { createEventStore in
             NavigationStack {
                 CreateEventView(store: createEventStore)
+            }
+        }
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).sourceImport) { downloadStore in
+            NavigationStack {
+                TangledSourceDownloadView(store: downloadStore)
             }
         }
     }

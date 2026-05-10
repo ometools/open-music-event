@@ -4,6 +4,7 @@ import CustomDump
 import Dependencies
 import Foundation
 import HTTPClient
+import HTTPTypes
 import Testing
 
 @testable import OpenMusicEventSourceClone
@@ -377,6 +378,53 @@ struct TangledSourceCloneTests {
         } operation: {
             try await command.run()
         }
+    }
+
+    @Test
+    func cloneCommandDownloadsBinaryArchiveWithoutBodyLogging() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-cli-source-clone-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+
+        let command = try TangledSourceCloneCommand.parse([
+            "woody.fm/wicked-woods-ome",
+            "--output",
+            outputURL.path(),
+        ])
+        let archiveData = Data([0x1f, 0x8b, 0x08, 0x00, 0x41, 0x52, 0x43, 0x48])
+        nonisolated(unsafe) var didInspectResponseLogging = false
+
+        try await withDependencies {
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.dataForURL = { request, body in
+                #expect(body == nil)
+                #expect(request.method == .get)
+                expectNoDifference(
+                    request.url?.absoluteString,
+                    "https://tangled.org/woody.fm/wicked-woods-ome/archive/HEAD.tar.gz"
+                )
+                return (archiveData, HTTPResponse(status: 200))
+            }
+            $0.responseInterceptors = [
+                ResponseInterceptor { _, _, responseData in
+                    @Dependency(\.logBody) var logBody
+                    didInspectResponseLogging = true
+                    expectNoDifference(logBody, false)
+                    expectNoDifference(responseData, archiveData)
+                }
+            ]
+            $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient { downloadedArchiveData, output in
+                expectNoDifference(downloadedArchiveData, archiveData)
+                expectNoDifference(output, outputURL.standardizedFileURL)
+            }
+        } operation: {
+            try await command.run()
+        }
+
+        #expect(didInspectResponseLogging)
     }
 
     @Test

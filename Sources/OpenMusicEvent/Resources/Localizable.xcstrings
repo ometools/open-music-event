@@ -196,6 +196,18 @@
     "Dates are saved as local calendar dates in %@." : {
 
     },
+    "%lld events" : {
+
+    },
+    "Import" : {
+
+    },
+    "Import Source" : {
+
+    },
+    "Imported" : {
+
+    },
     "End Date" : {
 
     },
@@ -235,6 +247,9 @@
 
     },
     "Following feature stub." : {
+
+    },
+    "HEAD" : {
 
     },
     "Hello [%@](https://skip.dev)!" : {
@@ -294,6 +309,9 @@
           }
         }
       }
+    },
+    "https://tangled.org/owner/repo" : {
+
     },
     "Light" : {
       "comment" : "Menu item indicating that the appearance should be in light mode",
@@ -426,6 +444,12 @@
         }
       }
     },
+    "Ref" : {
+
+    },
+    "Repository" : {
+
+    },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
       "localizations" : {
@@ -492,6 +516,9 @@
           }
         }
       }
+    },
+    "Source" : {
+
     },
     "Start Date" : {
 

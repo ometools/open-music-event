@@ -1,6 +1,4 @@
 import ArgumentParser
-import Dependencies
-import FileTree
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -55,142 +53,34 @@ extension OpenMusicEventCommand.Source {
         var verbose = false
 
         func run() async throws {
-            let location = try SourceRepositoryLocation(parsing: source)
-            let organizerID = try await resolvedOrganizerID(for: location)
-            let (repositoryURL, cleanupURL) = try await resolvedRepositoryURL(for: location)
-            defer {
-                if let cleanupURL {
-                    try? FileManager.default.removeItem(at: cleanupURL)
-                }
-            }
-
-            let source = try OpenMusicEventSourceRepositoryFileTree().read(from: repositoryURL)
-            let insertion = try OME.SourceDatabaseInsertion(
-                .init(source: source, organizerID: organizerID)
+            let organizerID = try parsedOrganizerID()
+            let outputURL = try output.map(TangledSourceCloneCommand.resolvedOutputURL)
+            let result = try await OpenMusicEventSourceValidator(
+                OpenMusicEventSourceValidationRequest(
+                    source: source,
+                    organizerID: organizerID,
+                    ref: ref,
+                    outputURL: outputURL
+                )
             )
-            try await insertion.migrateAndInsertIntoDefaultDatabase()
+            .validateAndInsertIntoDefaultDatabase()
 
-            let summary = SourceValidationSummary(
-                source: source,
-                insertion: insertion
-            )
-
-            print(summary.description)
+            print(result.summary.description)
 
             if verbose {
                 print()
-                for event in summary.events {
+                for event in result.summary.events {
                     print("- \(event.eventID): \(event.name)")
                 }
             }
         }
 
-        private func resolvedOrganizerID(for location: SourceRepositoryLocation) async throws -> OME.Organizer.ID {
-            if let organizerID {
-                guard let organizerID = OME.Organizer.ID(organizerID) else {
-                    throw ValidationError("Invalid organizer ID: \(organizerID)")
-                }
-                return organizerID
+        private func parsedOrganizerID() throws -> OME.Organizer.ID? {
+            guard let organizerID else { return nil }
+            guard let parsedOrganizerID = OME.Organizer.ID(organizerID) else {
+                throw ValidationError(OpenMusicEventSourceValidationError.invalidOrganizerID(organizerID).localizedDescription)
             }
-
-            switch location {
-            case .local:
-                throw ValidationError("Cannot infer organizer ID from a local source path. Pass --organizer-id.")
-
-            case let .tangled(repository):
-                let did = try await repository.resolvedOwnerDID()
-                guard let organizerID = OME.Organizer.ID(did) else {
-                    throw ValidationError("Repository owner did not resolve to a valid organizer DID: \(did)")
-                }
-                return organizerID
-            }
+            return parsedOrganizerID
         }
-
-        private func resolvedRepositoryURL(for location: SourceRepositoryLocation) async throws -> (repositoryURL: URL, cleanupURL: URL?) {
-            switch location {
-            case let .local(repositoryURL):
-                guard output == nil else {
-                    throw ValidationError("--output can only be used when validating a Tangled repository reference.")
-                }
-                return (repositoryURL, nil)
-
-            case let .tangled(repository):
-                let outputURL: URL
-                let cleanupURL: URL?
-                if let output {
-                    outputURL = try TangledSourceCloneCommand.resolvedOutputURL(output)
-                    cleanupURL = nil
-                } else {
-                    @Dependency(\.uuid) var uuid
-                    outputURL = TangledSourceCloneCommand.temporaryOutputURL(uuid: uuid())
-                    cleanupURL = outputURL
-                }
-
-                try TangledSourceArchiveExtractor.validateOutputDoesNotExist(outputURL)
-                do {
-                    try await TangledSourceCloner(
-                        repository: repository,
-                        ref: ref,
-                        outputURL: outputURL
-                    )
-                    .clone()
-                } catch {
-                    if let cleanupURL {
-                        try? FileManager.default.removeItem(at: cleanupURL)
-                    }
-                    throw error
-                }
-                return (outputURL, cleanupURL)
-            }
-        }
-    }
-}
-
-struct SourceValidationSummary: CustomStringConvertible {
-    struct Event {
-        var eventID: String
-        var name: String
-    }
-
-    var events: [Event]
-    var stageCount: Int
-    var scheduleCount: Int
-    var participantCount: Int
-    var channelCount: Int
-    var posterCount: Int
-    var performanceCount: Int
-    var performanceParticipantCount: Int
-
-    init(
-        source: OpenMusicEventSourceRepository,
-        insertion: OME.SourceDatabaseInsertion
-    ) {
-        self.events = source.events.map {
-            Event(
-                eventID: $0.directoryName,
-                name: $0.components.event.name
-            )
-        }
-        self.stageCount = insertion.stages.count
-        self.scheduleCount = insertion.schedules.count
-        self.participantCount = insertion.participants.count
-        self.channelCount = insertion.channels.count
-        self.posterCount = insertion.posters.count
-        self.performanceCount = insertion.performances.count
-        self.performanceParticipantCount = insertion.performanceParticipants.count
-    }
-
-    var description: String {
-        """
-        Source repository is valid and inserted.
-        Events: \(events.count)
-        Stages: \(stageCount)
-        Schedules: \(scheduleCount)
-        Participants: \(participantCount)
-        Channels: \(channelCount)
-        Posters: \(posterCount)
-        Performances: \(performanceCount)
-        Performance participants: \(performanceParticipantCount)
-        """
     }
 }

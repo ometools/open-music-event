@@ -1,6 +1,5 @@
 import Foundation
 import OpenMusicEventLexicon
-import OpenMusicEventSource
 
 public extension OME {
     struct SourceDatabaseInsertion: Equatable, Sendable {

@@ -1,5 +1,6 @@
 import ATProto
 import CustomDump
+import FileTree
 import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
@@ -7,9 +8,54 @@ import Testing
 
 struct OpenMusicEventSourceTests {
     @Test
+    func validatesLocalRepositoryAndBuildsInsertion() async throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let result = try await OpenMusicEventSourceValidator(
+            OpenMusicEventSourceValidationRequest(
+                source: fixtureURL("Organizer").path(),
+                organizerID: organizerID
+            )
+        )
+        .validate()
+
+        expectNoDifference(
+            result.summary.events.map(\.eventID),
+            [
+                "minimal-event",
+                "testival-2026",
+            ]
+        )
+        expectNoDifference(
+            result.insertedEventIDs.map(\.eventID.rawValue.rawValue),
+            [
+                "minimal-event",
+                "testival-2026",
+            ]
+        )
+        #expect(result.organizerID == organizerID)
+    }
+
+    @Test
+    func rejectsLocalRepositoryWithoutOrganizerID() async throws {
+        do {
+            _ = try await OpenMusicEventSourceValidator(
+                OpenMusicEventSourceValidationRequest(
+                    source: fixtureURL("Organizer").path()
+                )
+            )
+            .validate()
+            Issue.record("Expected local source validation to require an organizer ID.")
+        } catch OpenMusicEventSourceValidationError.missingOrganizerIDForLocalSource {
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
     func readsOrganizerRepository() throws {
-        let repository = try OpenMusicEventSourceRepositoryFileTree()
+        let repositoryResult = try OpenMusicEventSourceRepositoryFileTree()
             .read(from: fixtureURL("Organizer"))
+        let repository = try repositoryResult.output.requiredValue
 
         expectNoDifference(
             repository.events.map(\.directoryName),

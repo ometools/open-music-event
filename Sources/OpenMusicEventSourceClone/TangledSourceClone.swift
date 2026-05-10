@@ -54,9 +54,7 @@ public struct TangledSourceCloneCommand: AsyncParsableCommand {
     }
 
     public static func temporaryOutputURL(uuid: UUID) -> URL {
-        FileManager.default.temporaryDirectory
-            .appending(path: "ome-source-clone-\(uuid.uuidString)")
-            .standardizedFileURL
+        TangledSourceCloner.temporaryOutputURL(uuid: uuid)
     }
 }
 
@@ -203,6 +201,12 @@ public struct TangledSourceCloner: Sendable {
     public var ref: String
     public var outputURL: URL
 
+    public static func temporaryOutputURL(uuid: UUID) -> URL {
+        FileManager.default.temporaryDirectory
+            .appending(path: "ome-source-clone-\(uuid.uuidString)")
+            .standardizedFileURL
+    }
+
     public init(
         repository: TangledRepositoryReference,
         ref: String = "HEAD",
@@ -217,10 +221,12 @@ public struct TangledSourceCloner: Sendable {
         @Dependency(\.httpClient) var httpClient
         @Dependency(\.tangledSourceArchiveExtractor) var extractor
 
-        let archiveData: Data = try await httpClient.get(
-            try repository.archiveURL(ref: ref),
-            decodingTo: Data.self
-        )
+        let archiveURL = try repository.archiveURL(ref: ref)
+        let archiveData: Data = try await withDependencies {
+            $0.logBody = false
+        } operation: {
+            try await httpClient.get(archiveURL, decodingTo: Data.self)
+        }
         try await extractor.extract(archiveData, outputURL)
     }
 }

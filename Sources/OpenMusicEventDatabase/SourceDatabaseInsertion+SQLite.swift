@@ -1,5 +1,6 @@
 import Dependencies
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import SQLiteData
 
 public extension OME.SourceDatabaseInsertion {
@@ -52,5 +53,18 @@ public extension OME.SourceDatabaseInsertion {
         if !performanceParticipants.isEmpty {
             try OME.Performance.Participants.insert { performanceParticipants }.execute(db)
         }
+    }
+}
+
+public extension OpenMusicEventSourceValidator {
+    func validateAndInsertIntoDefaultDatabase() async throws -> OpenMusicEventSourceValidationResult {
+        @Dependency(\.defaultDatabase) var database
+        return try await validateAndInsert(into: database)
+    }
+
+    func validateAndInsert(into database: any DatabaseWriter) async throws -> OpenMusicEventSourceValidationResult {
+        let result = try await validate()
+        try await result.insertion.migrateAndInsert(into: database)
+        return result
     }
 }
