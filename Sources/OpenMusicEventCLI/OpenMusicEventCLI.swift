@@ -1,4 +1,5 @@
 import ArgumentParser
+import Dependencies
 import FileTree
 import Foundation
 import OpenMusicEventDatabase
@@ -32,30 +33,41 @@ extension OpenMusicEventCommand {
 }
 
 extension OpenMusicEventCommand.Source {
-    struct Validate: ParsableCommand {
+    struct Validate: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "validate",
-            abstract: "Parse a local source repository and prepare database insertion rows."
+            abstract: "Parse a source repository and prepare database insertion rows."
         )
 
-        @Argument(help: "Path to the local source repository root.")
-        var path: String
+        @Argument(help: "Path to a local source repository root or a Tangled repository reference.")
+        var source: String
 
         @Option(help: "Organizer DID used to scope imported event records.")
         var organizerID: String
 
+        @Option(help: "Git ref to download when source is a Tangled repository reference.")
+        var ref = "HEAD"
+
+        @Option(help: "Destination directory for a downloaded Tangled source tree. If omitted, a temporary directory is used and removed.")
+        var output: String?
+
         @Flag(name: .shortAndLong, help: "Print event-level details.")
         var verbose = false
 
-        func run() throws {
+        func run() async throws {
             guard let organizerID = OME.Organizer.ID(organizerID)
             else {
                 throw ValidationError("Invalid organizer ID: \(organizerID)")
             }
 
-            let repositoryURL = URL(filePath: path).standardizedFileURL
-            let source = try OpenMusicEventSourceRepositoryFileTree()
-                .read(from: repositoryURL)
+            let (repositoryURL, cleanupURL) = try await resolvedRepositoryURL()
+            defer {
+                if let cleanupURL {
+                    try? FileManager.default.removeItem(at: cleanupURL)
+                }
+            }
+
+            let source = try OpenMusicEventSourceRepositoryFileTree().read(from: repositoryURL)
             let insertion = try OME.SourceDatabaseInsertion(
                 .init(source: source, organizerID: organizerID)
             )
@@ -71,6 +83,44 @@ extension OpenMusicEventCommand.Source {
                 for event in summary.events {
                     print("- \(event.eventID): \(event.name)")
                 }
+            }
+        }
+
+        private func resolvedRepositoryURL() async throws -> (repositoryURL: URL, cleanupURL: URL?) {
+            switch try SourceRepositoryLocation(parsing: source) {
+            case let .local(repositoryURL):
+                guard output == nil else {
+                    throw ValidationError("--output can only be used when validating a Tangled repository reference.")
+                }
+                return (repositoryURL, nil)
+
+            case let .tangled(repository):
+                let outputURL: URL
+                let cleanupURL: URL?
+                if let output {
+                    outputURL = try TangledSourceCloneCommand.resolvedOutputURL(output)
+                    cleanupURL = nil
+                } else {
+                    @Dependency(\.uuid) var uuid
+                    outputURL = TangledSourceCloneCommand.temporaryOutputURL(uuid: uuid())
+                    cleanupURL = outputURL
+                }
+
+                try TangledSourceArchiveExtractor.validateOutputDoesNotExist(outputURL)
+                do {
+                    try await TangledSourceCloner(
+                        repository: repository,
+                        ref: ref,
+                        outputURL: outputURL
+                    )
+                    .clone()
+                } catch {
+                    if let cleanupURL {
+                        try? FileManager.default.removeItem(at: cleanupURL)
+                    }
+                    throw error
+                }
+                return (outputURL, cleanupURL)
             }
         }
     }

@@ -33,14 +33,12 @@ public struct TangledSourceCloneCommand: AsyncParsableCommand {
         }
         try TangledSourceArchiveExtractor.validateOutputDoesNotExist(outputURL)
 
-        @Dependency(\.httpClient) var httpClient
-        @Dependency(\.tangledSourceArchiveExtractor) var extractor
-
-        let archiveData: Data = try await httpClient.get(
-            try repository.archiveURL(ref: ref),
-            decodingTo: Data.self
+        try await TangledSourceCloner(
+            repository: repository,
+            ref: ref,
+            outputURL: outputURL
         )
-        try await extractor.extract(archiveData, outputURL)
+        .clone()
 
         print("Downloaded \(repository.displayName) at \(ref) to \(outputURL.path())")
     }
@@ -58,6 +56,34 @@ public struct TangledSourceCloneCommand: AsyncParsableCommand {
         FileManager.default.temporaryDirectory
             .appending(path: "ome-source-clone-\(uuid.uuidString)")
             .standardizedFileURL
+    }
+}
+
+public enum SourceRepositoryLocation: Equatable, Sendable {
+    case local(URL)
+    case tangled(TangledRepositoryReference)
+
+    public init(parsing rawValue: String) throws {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            throw ValidationError("Source cannot be empty.")
+        }
+
+        let localURL = URL(filePath: trimmedValue).standardizedFileURL
+        if FileManager.default.fileExists(atPath: localURL.path()) {
+            self = .local(localURL)
+            return
+        }
+
+        if trimmedValue.looksLikeLocalPath {
+            throw ValidationError("Local source path does not exist: \(localURL.path())")
+        }
+
+        do {
+            self = .tangled(try TangledRepositoryReference(parsing: trimmedValue))
+        } catch {
+            throw ValidationError("Source must be an existing local path or Tangled repository reference.")
+        }
     }
 }
 
@@ -150,6 +176,33 @@ public struct TangledRepositoryReference: Equatable, Sendable {
     }
 }
 
+public struct TangledSourceCloner: Sendable {
+    public var repository: TangledRepositoryReference
+    public var ref: String
+    public var outputURL: URL
+
+    public init(
+        repository: TangledRepositoryReference,
+        ref: String = "HEAD",
+        outputURL: URL
+    ) {
+        self.repository = repository
+        self.ref = ref
+        self.outputURL = outputURL
+    }
+
+    public func clone() async throws {
+        @Dependency(\.httpClient) var httpClient
+        @Dependency(\.tangledSourceArchiveExtractor) var extractor
+
+        let archiveData: Data = try await httpClient.get(
+            try repository.archiveURL(ref: ref),
+            decodingTo: Data.self
+        )
+        try await extractor.extract(archiveData, outputURL)
+    }
+}
+
 public struct TangledSourceArchiveExtractor: Sendable {
     public init() {}
 
@@ -230,6 +283,10 @@ extension DependencyValues {
 }
 
 private extension String {
+    var looksLikeLocalPath: Bool {
+        hasPrefix("/") || hasPrefix(".") || hasPrefix("~")
+    }
+
     var droppingGitSuffix: String {
         if hasSuffix(".git") {
             String(dropLast(4))

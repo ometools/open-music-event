@@ -132,6 +132,51 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func resolvesExistingSourcePathAsLocalRepositoryLocation() throws {
+        let localURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-cli-local-source-\(UUID().uuidString)")
+            .standardizedFileURL
+        try FileManager.default.createDirectory(at: localURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: localURL)
+        }
+
+        expectNoDifference(
+            try SourceRepositoryLocation(parsing: localURL.path()),
+            .local(localURL)
+        )
+    }
+
+    @Test
+    func resolvesTangledReferenceAsRemoteRepositoryLocation() throws {
+        expectNoDifference(
+            try SourceRepositoryLocation(parsing: "woody.fm/shambhala-ome"),
+            .tangled(
+                TangledRepositoryReference(
+                    host: "tangled.org",
+                    owner: "woody.fm",
+                    repository: "shambhala-ome"
+                )
+            )
+        )
+    }
+
+    @Test
+    func rejectsMissingExplicitLocalSourcePath() {
+        let localURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-cli-missing-source-\(UUID().uuidString)")
+            .standardizedFileURL
+
+        do {
+            _ = try SourceRepositoryLocation(parsing: localURL.path())
+            Issue.record("Expected missing local source path to be rejected.")
+        } catch is ValidationError {
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
     func resolvesTemporaryOutputPathWhenOutputIsOmitted() throws {
         let uuid = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
         let expectedURL = FileManager.default.temporaryDirectory
