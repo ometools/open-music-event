@@ -1,4 +1,5 @@
 import FileTree
+import OpenMusicEventLexicon
 
 public struct OpenMusicEventSourceRepository: Equatable, Sendable {
     public var events: [DirectoryContent<OpenMusicEventSourceEvent>]
@@ -30,5 +31,23 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
         self.posters = posters
         self.schedules = schedules
         self.channels = channels
+    }
+
+    public init(
+        event: OMERecord.Event.Draft,
+        stages: [FileContent<StageDTO>]? = nil,
+        participants: [FileContent<ParticipantDTO>]? = nil,
+        posters: [FileContent<PosterDTO>]? = nil,
+        schedules: [FileContent<ScheduleDTO>]? = nil,
+        channels: [FileContent<ChannelDTO>]? = nil
+    ) {
+        self.init(
+            event: EventDTO(event),
+            stages: stages,
+            participants: participants,
+            posters: posters,
+            schedules: schedules,
+            channels: channels
+        )
     }
 }

@@ -84,6 +84,7 @@ let package = Package(
             name: "OpenMusicEventSource",
             dependencies: [
                 "OpenMusicEventLexicon",
+                .product(name: "Lexicon", package: "tcatproto"),
                 .product(name: "FileTree", package: "swift-file-tree"),
                 "Yams",
             ]

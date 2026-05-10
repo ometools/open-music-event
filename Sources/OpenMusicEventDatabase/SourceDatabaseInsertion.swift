@@ -72,7 +72,7 @@ public extension OME {
                 eventID: localEventID
             )
 
-            var event = sourceEvent.event
+            var event = sourceEvent.event.recordDraft
             event.id = eventID
             events.append(event)
             eventOrganizers.append(

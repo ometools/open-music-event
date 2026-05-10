@@ -19,7 +19,7 @@ public struct OpenMusicEventSourceEventFileTree: FileTreeReader {
 
     public var body: some FileTreeReader<OpenMusicEventSourceEvent> {
         FileTree {
-            File("event-info", "yml")
+            File("event", "yml")
                 .convert(YamlConversion<EventDTO>())
 
             Directory.Optional("stages") {
