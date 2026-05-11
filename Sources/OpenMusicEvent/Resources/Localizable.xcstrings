@@ -62,6 +62,9 @@
     "Add End Date" : {
 
     },
+    "Add Event" : {
+
+    },
     "Appearance" : {
       "comment" : "Settings select label for the interface style of the controls (light, dark, or default)",
       "localizations" : {

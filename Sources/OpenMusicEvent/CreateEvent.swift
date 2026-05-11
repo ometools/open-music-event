@@ -29,17 +29,25 @@ extension DependencyValues {
 public struct CreateEvent {
     public init() {}
 
-    @Dependency(\.appEventOrganizerID) var appEventOrganizerID
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.uuid) var uuid
 
     public struct State {
-        public init() {
+        public init(
+            organizerID: OMERecord.Organizer.ID? = nil,
+            eventOrganizerID: OMERecord.Organizer.ID? = nil
+        ) {
+            @Dependency(\.appEventOrganizerID) var appEventOrganizerID
             @Dependency(\.date) var date
             let now = date()
+            self.organizerID = organizerID ?? appEventOrganizerID
+            self.eventOrganizerID = eventOrganizerID
             self.startDateSelection = now
             self.endDateSelection = now
         }
+
+        var organizerID: OMERecord.Organizer.ID
+        var eventOrganizerID: OMERecord.Organizer.ID?
 
         var eventName = ""
         var hasStartDate = false
@@ -115,7 +123,7 @@ public struct CreateEvent {
                 guard let validationMessage = state.validationMessage else {
                     let localEventID = Self.makeLocalEventID(from: uuid())
                     let eventID = OMERecord.Event.ID(
-                        organizerID: appEventOrganizerID,
+                        organizerID: state.organizerID,
                         eventID: localEventID
                     )
                     let event = Self.makeEventDraft(
@@ -128,18 +136,41 @@ public struct CreateEvent {
 
                     state.errorMessage = nil
                     state.isSaving = true
+                    let organizerID = state.organizerID
+                    let eventOrganizerID = state.eventOrganizerID
 
                     store.addTask {
                         do {
                             try database.write { db in
                                 try OMERecord.Organizer.insert {
-                                    OMERecord.Organizer.Draft(id: appEventOrganizerID)
+                                    OMERecord.Organizer.Draft(id: organizerID)
                                 }
                                 .execute(db)
+
+                                if let eventOrganizerID, eventOrganizerID != organizerID {
+                                    try OMERecord.Organizer.insert {
+                                        OMERecord.Organizer.Draft(id: eventOrganizerID)
+                                    }
+                                    .execute(db)
+                                }
+
                                 try OMERecord.Event.insert {
                                     event
                                 }
                                 .execute(db)
+
+                                if let eventOrganizerID {
+                                    try OMERecord.EventOrganizer.insert {
+                                        OMERecord.EventOrganizer.Draft(
+                                            id: .init(
+                                                organizerID: eventID.organizerID,
+                                                eventID: eventID.eventID,
+                                                eventOrganizerID: eventOrganizerID
+                                            )
+                                        )
+                                    }
+                                    .execute(db)
+                                }
                             }
                             try store.modify {
                                 $0.errorMessage = nil

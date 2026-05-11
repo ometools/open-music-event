@@ -99,6 +99,47 @@ struct CreateEventTests {
     }
 
     @Test
+    func savesOrganizerScopedEvent() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = OMERecord.Organizer.ID("did:web:wickedwoods.example")!
+        let store = makeStore(
+            initialState: makeState(
+                organizerID: organizerID,
+                eventOrganizerID: organizerID
+            ) {
+                $0.eventName = "Wicked Woods 2026"
+            },
+            database: database,
+            uuid: UUID(2)
+        )
+
+        await store.send(.saveButtonTapped)?.value
+
+        let events = try await database.read { db in
+            try OMERecord.Event.fetchAll(db)
+        }
+        let eventOrganizers = try await database.read { db in
+            try OMERecord.EventOrganizer.fetchAll(db)
+        }
+        let organizers = try await database.read { db in
+            try OMERecord.Organizer.fetchAll(db)
+        }
+        let event = try #require(events.first)
+        let eventOrganizer = try #require(eventOrganizers.first)
+
+        #expect(store.isPresented == false)
+        #expect(events.count == 1)
+        #expect(eventOrganizers.count == 1)
+        #expect(organizers.map(\.id) == [organizerID])
+        #expect(event.id.organizerID == organizerID)
+        #expect(event.id.eventID.rawValue.rawValue == UUID(2).uuidString.lowercased())
+        #expect(event.name == "Wicked Woods 2026")
+        #expect(eventOrganizer.id.organizerID == event.id.organizerID)
+        #expect(eventOrganizer.id.eventID == event.id.eventID)
+        #expect(eventOrganizer.id.eventOrganizerID == organizerID)
+    }
+
+    @Test
     func surfacesSaveFailure() async throws {
         let database = try withDependencies {
             $0.context = .test
@@ -150,13 +191,18 @@ struct CreateEventTests {
     }
 
     private func makeState(
+        organizerID: OMERecord.Organizer.ID? = nil,
+        eventOrganizerID: OMERecord.Organizer.ID? = nil,
         _ update: (inout CreateEvent.State) -> Void
     ) -> CreateEvent.State {
         withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
         } operation: {
-            var state = CreateEvent.State()
+            var state = CreateEvent.State(
+                organizerID: organizerID,
+                eventOrganizerID: eventOrganizerID
+            )
             update(&state)
             return state
         }

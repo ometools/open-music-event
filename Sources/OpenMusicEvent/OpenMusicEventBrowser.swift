@@ -331,6 +331,8 @@ public struct OrganizerDetail {
             )
         }
 
+        var destination: Destination.State?
+
         @DebugSnapshotIgnored
         @FetchAll
         public var events: [OMERecord.Event]
@@ -345,8 +347,15 @@ public struct OrganizerDetail {
     }
 
     public enum Action {
+        case addEventButtonTapped
+        case destination(Destination.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case task
+    }
+
+    @Feature
+    public enum Destination {
+        case createEvent(Spawn<CreateEvent>)
     }
 
     static func organizerQuery(
@@ -430,8 +439,21 @@ public struct OrganizerDetail {
     }
 
     public var body: some Feature {
-        Update { _, action in
+        Update { state, action in
             switch action {
+            case .addEventButtonTapped:
+                state.destination = .createEvent(
+                    Spawn(
+                        CreateEvent.State(
+                            organizerID: state.organizerID,
+                            eventOrganizerID: state.organizerID
+                        )
+                    )
+                )
+
+            case .destination:
+                return
+
             case .eventButtonTapped(let eventID):
                 store.addTask {
                     try store.post(
@@ -444,11 +466,14 @@ public struct OrganizerDetail {
                 break
             }
         }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
     }
 }
 
 public struct OrganizerDetailView: View {
-    let store: StoreOf<OrganizerDetail>
+    @Bindable var store: StoreOf<OrganizerDetail>
     @Dependency(\.date.now) var now
 
     public init(store: StoreOf<OrganizerDetail>) {
@@ -488,6 +513,16 @@ public struct OrganizerDetailView: View {
             }
         }
         .navigationTitle(store.organizerID.description)
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).createEvent) { createEventStore in
+            NavigationStack {
+                CreateEventView(store: createEventStore)
+            }
+        }
+        .toolbar {
+            Button("Add Event", systemImage: "plus") {
+                store.send(.addEventButtonTapped)
+            }
+        }
     }
 
     private var sections: OrganizerDetail.EventSections {
