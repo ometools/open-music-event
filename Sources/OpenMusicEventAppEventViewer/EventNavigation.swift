@@ -19,7 +19,7 @@ public enum EventTarget: Equatable, Sendable {
     public var eventFeature: EventViewer.EventFeature {
         switch self {
         case .schedule:
-            .schedule
+            .schedule(.schedule)
         case .people, .participant:
             .people
         case .stage, .search:

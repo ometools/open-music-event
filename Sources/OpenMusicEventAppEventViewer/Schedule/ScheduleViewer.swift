@@ -10,6 +10,41 @@ import Tagged
 public struct ScheduleViewer {
     public init() {}
 
+    public struct ScheduleDivision: Hashable, Identifiable, Sendable {
+        public init(category: OMERecord.Stage.Category?) {
+            self.category = category
+        }
+
+        public var category: OMERecord.Stage.Category?
+        public var id: String { category?.rawValue ?? "schedule" }
+
+        public static let schedule = Self(category: nil)
+
+        var systemImage: String {
+            switch category?.rawValue {
+            case nil:
+                return "calendar"
+            case "workshop":
+                return "figure.mind.and.body"
+            case "discussions":
+                return "bubble.left.and.bubble.right"
+            default:
+                return "square.grid.2x2"
+            }
+        }
+
+        var title: String {
+            switch category?.rawValue {
+            case nil:
+                return "Schedule"
+            case "workshop":
+                return "Workshops"
+            default:
+                return category?.rawValue.scheduleDivisionTitle ?? "Schedule"
+            }
+        }
+    }
+
     public enum ScheduleMode: String, CaseIterable, Hashable, Sendable {
         case singleStageAtOnce
         case list
@@ -36,9 +71,11 @@ public struct ScheduleViewer {
     public struct State {
         public init(
             eventID: OMERecord.Event.ID,
+            scheduleDivision: ScheduleDivision = .schedule,
             database: (any DatabaseReader)? = nil
         ) {
             self.eventID = eventID
+            self.scheduleDivision = scheduleDivision
             _performances = FetchAll(
                 ScheduleViewer.eventPerformancesQuery(eventID: eventID),
                 database: database
@@ -54,6 +91,7 @@ public struct ScheduleViewer {
         }
 
         public let eventID: OMERecord.Event.ID
+        public let scheduleDivision: ScheduleDivision
         public var destination: Destination.State?
         public var scheduleMode: ScheduleMode = .singleStageAtOnce
         public var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
@@ -69,8 +107,11 @@ public struct ScheduleViewer {
         }
 
         public var visiblePerformances: [OMERecord.Performance] {
-            guard let selectedScheduleID = resolvedSelectedScheduleID else { return [] }
-            return performances.filter { $0.scheduleID == selectedScheduleID }
+            ScheduleViewer.visiblePerformances(
+                performances: performances,
+                scheduleID: resolvedSelectedScheduleID,
+                stages: visibleStages
+            )
         }
 
         public var visiblePerformancesForSelectedStage: [OMERecord.Performance] {
@@ -89,7 +130,7 @@ public struct ScheduleViewer {
         var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
             ScheduleViewer.resolvedSelectedStageID(
                 selectedStageID: selectedStageID,
-                stages: stages
+                stages: visibleStages
             )
         }
 
@@ -99,7 +140,7 @@ public struct ScheduleViewer {
 
         var selectedStage: OMERecord.Stage? {
             guard let resolvedSelectedStageID else { return nil }
-            return stages.first { $0.id.stageID == resolvedSelectedStageID }
+            return visibleStages.first { $0.id.stageID == resolvedSelectedStageID }
         }
 
         var selectedStagePerformanceTimeRange: DateInterval? {
@@ -113,6 +154,13 @@ public struct ScheduleViewer {
 
         var stagesByID: [OMERecord.ID<OMERecord.Stage>: OMERecord.Stage] {
             Dictionary(uniqueKeysWithValues: stages.map { ($0.id.stageID, $0) })
+        }
+
+        var visibleStages: [OMERecord.Stage] {
+            ScheduleViewer.visibleStages(
+                stages: stages,
+                division: scheduleDivision
+            )
         }
     }
 
@@ -184,6 +232,39 @@ public struct ScheduleViewer {
             return selectedStageID
         }
         return stages.first?.id.stageID
+    }
+
+    static func scheduleDivisions(stages: [OMERecord.Stage]) -> [ScheduleDivision] {
+        guard !stages.isEmpty else { return [] }
+
+        var divisions: [ScheduleDivision] = [.schedule]
+        var seenCategories = Set<OMERecord.Stage.Category>()
+        for stage in stages {
+            guard let category = stage.category, seenCategories.insert(category).inserted else {
+                continue
+            }
+            divisions.append(ScheduleDivision(category: category))
+        }
+        return divisions
+    }
+
+    static func visiblePerformances(
+        performances: [OMERecord.Performance],
+        scheduleID: OMERecord.ID<OMERecord.Schedule>?,
+        stages: [OMERecord.Stage]
+    ) -> [OMERecord.Performance] {
+        guard let scheduleID else { return [] }
+        let visibleStageIDs = Set(stages.map(\.id.stageID))
+        return performances.filter {
+            $0.scheduleID == scheduleID && visibleStageIDs.contains($0.stageID)
+        }
+    }
+
+    static func visibleStages(
+        stages: [OMERecord.Stage],
+        division: ScheduleDivision
+    ) -> [OMERecord.Stage] {
+        stages.filter { $0.category == division.category }
     }
 
     public var body: some Feature {
@@ -294,9 +375,9 @@ struct ScheduleSingleStageAtOnceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !store.stages.isEmpty {
+            if !store.visibleStages.isEmpty {
                 OMEScheduleStageSelector(
-                    stages: store.stages,
+                    stages: store.visibleStages,
                     selectedStageID: store.resolvedSelectedStageID
                 ) { stageID in
                     store.send(.stageButtonTapped(stageID))
@@ -312,9 +393,9 @@ struct ScheduleSingleStageAtOnceView: View {
                 )
             } else {
                 ContentUnavailableView(
-                    "Stages",
+                    store.scheduleDivision.title,
                     systemImage: "music.note.list",
-                    description: Text("No stages have been added to this event yet.")
+                    description: Text("No stages have been added to this schedule division yet.")
                 )
             }
         }
@@ -367,7 +448,7 @@ struct SchedulePerformanceListView: View {
             ViewerPlaceholderView(
                 title: store.selectedScheduleTitle,
                 systemImage: "calendar",
-                description: "No performances have been added to this schedule yet."
+                description: "No performances have been added to this schedule division yet."
             )
         } else {
             List(store.visiblePerformances) { performance in
@@ -641,5 +722,13 @@ extension OMEColor {
             green: Double((rawValue >> 8) & 0xFF) / 255.0,
             blue: Double(rawValue & 0xFF) / 255.0
         )
+    }
+}
+
+private extension String {
+    var scheduleDivisionTitle: String {
+        split { $0 == "-" || $0 == "_" || $0 == " " }
+            .map { $0.capitalized }
+            .joined(separator: " ")
     }
 }

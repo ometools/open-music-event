@@ -34,8 +34,8 @@ extension OMERecord.Event {
 public struct EventViewer {
     public init() {}
 
-    public enum EventFeature: String, CaseIterable, Hashable, Sendable, LosslessStringConvertible, TabFeatureValue {
-        case schedule
+    public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeatureValue {
+        case schedule(ScheduleViewer.ScheduleDivision)
         case people
         case communications
         case contactInfo
@@ -46,8 +46,8 @@ public struct EventViewer {
         case search
         case about
 
-        public static let allCases: [Self] = [
-            .schedule,
+        public static let defaultFeatures: [Self] = [
+            .schedule(.schedule),
             .people,
             .communications,
             .contactInfo,
@@ -60,16 +60,71 @@ public struct EventViewer {
         ]
 
         public init?(_ description: String) {
-            self.init(rawValue: description)
+            switch description {
+            case "schedule":
+                self = .schedule(.schedule)
+            case let value where value.hasPrefix("schedule:"):
+                let rawCategory = String(value.dropFirst("schedule:".count))
+                guard !rawCategory.isEmpty else { return nil }
+                self = .schedule(
+                    ScheduleViewer.ScheduleDivision(
+                        category: OMERecord.Stage.Category(rawCategory)
+                    )
+                )
+            case "people":
+                self = .people
+            case "communications":
+                self = .communications
+            case "contactInfo":
+                self = .contactInfo
+            case "location":
+                self = .location
+            case "siteMap":
+                self = .siteMap
+            case "posters":
+                self = .posters
+            case "notifications":
+                self = .notifications
+            case "search":
+                self = .search
+            case "about":
+                self = .about
+            default:
+                return nil
+            }
         }
 
         public var description: String {
-            self.rawValue
+            switch self {
+            case let .schedule(division):
+                if let category = division.category {
+                    return "schedule:\(category.rawValue)"
+                }
+                return "schedule"
+            case .people:
+                return "people"
+            case .communications:
+                return "communications"
+            case .contactInfo:
+                return "contactInfo"
+            case .location:
+                return "location"
+            case .siteMap:
+                return "siteMap"
+            case .posters:
+                return "posters"
+            case .notifications:
+                return "notifications"
+            case .search:
+                return "search"
+            case .about:
+                return "about"
+            }
         }
 
         var title: String {
             switch self {
-            case .schedule: "Schedule"
+            case let .schedule(division): division.title
             case .people: "People"
             case .communications: "Comms"
             case .contactInfo: "Contact"
@@ -84,7 +139,7 @@ public struct EventViewer {
 
         var systemImage: String {
             switch self {
-            case .schedule: "calendar"
+            case let .schedule(division): division.systemImage
             case .people: "person.3"
             case .communications: "megaphone"
             case .contactInfo: "phone"
@@ -114,30 +169,67 @@ public struct EventViewer {
 
         var customizationID: TabFeatureID {
             switch self {
-            case .schedule: "openMusicEvent.eventViewer.schedule"
-            case .people: "openMusicEvent.eventViewer.people"
-            case .communications: "openMusicEvent.eventViewer.communications"
-            case .contactInfo: "openMusicEvent.eventViewer.contactInfo"
-            case .location: "openMusicEvent.eventViewer.location"
-            case .siteMap: "openMusicEvent.eventViewer.siteMap"
-            case .posters: "openMusicEvent.eventViewer.posters"
-            case .notifications: "openMusicEvent.eventViewer.notifications"
-            case .search: "openMusicEvent.eventViewer.search"
-            case .about: "openMusicEvent.eventViewer.about"
+            case let .schedule(division):
+                if division.category == nil {
+                    return "openMusicEvent.eventViewer.schedule"
+                }
+                return "openMusicEvent.eventViewer.schedule.\(division.id)"
+            case .people: return "openMusicEvent.eventViewer.people"
+            case .communications: return "openMusicEvent.eventViewer.communications"
+            case .contactInfo: return "openMusicEvent.eventViewer.contactInfo"
+            case .location: return "openMusicEvent.eventViewer.location"
+            case .siteMap: return "openMusicEvent.eventViewer.siteMap"
+            case .posters: return "openMusicEvent.eventViewer.posters"
+            case .notifications: return "openMusicEvent.eventViewer.notifications"
+            case .search: return "openMusicEvent.eventViewer.search"
+            case .about: return "openMusicEvent.eventViewer.about"
+            }
+        }
+
+        var scheduleDivision: ScheduleViewer.ScheduleDivision? {
+            guard case let .schedule(division) = self else { return nil }
+            return division
+        }
+
+        static func features(
+            eventID: OMERecord.Event.ID,
+            database: any DatabaseReader
+        ) -> [Self] {
+            let stages = (try? database.read { db in
+                try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+            }) ?? []
+            return features(scheduleDivisions: ScheduleViewer.scheduleDivisions(stages: stages))
+        }
+
+        static func features(
+            scheduleDivisions: [ScheduleViewer.ScheduleDivision]
+        ) -> [Self] {
+            let divisions = scheduleDivisions.isEmpty ? [.schedule] : scheduleDivisions
+            return divisions.map(Self.schedule) + defaultFeatures.filter {
+                $0.scheduleDivision == nil
             }
         }
     }
 
     public struct State: Identifiable {
         public init(eventID: OMERecord.Event.ID) {
-            self.init(eventID: eventID, features: EventFeature.allCases)
+            @Dependency(\.defaultDatabase) var database
+            self.init(
+                eventID: eventID,
+                features: EventFeature.features(eventID: eventID, database: database),
+                database: database
+            )
         }
 
-        public init(eventID: OMERecord.Event.ID, features: [EventFeature]) {
+        public init(
+            eventID: OMERecord.Event.ID,
+            features: [EventFeature],
+            database: (any DatabaseReader)? = nil
+        ) {
 
             self.eventID = eventID
             self.installedFeatures = features
-            self.selectedFeature = features.first ?? .schedule
+            self.selectedFeature = features.first ?? .schedule(.schedule)
 
             withDependencies {
                 $0.defaultEventID = eventID
@@ -145,8 +237,16 @@ public struct EventViewer {
 
                 for feature in features {
                     switch feature {
-                    case .schedule:
-                        self.scheduleViewer = Spawn(ScheduleViewer.State(eventID: eventID))
+                    case let .schedule(division):
+                        self.scheduleViewers.append(
+                            Spawn(
+                                ScheduleViewer.State(
+                                    eventID: eventID,
+                                    scheduleDivision: division,
+                                    database: database
+                                )
+                            )
+                        )
                     case .people:
                         self.peopleViewer = Spawn(PeopleViewer.State(eventID: eventID))
                     case .communications:
@@ -183,7 +283,7 @@ public struct EventViewer {
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
 
-        public var scheduleViewer: Spawn<ScheduleViewer>?
+        public var scheduleViewers: [Spawn<ScheduleViewer>] = []
         public var peopleViewer: Spawn<PeopleViewer>?
         public var communicationsViewer: Spawn<CommunicationsViewer>?
         public var contactInfoViewer: Spawn<ContactInfoViewer>?
@@ -260,7 +360,7 @@ public struct EventViewer {
             guard case let .event(eventID, target) = request, eventID == state.eventID else { return }
             state.navigate(to: target)
         }
-        .ifLet(\.scheduleViewer) {
+        .forEach(\.scheduleViewers) {
             ScheduleViewer()
         }
         .ifLet(\.peopleViewer) {
@@ -331,12 +431,13 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.spawn(\.scheduleViewer) {
+                for featureStore in store.spawn(\.scheduleViewers) {
+                    let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
                     TabFeature(
-                        .schedule,
-                        title: EventViewer.EventFeature.schedule.title,
-                        systemImage: EventViewer.EventFeature.schedule.systemImage,
-                        labelTint: EventViewer.EventFeature.schedule.labelTint,
+                        feature,
+                        title: feature.title,
+                        systemImage: feature.systemImage,
+                        labelTint: feature.labelTint,
                         navigation: .stack
                     ) {
                         ScheduleViewerView(store: featureStore)
@@ -454,11 +555,12 @@ public struct EventViewerView: View {
     #if os(iOS)
     private var legacyiOSTabView: some View {
         TabView(selection: $store.selectedFeature) {
-            if let featureStore = store.spawn(\.scheduleViewer) {
-                viewerTab(.schedule) {
+            ForEach(store.spawn(\.scheduleViewers)) { featureStore in
+                let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
+                viewerTab(feature) {
                     ScheduleViewerView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.schedule)
+                .tag(feature)
             }
 
             if let featureStore = store.spawn(\.peopleViewer) {
@@ -530,11 +632,12 @@ public struct EventViewerView: View {
 
     private var defaultTabView: some View {
         TabView(selection: $store.selectedFeature) {
-            if let featureStore = store.spawn(\.scheduleViewer) {
-                viewerTab(.schedule) {
+            ForEach(store.spawn(\.scheduleViewers)) { featureStore in
+                let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
+                viewerTab(feature) {
                     ScheduleViewerView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.schedule)
+                .tag(feature)
             }
 
             if let featureStore = store.spawn(\.peopleViewer) {

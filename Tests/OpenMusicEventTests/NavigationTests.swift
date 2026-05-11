@@ -542,6 +542,184 @@ struct NavigationTests {
     }
 
     @Test
+    func scheduleViewerBuildsDivisionsFromStageCategories() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "workshop",
+                name: "Workshop",
+                category: OMERecord.Stage.Category("workshop"),
+                sortIndex: 2
+            )
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "second-workshop",
+                name: "Second Workshop",
+                category: OMERecord.Stage.Category("workshop"),
+                sortIndex: 3
+            )
+        }
+
+        let stages = try await database.read { db in
+            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        }
+        let divisions = ScheduleViewer.scheduleDivisions(stages: stages)
+
+        #expect(divisions.map(\.id) == ["schedule", "workshop"])
+        #expect(divisions.map(\.title) == ["Schedule", "Workshops"])
+    }
+
+    @Test
+    func scheduleViewerFiltersStagesAndPerformancesToDivision() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            category: OMERecord.Stage.Category("workshop")
+        )
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "workshop",
+                name: "Workshop",
+                category: OMERecord.Stage.Category("workshop"),
+                sortIndex: 2
+            )
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "concert",
+                stageID: "main",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "Concert"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "workshop",
+                stageID: "workshop",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 20, in: timeZone)),
+                endTime: try #require(date.at(hour: 21, in: timeZone)),
+                title: "Workshop"
+            )
+        }
+
+        let stages = try await database.read { db in
+            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        }
+        let performances = try await database.read { db in
+            try ScheduleViewer.performancesQuery(
+                eventID: eventID,
+                scheduleID: scheduleLocalID("friday")
+            )
+            .fetchAll(db)
+        }
+        let visibleStages = ScheduleViewer.visibleStages(
+            stages: stages,
+            division: workshopDivision
+        )
+        let visiblePerformances = ScheduleViewer.visiblePerformances(
+            performances: performances,
+            scheduleID: scheduleLocalID("friday"),
+            stages: visibleStages
+        )
+
+        #expect(visibleStages.map(\.id.stageID) == [stageLocalID("workshop")])
+        #expect(visiblePerformances.map(\.title) == ["Workshop"])
+    }
+
+    @Test
+    func eventViewerBuildsScheduleDivisionTabsFromStageCategories() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            category: OMERecord.Stage.Category("workshop")
+        )
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "workshop",
+                name: "Workshop",
+                category: workshopDivision.category,
+                sortIndex: 2
+            )
+        }
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            EventViewer.State(eventID: eventID)
+        }
+
+        #expect(Array(state.installedFeatures.prefix(2).map(\.description)) == [
+            "schedule",
+            "schedule:workshop",
+        ])
+        #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
+    }
+
+    @Test
+    func scheduleViewerStageFallbackIsScopedToDivision() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            category: OMERecord.Stage.Category("workshop")
+        )
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "workshop",
+                name: "Workshop",
+                category: workshopDivision.category,
+                sortIndex: 2
+            )
+        }
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            var state = ScheduleViewer.State(
+                eventID: eventID,
+                scheduleDivision: workshopDivision,
+                database: database
+            )
+            state.selectedStageID = stageLocalID("main")
+            return state
+        }
+
+        #expect(state.visibleStages.map(\.id.stageID) == [stageLocalID("workshop")])
+        #expect(state.resolvedSelectedStageID == stageLocalID("workshop"))
+    }
+
+    @Test
     func scheduleViewerPerformanceTapPresentsDetail() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -914,6 +1092,7 @@ struct NavigationTests {
         eventID: OMERecord.Event.ID,
         stageID: String,
         name: String,
+        category: OMERecord.Stage.Category? = nil,
         sortIndex: Int? = nil
     ) throws {
         try OMERecord.Stage.insert {
@@ -925,7 +1104,7 @@ struct NavigationTests {
                 ),
                 name: name,
                 color: 0x336699,
-                category: nil,
+                category: category,
                 sortIndex: sortIndex,
                 iconImageURL: nil,
                 systemIconName: nil,
