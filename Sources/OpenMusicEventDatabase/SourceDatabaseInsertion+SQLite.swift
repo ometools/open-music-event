@@ -24,13 +24,27 @@ public extension OME.SourceDatabaseInsertion {
 
     func insert(into db: Database) throws {
         if !organizers.isEmpty {
-            try OME.Organizer.insert { organizers }.execute(db)
+            try OME.Organizer.insert {
+                organizers
+            } onConflict: {
+                $0.id
+            }
+            .execute(db)
         }
         if !events.isEmpty {
             try OME.Event.insert { events }.execute(db)
         }
         if !eventOrganizers.isEmpty {
-            try OME.EventOrganizer.insert { eventOrganizers }.execute(db)
+            try OME.EventOrganizer.insert {
+                eventOrganizers
+            } onConflict: {
+                (
+                    $0.id.organizerID,
+                    $0.id.eventID,
+                    $0.id.eventOrganizerID
+                )
+            }
+            .execute(db)
         }
         if !stages.isEmpty {
             try OME.Stage.insert { stages }.execute(db)

@@ -168,6 +168,49 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func importsMultipleSourcesForSameOrganizer() async throws {
+        let firstSource = try makeSourceRepository(eventDirectoryName: "2025")
+        let secondSource = try makeSourceRepository(eventDirectoryName: "2026")
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let firstInsertion = try OME.SourceDatabaseInsertion(
+            .init(source: firstSource, organizerID: organizerID)
+        )
+        let secondInsertion = try OME.SourceDatabaseInsertion(
+            .init(source: secondSource, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+
+        try await firstInsertion.insert(into: database)
+        try await secondInsertion.insert(into: database)
+
+        let organizers = try await database.read { db in
+            try OME.Organizer.fetchAll(db)
+        }
+        let events = try await database.read { db in
+            try OME.Event.fetchAll(db)
+        }
+        let eventOrganizers = try await database.read { db in
+            try OME.EventOrganizer.fetchAll(db)
+        }
+
+        expectNoDifference(organizers.map(\.id), [organizerID])
+        expectNoDifference(
+            Set(events.map(\.id)),
+            Set([
+                eventID("2025", organizerID: organizerID),
+                eventID("2026", organizerID: organizerID),
+            ])
+        )
+        expectNoDifference(
+            Set(eventOrganizers.map(\.id.eventID)),
+            Set([
+                id("2025"),
+                id("2026"),
+            ])
+        )
+    }
+
+    @Test
     func resolvesAfterMidnightPerformanceTimes() throws {
         let source = try makeSourceRepository(
             eventDirectoryName: "2025",
