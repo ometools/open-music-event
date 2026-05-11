@@ -374,6 +374,51 @@ struct NavigationTests {
     }
 
     @Test
+    func createParticipantSavesNewPerson() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var state = EditParticipant.State(eventID: eventID)
+            state.name = " New Person "
+            state.kind = "speaker"
+            state.bio = " Bio "
+
+            return TestStore(initialState: state) {
+                EditParticipant()
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+
+        let participantID = participantLocalID("new-person")
+        let participant = try await database.read { db in
+            try #require(
+                try ParticipantDetail.participantQuery(
+                    participantID: participantID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+
+        #expect(participant.name == "New Person")
+        #expect(participant.kind?.rawValue == "speaker")
+        #expect(participant.bio == "Bio")
+    }
+
+    @Test
     func dismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()

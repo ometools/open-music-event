@@ -41,12 +41,14 @@ public struct PeopleViewer {
     }
 
     public enum Action {
+        case addButtonTapped
         case destination(Destination.Action)
         case participantButtonTapped(OMERecord.ID<OMERecord.Participant>)
     }
 
     @Feature
     public enum Destination {
+        case createParticipant(Spawn<EditParticipant>)
         case participantDetail(Spawn<ParticipantDetail>)
     }
 
@@ -62,6 +64,13 @@ public struct PeopleViewer {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .addButtonTapped:
+                store.withDependencies {
+                    state.destination = .createParticipant(
+                        Spawn(EditParticipant.State(eventID: state.eventID))
+                    )
+                }
+
             case .destination:
                 break
 
@@ -110,7 +119,6 @@ public struct PeopleViewerView: View {
                     .buttonStyle(.plain)
                 }
                 .listStyle(.plain)
-                .navigationTitle("People")
             }
         }
         .searchable(text: $store.searchText, prompt: "Search People")
@@ -118,6 +126,22 @@ public struct PeopleViewerView: View {
         #if os(iOS)
         .textInputAutocapitalization(.never)
         #endif
+        .navigationTitle("People")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    store.send(.addButtonTapped)
+                } label: {
+                    Image(systemName: "plus")
+                        .accessibilityLabel("Add Person")
+                }
+            }
+        }
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).createParticipant) { createStore in
+            NavigationStack {
+                EditParticipantView(store: createStore)
+            }
+        }
         .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).participantDetail) { detailStore in
             ParticipantDetailView(store: detailStore)
         }
@@ -287,16 +311,36 @@ public struct EditParticipant {
     public init() {}
 
     public struct State {
+        public enum Mode: Equatable {
+            case create
+            case edit(OMERecord.ID<OMERecord.Participant>)
+
+            var participantID: OMERecord.ID<OMERecord.Participant>? {
+                switch self {
+                case .create:
+                    return nil
+                case let .edit(participantID):
+                    return participantID
+                }
+            }
+        }
+
+        public init(eventID: OMERecord.Event.ID) {
+            self.eventID = eventID
+            self.hasLoadedDraft = true
+            self.mode = .create
+        }
+
         public init(
             participantID: OMERecord.ID<OMERecord.Participant>,
             eventID: OMERecord.Event.ID
         ) {
-            self.participantID = participantID
             self.eventID = eventID
+            self.mode = .edit(participantID)
         }
 
-        public let participantID: OMERecord.ID<OMERecord.Participant>
         public let eventID: OMERecord.Event.ID
+        let mode: Mode
 
         var bio = ""
         var errorMessage: String?
@@ -312,7 +356,48 @@ public struct EditParticipant {
             hasLoadedDraft && !isSaving && validationMessage == nil
         }
 
-        var participantRecordID: OMERecord.Participant.ID {
+        var navigationTitle: String {
+            switch mode {
+            case .create:
+                return "New Person"
+            case .edit:
+                return "Edit Person"
+            }
+        }
+
+        var submitButtonTitle: String {
+            switch mode {
+            case .create:
+                return "Create"
+            case .edit:
+                return "Save"
+            }
+        }
+
+        func participantID(in db: Database) throws -> OMERecord.ID<OMERecord.Participant> {
+            if let participantID = mode.participantID {
+                return participantID
+            }
+
+            let base = Self.participantIDBase(for: trimmedName)
+            var candidate = base
+            var suffix = 2
+
+            while try ParticipantDetail.participantQuery(
+                participantID: Self.localID(candidate),
+                eventID: eventID
+            )
+            .fetchOne(db) != nil {
+                candidate = "\(base)-\(suffix)"
+                suffix += 1
+            }
+
+            return Self.localID(candidate)
+        }
+
+        func participantRecordID(
+            participantID: OMERecord.ID<OMERecord.Participant>
+        ) -> OMERecord.Participant.ID {
             OMERecord.Participant.ID(
                 organizerID: eventID.organizerID,
                 eventID: eventID.eventID,
@@ -320,9 +405,11 @@ public struct EditParticipant {
             )
         }
 
-        var preparedDraft: OMERecord.Participant.Draft {
+        func preparedDraft(
+            participantID: OMERecord.ID<OMERecord.Participant>
+        ) -> OMERecord.Participant.Draft {
             OMERecord.Participant.Draft(
-                id: participantRecordID,
+                id: participantRecordID(participantID: participantID),
                 name: trimmedName,
                 bio: bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                 imageURL: trimmedImageURL.nilIfEmpty.flatMap(URL.init(string:)),
@@ -366,6 +453,23 @@ public struct EditParticipant {
         private var trimmedName: String {
             name.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+
+        private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Participant> {
+            OMERecord.ID<OMERecord.Participant>(.init(string))
+        }
+
+        private static func participantIDBase(for name: String) -> String {
+            let normalized = name
+                .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
+                .lowercased()
+            let words = normalized
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }
+
+            return words.isEmpty
+                ? "person-\(UUID().uuidString.lowercased())"
+                : words.joined(separator: "-")
+        }
     }
 
     public enum Action {
@@ -401,11 +505,13 @@ public struct EditParticipant {
                 guard let validationMessage = state.validationMessage else {
                     state.errorMessage = nil
                     state.isSaving = true
-                    let draft = state.preparedDraft
+                    let draftState = state
 
                     store.addTask {
                         do {
                             try database.write { db in
+                                let participantID = try draftState.participantID(in: db)
+                                let draft = draftState.preparedDraft(participantID: participantID)
                                 try OMERecord.Participant.upsert {
                                     draft
                                 }
@@ -432,10 +538,16 @@ public struct EditParticipant {
         .onMount { state in
             guard !state.hasLoadedDraft else { return }
 
+            guard let participantID = state.mode.participantID else {
+                state.hasLoadedDraft = true
+                state.errorMessage = nil
+                return
+            }
+
             do {
                 if let participant = try database.read({ db in
                     try ParticipantDetail.participantQuery(
-                        participantID: state.participantID,
+                        participantID: participantID,
                         eventID: state.eventID
                     )
                     .fetchOne(db)
@@ -532,14 +644,13 @@ public struct EditParticipantView: View {
                 }
             } else {
                 ViewerPlaceholderView(
-                    title: "Edit Person",
+                    title: store.navigationTitle,
                     systemImage: "person.crop.circle",
                     description: "This person could not be loaded."
                 )
             }
         }
         .disabled(store.isSaving)
-        .navigationTitle("Edit Person")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -550,13 +661,14 @@ public struct EditParticipantView: View {
                 if store.isSaving {
                     ProgressView()
                 } else {
-                    Button("Save") {
+                    Button(store.submitButtonTitle) {
                         store.send(.saveButtonTapped)
                     }
                     .disabled(!store.canSubmit)
                 }
             }
         }
+        .navigationTitle(store.navigationTitle)
     }
 }
 
