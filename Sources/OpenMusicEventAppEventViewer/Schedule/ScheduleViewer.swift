@@ -160,7 +160,6 @@ public struct ScheduleViewer {
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case scheduleModeButtonTapped(ScheduleMode)
         case scheduleTitleMenuButtonTapped(OMERecord.ID<OMERecord.Schedule>)
-        case stageButtonTapped(OMERecord.ID<OMERecord.Stage>)
     }
 
     @Feature
@@ -281,9 +280,6 @@ public struct ScheduleViewer {
 
             case let .scheduleTitleMenuButtonTapped(scheduleID):
                 state.selectedScheduleID = scheduleID
-
-            case let .stageButtonTapped(stageID):
-                state.selectedStageID = stageID
             }
         }
         .ifLet(\.destination, action: \.destination) {
@@ -369,10 +365,8 @@ struct ScheduleSingleStageAtOnceView: View {
             if !store.visibleStages.isEmpty {
                 OMEScheduleStageSelector(
                     stages: store.visibleStages,
-                    selectedStageID: store.resolvedSelectedStageID
-                ) { stageID in
-                    store.send(.stageButtonTapped(stageID))
-                }
+                    selectedStageID: $store.selectedStageID
+                )
 
                 Divider()
             }

@@ -2,21 +2,15 @@ import LiquidGlassSegmentedPicker
 import SwiftUI
 
 struct OMEScheduleStageSelector: View {
-    let onSelect: (OMERecord.ID<OMERecord.Stage>) -> Void
-    let selectedStageID: OMERecord.ID<OMERecord.Stage>?
     let stages: [OMERecord.Stage]
+    @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
 
-    @State var liquidGlassSelection: OMERecord.ID<OMERecord.Stage>?
-
-    init(
-        stages: [OMERecord.Stage],
-        selectedStageID: OMERecord.ID<OMERecord.Stage>?,
-        onSelect: @escaping (OMERecord.ID<OMERecord.Stage>) -> Void
-    ) {
-        self.stages = stages
-        self.selectedStageID = selectedStageID
-        self.onSelect = onSelect
-        self._liquidGlassSelection = State(initialValue: selectedStageID)
+    var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
+        if let selectedStageID,
+           stages.contains(where: { $0.id.stageID == selectedStageID }) {
+            return selectedStageID
+        }
+        return stages.first?.id.stageID
     }
 
     var body: some View {
@@ -33,7 +27,7 @@ struct OMEScheduleStageSelector: View {
 
     @available(iOS 26, macOS 26, *)
     var liquidGlassPicker: some View {
-        LiquidGlassSegmentedPicker(selection: $liquidGlassSelection) {
+        LiquidGlassSegmentedPicker(selection: $selectedStageID) {
             ForEach(stages) { stage in
                 Label {
                     Text(stage.name)
@@ -47,14 +41,11 @@ struct OMEScheduleStageSelector: View {
         .labelsVisibility(.hidden)
         .padding(.vertical, 8)
         .onAppear {
-            liquidGlassSelection = selectedStageID
+            selectedStageID = resolvedSelectedStageID
         }
-        .onChange(of: selectedStageID) { _, newValue in
-            liquidGlassSelection = newValue
-        }
-        .onChange(of: liquidGlassSelection) { _, newValue in
-            guard let newValue, newValue != selectedStageID else { return }
-            onSelect(newValue)
+        .onChange(of: resolvedSelectedStageID) { _, newValue in
+            guard selectedStageID != newValue else { return }
+            selectedStageID = newValue
         }
     }
 
@@ -63,17 +54,17 @@ struct OMEScheduleStageSelector: View {
             HStack(spacing: 10) {
                 ForEach(stages) { stage in
                     Button {
-                        onSelect(stage.id.stageID)
+                        selectedStageID = stage.id.stageID
                     } label: {
                         VStack(spacing: 4) {
                             ScheduleStageIcon(stage: stage)
                                 .frame(width: 34, height: 34)
                                 .padding(9)
-                                .foregroundStyle(selectedStageID == stage.id.stageID ? .white : stage.color.swiftUIColor)
+                                .foregroundStyle(resolvedSelectedStageID == stage.id.stageID ? .white : stage.color.swiftUIColor)
                                 .background {
                                     Circle()
                                         .fill(
-                                            selectedStageID == stage.id.stageID
+                                            resolvedSelectedStageID == stage.id.stageID
                                             ? stage.color.swiftUIColor
                                             : Color.secondary.opacity(0.12)
                                         )
@@ -83,7 +74,7 @@ struct OMEScheduleStageSelector: View {
                                 .font(.caption2)
                                 .lineLimit(1)
                                 .foregroundStyle(
-                                    selectedStageID == stage.id.stageID
+                                    resolvedSelectedStageID == stage.id.stageID
                                     ? stage.color.swiftUIColor
                                     : .secondary
                                 )

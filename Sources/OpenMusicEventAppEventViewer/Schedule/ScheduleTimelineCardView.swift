@@ -155,5 +155,6 @@ struct ScheduleTimelineCardBackground: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(.white.opacity(0.18), lineWidth: 1)
             }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }

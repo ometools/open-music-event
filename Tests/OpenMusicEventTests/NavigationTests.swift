@@ -548,27 +548,6 @@ struct NavigationTests {
     }
 
     @Test
-    func scheduleViewerStageButtonChangesSelectedStage() throws {
-        let database = try makePreparedDatabase()
-        let eventID = eventID("event-1")
-        let stageID = stageLocalID("meadow")
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = eventID
-            $0.exhaustivity = .off
-        } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID, database: database)) {
-                ScheduleViewer()
-            }
-        }
-
-        store.send(.stageButtonTapped(stageID)) {
-            $0.selectedStageID = stageID
-        }
-    }
-
-    @Test
     func scheduleViewerResolvedStageFallsBackToFirstOrderedStage() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
