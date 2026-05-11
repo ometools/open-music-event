@@ -3,6 +3,7 @@ import Foundation
 
 public enum EventTarget: Equatable, Sendable {
     case schedule
+    case people
     case participant(OMERecord.ID<OMERecord.Participant>)
     case stage(OMERecord.ID<OMERecord.Stage>)
     case communications
@@ -19,7 +20,9 @@ public enum EventTarget: Equatable, Sendable {
         switch self {
         case .schedule:
             .schedule
-        case .participant, .stage, .search:
+        case .people, .participant:
+            .people
+        case .stage, .search:
             .search
         case .communications:
             .communications

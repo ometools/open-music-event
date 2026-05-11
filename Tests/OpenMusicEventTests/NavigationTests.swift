@@ -43,6 +43,10 @@ struct NavigationTests {
                 AppRoute.event(eventID("event-1"), .schedule)
             ),
             (
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/people",
+                AppRoute.event(eventID("event-1"), .people)
+            ),
+            (
                 "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/participants/artist-1",
                 AppRoute.event(eventID("event-1"), .participant(participantLocalID("artist-1")))
             ),
@@ -82,7 +86,7 @@ struct NavigationTests {
     }
 
     @Test
-    func navigationRequestSelectsParticipantSearchDestination() throws {
+    func navigationRequestSelectsParticipantPeopleDestination() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let participantID = participantLocalID("participant-1")
@@ -96,9 +100,9 @@ struct NavigationTests {
             store.send(.root(.handleNavigationRequest(.event(eventID, .participant(participantID)))))
         }
 
-        #expect(store.state.root.eventViewer?.selectedFeature == .search)
+        #expect(store.state.root.eventViewer?.selectedFeature == .people)
         #expect(
-            store.state.root.eventViewer?.eventSearch.destination?.participantDetail?.participantID == participantID
+            store.state.root.eventViewer?.peopleViewer?.destination?.participantDetail?.participantID == participantID
         )
     }
 
@@ -131,9 +135,9 @@ struct NavigationTests {
         await store.send(to: \.eventViewer.eventSearch, .openParticipant(participantID))?.value
         await Task.yield()
 
-        #expect(store.state.eventViewer.selectedFeature == .search)
+        #expect(store.state.eventViewer.selectedFeature == .people)
         #expect(
-            store.state.eventViewer.eventSearch.destination?.participantDetail?.participantID == participantID
+            store.state.eventViewer.peopleViewer?.destination?.participantDetail?.participantID == participantID
         )
         #expect(store.state.lastRequest == nil)
     }
@@ -292,6 +296,27 @@ struct NavigationTests {
     }
 
     @Test
+    func peopleViewerFetchesParticipantsForEvent() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let otherEventID = eventID("event-2")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
+            try Self.insertParticipant(db, eventID: selectedEventID, participantID: "zara", name: "Zara")
+            try Self.insertParticipant(db, eventID: selectedEventID, participantID: "amy", name: "Amy")
+            try Self.insertParticipant(db, eventID: otherEventID, participantID: "other", name: "Other")
+        }
+
+        let participants = try await database.read { db in
+            try PeopleViewer.participantsQuery(eventID: selectedEventID).fetchAll(db)
+        }
+
+        #expect(participants.map(\.name) == ["Amy", "Zara"])
+    }
+
+    @Test
     func dismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
@@ -366,6 +391,30 @@ struct NavigationTests {
                     eventID: eventID.eventID,
                     eventOrganizerID: organizerID
                 )
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertParticipant(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        participantID: String,
+        name: String
+    ) throws {
+        try OMERecord.Participant.insert {
+            OMERecord.Participant.Draft(
+                id: OMERecord.Participant.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    participantID: participantLocalID(participantID)
+                ),
+                name: name,
+                bio: nil,
+                imageURL: nil,
+                logoURL: nil,
+                kind: nil,
+                links: nil
             )
         }
         .execute(db)
