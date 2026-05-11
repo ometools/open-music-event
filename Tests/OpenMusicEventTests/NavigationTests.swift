@@ -3,6 +3,7 @@ import ATProto
 import Dependencies
 import DebugSnapshots
 import Foundation
+import Sharing
 import SQLiteData
 import Testing
 
@@ -496,7 +497,7 @@ struct NavigationTests {
         }
         let cards = performances.map(SchedulePerformanceTimelineCard.init)
         let timeRange = try #require(
-            ScheduleSingleStageTimelineView.timeRange(
+            ScheduleStageTimelinePage.timeRange(
                 for: performances,
                 buffer: 30 * 60
             )
@@ -719,6 +720,54 @@ struct NavigationTests {
             "schedule:workshop",
         ])
         #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
+    }
+
+    @Test
+    func eventViewerStatePersistsSelectedSchedulePerEvent() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            category: OMERecord.Stage.Category("workshop")
+        )
+
+        let state = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            EventViewer.State(
+                eventID: eventID,
+                features: [
+                    .schedule(.schedule),
+                    .schedule(workshopDivision),
+                ],
+                database: database
+            )
+        }
+
+        state.$eventViewerState.selectedScheduleID.withLock {
+            $0 = scheduleLocalID("thursday")
+        }
+        try await state.$eventViewerState.save()
+
+        let storedState = try await database.read { db in
+            try EventViewerStateRequest(eventID: eventID).fetch(db)
+        }
+
+        let restoredState = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            EventViewer.State(
+                eventID: eventID,
+                features: [
+                    .schedule(.schedule),
+                    .schedule(workshopDivision),
+                ],
+                database: database
+            )
+        }
+
+        #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
+        #expect(storedState.selectedScheduleID == scheduleLocalID("thursday"))
+        #expect(restoredState.eventViewerState.selectedScheduleID == scheduleLocalID("thursday"))
     }
 
     @Test

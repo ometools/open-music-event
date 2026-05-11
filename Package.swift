@@ -23,6 +23,7 @@ let package = Package(
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0"),
 
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.9.0"),
+        .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
@@ -65,6 +66,8 @@ let package = Package(
                 "SwiftUITabFeatures",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),

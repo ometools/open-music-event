@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import Sharing
 import SQLiteData
 import SwiftUI
 import SwiftUITabFeatures
@@ -228,6 +229,9 @@ public struct EventViewer {
         ) {
 
             self.eventID = eventID
+            self._eventViewerState = Shared(
+                .eventViewerState(eventID, database: database as? any DatabaseWriter)
+            )
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
 
@@ -280,6 +284,7 @@ public struct EventViewer {
         }
 
         public let eventID: OMERecord.Event.ID
+        @Shared public var eventViewerState: EventViewerState
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
 
@@ -440,7 +445,10 @@ public struct EventViewerView: View {
                         labelTint: feature.labelTint,
                         navigation: .stack
                     ) {
-                        ScheduleViewerView(store: featureStore)
+                        ScheduleViewerView(
+                            store: featureStore,
+                            selectedScheduleID: store.state.$eventViewerState.selectedScheduleID
+                        )
                     }
                 }
 
@@ -558,7 +566,10 @@ public struct EventViewerView: View {
             ForEach(store.spawn(\.scheduleViewers)) { featureStore in
                 let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
                 viewerTab(feature) {
-                    ScheduleViewerView(store: featureStore)
+                    ScheduleViewerView(
+                        store: featureStore,
+                        selectedScheduleID: store.state.$eventViewerState.selectedScheduleID
+                    )
                 }
                 .tag(feature)
             }
@@ -635,7 +646,10 @@ public struct EventViewerView: View {
             ForEach(store.spawn(\.scheduleViewers)) { featureStore in
                 let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
                 viewerTab(feature) {
-                    ScheduleViewerView(store: featureStore)
+                    ScheduleViewerView(
+                        store: featureStore,
+                        selectedScheduleID: store.state.$eventViewerState.selectedScheduleID
+                    )
                 }
                 .tag(feature)
             }

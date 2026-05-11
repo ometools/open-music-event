@@ -241,12 +241,6 @@ struct ExternalAssetPreferences: Equatable, Sendable, Identifiable {
     var id: URL { assetURL }
 }
 
-@Table("eventViewerState")
-struct EventViewerState: Equatable, Sendable, Identifiable {
-    var id: OMERecord.Event.ID
-    var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-}
-
 enum ScheduleKind: String, Codable, Sendable, CaseIterable, SQLiteType {
     case singleStageAtOnce
     case allStagesAtOnce
