@@ -141,6 +141,20 @@ extension OpenMusicEvent.Event {
     }
 
     public struct Location: Codable, Sendable, Equatable {
+        public init(
+            address: String? = nil,
+            directions: String? = nil,
+            coordinates: Coordinates? = nil,
+            appleMapsLink: URL? = nil,
+            googleMapsLink: URL? = nil
+        ) {
+            self.address = address
+            self.directions = directions
+            self.coordinates = coordinates
+            self.appleMapsLink = appleMapsLink
+            self.googleMapsLink = googleMapsLink
+        }
+
         public var address: String?
         public var directions: String?
         public var coordinates: Coordinates?
@@ -148,6 +162,11 @@ extension OpenMusicEvent.Event {
         public var googleMapsLink: URL?
 
         public struct Coordinates: Codable, Sendable, Equatable {
+            public init(latitude: Double, longitude: Double) {
+                self.latitude = latitude
+                self.longitude = longitude
+            }
+
             public var latitude: Double
             public var longitude: Double
         }
@@ -159,6 +178,16 @@ extension OpenMusicEvent.Event {
     }
 
     public struct ContactNumber: Codable, Sendable, Equatable {
+        public init(
+            phoneNumber: String,
+            title: String,
+            description: String? = nil
+        ) {
+            self.phoneNumber = phoneNumber
+            self.title = title
+            self.description = description
+        }
+
         public var phoneNumber: String
         public var title: String
         public var description: String?
