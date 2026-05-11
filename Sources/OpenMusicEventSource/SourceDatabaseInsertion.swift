@@ -6,17 +6,39 @@ public extension OME {
         public struct Configuration: Equatable, Sendable {
             public var source: OpenMusicEventSourceRepository
             public var organizerID: OME.Organizer.ID
+            public var sourceProvenance: SourceProvenance?
 
             public init(
                 source: OpenMusicEventSourceRepository,
                 organizerID: OME.Organizer.ID
             ) {
+                self.init(
+                    source: source,
+                    organizerID: organizerID,
+                    sourceProvenance: nil
+                )
+            }
+
+            public init(
+                source: OpenMusicEventSourceRepository,
+                organizerID: OME.Organizer.ID,
+                sourceProvenance: SourceProvenance?
+            ) {
                 self.source = source
                 self.organizerID = organizerID
+                self.sourceProvenance = sourceProvenance
             }
         }
 
         public enum Error: Swift.Error, Equatable, Sendable {
+            case conflictingInferredEventID(
+                eventID: OME.Event.ID,
+                existingSourceKind: SourceKind?,
+                existingSourceReference: String?,
+                incomingSourceKind: SourceKind,
+                incomingSourceReference: String
+            )
+            case duplicateEventID(OME.Event.ID)
             case invalidLocalTime(String)
             case missingPerformanceEndTime(
                 scheduleID: OME.Schedule.ID,
@@ -25,6 +47,52 @@ public extension OME {
             )
         }
 
+        public enum EventIDOrigin: String, Codable, Equatable, Sendable {
+            case explicit
+            case inferred
+        }
+
+        public struct EventSourceProvenance: Equatable, Sendable {
+            public var eventID: OME.Event.ID
+            public var eventIDOrigin: EventIDOrigin
+            public var source: SourceProvenance
+            public var sourceEventDirectory: String
+
+            public init(
+                eventID: OME.Event.ID,
+                eventIDOrigin: EventIDOrigin,
+                source: SourceProvenance,
+                sourceEventDirectory: String
+            ) {
+                self.eventID = eventID
+                self.eventIDOrigin = eventIDOrigin
+                self.source = source
+                self.sourceEventDirectory = sourceEventDirectory
+            }
+        }
+
+        public enum SourceKind: String, Codable, Equatable, Sendable {
+            case local
+            case tangled
+        }
+
+        public struct SourceProvenance: Equatable, Sendable {
+            public var kind: SourceKind
+            public var reference: String
+            public var ref: String?
+
+            public init(
+                kind: SourceKind,
+                reference: String,
+                ref: String? = nil
+            ) {
+                self.kind = kind
+                self.reference = reference
+                self.ref = ref
+            }
+        }
+
+        public var eventSourceProvenances: [EventSourceProvenance]
         public var organizers: [OME.Organizer.Draft]
         public var events: [OME.Event.Draft]
         public var eventOrganizers: [OME.EventOrganizer.Draft]
@@ -40,6 +108,7 @@ public extension OME {
             self.organizers = [
                 OME.Organizer.Draft(id: configuration.organizerID)
             ]
+            self.eventSourceProvenances = []
             self.events = []
             self.eventOrganizers = []
             self.stages = []
@@ -50,11 +119,14 @@ public extension OME {
             self.performances = []
             self.performanceParticipants = []
 
+            var resolvedEventIDs: Set<OME.Event.ID> = []
             for sourceEvent in configuration.source.events {
                 try append(
                     sourceEvent: sourceEvent.components,
                     eventDirectoryName: sourceEvent.directoryName,
-                    organizerID: configuration.organizerID
+                    organizerID: configuration.organizerID,
+                    sourceProvenance: configuration.sourceProvenance,
+                    resolvedEventIDs: &resolvedEventIDs
                 )
             }
         }
@@ -62,18 +134,40 @@ public extension OME {
         private mutating func append(
             sourceEvent: OpenMusicEventSourceEvent,
             eventDirectoryName: String,
-            organizerID: OME.Organizer.ID
+            organizerID: OME.Organizer.ID,
+            sourceProvenance: SourceProvenance?,
+            resolvedEventIDs: inout Set<OME.Event.ID>
         ) throws {
-            let localEventID = sourceEvent.event.id?.eventID
-                ?? Self.localID(eventDirectoryName)
+            let eventIDOrigin: EventIDOrigin
+            let localEventID: OME.ID<OME.Event>
+            if let explicitEventID = sourceEvent.event.id?.eventID {
+                eventIDOrigin = .explicit
+                localEventID = explicitEventID
+            } else {
+                eventIDOrigin = .inferred
+                localEventID = Self.localID(eventDirectoryName)
+            }
             let eventID = OME.Event.ID(
                 organizerID: organizerID,
                 eventID: localEventID
             )
+            guard resolvedEventIDs.insert(eventID).inserted else {
+                throw Error.duplicateEventID(eventID)
+            }
 
             var event = sourceEvent.event.recordDraft
             event.id = eventID
             events.append(event)
+            if let sourceProvenance {
+                eventSourceProvenances.append(
+                    EventSourceProvenance(
+                        eventID: eventID,
+                        eventIDOrigin: eventIDOrigin,
+                        source: sourceProvenance,
+                        sourceEventDirectory: eventDirectoryName
+                    )
+                )
+            }
             eventOrganizers.append(
                 OME.EventOrganizer.Draft(
                     id: .init(
@@ -300,5 +394,31 @@ private extension Date {
             date = nextDate
         }
         return date
+    }
+}
+
+extension OME.SourceDatabaseInsertion.Error: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case let .conflictingInferredEventID(
+            eventID,
+            _,
+            _,
+            incomingSourceKind,
+            incomingSourceReference
+        ):
+            return """
+            Inferred event ID '\(eventID.eventID.rawValue.rawValue)' for organizer '\(eventID.organizerID)' already belongs to another source. Add an explicit event ID to import \(incomingSourceKind.rawValue) source \(incomingSourceReference).
+            """
+
+        case let .duplicateEventID(eventID):
+            return "Source resolves more than one event to '\(eventID.eventID.rawValue.rawValue)' for organizer '\(eventID.organizerID)'. Give each event a unique explicit ID."
+
+        case let .invalidLocalTime(value):
+            return "Invalid local time: \(value)"
+
+        case let .missingPerformanceEndTime(scheduleID, stageID, performanceIndex):
+            return "Missing end time for performance \(performanceIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'."
+        }
     }
 }

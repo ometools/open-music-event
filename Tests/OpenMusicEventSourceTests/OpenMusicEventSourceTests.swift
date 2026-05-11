@@ -32,6 +32,17 @@ struct OpenMusicEventSourceTests {
                 "testival-2026",
             ]
         )
+        expectNoDifference(
+            result.insertion.eventSourceProvenances.map(\.eventIDOrigin),
+            [
+                .inferred,
+                .inferred,
+            ]
+        )
+        expectNoDifference(
+            Set(result.insertion.eventSourceProvenances.map(\.source.reference)),
+            [try fixtureURL("Organizer").standardizedFileURL.path()]
+        )
         #expect(result.organizerID == organizerID)
     }
 

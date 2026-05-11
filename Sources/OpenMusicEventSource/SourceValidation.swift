@@ -21,6 +21,11 @@ public struct OpenMusicEventSourceValidationRequest: Equatable, Sendable {
         self.ref = ref
         self.outputURL = outputURL
     }
+
+    public var resolvedRef: String {
+        let trimmedRef = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedRef.isEmpty ? "HEAD" : trimmedRef
+    }
 }
 
 public struct OpenMusicEventSourceValidationResult: Equatable, Sendable {
@@ -56,6 +61,10 @@ public struct OpenMusicEventSourceValidator: Sendable {
         let location = try SourceRepositoryLocation(parsing: request.source)
         let organizerID = try await resolvedOrganizerID(for: location)
         let (repositoryURL, cleanupURL) = try await resolvedRepositoryURL(for: location)
+        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
+            location: location,
+            ref: request.resolvedRef
+        )
         defer {
             if let cleanupURL {
                 try? FileManager.default.removeItem(at: cleanupURL)
@@ -65,7 +74,11 @@ public struct OpenMusicEventSourceValidator: Sendable {
         let sourceResult = try OpenMusicEventSourceRepositoryFileTree().read(from: repositoryURL)
         let source = try sourceResult.output.requiredValue
         let insertion = try OME.SourceDatabaseInsertion(
-            .init(source: source, organizerID: organizerID)
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
         )
 
         return OpenMusicEventSourceValidationResult(
@@ -118,7 +131,7 @@ public struct OpenMusicEventSourceValidator: Sendable {
             do {
                 try await TangledSourceCloner(
                     repository: repository,
-                    ref: request.ref,
+                    ref: request.resolvedRef,
                     outputURL: outputURL
                 )
                 .clone()
@@ -129,6 +142,28 @@ public struct OpenMusicEventSourceValidator: Sendable {
                 throw error
             }
             return (outputURL, cleanupURL)
+        }
+    }
+}
+
+private extension OME.SourceDatabaseInsertion.SourceProvenance {
+    init(
+        location: SourceRepositoryLocation,
+        ref: String
+    ) {
+        switch location {
+        case let .local(url):
+            self.init(
+                kind: .local,
+                reference: url.standardizedFileURL.path()
+            )
+
+        case let .tangled(repository):
+            self.init(
+                kind: .tangled,
+                reference: repository.normalizedReference,
+                ref: ref
+            )
         }
     }
 }
@@ -200,10 +235,10 @@ public struct SourceValidationSummary: CustomStringConvertible, Equatable, Senda
         source: OpenMusicEventSourceRepository,
         insertion: OME.SourceDatabaseInsertion
     ) {
-        self.events = source.events.map {
+        self.events = zip(source.events, insertion.events).map { sourceEvent, insertedEvent in
             Event(
-                eventID: $0.directoryName,
-                name: $0.components.event.name
+                eventID: insertedEvent.id?.eventID.rawValue.rawValue ?? sourceEvent.directoryName,
+                name: insertedEvent.name
             )
         }
         self.stageCount = insertion.stages.count

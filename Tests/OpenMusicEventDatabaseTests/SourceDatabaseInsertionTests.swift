@@ -14,8 +14,13 @@ struct SourceDatabaseInsertionTests {
     func buildsInsertionRowsFromSourceRepository() throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let sourceProvenance = tangledSourceProvenance("testival-source")
         let insertion = try OME.SourceDatabaseInsertion(
-            .init(source: source, organizerID: organizerID)
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
         )
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
         let scheduleDate = try #require(LocalDate("2026-08-01"))
@@ -30,6 +35,17 @@ struct SourceDatabaseInsertionTests {
             insertion.events.map(\.id),
             [
                 eventID("testival-2026", organizerID: organizerID)
+            ]
+        )
+        expectNoDifference(
+            insertion.eventSourceProvenances,
+            [
+                OME.SourceDatabaseInsertion.EventSourceProvenance(
+                    eventID: eventID("testival-2026", organizerID: organizerID),
+                    eventIDOrigin: .inferred,
+                    source: sourceProvenance,
+                    sourceEventDirectory: "testival-2026"
+                )
             ]
         )
         expectNoDifference(
@@ -173,10 +189,18 @@ struct SourceDatabaseInsertionTests {
         let secondSource = try makeSourceRepository(eventDirectoryName: "2026")
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let firstInsertion = try OME.SourceDatabaseInsertion(
-            .init(source: firstSource, organizerID: organizerID)
+            .init(
+                source: firstSource,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("first-source")
+            )
         )
         let secondInsertion = try OME.SourceDatabaseInsertion(
-            .init(source: secondSource, organizerID: organizerID)
+            .init(
+                source: secondSource,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("second-source")
+            )
         )
         let database = try makeCoreDatabase()
 
@@ -191,6 +215,9 @@ struct SourceDatabaseInsertionTests {
         }
         let eventOrganizers = try await database.read { db in
             try OME.EventOrganizer.fetchAll(db)
+        }
+        let sourceProvenances = try await database.read { db in
+            try EventSourceProvenanceRecord.fetchAll(db)
         }
 
         expectNoDifference(organizers.map(\.id), [organizerID])
@@ -207,6 +234,202 @@ struct SourceDatabaseInsertionTests {
                 id("2025"),
                 id("2026"),
             ])
+        )
+        expectNoDifference(
+            Set(sourceProvenances.map(\.sourceReference)),
+            Set([
+                "tangled.org/woody.fm/first-source",
+                "tangled.org/woody.fm/second-source",
+            ])
+        )
+    }
+
+    @Test
+    func rejectsInferredEventIDCollisionFromDifferentSource() async throws {
+        let firstSource = try makeSourceRepository(eventDirectoryName: "2026")
+        let secondSource = try makeSourceRepository(eventDirectoryName: "2026")
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let firstInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: firstSource,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("first-source")
+            )
+        )
+        let secondInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: secondSource,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("second-source")
+            )
+        )
+        let database = try makeCoreDatabase()
+
+        try await firstInsertion.insert(into: database)
+
+        do {
+            try await secondInsertion.insert(into: database)
+            Issue.record("Expected inferred event ID collision to fail.")
+        } catch let error as OME.SourceDatabaseInsertion.Error {
+            expectNoDifference(
+                error,
+                .conflictingInferredEventID(
+                    eventID: eventID("2026", organizerID: organizerID),
+                    existingSourceKind: .tangled,
+                    existingSourceReference: "tangled.org/woody.fm/first-source",
+                    incomingSourceKind: .tangled,
+                    incomingSourceReference: "tangled.org/woody.fm/second-source"
+                )
+            )
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
+    func reimportsInferredEventIDFromSameSource() async throws {
+        let firstSource = try makeSourceRepository(
+            eventDirectoryName: "2026",
+            eventName: "Wicked Woods"
+        )
+        let secondSource = try makeSourceRepository(
+            eventDirectoryName: "2026",
+            eventName: "Wicked Woods Updated"
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let firstInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: firstSource,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("wicked-woods", ref: "main")
+            )
+        )
+        let secondInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: secondSource,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("wicked-woods", ref: "release")
+            )
+        )
+        let database = try makeCoreDatabase()
+
+        try await firstInsertion.insert(into: database)
+        try await secondInsertion.insert(into: database)
+
+        let event = try await database.read { db in
+            try OME.Event.where { $0.id.eq(eventID("2026", organizerID: organizerID)) }
+                .fetchOne(db)
+        }
+        let sourceProvenance = try await database.read { db in
+            try EventSourceProvenanceRecord
+                .where { $0.id.eq(eventID("2026", organizerID: organizerID)) }
+                .fetchOne(db)
+        }
+
+        #expect(event?.name == "Wicked Woods Updated")
+        #expect(sourceProvenance?.sourceReference == "tangled.org/woody.fm/wicked-woods")
+        #expect(sourceProvenance?.ref == "release")
+        #expect(sourceProvenance?.eventIDOrigin == .inferred)
+    }
+
+    @Test
+    func explicitEventIDUpdatesAcrossSources() async throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let firstSource = try makeSourceRepository(
+            eventDirectoryName: "repo-one-event",
+            eventName: "Original",
+            explicitLocalEventID: id("canonical-event")
+        )
+        let secondSource = try makeSourceRepository(
+            eventDirectoryName: "repo-two-event",
+            eventName: "Updated",
+            explicitLocalEventID: id("canonical-event")
+        )
+        let firstInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: firstSource,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("first-source")
+            )
+        )
+        let secondInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: secondSource,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("second-source")
+            )
+        )
+        let database = try makeCoreDatabase()
+
+        try await firstInsertion.insert(into: database)
+        try await secondInsertion.insert(into: database)
+
+        let eventID = eventID("canonical-event", organizerID: organizerID)
+        let event = try await database.read { db in
+            try OME.Event.where { $0.id.eq(eventID) }.fetchOne(db)
+        }
+        let sourceProvenance = try await database.read { db in
+            try EventSourceProvenanceRecord
+                .where { $0.id.eq(eventID) }
+                .fetchOne(db)
+        }
+
+        #expect(event?.name == "Updated")
+        #expect(sourceProvenance?.sourceReference == "tangled.org/woody.fm/second-source")
+        #expect(sourceProvenance?.eventIDOrigin == .explicit)
+        #expect(sourceProvenance?.sourceEventDirectory == "repo-two-event")
+    }
+
+    @Test
+    func rejectsDuplicateResolvedEventIDsWithinSource() throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let firstSource = try makeSourceRepository(
+            eventDirectoryName: "first-event",
+            explicitLocalEventID: id("canonical-event")
+        )
+        let secondSource = try makeSourceRepository(
+            eventDirectoryName: "second-event",
+            explicitLocalEventID: id("canonical-event")
+        )
+        let source = OpenMusicEventSourceRepository(
+            events: firstSource.events + secondSource.events
+        )
+
+        do {
+            _ = try OME.SourceDatabaseInsertion(
+                .init(
+                    source: source,
+                    organizerID: organizerID,
+                    sourceProvenance: tangledSourceProvenance("duplicate-source")
+                )
+            )
+            Issue.record("Expected duplicate event IDs to fail.")
+        } catch let error as OME.SourceDatabaseInsertion.Error {
+            expectNoDifference(
+                error,
+                .duplicateEventID(eventID("canonical-event", organizerID: organizerID))
+            )
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
+    func sourceValidationSummaryUsesResolvedEventID() throws {
+        let source = try makeSourceRepository(
+            eventDirectoryName: "repo-directory",
+            explicitLocalEventID: id("canonical-event")
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+
+        let summary = SourceValidationSummary(source: source, insertion: insertion)
+
+        expectNoDifference(
+            summary.events.map(\.eventID),
+            ["canonical-event"]
         )
     }
 
@@ -416,6 +639,8 @@ struct SourceDatabaseInsertionTests {
 
     private func makeSourceRepository(
         eventDirectoryName: String = "testival-2026",
+        eventName: String = "Testival 2026",
+        explicitLocalEventID: OME.ID<OME.Event>? = nil,
         performances: [String: [ScheduleDTO.Performance]] = [
             "meadow": [
                 .init(
@@ -442,6 +667,7 @@ struct SourceDatabaseInsertionTests {
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
         let eventStartDate = try #require(LocalDate("2026-08-01"))
         let eventEndDate = try #require(LocalDate("2026-08-03"))
+        let sourceOrganizerID = try #require(OME.Organizer.ID("did:plc:source"))
 
         return OpenMusicEventSourceRepository(
             events: [
@@ -449,8 +675,13 @@ struct SourceDatabaseInsertionTests {
                     directoryName: eventDirectoryName,
                     components: OpenMusicEventSourceEvent(
                         event: OME.Event.Draft(
-                            id: nil,
-                            name: "Testival 2026",
+                            id: explicitLocalEventID.map {
+                                OME.Event.ID(
+                                    organizerID: sourceOrganizerID,
+                                    eventID: $0
+                                )
+                            },
+                            name: eventName,
                             description: "A small fixture event.",
                             startDate: eventStartDate,
                             endDate: eventEndDate,
@@ -558,6 +789,17 @@ struct SourceDatabaseInsertionTests {
 
 private func id<Record>(_ string: String) -> OME.ID<Record> {
     OME.ID<Record>(.init(string))
+}
+
+private func tangledSourceProvenance(
+    _ repository: String,
+    ref: String = "HEAD"
+) -> OME.SourceDatabaseInsertion.SourceProvenance {
+    OME.SourceDatabaseInsertion.SourceProvenance(
+        kind: .tangled,
+        reference: "tangled.org/woody.fm/\(repository)",
+        ref: ref
+    )
 }
 
 private func eventID(

@@ -23,6 +23,8 @@ public extension OME.SourceDatabaseInsertion {
     }
 
     func insert(into db: Database) throws {
+        try validateEventSourceProvenanceConflicts(in: db)
+
         if !organizers.isEmpty {
             try OME.Organizer.insert {
                 organizers
@@ -46,6 +48,12 @@ public extension OME.SourceDatabaseInsertion {
             }
             .execute(db)
         }
+        if !eventSourceProvenances.isEmpty {
+            try EventSourceProvenanceRecord.insert {
+                eventSourceProvenances.map(EventSourceProvenanceRecord.init)
+            }
+            .execute(db)
+        }
         if !stages.isEmpty {
             try OME.Stage.insert { stages }.execute(db)
         }
@@ -66,6 +74,44 @@ public extension OME.SourceDatabaseInsertion {
         }
         if !performanceParticipants.isEmpty {
             try OME.Performance.Participants.insert { performanceParticipants }.execute(db)
+        }
+    }
+
+    private func validateEventSourceProvenanceConflicts(in db: Database) throws {
+        for provenance in eventSourceProvenances
+        where provenance.eventIDOrigin == .inferred {
+            let existingProvenance = try EventSourceProvenanceRecord
+                .where { $0.id.eq(provenance.eventID) }
+                .fetchOne(db)
+
+            if let existingProvenance {
+                guard existingProvenance.eventIDOrigin == .inferred,
+                      existingProvenance.sourceKind == provenance.source.kind,
+                      existingProvenance.sourceReference == provenance.source.reference
+                else {
+                    throw OME.SourceDatabaseInsertion.Error.conflictingInferredEventID(
+                        eventID: provenance.eventID,
+                        existingSourceKind: existingProvenance.sourceKind,
+                        existingSourceReference: existingProvenance.sourceReference,
+                        incomingSourceKind: provenance.source.kind,
+                        incomingSourceReference: provenance.source.reference
+                    )
+                }
+                continue
+            }
+
+            let existingEventCount = try OME.Event
+                .where { $0.id.eq(provenance.eventID) }
+                .fetchCount(db)
+            guard existingEventCount == 0 else {
+                throw OME.SourceDatabaseInsertion.Error.conflictingInferredEventID(
+                    eventID: provenance.eventID,
+                    existingSourceKind: nil,
+                    existingSourceReference: nil,
+                    incomingSourceKind: provenance.source.kind,
+                    incomingSourceReference: provenance.source.reference
+                )
+            }
         }
     }
 }

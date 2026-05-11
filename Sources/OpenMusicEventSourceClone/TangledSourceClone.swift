@@ -151,6 +151,15 @@ public struct TangledRepositoryReference: Equatable, Sendable {
         "\(owner)/\(repository)"
     }
 
+    public var normalizedReference: String {
+        let hostReference = if let port {
+            "\(host):\(port)"
+        } else {
+            host
+        }
+        return "\(hostReference)/\(owner)/\(repository)"
+    }
+
     public func resolvedOwnerDID() async throws -> String {
         if let did = DID(owner) {
             return did.description

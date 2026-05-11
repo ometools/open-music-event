@@ -198,6 +198,25 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Create OpenMusicEvent source provenance schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "eventSourceProvenances" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "sourceKind" TEXT NOT NULL,
+                      "sourceReference" TEXT NOT NULL,
+                      "ref" TEXT,
+                      "eventIDOrigin" TEXT NOT NULL,
+                      "sourceEventDirectory" TEXT NOT NULL,
+                      PRIMARY KEY ("organizerID", "eventID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+            }
         }
     }
 }
