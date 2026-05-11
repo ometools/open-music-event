@@ -26,6 +26,14 @@ private func participantLocalID(_ string: String) -> OMERecord.ID<OMERecord.Part
     OMERecord.ID<OMERecord.Participant>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
+private func performanceLocalID(_ string: String) -> OMERecord.ID<OMERecord.Performance> {
+    OMERecord.ID<OMERecord.Performance>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private func scheduleLocalID(_ string: String) -> OMERecord.ID<OMERecord.Schedule> {
+    OMERecord.ID<OMERecord.Schedule>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
 private func stageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
     OMERecord.ID<OMERecord.Stage>(rawValue: ATProto.Record.Key(rawValue: string))
 }
@@ -317,6 +325,220 @@ struct NavigationTests {
     }
 
     @Test
+    func scheduleViewerFetchesSchedulesForEventInOrder() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let otherEventID = eventID("event-2")
+        let friday = try #require(LocalDate("2026-08-07"))
+        let saturday = try #require(LocalDate("2026-08-08"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One", timeZone: timeZone)
+            try Self.insertEvent(db, id: otherEventID, name: "Event Two", timeZone: timeZone)
+            try Self.insertSchedule(
+                db,
+                eventID: selectedEventID,
+                scheduleID: "friday-late",
+                date: friday,
+                startsAt: friday.at(hour: 20, in: timeZone),
+                customTitle: "Friday Late"
+            )
+            try Self.insertSchedule(
+                db,
+                eventID: selectedEventID,
+                scheduleID: "saturday",
+                date: saturday,
+                startsAt: saturday.at(hour: 12, in: timeZone),
+                customTitle: "Saturday"
+            )
+            try Self.insertSchedule(
+                db,
+                eventID: selectedEventID,
+                scheduleID: "friday-early",
+                date: friday,
+                startsAt: friday.at(hour: 18, in: timeZone),
+                customTitle: "Friday Early"
+            )
+            try Self.insertSchedule(
+                db,
+                eventID: otherEventID,
+                scheduleID: "other",
+                date: friday,
+                startsAt: friday.at(hour: 17, in: timeZone),
+                customTitle: "Other"
+            )
+        }
+
+        let schedules = try await database.read { db in
+            try ScheduleViewer.schedulesQuery(eventID: selectedEventID).fetchAll(db)
+        }
+
+        #expect(schedules.map(\.id.scheduleID) == [
+            scheduleLocalID("friday-early"),
+            scheduleLocalID("friday-late"),
+            scheduleLocalID("saturday"),
+        ])
+    }
+
+    @Test
+    func scheduleViewerFetchesPerformancesForSelectedScheduleInOrder() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let otherEventID = eventID("event-2")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One", timeZone: timeZone)
+            try Self.insertEvent(db, id: otherEventID, name: "Event Two", timeZone: timeZone)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
+            try Self.insertStage(db, eventID: otherEventID, stageID: "other-stage", name: "Other")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "saturday", date: date)
+            try Self.insertSchedule(db, eventID: otherEventID, scheduleID: "other", date: date)
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "closing",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 22, in: timeZone)),
+                endTime: try #require(date.at(hour: 23, in: timeZone)),
+                title: "Closing"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "opening",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "Opening"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "other-day",
+                stageID: "meadow",
+                scheduleID: "saturday",
+                startTime: try #require(date.at(hour: 17, in: timeZone)),
+                endTime: try #require(date.at(hour: 18, in: timeZone)),
+                title: "Other Day"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: otherEventID,
+                performanceID: "other-event",
+                stageID: "other-stage",
+                scheduleID: "other",
+                startTime: try #require(date.at(hour: 16, in: timeZone)),
+                endTime: try #require(date.at(hour: 17, in: timeZone)),
+                title: "Other Event"
+            )
+        }
+
+        let performances = try await database.read { db in
+            try ScheduleViewer.performancesQuery(
+                eventID: selectedEventID,
+                scheduleID: scheduleLocalID("friday")
+            )
+            .fetchAll(db)
+        }
+
+        #expect(performances.map(\.title) == ["Opening", "Closing"])
+    }
+
+    @Test
+    func scheduleViewerPerformanceTapPresentsDetail() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let performanceID = performanceLocalID("opening")
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID, database: database)) {
+                ScheduleViewer()
+            }
+        }
+
+        store.send(.performanceButtonTapped(performanceID))
+
+        #expect(store.state.destination?.performanceDetail?.performanceID == performanceID)
+    }
+
+    @Test
+    func performanceDetailQueriesCoreFields() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let recordingURL = try #require(URL(string: "https://example.com/recording"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertParticipant(db, eventID: eventID, participantID: "amy", name: "Amy")
+            try Self.insertParticipant(db, eventID: eventID, participantID: "zara", name: "Zara")
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "Opening",
+                description: "First set",
+                recordings: [ExternalPlatform.Asset(url: recordingURL)]
+            )
+            try Self.insertPerformanceParticipant(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                participantID: "zara"
+            )
+            try Self.insertPerformanceParticipant(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                participantID: "amy"
+            )
+        }
+
+        let performance = try await database.read { db in
+            try #require(
+                try PerformanceDetail.performanceQuery(
+                    performanceID: performanceLocalID("opening"),
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+        let participants = try await database.read { db in
+            try PerformanceDetail.participantsQuery(
+                performanceID: performanceLocalID("opening"),
+                eventID: eventID
+            )
+            .fetchAll(db)
+        }
+        let stages = try await database.read { db in
+            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        }
+
+        #expect(performance.title == "Opening")
+        #expect(performance.description == "First set")
+        #expect(performance.recordings.map(\.url) == [recordingURL])
+        #expect(stages.first { $0.id.stageID == performance.stageID }?.name == "Meadow")
+        #expect(participants.map(\.name) == ["Amy", "Zara"])
+    }
+
+    @Test
     func editParticipantSavesChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -517,6 +739,108 @@ struct NavigationTests {
                 logoURL: nil,
                 kind: nil,
                 links: nil
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertPerformance(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        performanceID: String,
+        stageID: String,
+        scheduleID: String,
+        startTime: Date,
+        endTime: Date,
+        title: String,
+        description: String? = nil,
+        recordings: [ExternalPlatform.Asset] = []
+    ) throws {
+        try OMERecord.Performance.insert {
+            OMERecord.Performance.Draft(
+                id: OMERecord.Performance.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    performanceID: performanceLocalID(performanceID)
+                ),
+                stageID: stageLocalID(stageID),
+                scheduleID: scheduleLocalID(scheduleID),
+                startTime: startTime,
+                endTime: endTime,
+                title: title,
+                description: description,
+                recordings: recordings
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertPerformanceParticipant(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        performanceID: String,
+        participantID: String
+    ) throws {
+        try OMERecord.Performance.Participants.insert {
+            OMERecord.Performance.Participants.Draft(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                performanceID: performanceLocalID(performanceID),
+                participantID: participantLocalID(participantID),
+                anonymousName: nil
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertSchedule(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        scheduleID: String,
+        date: LocalDate,
+        startsAt: Date? = nil,
+        endsAt: Date? = nil,
+        customTitle: String? = nil
+    ) throws {
+        try OMERecord.Schedule.insert {
+            OMERecord.Schedule.Draft(
+                id: OMERecord.Schedule.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    scheduleID: scheduleLocalID(scheduleID)
+                ),
+                date: date,
+                startsAt: startsAt,
+                endsAt: endsAt,
+                customTitle: customTitle
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertStage(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        stageID: String,
+        name: String
+    ) throws {
+        try OMERecord.Stage.insert {
+            OMERecord.Stage.Draft(
+                id: OMERecord.Stage.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    stageID: stageLocalID(stageID)
+                ),
+                name: name,
+                color: 0x336699,
+                category: nil,
+                sortIndex: nil,
+                iconImageURL: nil,
+                systemIconName: nil,
+                iconShortCode: nil,
+                imageURL: nil,
+                posterImageURL: nil,
+                lineup: nil
             )
         }
         .execute(db)

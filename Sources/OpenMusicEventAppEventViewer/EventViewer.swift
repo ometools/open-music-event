@@ -146,7 +146,7 @@ public struct EventViewer {
                 for feature in features {
                     switch feature {
                     case .schedule:
-                        self.scheduleViewer = Spawn(ScheduleViewer.State())
+                        self.scheduleViewer = Spawn(ScheduleViewer.State(eventID: eventID))
                     case .people:
                         self.peopleViewer = Spawn(PeopleViewer.State(eventID: eventID))
                     case .communications:
