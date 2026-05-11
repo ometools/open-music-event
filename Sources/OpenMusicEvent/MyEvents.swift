@@ -6,6 +6,7 @@
 //
 
 import ComposableArchitecture2
+import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventLexicon
@@ -76,7 +77,11 @@ public struct MyEvents {
                 }
 
             case .didTapOrganizer(let organizerID):
-                state.organizerDetail = .init(organizerID: organizerID)
+                @Dependency(\.defaultDatabase) var database
+                state.organizerDetail = .init(
+                    organizerID: organizerID,
+                    database: database
+                )
 
             case .destination:
                 return

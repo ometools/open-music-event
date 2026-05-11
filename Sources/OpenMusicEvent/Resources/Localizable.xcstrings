@@ -252,6 +252,9 @@
     "Following feature stub." : {
 
     },
+    "Happening Now" : {
+
+    },
     "HEAD" : {
 
     },
@@ -383,6 +386,9 @@
     "New Event" : {
 
     },
+    "No Events" : {
+
+    },
     "Notes" : {
       "comment" : "Item editor form label for the Notes field",
       "localizations" : {
@@ -413,9 +419,6 @@
       }
     },
     "Organizer" : {
-
-    },
-    "Organizer detail feature stub." : {
 
     },
     "Organizers" : {
@@ -449,6 +452,9 @@
           }
         }
       }
+    },
+    "Previous Events" : {
+
     },
     "Ref" : {
 
@@ -564,6 +570,9 @@
     "Testival 2026" : {
 
     },
+    "This organizer has no events." : {
+
+    },
     "Time Zone" : {
 
     },
@@ -595,6 +604,9 @@
           }
         }
       }
+    },
+    "Upcoming Events" : {
+
     },
     "Version %@ (%@)" : {
       "comment" : "Settings label showing the current version of the app",

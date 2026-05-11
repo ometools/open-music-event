@@ -1,5 +1,8 @@
 import ComposableArchitecture2
+import Dependencies
+import Foundation
 import OpenMusicEventAppEventViewer
+import SQLiteData
 import SwiftUI
 import Tagged
 
@@ -258,7 +261,11 @@ public struct Following {
         Update { state, action in
             switch action {
             case .organizerRowTapped(let organizerID):
-                state.organizerDetail = .init(organizerID: organizerID)
+                @Dependency(\.defaultDatabase) var database
+                state.organizerDetail = .init(
+                    organizerID: organizerID,
+                    database: database
+                )
 
             case .eventButtonTapped(let eventID):
                 store.addTask {
@@ -309,24 +316,117 @@ public struct OrganizerDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public init(organizerID: OMERecord.Organizer.ID) {
+        public init(
+            organizerID: OMERecord.Organizer.ID,
+            database: (any DatabaseReader)? = nil
+        ) {
             self.organizerID = organizerID
+            _organizer = FetchOne(
+                OrganizerDetail.organizerQuery(organizerID: organizerID),
+                database: database
+            )
+            _events = FetchAll(
+                OrganizerDetail.eventsQuery(organizerID: organizerID),
+                database: database
+            )
         }
 
+        @DebugSnapshotIgnored
+        @FetchAll
+        public var events: [OMERecord.Event]
+
+        @DebugSnapshotIgnored
+        @FetchOne
+        public var organizer: OMERecord.Organizer?
+
         public let organizerID: OMERecord.Organizer.ID
-        public var events: [BrowseEventRow] = []
-        public var isFollowing = true
-        public var isLoading = false
 
         public var id: OMERecord.Organizer.ID { organizerID }
     }
 
     public enum Action {
         case eventButtonTapped(OMERecord.Event.ID)
-        case followStateResponse(Bool)
-        case organizerDetailResponse([BrowseEventRow], Bool)
         case task
-        case toggleFollowButtonTapped
+    }
+
+    static func organizerQuery(
+        organizerID: OMERecord.Organizer.ID
+    ) -> some SelectStatementOf<OMERecord.Organizer> {
+        OMERecord.Organizer.where { $0.id.eq(organizerID) }
+    }
+
+    static func eventsQuery(
+        organizerID: OMERecord.Organizer.ID
+    ) -> some SelectStatementOf<OMERecord.Event> {
+        OMERecord.Event.where { event in
+            OMERecord.EventOrganizer
+                .where { $0.id.organizerID.eq(event.id.organizerID) }
+                .where { $0.id.eventID.eq(event.id.eventID) }
+                .where { $0.id.eventOrganizerID.eq(organizerID) }
+                .exists()
+        }
+    }
+
+    public struct EventSections: Equatable, Sendable {
+        public var currentEvents: [OMERecord.Event]
+        public var previousEvents: [OMERecord.Event]
+        public var upcomingEvents: [OMERecord.Event]
+
+        public init(events: [OMERecord.Event], now: Date) {
+            let sortedEvents = events.sorted(by: Self.sort)
+            self.currentEvents = sortedEvents.filter { Self.timing(for: $0, now: now) == .current }
+            self.previousEvents = sortedEvents.filter { Self.timing(for: $0, now: now) == .previous }
+            self.upcomingEvents = sortedEvents.filter { Self.timing(for: $0, now: now) == .upcoming }
+        }
+
+        public var isEmpty: Bool {
+            currentEvents.isEmpty && previousEvents.isEmpty && upcomingEvents.isEmpty
+        }
+
+        private enum Timing {
+            case current
+            case previous
+            case upcoming
+        }
+
+        private static func sort(lhs: OMERecord.Event, rhs: OMERecord.Event) -> Bool {
+            switch (lhs.sortDate, rhs.sortDate) {
+            case let (.some(lhsDate), .some(rhsDate)):
+                if lhsDate != rhsDate { return lhsDate > rhsDate }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+
+            case (.some, .none):
+                return true
+
+            case (.none, .some):
+                return false
+
+            case (.none, .none):
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+        }
+
+        private static func timing(for event: OMERecord.Event, now: Date) -> Timing {
+            let today = LocalDate(now, in: event.timeZone)
+
+            switch (event.startDate, event.endDate) {
+            case let (.some(startDate), .some(endDate)):
+                if startDate <= today && today <= endDate { return .current }
+                if endDate < today { return .previous }
+                return .upcoming
+
+            case let (.some(startDate), .none):
+                if startDate > today { return .upcoming }
+                if startDate == today { return .current }
+                return .previous
+
+            case let (.none, .some(endDate)):
+                return endDate >= today ? .current : .previous
+
+            case (.none, .none):
+                return .previous
+            }
+        }
     }
 
     public var body: some Feature {
@@ -340,10 +440,7 @@ public struct OrganizerDetail {
                     )
                 }
 
-            case .followStateResponse,
-                 .organizerDetailResponse,
-                 .task,
-                 .toggleFollowButtonTapped:
+            case .task:
                 break
             }
         }
@@ -352,6 +449,7 @@ public struct OrganizerDetail {
 
 public struct OrganizerDetailView: View {
     let store: StoreOf<OrganizerDetail>
+    @Dependency(\.date.now) var now
 
     public init(store: StoreOf<OrganizerDetail>) {
         self.store = store
@@ -359,13 +457,83 @@ public struct OrganizerDetailView: View {
 
     public var body: some View {
         List {
-            EmptyBrowserState(
-                title: "Organizer",
-                systemImage: "person.crop.circle",
-                message: "Organizer detail feature stub."
-            )
+            Section {
+                OrganizerHeaderView(organizerID: store.organizer?.id ?? store.organizerID)
+            }
+
+            if !sections.currentEvents.isEmpty {
+                Section("Happening Now") {
+                    eventRows(sections.currentEvents)
+                }
+            }
+
+            if !sections.upcomingEvents.isEmpty {
+                Section("Upcoming Events") {
+                    eventRows(sections.upcomingEvents)
+                }
+            }
+
+            if !sections.previousEvents.isEmpty {
+                Section("Previous Events") {
+                    eventRows(sections.previousEvents)
+                }
+            }
+
+            if sections.isEmpty {
+                EmptyBrowserState(
+                    title: "No Events",
+                    systemImage: "calendar.badge.exclamationmark",
+                    message: "This organizer has no events."
+                )
+            }
         }
         .navigationTitle(store.organizerID.description)
+    }
+
+    private var sections: OrganizerDetail.EventSections {
+        OrganizerDetail.EventSections(events: store.events, now: now)
+    }
+
+    @ViewBuilder
+    private func eventRows(_ events: [OMERecord.Event]) -> some View {
+        ForEach(events) { event in
+            Button {
+                store.send(.eventButtonTapped(event.id))
+            } label: {
+                EventRowView(event: event)
+            }
+        }
+    }
+}
+
+struct OrganizerHeaderView: View {
+    var organizerID: OMERecord.Organizer.ID
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.crop.circle")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+                .frame(width: 60, height: 60)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Organizer")
+                    .font(.headline)
+                Text(organizerID.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 8)
+    }
+}
+
+private extension OMERecord.Event {
+    var sortDate: LocalDate? {
+        startDate ?? endDate
     }
 }
 

@@ -199,15 +199,96 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: MyEventsEventHarness.State()) {
                 MyEventsEventHarness()
             }
         }
 
-        store.send(.myEvents(.didTapOrganizer(testOrganizerID))) {
-            $0.myEvents.organizerDetail = .init(organizerID: testOrganizerID)
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            store.send(.myEvents(.didTapOrganizer(testOrganizerID)))
         }
+        #expect(store.state.myEvents.organizerDetail?.organizerID == testOrganizerID)
+    }
+
+    @Test
+    func organizerDetailFetchesLinkedEvents() async throws {
+        let database = try makePreparedDatabase()
+        let linkedEventID = eventID("linked-event")
+        let unlinkedEventID = eventID("unlinked-event")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: linkedEventID, name: "Linked Event")
+            try Self.insertEvent(db, id: unlinkedEventID, name: "Unlinked Event")
+            try Self.insertEventOrganizer(db, eventID: linkedEventID, organizerID: testOrganizerID)
+        }
+
+        let events = try await database.read { db in
+            try OrganizerDetail.eventsQuery(organizerID: testOrganizerID).fetchAll(db)
+        }
+
+        #expect(events.map(\.id) == [linkedEventID])
+    }
+
+    @Test
+    func organizerDetailGroupsEventsLikeLegacyRoot() async throws {
+        let database = try makePreparedDatabase()
+        let currentEventID = eventID("current-event")
+        let previousEventID = eventID("previous-event")
+        let upcomingEventID = eventID("upcoming-event")
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let today = try #require(LocalDate("2026-05-11"))
+        let currentStartDate = try #require(LocalDate("2026-05-10"))
+        let currentEndDate = try #require(LocalDate("2026-05-12"))
+        let previousStartDate = try #require(LocalDate("2026-05-01"))
+        let previousEndDate = try #require(LocalDate("2026-05-03"))
+        let upcomingStartDate = try #require(LocalDate("2026-06-01"))
+        let upcomingEndDate = try #require(LocalDate("2026-06-03"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(
+                db,
+                id: currentEventID,
+                name: "Current Event",
+                startDate: currentStartDate,
+                endDate: currentEndDate,
+                timeZone: timeZone
+            )
+            try Self.insertEvent(
+                db,
+                id: previousEventID,
+                name: "Previous Event",
+                startDate: previousStartDate,
+                endDate: previousEndDate,
+                timeZone: timeZone
+            )
+            try Self.insertEvent(
+                db,
+                id: upcomingEventID,
+                name: "Upcoming Event",
+                startDate: upcomingStartDate,
+                endDate: upcomingEndDate,
+                timeZone: timeZone
+            )
+            try Self.insertEventOrganizer(db, eventID: currentEventID, organizerID: testOrganizerID)
+            try Self.insertEventOrganizer(db, eventID: previousEventID, organizerID: testOrganizerID)
+            try Self.insertEventOrganizer(db, eventID: upcomingEventID, organizerID: testOrganizerID)
+        }
+        let events = try await database.read { db in
+            try OrganizerDetail.eventsQuery(organizerID: testOrganizerID).fetchAll(db)
+        }
+        let sections = OrganizerDetail.EventSections(
+            events: events,
+            now: today.atStartOfDay(in: timeZone)
+        )
+
+        #expect(sections.currentEvents.map(\.id) == [currentEventID])
+        #expect(sections.upcomingEvents.map(\.id) == [upcomingEventID])
+        #expect(sections.previousEvents.map(\.id) == [previousEventID])
     }
 
     @Test
@@ -241,6 +322,53 @@ struct NavigationTests {
             @Dependency(\.defaultDatabase) var database
             return database
         }
+    }
+
+    private nonisolated static func insertOrganizer(
+        _ db: Database,
+        id organizerID: OMERecord.Organizer.ID
+    ) throws {
+        try OMERecord.Organizer.insert {
+            OMERecord.Organizer.Draft(id: organizerID)
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertEvent(
+        _ db: Database,
+        id eventID: OMERecord.Event.ID,
+        name: String,
+        startDate: LocalDate? = nil,
+        endDate: LocalDate? = nil,
+        timeZone: TimeZone = .current
+    ) throws {
+        try OMERecord.Event.insert {
+            CreateEvent.makeEventDraft(
+                id: eventID,
+                name: name,
+                startDate: startDate,
+                endDate: endDate,
+                timeZone: timeZone
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertEventOrganizer(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        organizerID: OMERecord.Organizer.ID
+    ) throws {
+        try OMERecord.EventOrganizer.insert {
+            OMERecord.EventOrganizer.Draft(
+                id: .init(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    eventOrganizerID: organizerID
+                )
+            )
+        }
+        .execute(db)
     }
 
     private func makeRootHarnessStore(

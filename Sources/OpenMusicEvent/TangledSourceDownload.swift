@@ -110,6 +110,7 @@ public struct TangledSourceDownload {
                             $0.importedSummary = nil
                             $0.errorMessage = error.localizedDescription
                         }
+                        reportIssue(error)
                     }
                 }
             }
