@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import ScheduleComponents
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -9,10 +10,27 @@ import Tagged
 public struct ScheduleViewer {
     public init() {}
 
-    public enum ScheduleStyle: String, CaseIterable, Hashable, Sendable {
+    public enum ScheduleMode: String, CaseIterable, Hashable, Sendable {
+        case singleStageAtOnce
         case list
-        case timeline
-        case grid
+
+        var title: String {
+            switch self {
+            case .singleStageAtOnce:
+                return "Single Stage At Once"
+            case .list:
+                return "List"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .singleStageAtOnce:
+                return "calendar.day.timeline.leading"
+            case .list:
+                return "list.bullet"
+            }
+        }
     }
 
     public struct State {
@@ -37,8 +55,9 @@ public struct ScheduleViewer {
 
         public let eventID: OMERecord.Event.ID
         public var destination: Destination.State?
-        public var scheduleStyle: ScheduleStyle = .list
+        public var scheduleMode: ScheduleMode = .singleStageAtOnce
         public var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+        public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
 
         @FetchAll public var performances: [OMERecord.Performance]
         @FetchAll public var schedules: [OMERecord.Schedule]
@@ -54,6 +73,11 @@ public struct ScheduleViewer {
             return performances.filter { $0.scheduleID == selectedScheduleID }
         }
 
+        public var visiblePerformancesForSelectedStage: [OMERecord.Performance] {
+            guard let selectedStageID = resolvedSelectedStageID else { return [] }
+            return visiblePerformances.filter { $0.stageID == selectedStageID }
+        }
+
         var resolvedSelectedScheduleID: OMERecord.ID<OMERecord.Schedule>? {
             if let selectedScheduleID,
                schedules.contains(where: { $0.id.scheduleID == selectedScheduleID }) {
@@ -62,8 +86,29 @@ public struct ScheduleViewer {
             return schedules.first?.id.scheduleID
         }
 
+        var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
+            ScheduleViewer.resolvedSelectedStageID(
+                selectedStageID: selectedStageID,
+                stages: stages
+            )
+        }
+
         var selectedScheduleTitle: String {
             selectedSchedule.map(ScheduleViewer.scheduleTitle) ?? "Select Schedule"
+        }
+
+        var selectedStage: OMERecord.Stage? {
+            guard let resolvedSelectedStageID else { return nil }
+            return stages.first { $0.id.stageID == resolvedSelectedStageID }
+        }
+
+        var selectedStagePerformanceTimeRange: DateInterval? {
+            let performances = visiblePerformancesForSelectedStage
+            guard
+                let start = performances.map(\.startTime).min(),
+                let end = performances.map(\.endTime).max()
+            else { return nil }
+            return DateInterval(start: start, end: end)
         }
 
         var stagesByID: [OMERecord.ID<OMERecord.Stage>: OMERecord.Stage] {
@@ -74,7 +119,9 @@ public struct ScheduleViewer {
     public enum Action {
         case destination(Destination.Action)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case scheduleModeButtonTapped(ScheduleMode)
         case scheduleTitleMenuButtonTapped(OMERecord.ID<OMERecord.Schedule>)
+        case stageButtonTapped(OMERecord.ID<OMERecord.Stage>)
     }
 
     @Feature
@@ -128,6 +175,17 @@ public struct ScheduleViewer {
         return schedule.date.formatted(dateStyle: .full)
     }
 
+    static func resolvedSelectedStageID(
+        selectedStageID: OMERecord.ID<OMERecord.Stage>?,
+        stages: [OMERecord.Stage]
+    ) -> OMERecord.ID<OMERecord.Stage>? {
+        if let selectedStageID,
+           stages.contains(where: { $0.id.stageID == selectedStageID }) {
+            return selectedStageID
+        }
+        return stages.first?.id.stageID
+    }
+
     public var body: some Feature {
         Update { state, action in
             switch action {
@@ -146,8 +204,14 @@ public struct ScheduleViewer {
                     )
                 }
 
+            case let .scheduleModeButtonTapped(scheduleMode):
+                state.scheduleMode = scheduleMode
+
             case let .scheduleTitleMenuButtonTapped(scheduleID):
                 state.selectedScheduleID = scheduleID
+
+            case let .stageButtonTapped(stageID):
+                state.selectedStageID = stageID
             }
         }
         .ifLet(\.destination, action: \.destination) {
@@ -171,30 +235,22 @@ public struct ScheduleViewerView: View {
                     systemImage: "calendar",
                     description: "No schedule has been added to this event yet."
                 )
-            } else if store.visiblePerformances.isEmpty {
-                ViewerPlaceholderView(
-                    title: store.selectedScheduleTitle,
-                    systemImage: "calendar",
-                    description: "No performances have been added to this schedule yet."
-                )
             } else {
-                List(store.visiblePerformances) { performance in
-                    Button {
-                        store.send(.performanceButtonTapped(performance.id.performanceID))
-                    } label: {
-                        SchedulePerformanceRow(
-                            performance: performance,
-                            stage: store.stagesByID[performance.stageID]
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                switch store.scheduleMode {
+                case .singleStageAtOnce:
+                    ScheduleSingleStageAtOnceView(store: store)
+
+                case .list:
+                    SchedulePerformanceListView(store: store)
                 }
-                .listStyle(.plain)
             }
         }
         .navigationTitle(store.selectedScheduleTitle)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                ScheduleModeMenu(store: store)
+            }
+        }
         .toolbarTitleMenu {
             ForEach(store.schedules) { schedule in
                 Button(ScheduleViewer.scheduleTitle(schedule)) {
@@ -207,6 +263,127 @@ public struct ScheduleViewerView: View {
         #endif
         .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).performanceDetail) { detailStore in
             PerformanceDetailView(store: detailStore)
+        }
+    }
+}
+
+struct ScheduleModeMenu: View {
+    @Bindable var store: StoreOf<ScheduleViewer>
+
+    var body: some View {
+        Menu {
+            ForEach(ScheduleViewer.ScheduleMode.allCases, id: \.self) { mode in
+                Button {
+                    store.send(.scheduleModeButtonTapped(mode))
+                } label: {
+                    Label {
+                        Text(mode.title)
+                    } icon: {
+                        Image(systemName: store.scheduleMode == mode ? "checkmark" : mode.systemImage)
+                    }
+                }
+            }
+        } label: {
+            Label(store.scheduleMode.title, systemImage: store.scheduleMode.systemImage)
+        }
+    }
+}
+
+struct ScheduleSingleStageAtOnceView: View {
+    @Bindable var store: StoreOf<ScheduleViewer>
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !store.stages.isEmpty {
+                OMEScheduleStageSelector(
+                    stages: store.stages,
+                    selectedStageID: store.resolvedSelectedStageID
+                ) { stageID in
+                    store.send(.stageButtonTapped(stageID))
+                }
+
+                Divider()
+            }
+
+            if let selectedStage = store.selectedStage {
+                ScheduleSingleStageTimelineStub(
+                    stage: selectedStage,
+                    timeRange: store.selectedStagePerformanceTimeRange
+                )
+            } else {
+                ContentUnavailableView(
+                    "Stages",
+                    systemImage: "music.note.list",
+                    description: Text("No stages have been added to this event yet.")
+                )
+            }
+        }
+    }
+}
+
+struct ScheduleSingleStageTimelineStub: View {
+    let stage: OMERecord.Stage
+    let timeRange: DateInterval?
+
+    var body: some View {
+        Group {
+            if let timeRange {
+                ScrollView {
+                    ZStack {
+                        ScheduleGrid()
+                            .frame(height: scheduleHeight(for: timeRange))
+                            .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
+                            .environment(\.scheduleTimeRange, timeRange)
+
+                        ContentUnavailableView(
+                            stage.name,
+                            systemImage: "calendar.day.timeline.leading",
+                            description: Text("Single Stage At Once timeline cards are not migrated yet.")
+                        )
+                        .padding()
+                    }
+                    .frame(minHeight: 420)
+                }
+            } else {
+                ContentUnavailableView(
+                    stage.name,
+                    systemImage: "calendar.day.timeline.leading",
+                    description: Text("No performances have been added to this stage yet.")
+                )
+            }
+        }
+    }
+
+    func scheduleHeight(for timeRange: DateInterval) -> CGFloat {
+        max(CGFloat(timeRange.duration / 3600) * 80, 420)
+    }
+}
+
+struct SchedulePerformanceListView: View {
+    @Bindable var store: StoreOf<ScheduleViewer>
+
+    var body: some View {
+        if store.visiblePerformances.isEmpty {
+            ViewerPlaceholderView(
+                title: store.selectedScheduleTitle,
+                systemImage: "calendar",
+                description: "No performances have been added to this schedule yet."
+            )
+        } else {
+            List(store.visiblePerformances) { performance in
+                Button {
+                    store.send(.performanceButtonTapped(performance.id.performanceID))
+                } label: {
+                    SchedulePerformanceRow(
+                        performance: performance,
+                        stage: store.stagesByID[performance.stageID]
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
         }
     }
 }
@@ -457,7 +634,7 @@ private extension LocalDate {
     }
 }
 
-private extension OMEColor {
+extension OMEColor {
     var swiftUIColor: Color {
         Color(
             red: Double((rawValue >> 16) & 0xFF) / 255.0,

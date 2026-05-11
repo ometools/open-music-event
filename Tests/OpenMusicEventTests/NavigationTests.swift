@@ -451,6 +451,97 @@ struct NavigationTests {
     }
 
     @Test
+    func scheduleViewerDefaultsToSingleStageMode() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            ScheduleViewer.State(eventID: eventID, database: database)
+        }
+
+        #expect(state.scheduleMode == .singleStageAtOnce)
+    }
+
+    @Test
+    func scheduleViewerModeButtonChangesMode() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID, database: database)) {
+                ScheduleViewer()
+            }
+        }
+
+        store.send(.scheduleModeButtonTapped(.list)) {
+            $0.scheduleMode = .list
+        }
+    }
+
+    @Test
+    func scheduleViewerStageButtonChangesSelectedStage() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let stageID = stageLocalID("meadow")
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID, database: database)) {
+                ScheduleViewer()
+            }
+        }
+
+        store.send(.stageButtonTapped(stageID)) {
+            $0.selectedStageID = stageID
+        }
+    }
+
+    @Test
+    func scheduleViewerResolvedStageFallsBackToFirstOrderedStage() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "late", name: "Late", sortIndex: 2)
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+        }
+
+        let stages = try await database.read { db in
+            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        }
+
+        #expect(
+            ScheduleViewer.resolvedSelectedStageID(
+                selectedStageID: nil,
+                stages: stages
+            ) == stageLocalID("main")
+        )
+        #expect(
+            ScheduleViewer.resolvedSelectedStageID(
+                selectedStageID: stageLocalID("missing"),
+                stages: stages
+            ) == stageLocalID("main")
+        )
+        #expect(
+            ScheduleViewer.resolvedSelectedStageID(
+                selectedStageID: stageLocalID("late"),
+                stages: stages
+            ) == stageLocalID("late")
+        )
+    }
+
+    @Test
     func scheduleViewerPerformanceTapPresentsDetail() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -822,7 +913,8 @@ struct NavigationTests {
         _ db: Database,
         eventID: OMERecord.Event.ID,
         stageID: String,
-        name: String
+        name: String,
+        sortIndex: Int? = nil
     ) throws {
         try OMERecord.Stage.insert {
             OMERecord.Stage.Draft(
@@ -834,7 +926,7 @@ struct NavigationTests {
                 name: name,
                 color: 0x336699,
                 category: nil,
-                sortIndex: nil,
+                sortIndex: sortIndex,
                 iconImageURL: nil,
                 systemIconName: nil,
                 iconShortCode: nil,

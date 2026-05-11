@@ -14,6 +14,8 @@ let package = Package(
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
         .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
         .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
+        .library(name: "LiquidGlassSegmentedPicker", targets: ["LiquidGlassSegmentedPicker"]),
+        .library(name: "ScheduleComponents", targets: ["ScheduleComponents"]),
         .library(name: "SwiftUITabFeatures", targets: ["SwiftUITabFeatures"]),
     ],
     dependencies: [
@@ -56,12 +58,18 @@ let package = Package(
         .target(
             name: "OpenMusicEventAppEventViewer",
             dependencies: [
+                "LiquidGlassSegmentedPicker",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventTimeZones",
+                "ScheduleComponents",
                 "SwiftUITabFeatures",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "LiquidGlassSegmentedPicker",
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),
         .target(
@@ -115,6 +123,13 @@ let package = Package(
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),
         .target(
+            name: "ScheduleComponents",
+            dependencies: [
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
             name: "SwiftUITabFeatures",
             dependencies: [
                 .product(name: "Tagged", package: "swift-tagged"),
@@ -150,6 +165,12 @@ let package = Package(
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
+        ),
+        .testTarget(
+            name: "ScheduleComponentsTests",
+            dependencies: [
+                "ScheduleComponents",
             ]
         ),
         .testTarget(
