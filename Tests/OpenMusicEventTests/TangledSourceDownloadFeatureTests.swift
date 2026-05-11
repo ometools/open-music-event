@@ -31,6 +31,47 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func myEventsFetchesDownloadedOrganizers() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = importedEventID()
+        try await database.write { db in
+            try OMERecord.Organizer.insert {
+                OMERecord.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
+            try OMERecord.Event.insert {
+                CreateEvent.makeEventDraft(
+                    id: eventID,
+                    name: "Imported Event",
+                    startDate: nil,
+                    endDate: nil
+                )
+            }
+            .execute(db)
+            try OMERecord.EventOrganizer.insert {
+                OMERecord.EventOrganizer.Draft(
+                    id: .init(
+                        organizerID: eventID.organizerID,
+                        eventID: eventID.eventID,
+                        eventOrganizerID: eventID.organizerID
+                    )
+                )
+            }
+            .execute(db)
+        }
+
+        let organizers = try await database.read { db in
+            try MyEvents.organizersQuery.fetchAll(db)
+        }
+        let events = try await database.read { db in
+            try MyEvents.query.fetchAll(db)
+        }
+
+        #expect(organizers.map(\.id) == [eventID.organizerID])
+        #expect(events.isEmpty)
+    }
+
+    @Test
     func importsTangledSourceUsingRepositoryRef() async throws {
         let recorder = ImportRecorder()
         let eventID = importedEventID()

@@ -214,6 +214,9 @@
     "Event Name" : {
 
     },
+    "Events" : {
+
+    },
     "Favorite" : {
       "comment" : "Item editor title label for marking the item as a favorite",
       "localizations" : {
@@ -413,6 +416,9 @@
 
     },
     "Organizer detail feature stub." : {
+
+    },
+    "Organizers" : {
 
     },
     "Powered by [Skip](https://skip.dev)" : {

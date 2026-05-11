@@ -16,17 +16,24 @@ import SwiftUI
 public struct MyEvents {
     public struct State {
         var destination: Destination.State?
+        var organizerDetail: OrganizerDetail.State?
 
         @DebugSnapshotIgnored
         @FetchAll(MyEvents.query)
         var events
+
+        @DebugSnapshotIgnored
+        @FetchAll(MyEvents.organizersQuery)
+        var organizers
     }
 
     public enum Action {
         case didTapCreateEvent
-        case didTapImportSource
         case didTapEvent(OMERecord.Event)
+        case didTapImportSource
+        case didTapOrganizer(OMERecord.Organizer.ID)
         case destination(Destination.Action)
+        case organizerDetail(OrganizerDetail.Action)
     }
 
     static let query = OMERecord.Event.where { event in
@@ -36,6 +43,12 @@ public struct MyEvents {
             .exists()
             .not()
 
+    }
+
+    static let organizersQuery = OMERecord.Organizer.where { organizer in
+        OMERecord.EventOrganizer
+            .where { $0.id.eventOrganizerID.eq(organizer.id) }
+            .exists()
     }
 
     @Feature
@@ -62,12 +75,21 @@ public struct MyEvents {
                     )
                 }
 
+            case .didTapOrganizer(let organizerID):
+                state.organizerDetail = .init(organizerID: organizerID)
+
             case .destination:
+                return
+
+            case .organizerDetail:
                 return
             }
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
+        }
+        .ifLet(\.organizerDetail, action: \.organizerDetail) {
+            OrganizerDetail()
         }
     }
 }
@@ -77,11 +99,27 @@ struct MyEventsView: View {
 
     var body: some View {
         List {
-            ForEach(store.events) { event in
-                Button {
-                    store.send(.didTapEvent(event))
-                } label: {
-                    EventRowView(event: event)
+            if !store.organizers.isEmpty {
+                Section("Organizers") {
+                    ForEach(store.organizers) { organizer in
+                        Button {
+                            store.send(.didTapOrganizer(organizer.id))
+                        } label: {
+                            OrganizerRowView(organizer: organizer)
+                        }
+                    }
+                }
+            }
+
+            if !store.events.isEmpty {
+                Section("Events") {
+                    ForEach(store.events) { event in
+                        Button {
+                            store.send(.didTapEvent(event))
+                        } label: {
+                            EventRowView(event: event)
+                        }
+                    }
                 }
             }
         }
@@ -106,6 +144,9 @@ struct MyEventsView: View {
                 TangledSourceDownloadView(store: downloadStore)
             }
         }
+        .navigationDestination(item: $store.scope(state: \.organizerDetail, action: \.organizerDetail)) { detailStore in
+            OrganizerDetailView(store: detailStore)
+        }
     }
 }
 
@@ -118,6 +159,25 @@ struct MyEventsView: View {
 }
 
 import SwiftUI
+
+struct OrganizerRowView: View {
+    var organizer: OMERecord.Organizer
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.crop.circle")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .frame(width: 60, height: 60)
+
+            Text(organizer.id.description)
+                .lineLimit(1)
+
+            Spacer()
+        }
+        .foregroundStyle(.primary)
+    }
+}
 
 struct EventRowView: View {
     var event: OMERecord.Event

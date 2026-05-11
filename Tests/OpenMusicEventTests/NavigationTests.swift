@@ -194,6 +194,23 @@ struct NavigationTests {
     }
 
     @Test
+    func myEventsOrganizerTapPresentsOrganizerDetail() throws {
+        let database = try makePreparedDatabase()
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: MyEventsEventHarness.State()) {
+                MyEventsEventHarness()
+            }
+        }
+
+        store.send(.myEvents(.didTapOrganizer(testOrganizerID))) {
+            $0.myEvents.organizerDetail = .init(organizerID: testOrganizerID)
+        }
+    }
+
+    @Test
     func dismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
