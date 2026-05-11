@@ -160,6 +160,7 @@ public struct ParticipantDetail {
     public struct State: Identifiable {
         public let participantID: OMERecord.ID<OMERecord.Participant>
         public let eventID: OMERecord.Event.ID
+        public var destination: Destination.State?
 
         @FetchOne public var participant: OMERecord.Participant?
 
@@ -184,7 +185,15 @@ public struct ParticipantDetail {
         public var id: OMERecord.ID<OMERecord.Participant> { participantID }
     }
 
-    public enum Action {}
+    public enum Action {
+        case destination(Destination.Action)
+        case editButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case editParticipant(Spawn<EditParticipant>)
+    }
 
     static func participantQuery(
         participantID: OMERecord.ID<OMERecord.Participant>,
@@ -197,12 +206,32 @@ public struct ParticipantDetail {
     }
 
     public var body: some Feature {
-        Update { _, _ in }
+        Update { state, action in
+            switch action {
+            case .destination:
+                break
+
+            case .editButtonTapped:
+                store.withDependencies {
+                    state.destination = .editParticipant(
+                        Spawn(
+                            EditParticipant.State(
+                                participantID: state.participantID,
+                                eventID: state.eventID
+                            )
+                        )
+                    )
+                }
+            }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
     }
 }
 
 public struct ParticipantDetailView: View {
-    let store: StoreOf<ParticipantDetail>
+    @Bindable var store: StoreOf<ParticipantDetail>
 
     public init(store: StoreOf<ParticipantDetail>) {
         self.store = store
@@ -229,6 +258,13 @@ public struct ParticipantDetailView: View {
                     }
                 }
                 .navigationTitle(participant.name)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Edit") {
+                            store.send(.editButtonTapped)
+                        }
+                    }
+                }
             } else {
                 ContentUnavailableView(
                     "Person",
@@ -238,6 +274,332 @@ public struct ParticipantDetailView: View {
                 .navigationTitle("Person")
             }
         }
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).editParticipant) { editStore in
+            NavigationStack {
+                EditParticipantView(store: editStore)
+            }
+        }
+    }
+}
+
+@Feature
+public struct EditParticipant {
+    public init() {}
+
+    public struct State {
+        public init(
+            participantID: OMERecord.ID<OMERecord.Participant>,
+            eventID: OMERecord.Event.ID
+        ) {
+            self.participantID = participantID
+            self.eventID = eventID
+        }
+
+        public let participantID: OMERecord.ID<OMERecord.Participant>
+        public let eventID: OMERecord.Event.ID
+
+        var bio = ""
+        var errorMessage: String?
+        var hasLoadedDraft = false
+        var imageURL = ""
+        var isSaving = false
+        var kind = ""
+        var links: [EditableParticipantLink] = []
+        var logoURL = ""
+        var name = ""
+
+        var canSubmit: Bool {
+            hasLoadedDraft && !isSaving && validationMessage == nil
+        }
+
+        var participantRecordID: OMERecord.Participant.ID {
+            OMERecord.Participant.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                participantID: participantID
+            )
+        }
+
+        var preparedDraft: OMERecord.Participant.Draft {
+            OMERecord.Participant.Draft(
+                id: participantRecordID,
+                name: trimmedName,
+                bio: bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                imageURL: trimmedImageURL.nilIfEmpty.flatMap(URL.init(string:)),
+                logoURL: trimmedLogoURL.nilIfEmpty.flatMap(URL.init(string:)),
+                kind: kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                    .map { OMERecord.Participant.Kind($0) },
+                links: preparedLinks.nilIfEmpty
+            )
+        }
+
+        var preparedLinks: [ExternalPlatform.Link] {
+            links.compactMap(\.preparedLink)
+        }
+
+        var validationMessage: String? {
+            guard hasLoadedDraft else { return nil }
+
+            if trimmedName.isEmpty {
+                return "Enter a name."
+            }
+
+            if !trimmedImageURL.isEmpty, URL(string: trimmedImageURL) == nil {
+                return "Enter a valid image URL."
+            }
+
+            if !trimmedLogoURL.isEmpty, URL(string: trimmedLogoURL) == nil {
+                return "Enter a valid logo URL."
+            }
+
+            return links.compactMap(\.validationMessage).first
+        }
+
+        private var trimmedImageURL: String {
+            imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private var trimmedLogoURL: String {
+            logoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private var trimmedName: String {
+            name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    public enum Action {
+        case addLinkButtonTapped
+        case cancelButtonTapped
+        case removeLinkButtonTapped(UUID)
+        case saveButtonTapped
+    }
+
+    @Dependency(\.defaultDatabase) var database
+
+    public var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .addLinkButtonTapped:
+                state.links.append(EditableParticipantLink())
+
+            case .cancelButtonTapped:
+                store.addTask {
+                    try store.dismiss()
+                }
+
+            case let .removeLinkButtonTapped(id):
+                state.links.removeAll { $0.id == id }
+
+            case .saveButtonTapped:
+                guard !state.isSaving else { return }
+                guard state.hasLoadedDraft else {
+                    state.errorMessage = "This person could not be loaded."
+                    return
+                }
+
+                guard let validationMessage = state.validationMessage else {
+                    state.errorMessage = nil
+                    state.isSaving = true
+                    let draft = state.preparedDraft
+
+                    store.addTask {
+                        do {
+                            try database.write { db in
+                                try OMERecord.Participant.upsert {
+                                    draft
+                                }
+                                .execute(db)
+                            }
+                            try store.modify {
+                                $0.errorMessage = nil
+                                $0.isSaving = false
+                            }
+                            try store.dismiss()
+                        } catch {
+                            try store.modify {
+                                $0.errorMessage = "Unable to save person."
+                                $0.isSaving = false
+                            }
+                        }
+                    }
+                    return
+                }
+
+                state.errorMessage = validationMessage
+            }
+        }
+        .onMount { state in
+            guard !state.hasLoadedDraft else { return }
+
+            do {
+                if let participant = try database.read({ db in
+                    try ParticipantDetail.participantQuery(
+                        participantID: state.participantID,
+                        eventID: state.eventID
+                    )
+                    .fetchOne(db)
+                }) {
+                    state.name = participant.name
+                    state.bio = participant.bio ?? ""
+                    state.imageURL = participant.imageURL?.absoluteString ?? ""
+                    state.logoURL = participant.logoURL?.absoluteString ?? ""
+                    state.kind = participant.kind?.rawValue ?? ""
+                    state.links = (participant.links ?? []).map(EditableParticipantLink.init)
+                    state.hasLoadedDraft = true
+                    state.errorMessage = nil
+                } else {
+                    state.errorMessage = "This person could not be loaded."
+                }
+            } catch {
+                state.errorMessage = "This person could not be loaded."
+            }
+        }
+    }
+}
+
+public struct EditParticipantView: View {
+    @Bindable var store: StoreOf<EditParticipant>
+
+    public init(store: StoreOf<EditParticipant>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Group {
+            if store.hasLoadedDraft {
+                Form {
+                    Section("Person") {
+                        TextField("Name", text: $store.name)
+                        TextField("Kind", text: $store.kind)
+                    }
+
+                    Section("Bio") {
+                        TextField("Bio", text: $store.bio, axis: .vertical)
+                            .lineLimit(4...8)
+                    }
+
+                    Section("Images") {
+                        TextField("Image URL", text: $store.imageURL)
+                            #if os(iOS)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            #endif
+                        TextField("Logo URL", text: $store.logoURL)
+                            #if os(iOS)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            #endif
+                    }
+
+                    ForEach($store.links) { $link in
+                        Section("Link") {
+                            TextField("URL", text: $link.url)
+                                #if os(iOS)
+                                .keyboardType(.URL)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                #endif
+
+                            Picker("Platform", selection: $link.platformRawValue) {
+                                Text("Auto").tag("")
+                                ForEach(ExternalPlatform.allCases, id: \.rawValue) { platform in
+                                    Text(platform.name).tag(platform.rawValue)
+                                }
+                            }
+
+                            Button("Remove Link", role: .destructive) {
+                                store.send(.removeLinkButtonTapped(link.id))
+                            }
+                        }
+                    }
+
+                    Section {
+                        Button("Add Link") {
+                            store.send(.addLinkButtonTapped)
+                        }
+                    }
+
+                    if let errorMessage = store.errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+            } else {
+                ViewerPlaceholderView(
+                    title: "Edit Person",
+                    systemImage: "person.crop.circle",
+                    description: "This person could not be loaded."
+                )
+            }
+        }
+        .disabled(store.isSaving)
+        .navigationTitle("Edit Person")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    store.send(.cancelButtonTapped)
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                if store.isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        store.send(.saveButtonTapped)
+                    }
+                    .disabled(!store.canSubmit)
+                }
+            }
+        }
+    }
+}
+
+public struct EditableParticipantLink: Identifiable, Equatable {
+    public var id = UUID()
+    var platformRawValue = ""
+    var url = ""
+
+    init() {}
+
+    init(_ link: ExternalPlatform.Link) {
+        self.platformRawValue = link.platform?.rawValue ?? ""
+        self.url = link.url.absoluteString
+    }
+
+    var preparedLink: ExternalPlatform.Link? {
+        guard let url = URL(string: trimmedURL), !trimmedURL.isEmpty else { return nil }
+        return ExternalPlatform.Link(
+            url: url,
+            platform: trimmedPlatformRawValue.nilIfEmpty.flatMap(ExternalPlatform.init(rawValue:))
+        )
+    }
+
+    var validationMessage: String? {
+        guard !trimmedURL.isEmpty else { return nil }
+
+        if URL(string: trimmedURL) == nil {
+            return "Enter a valid link URL."
+        }
+
+        if !trimmedPlatformRawValue.isEmpty, ExternalPlatform(rawValue: trimmedPlatformRawValue) == nil {
+            return "Choose a valid link platform."
+        }
+
+        return nil
+    }
+
+    private var trimmedPlatformRawValue: String {
+        platformRawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedURL: String {
+        url.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -332,6 +694,18 @@ private extension OMERecord.Participant {
     var displayBio: String? {
         let bio = bio?.trimmingCharacters(in: .whitespacesAndNewlines)
         return bio?.isEmpty == false ? bio : nil
+    }
+}
+
+private extension Array where Element == ExternalPlatform.Link {
+    var nilIfEmpty: Self? {
+        isEmpty ? nil : self
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

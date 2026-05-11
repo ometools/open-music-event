@@ -317,6 +317,63 @@ struct NavigationTests {
     }
 
     @Test
+    func editParticipantSavesChanges() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let participantID = participantLocalID("artist-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertParticipant(db, eventID: eventID, participantID: "artist-1", name: "Old Name")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var state = EditParticipant.State(participantID: participantID, eventID: eventID)
+            state.hasLoadedDraft = true
+            state.name = " New Name "
+            state.kind = "dj"
+            state.bio = " Updated bio "
+            state.imageURL = "https://example.com/image.jpg"
+            state.logoURL = " "
+            var link = EditableParticipantLink()
+            link.url = "https://example.com"
+            link.platformRawValue = ExternalPlatform.website.rawValue
+            state.links = [link]
+
+            return TestStore(initialState: state) {
+                EditParticipant()
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+
+        let participant = try await database.read { db in
+            try #require(
+                try ParticipantDetail.participantQuery(
+                    participantID: participantID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+
+        #expect(participant.name == "New Name")
+        #expect(participant.kind?.rawValue == "dj")
+        #expect(participant.bio == "Updated bio")
+        #expect(participant.imageURL?.absoluteString == "https://example.com/image.jpg")
+        #expect(participant.logoURL == nil)
+        #expect(participant.links?.map(\.url.absoluteString) == ["https://example.com"])
+        #expect(participant.links?.map(\.platform) == [.website])
+    }
+
+    @Test
     func dismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
