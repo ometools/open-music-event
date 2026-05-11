@@ -39,7 +39,6 @@ struct OMEScheduleStageSelector: View {
                     Text(stage.name)
                 } icon: {
                     ScheduleStageIcon(stage: stage)
-                        .padding(12)
                 }
                 .pickerItemColor(stage.color.swiftUIColor)
                 .tag(Optional(stage.id.stageID))
@@ -111,6 +110,7 @@ struct ScheduleStageIcon: View {
                 case let .success(image):
                     image
                         .resizable()
+                        .renderingMode(.template)
                         .scaledToFit()
                 default:
                     fallback

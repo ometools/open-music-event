@@ -451,6 +451,68 @@ struct NavigationTests {
     }
 
     @Test
+    func scheduleTimelineCardsWrapPerformancesAndBuildBufferedRange() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let openingStart = try #require(date.at(hour: 18, in: timeZone))
+        let openingEnd = try #require(date.at(hour: 19, in: timeZone))
+        let closingStart = try #require(date.at(hour: 20, in: timeZone))
+        let closingEnd = try #require(date.at(hour: 21, in: timeZone))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "closing",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: closingStart,
+                endTime: closingEnd,
+                title: "Closing"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: openingStart,
+                endTime: openingEnd,
+                title: "Opening"
+            )
+        }
+
+        let performances = try await database.read { db in
+            try ScheduleViewer.performancesQuery(
+                eventID: eventID,
+                scheduleID: scheduleLocalID("friday")
+            )
+            .fetchAll(db)
+        }
+        let cards = performances.map(SchedulePerformanceTimelineCard.init)
+        let timeRange = try #require(
+            ScheduleSingleStageTimelineView.timeRange(
+                for: performances,
+                buffer: 30 * 60
+            )
+        )
+
+        #expect(cards.map(\.id) == [
+            performanceLocalID("opening"),
+            performanceLocalID("closing"),
+        ])
+        #expect(cards.first?.dateInterval.start == openingStart)
+        #expect(cards.first?.dateInterval.end == openingEnd)
+        #expect(timeRange.start == openingStart.addingTimeInterval(-30 * 60))
+        #expect(timeRange.end == closingEnd.addingTimeInterval(30 * 60))
+    }
+
+    @Test
     func scheduleViewerDefaultsToSingleStageMode() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

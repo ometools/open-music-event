@@ -143,15 +143,6 @@ public struct ScheduleViewer {
             return visibleStages.first { $0.id.stageID == resolvedSelectedStageID }
         }
 
-        var selectedStagePerformanceTimeRange: DateInterval? {
-            let performances = visiblePerformancesForSelectedStage
-            guard
-                let start = performances.map(\.startTime).min(),
-                let end = performances.map(\.endTime).max()
-            else { return nil }
-            return DateInterval(start: start, end: end)
-        }
-
         var stagesByID: [OMERecord.ID<OMERecord.Stage>: OMERecord.Stage] {
             Dictionary(uniqueKeysWithValues: stages.map { ($0.id.stageID, $0) })
         }
@@ -387,10 +378,12 @@ struct ScheduleSingleStageAtOnceView: View {
             }
 
             if let selectedStage = store.selectedStage {
-                ScheduleSingleStageTimelineStub(
+                ScheduleSingleStageTimelineView(
                     stage: selectedStage,
-                    timeRange: store.selectedStagePerformanceTimeRange
-                )
+                    performances: store.visiblePerformancesForSelectedStage
+                ) { performanceID in
+                    store.send(.performanceButtonTapped(performanceID))
+                }
             } else {
                 ContentUnavailableView(
                     store.scheduleDivision.title,
@@ -399,44 +392,6 @@ struct ScheduleSingleStageAtOnceView: View {
                 )
             }
         }
-    }
-}
-
-struct ScheduleSingleStageTimelineStub: View {
-    let stage: OMERecord.Stage
-    let timeRange: DateInterval?
-
-    var body: some View {
-        Group {
-            if let timeRange {
-                ScrollView {
-                    ZStack {
-                        ScheduleGrid()
-                            .frame(height: scheduleHeight(for: timeRange))
-                            .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
-                            .environment(\.scheduleTimeRange, timeRange)
-
-                        ContentUnavailableView(
-                            stage.name,
-                            systemImage: "calendar.day.timeline.leading",
-                            description: Text("Single Stage At Once timeline cards are not migrated yet.")
-                        )
-                        .padding()
-                    }
-                    .frame(minHeight: 420)
-                }
-            } else {
-                ContentUnavailableView(
-                    stage.name,
-                    systemImage: "calendar.day.timeline.leading",
-                    description: Text("No performances have been added to this stage yet.")
-                )
-            }
-        }
-    }
-
-    func scheduleHeight(for timeRange: DateInterval) -> CGFloat {
-        max(CGFloat(timeRange.duration / 3600) * 80, 420)
     }
 }
 
@@ -691,7 +646,7 @@ struct SchedulePerformanceRow: View {
     }
 }
 
-private extension OMERecord.Performance {
+extension OMERecord.Performance {
     var displayDescription: String? {
         let description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
         return description?.isEmpty == false ? description : nil
