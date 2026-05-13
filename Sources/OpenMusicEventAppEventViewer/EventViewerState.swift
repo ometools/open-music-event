@@ -21,20 +21,17 @@ public struct EventViewerState: Equatable, Sendable, Identifiable {
 struct EventViewerStateKey: SharedKey {
     struct ID: Hashable {
         var eventID: OMERecord.Event.ID
-        var databaseID: ObjectIdentifier
     }
 
     let eventID: OMERecord.Event.ID
-    let database: any DatabaseWriter
+    @Dependency(\.defaultDatabase) var database
 
     var id: ID {
-        ID(eventID: eventID, databaseID: ObjectIdentifier(database))
+        ID(eventID: eventID)
     }
 
-    init(eventID: OMERecord.Event.ID, database: (any DatabaseWriter)? = nil) {
-        @Dependency(\.defaultDatabase) var defaultDatabase
+    init(eventID: OMERecord.Event.ID) {
         self.eventID = eventID
-        self.database = database ?? defaultDatabase
     }
 
     func load(
@@ -88,12 +85,9 @@ struct EventViewerStateKey: SharedKey {
 }
 
 extension SharedKey where Self == EventViewerStateKey.Default {
-    static func eventViewerState(
-        _ eventID: OMERecord.Event.ID,
-        database: (any DatabaseWriter)? = nil
-    ) -> Self {
+    static func eventViewerState(_ eventID: OMERecord.Event.ID) -> Self {
         Self[
-            EventViewerStateKey(eventID: eventID, database: database),
+            EventViewerStateKey(eventID: eventID),
             default: EventViewerState(id: eventID)
         ]
     }

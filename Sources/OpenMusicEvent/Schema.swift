@@ -240,23 +240,3 @@ struct ExternalAssetPreferences: Equatable, Sendable, Identifiable {
 
     var id: URL { assetURL }
 }
-
-enum ScheduleKind: String, Codable, Sendable, CaseIterable, SQLiteType {
-    case singleStageAtOnce
-    case allStagesAtOnce
-}
-
-@Table("scheduleViewerState")
-struct ScheduleViewerState: Equatable, Sendable, Identifiable {
-    @Selection struct ID: Hashable, Sendable {
-        var eventID: OMERecord.Event.ID
-        var category: OMERecord.Stage.Category?
-    }
-
-    let id: ID
-    var selectedStageID: OMERecord.ID<OMERecord.Stage>?
-    var showStageNameLabels = false
-    var filteringFavorites = false
-    var filteringInterested = false
-    var scheduleKind: ScheduleKind = .singleStageAtOnce
-}

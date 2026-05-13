@@ -73,30 +73,49 @@ public struct ScheduleViewer {
     public struct State {
         public init(
             eventID: OMERecord.Event.ID,
-            scheduleDivision: ScheduleDivision = .schedule,
-            database: (any DatabaseReader)? = nil
+            scheduleDivision: ScheduleDivision = .schedule
         ) {
             self.eventID = eventID
             self.scheduleDivision = scheduleDivision
+            self._scheduleViewerState = Shared(
+                .scheduleViewerState(
+                    eventID: eventID,
+                    scheduleDivision: scheduleDivision
+                )
+            )
             _performances = FetchAll(
-                ScheduleViewer.eventPerformancesQuery(eventID: eventID),
-                database: database
+                ScheduleViewer.eventPerformancesQuery(eventID: eventID)
             )
             _schedules = FetchAll(
-                ScheduleViewer.schedulesQuery(eventID: eventID),
-                database: database
+                ScheduleViewer.schedulesQuery(eventID: eventID)
             )
             _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: eventID),
-                database: database
+                ScheduleViewer.stagesQuery(eventID: eventID)
             )
         }
 
         public let eventID: OMERecord.Event.ID
         public let scheduleDivision: ScheduleDivision
         public var destination: Destination.State?
-        public var scheduleMode: ScheduleMode = .singleStageAtOnce
-        public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+        @Shared public var scheduleViewerState: ScheduleViewerState
+
+        public var scheduleMode: ScheduleMode {
+            get { scheduleViewerState.scheduleMode }
+            set {
+                $scheduleViewerState.withLock {
+                    $0.scheduleMode = newValue
+                }
+            }
+        }
+
+        public var selectedStageID: OMERecord.ID<OMERecord.Stage>? {
+            get { scheduleViewerState.selectedStageID }
+            set {
+                $scheduleViewerState.withLock {
+                    $0.selectedStageID = newValue
+                }
+            }
+        }
 
         @FetchAll public var performances: [OMERecord.Performance]
         @FetchAll public var schedules: [OMERecord.Schedule]
@@ -428,8 +447,7 @@ public struct PerformanceDetail {
     public struct State: Identifiable {
         public init(
             performanceID: OMERecord.ID<OMERecord.Performance>,
-            eventID: OMERecord.Event.ID? = nil,
-            database: (any DatabaseReader)? = nil
+            eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
 
@@ -439,19 +457,16 @@ public struct PerformanceDetail {
                 PerformanceDetail.participantsQuery(
                     performanceID: performanceID,
                     eventID: self.eventID
-                ),
-                database: database
+                )
             )
             _performance = FetchOne(
                 PerformanceDetail.performanceQuery(
                     performanceID: performanceID,
                     eventID: self.eventID
-                ),
-                database: database
+                )
             )
             _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: self.eventID),
-                database: database
+                ScheduleViewer.stagesQuery(eventID: self.eventID)
             )
         }
 

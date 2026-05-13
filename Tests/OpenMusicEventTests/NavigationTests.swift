@@ -522,7 +522,7 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            ScheduleViewer.State(eventID: eventID, database: database)
+            ScheduleViewer.State(eventID: eventID)
         }
 
         #expect(state.scheduleMode == .singleStageAtOnce)
@@ -538,14 +538,71 @@ struct NavigationTests {
             $0.defaultEventID = eventID
             $0.exhaustivity = .off
         } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID, database: database)) {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
             }
         }
 
-        store.send(.scheduleModeButtonTapped(.list)) {
-            $0.scheduleMode = .list
+        store.send(.scheduleModeButtonTapped(.list))
+
+        #expect(store.state.scheduleMode == .list)
+    }
+
+    @Test
+    func scheduleViewerStatePersistsModeAndStagePerDivision() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            category: OMERecord.Stage.Category("workshop")
+        )
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            ScheduleViewer.State(eventID: eventID)
         }
+
+        state.$scheduleViewerState.withLock {
+            $0.scheduleMode = .list
+            $0.selectedStageID = stageLocalID("main")
+        }
+        try await state.$scheduleViewerState.save()
+
+        let storedState = try await database.read { db in
+            try ScheduleViewerStateRequest(
+                eventID: eventID,
+                scheduleDivision: .schedule
+            )
+            .fetch(db)
+        }
+
+        let restoredState = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            ScheduleViewer.State(eventID: eventID)
+        }
+
+        let workshopState = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            ScheduleViewer.State(
+                eventID: eventID,
+                scheduleDivision: workshopDivision
+            )
+        }
+
+        #expect(storedState.scheduleMode == .list)
+        #expect(storedState.selectedStageID == stageLocalID("main"))
+        #expect(restoredState.scheduleMode == .list)
+        #expect(restoredState.selectedStageID == stageLocalID("main"))
+        #expect(workshopState.scheduleMode == .singleStageAtOnce)
+        #expect(workshopState.selectedStageID == nil)
     }
 
     @Test
@@ -738,8 +795,7 @@ struct NavigationTests {
                 features: [
                     .schedule(.schedule),
                     .schedule(workshopDivision),
-                ],
-                database: database
+                ]
             )
         }
 
@@ -760,8 +816,7 @@ struct NavigationTests {
                 features: [
                     .schedule(.schedule),
                     .schedule(workshopDivision),
-                ],
-                database: database
+                ]
             )
         }
 
@@ -798,8 +853,7 @@ struct NavigationTests {
         } operation: {
             var state = ScheduleViewer.State(
                 eventID: eventID,
-                scheduleDivision: workshopDivision,
-                database: database
+                scheduleDivision: workshopDivision
             )
             state.selectedStageID = stageLocalID("main")
             return state
@@ -820,7 +874,7 @@ struct NavigationTests {
             $0.defaultEventID = eventID
             $0.exhaustivity = .off
         } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID, database: database)) {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
             }
         }

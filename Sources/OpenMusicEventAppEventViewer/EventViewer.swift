@@ -192,10 +192,8 @@ public struct EventViewer {
             return division
         }
 
-        static func features(
-            eventID: OMERecord.Event.ID,
-            database: any DatabaseReader
-        ) -> [Self] {
+        static func features(eventID: OMERecord.Event.ID) -> [Self] {
+            @Dependency(\.defaultDatabase) var database
             let stages = (try? database.read { db in
                 try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
             }) ?? []
@@ -214,24 +212,19 @@ public struct EventViewer {
 
     public struct State: Identifiable {
         public init(eventID: OMERecord.Event.ID) {
-            @Dependency(\.defaultDatabase) var database
             self.init(
                 eventID: eventID,
-                features: EventFeature.features(eventID: eventID, database: database),
-                database: database
+                features: EventFeature.features(eventID: eventID)
             )
         }
 
         public init(
             eventID: OMERecord.Event.ID,
-            features: [EventFeature],
-            database: (any DatabaseReader)? = nil
+            features: [EventFeature]
         ) {
 
             self.eventID = eventID
-            self._eventViewerState = Shared(
-                .eventViewerState(eventID, database: database as? any DatabaseWriter)
-            )
+            self._eventViewerState = Shared(.eventViewerState(eventID))
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
 
@@ -246,8 +239,7 @@ public struct EventViewer {
                             Spawn(
                                 ScheduleViewer.State(
                                     eventID: eventID,
-                                    scheduleDivision: division,
-                                    database: database
+                                    scheduleDivision: division
                                 )
                             )
                         )
