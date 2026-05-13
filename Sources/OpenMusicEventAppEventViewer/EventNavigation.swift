@@ -5,6 +5,7 @@ public enum EventTarget: Equatable, Sendable {
     case schedule
     case people
     case participant(OMERecord.ID<OMERecord.Participant>)
+    case stages
     case stage(OMERecord.ID<OMERecord.Stage>)
     case communications
     case contactInfo
@@ -22,7 +23,9 @@ public enum EventTarget: Equatable, Sendable {
             .schedule(.schedule)
         case .people, .participant:
             .people
-        case .stage, .search:
+        case .stages, .stage:
+            .stages
+        case .search:
             .search
         case .communications:
             .communications

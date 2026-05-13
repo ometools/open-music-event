@@ -60,6 +60,10 @@ struct NavigationTests {
                 AppRoute.event(eventID("event-1"), .participant(participantLocalID("artist-1")))
             ),
             (
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/stages",
+                AppRoute.event(eventID("event-1"), .stages)
+            ),
+            (
                 "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1",
                 AppRoute.event(eventID("event-1"), .stage(stageLocalID("stage-1")))
             ),
@@ -116,7 +120,7 @@ struct NavigationTests {
     }
 
     @Test
-    func navigationRequestSelectsStageSearchDestination() throws {
+    func navigationRequestSelectsStageDestination() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let stageID = stageLocalID("stage-1")
@@ -130,9 +134,9 @@ struct NavigationTests {
             store.send(.root(.handleNavigationRequest(.event(eventID, .stage(stageID)))))
         }
 
-        #expect(store.state.root.eventViewer?.selectedFeature == .search)
+        #expect(store.state.root.eventViewer?.selectedFeature == .stages)
         #expect(
-            store.state.root.eventViewer?.eventSearch.destination?.stageDetail?.stageID == stageID
+            store.state.root.eventViewer?.stagesViewer?.destination?.stageDetail?.stageID == stageID
         )
     }
 
@@ -159,9 +163,9 @@ struct NavigationTests {
         await store.send(to: \.eventViewer.eventSearch, .openStage(stageID))?.value
         await Task.yield()
 
-        #expect(store.state.eventViewer.selectedFeature == .search)
+        #expect(store.state.eventViewer.selectedFeature == .stages)
         #expect(
-            store.state.eventViewer.eventSearch.destination?.stageDetail?.stageID == stageID
+            store.state.eventViewer.stagesViewer?.destination?.stageDetail?.stageID == stageID
         )
         #expect(store.state.lastRequest == nil)
     }
@@ -323,6 +327,51 @@ struct NavigationTests {
         }
 
         #expect(participants.map(\.name) == ["Amy", "Zara"])
+    }
+
+    @Test
+    func stagesViewerFetchesStagesForEventInOrder() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let otherEventID = eventID("event-2")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "late", name: "Late", sortIndex: 2)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertStage(db, eventID: otherEventID, stageID: "other", name: "Other")
+        }
+
+        let stages = try await database.read { db in
+            try StagesViewer.stagesQuery(eventID: selectedEventID).fetchAll(db)
+        }
+
+        #expect(stages.map(\.name) == ["Main", "Late"])
+    }
+
+    @Test
+    func stageDetailFetchesStageForEvent() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let otherEventID = eventID("event-2")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "main", name: "Main")
+            try Self.insertStage(db, eventID: otherEventID, stageID: "main", name: "Other Main")
+        }
+
+        let stage = try await database.read { db in
+            try StageDetail.stageQuery(
+                stageID: stageLocalID("main"),
+                eventID: selectedEventID
+            )
+            .fetchOne(db)
+        }
+
+        #expect(stage?.name == "Main")
     }
 
     @Test
