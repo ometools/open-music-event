@@ -7,26 +7,31 @@ public extension OME {
             public var source: OpenMusicEventSourceRepository
             public var organizerID: OME.Organizer.ID
             public var sourceProvenance: SourceProvenance?
+            public var sourceRootURL: URL?
 
             public init(
                 source: OpenMusicEventSourceRepository,
-                organizerID: OME.Organizer.ID
+                organizerID: OME.Organizer.ID,
+                sourceRootURL: URL? = nil
             ) {
                 self.init(
                     source: source,
                     organizerID: organizerID,
-                    sourceProvenance: nil
+                    sourceProvenance: nil,
+                    sourceRootURL: sourceRootURL
                 )
             }
 
             public init(
                 source: OpenMusicEventSourceRepository,
                 organizerID: OME.Organizer.ID,
-                sourceProvenance: SourceProvenance?
+                sourceProvenance: SourceProvenance?,
+                sourceRootURL: URL? = nil
             ) {
                 self.source = source
                 self.organizerID = organizerID
                 self.sourceProvenance = sourceProvenance
+                self.sourceRootURL = sourceRootURL
             }
         }
 
@@ -40,11 +45,32 @@ public extension OME {
             )
             case duplicateEventID(OME.Event.ID)
             case invalidLocalTime(String)
+            case missingPosterImage(String)
+            case missingSourceRootForFileAsset(String)
             case missingPerformanceEndTime(
                 scheduleID: OME.Schedule.ID,
                 stageID: OME.ID<OME.Stage>,
                 performanceIndex: Int
             )
+        }
+
+        public struct PendingFileImageAsset: Equatable, Sendable {
+            public init(
+                assetKey: String,
+                sourceURL: URL,
+                mimeType: String,
+                data: Data
+            ) {
+                self.assetKey = assetKey
+                self.sourceURL = sourceURL
+                self.mimeType = mimeType
+                self.data = data
+            }
+
+            public var assetKey: String
+            public var sourceURL: URL
+            public var mimeType: String
+            public var data: Data
         }
 
         public enum EventIDOrigin: String, Codable, Equatable, Sendable {
@@ -103,6 +129,7 @@ public extension OME {
         public var posters: [OME.Poster.Draft]
         public var performances: [OME.Performance.Draft]
         public var performanceParticipants: [OME.Performance.Participants.Draft]
+        public var pendingFileImageAssets: [PendingFileImageAsset]
 
         public init(_ configuration: Configuration) throws {
             self.organizers = [
@@ -118,6 +145,7 @@ public extension OME {
             self.posters = []
             self.performances = []
             self.performanceParticipants = []
+            self.pendingFileImageAssets = []
 
             var resolvedEventIDs: Set<OME.Event.ID> = []
             for sourceEvent in configuration.source.events {
@@ -125,6 +153,7 @@ public extension OME {
                     sourceEvent: sourceEvent.components,
                     eventDirectoryName: sourceEvent.directoryName,
                     organizerID: configuration.organizerID,
+                    sourceRootURL: configuration.sourceRootURL,
                     sourceProvenance: configuration.sourceProvenance,
                     resolvedEventIDs: &resolvedEventIDs
                 )
@@ -135,6 +164,7 @@ public extension OME {
             sourceEvent: OpenMusicEventSourceEvent,
             eventDirectoryName: String,
             organizerID: OME.Organizer.ID,
+            sourceRootURL: URL?,
             sourceProvenance: SourceProvenance?,
             resolvedEventIDs: inout Set<OME.Event.ID>
         ) throws {
@@ -151,12 +181,23 @@ public extension OME {
                 organizerID: organizerID,
                 eventID: localEventID
             )
+            let eventDirectoryURL = sourceRootURL?
+                .appending(path: "events", directoryHint: .isDirectory)
+                .appending(path: eventDirectoryName, directoryHint: .isDirectory)
             guard resolvedEventIDs.insert(eventID).inserted else {
                 throw Error.duplicateEventID(eventID)
             }
 
             var event = sourceEvent.event.recordDraft
             event.id = eventID
+            event.images = try resolve(
+                sourceEvent.event.images,
+                organizerID: organizerID,
+                eventID: localEventID,
+                parentKind: "event",
+                parentLocalID: localEventID.rawValue.rawValue,
+                eventDirectoryURL: eventDirectoryURL
+            )
             events.append(event)
             if let sourceProvenance {
                 eventSourceProvenances.append(
@@ -179,24 +220,42 @@ public extension OME {
             )
 
             stages.append(
-                contentsOf: sourceEvent.stages?.map { stage in
-                    var draft = stage.data
-                    draft.id = draft.id ?? .init(
+                contentsOf: try sourceEvent.stages?.map { stage in
+                    var draft = stage.data.recordDraft
+                    let stageID = draft.id ?? .init(
                         organizerID: organizerID,
                         eventID: localEventID,
                         stageID: Self.localID(stage.fileName)
+                    )
+                    draft.id = stageID
+                    draft.images = try resolve(
+                        stage.data.images,
+                        organizerID: organizerID,
+                        eventID: localEventID,
+                        parentKind: "stage",
+                        parentLocalID: stageID.stageID.rawValue.rawValue,
+                        eventDirectoryURL: eventDirectoryURL
                     )
                     return draft
                 } ?? []
             )
 
             participants.append(
-                contentsOf: sourceEvent.participants?.map { participant in
-                    var draft = participant.data
-                    draft.id = draft.id ?? .init(
+                contentsOf: try sourceEvent.participants?.map { participant in
+                    var draft = participant.data.recordDraft
+                    let participantID = draft.id ?? .init(
                         organizerID: organizerID,
                         eventID: localEventID,
                         participantID: Self.localID(participant.fileName)
+                    )
+                    draft.id = participantID
+                    draft.images = try resolve(
+                        participant.data.images,
+                        organizerID: organizerID,
+                        eventID: localEventID,
+                        parentKind: "participant",
+                        parentLocalID: participantID.participantID.rawValue.rawValue,
+                        eventDirectoryURL: eventDirectoryURL
                     )
                     return draft
                 } ?? []
@@ -215,14 +274,29 @@ public extension OME {
             )
 
             posters.append(
-                contentsOf: sourceEvent.posters?.map { poster in
-                    var draft = poster.data
-                    draft.id = draft.id ?? .init(
+                contentsOf: try sourceEvent.posters?.map { poster in
+                    let draftID = poster.data.id ?? .init(
                         organizerID: organizerID,
                         eventID: localEventID,
                         posterID: Self.localID(poster.fileName)
                     )
-                    return draft
+                    let localPosterID = draftID.posterID.rawValue.rawValue
+                    let resolvedImages = try resolve(
+                        [poster.data.image],
+                        organizerID: organizerID,
+                        eventID: localEventID,
+                        parentKind: "poster",
+                        parentLocalID: localPosterID,
+                        eventDirectoryURL: eventDirectoryURL
+                    )
+                    guard let image = resolvedImages?.first else {
+                        throw Error.missingPosterImage(poster.fileName)
+                    }
+                    return OME.Poster.Draft(
+                        id: draftID,
+                        title: poster.data.title,
+                        image: image
+                    )
                 } ?? []
             )
 
@@ -341,6 +415,85 @@ public extension OME {
             }
         }
 
+        private mutating func resolve(
+            _ sourceImages: [SourceImageAsset]?,
+            organizerID: OME.Organizer.ID,
+            eventID: OME.ID<OME.Event>,
+            parentKind: String,
+            parentLocalID: String,
+            eventDirectoryURL: URL?
+        ) throws -> [OME.ImageAsset]? {
+            let images = try sourceImages?.map { image in
+                let assetKey = image.assetKey
+                    ?? makeAssetKey(
+                        organizerID: organizerID,
+                        eventID: eventID,
+                        parentKind: parentKind,
+                        parentLocalID: parentLocalID,
+                        role: image.role,
+                        appearance: image.appearance
+                    )
+
+                let resolvedSource: OME.ImageAsset.Source
+                switch image.source {
+                case let .url(url):
+                    resolvedSource = .url(url)
+
+                case let .file(path):
+                    guard let eventDirectoryURL else {
+                        throw Error.missingSourceRootForFileAsset(path)
+                    }
+
+                    let sourceURL = eventDirectoryURL
+                        .appending(path: path)
+                        .standardizedFileURL
+                    let data = try Data(contentsOf: sourceURL)
+                    pendingFileImageAssets.append(
+                        PendingFileImageAsset(
+                            assetKey: assetKey,
+                            sourceURL: sourceURL,
+                            mimeType: sourceURL.inferredImageMimeType,
+                            data: data
+                        )
+                    )
+                    resolvedSource = .url(sourceURL)
+                }
+
+                return OME.ImageAsset(
+                    assetKey: assetKey,
+                    source: resolvedSource,
+                    role: image.role,
+                    renderKind: image.renderKind,
+                    appearance: image.appearance,
+                    materializationPolicy: image.materializationPolicy,
+                    thumbhash: image.thumbhash,
+                    focalPoint: image.focalPoint
+                )
+            }
+
+            guard let images, !images.isEmpty else { return nil }
+            return images
+        }
+
+        private func makeAssetKey(
+            organizerID: OME.Organizer.ID,
+            eventID: OME.ID<OME.Event>,
+            parentKind: String,
+            parentLocalID: String,
+            role: OME.ImageAsset.Role,
+            appearance: OME.ImageAsset.Appearance?
+        ) -> String {
+            [
+                organizerID.description,
+                eventID.rawValue.rawValue,
+                parentKind,
+                parentLocalID,
+                role.rawValue,
+                appearance?.rawValue ?? "default"
+            ]
+            .joined(separator: "|")
+        }
+
         private static func localID<Record>(_ string: String) -> OME.ID<Record> {
             OME.ID<Record>(.init(string))
         }
@@ -417,8 +570,33 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
         case let .invalidLocalTime(value):
             return "Invalid local time: \(value)"
 
+        case let .missingPosterImage(fileName):
+            return "Poster \(fileName) is missing an image asset."
+
+        case let .missingSourceRootForFileAsset(path):
+            return "Cannot resolve file-backed image asset without a source root URL: \(path)"
+
         case let .missingPerformanceEndTime(scheduleID, stageID, performanceIndex):
             return "Missing end time for performance \(performanceIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'."
+        }
+    }
+}
+
+private extension URL {
+    var inferredImageMimeType: String {
+        switch pathExtension.lowercased() {
+        case "png":
+            return "image/png"
+        case "jpg", "jpeg":
+            return "image/jpeg"
+        case "webp":
+            return "image/webp"
+        case "gif":
+            return "image/gif"
+        case "svg":
+            return "image/svg+xml"
+        default:
+            return "application/octet-stream"
         }
     }
 }

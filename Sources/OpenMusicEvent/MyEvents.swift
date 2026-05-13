@@ -96,6 +96,14 @@ public struct MyEvents {
         .ifLet(\.organizerDetail, action: \.organizerDetail) {
             OrganizerDetail()
         }
+        .onEvent(SourceImportCompleted.self) { organizerID, state in
+            @Dependency(\.defaultDatabase) var database
+            state.destination = nil
+            state.organizerDetail = .init(
+                organizerID: organizerID,
+                database: database
+            )
+        }
     }
 }
 

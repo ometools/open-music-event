@@ -1,5 +1,5 @@
 import ComposableArchitecture2
-import Dependencies
+import SQLiteData
 import SwiftUI
 
 @Feature
@@ -7,15 +7,14 @@ public struct SiteMapViewer {
     public init() {}
 
     public struct State {
+        @FetchOne(OMERecord.Event.defaultEvent) public var event: OMERecord.Event?
+
         public init() {}
     }
 
     public enum Action {}
 
-    @Dependency(\.defaultEventID) var defaultEventID
-
     public var body: some Feature {
-        let _ = defaultEventID
         Update { _, _ in }
     }
 }
@@ -28,10 +27,35 @@ public struct SiteMapViewerView: View {
     }
 
     public var body: some View {
+        Group {
+            if let event = store.event,
+               let asset = event.images?.imageAsset(role: .siteMap) {
+                ScrollView([.vertical, .horizontal]) {
+                    ImageAssetAsyncImage(asset: asset, contentMode: .fit) {
+                        SiteMapPlaceholderView(eventWasLoaded: true)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                }
+                .background(.background)
+                .navigationTitle("Site Map")
+            } else {
+                SiteMapPlaceholderView(eventWasLoaded: store.event != nil)
+            }
+        }
+    }
+}
+
+struct SiteMapPlaceholderView: View {
+    let eventWasLoaded: Bool
+
+    var body: some View {
         ViewerPlaceholderView(
             title: "Site Map",
             systemImage: "map",
-            description: "No site map has been added to this event yet."
+            description: eventWasLoaded
+                ? "No site map has been added to this event yet."
+                : "This event could not be loaded."
         )
     }
 }

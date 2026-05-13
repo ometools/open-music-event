@@ -25,9 +25,7 @@ public extension OME {
                       "locations" TEXT,
                       "uris" TEXT,
                       "timeZone" TEXT NOT NULL,
-                      "imageURL" TEXT,
-                      "iconImageURL" TEXT,
-                      "siteMapImageURL" TEXT,
+                      "images" TEXT,
                       "contactNumbers" TEXT,
                       "categoryConfigs" TEXT,
                       PRIMARY KEY ("organizerID", "eventID") ON CONFLICT REPLACE
@@ -57,11 +55,9 @@ public extension OME {
                       "color" INTEGER NOT NULL,
                       "category" TEXT,
                       "sortIndex" INTEGER,
-                      "iconImageURL" TEXT,
+                      "images" TEXT,
                       "systemIconName" TEXT,
                       "iconShortCode" TEXT,
-                      "imageURL" TEXT,
-                      "posterImageURL" TEXT,
                       "lineup" TEXT,
                       PRIMARY KEY ("organizerID", "eventID", "stageID") ON CONFLICT REPLACE,
                       FOREIGN KEY ("organizerID", "eventID")
@@ -95,8 +91,7 @@ public extension OME {
                       "participantID" TEXT NOT NULL,
                       "name" TEXT NOT NULL,
                       "bio" TEXT,
-                      "imageURL" TEXT,
-                      "logoURL" TEXT,
+                      "images" TEXT,
                       "kind" TEXT,
                       "links" TEXT,
                       PRIMARY KEY ("organizerID", "eventID", "participantID") ON CONFLICT REPLACE,
@@ -146,7 +141,7 @@ public extension OME {
                       "eventID" TEXT NOT NULL,
                       "posterID" TEXT NOT NULL,
                       "title" TEXT,
-                      "imageURL" TEXT NOT NULL,
+                      "image" TEXT NOT NULL,
                       PRIMARY KEY ("organizerID", "eventID", "posterID") ON CONFLICT REPLACE,
                       FOREIGN KEY ("organizerID", "eventID")
                         REFERENCES "events"("organizerID", "eventID")
@@ -214,6 +209,31 @@ public extension OME {
                         REFERENCES "events"("organizerID", "eventID")
                         ON DELETE CASCADE
                     ) STRICT
+                    """)
+                    .execute(db)
+            }
+
+            migrator.registerMigration("Create OpenMusicEvent local image blob schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "localImageBlobs" (
+                      "assetKey" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "parentKind" TEXT NOT NULL,
+                      "parentLocalID" TEXT NOT NULL,
+                      "role" TEXT NOT NULL,
+                      "renderKind" TEXT NOT NULL,
+                      "mimeType" TEXT NOT NULL,
+                      "data" BLOB NOT NULL,
+                      "sourceURL" TEXT,
+                      "lastFetchedAt" TEXT
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE INDEX IF NOT EXISTS "localImageBlobs_event_parent_role"
+                    ON "localImageBlobs" ("organizerID", "eventID", "parentKind", "parentLocalID", "role")
                     """)
                     .execute(db)
             }

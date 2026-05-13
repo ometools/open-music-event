@@ -612,6 +612,119 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func materializesFileBackedRequiredStageLogosOnInsert() async throws {
+        let repositoryURL = try temporaryDirectoryURL()
+        let eventDirectoryURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "testival-2026", directoryHint: .isDirectory)
+        let imagesDirectoryURL = eventDirectoryURL.appending(path: "images", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: imagesDirectoryURL, withIntermediateDirectories: true)
+
+        let sourceFileURL = imagesDirectoryURL.appending(path: "meadow-logo.png")
+        let sourceData = Data("stage-logo".utf8)
+        try sourceData.write(to: sourceFileURL)
+
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .file("images/meadow-logo.png"),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceRootURL: repositoryURL
+            )
+        )
+        let database = try makeCoreDatabase()
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+
+        try await withDependencies {
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let stage = try await database.read { db in
+            try OME.Stage.fetchOne(db)
+        }
+        let storedBlob = try await database.read { db in
+            try LocalImageBlob.fetchOne(db)
+        }
+
+        let stageLogoURL = try #require(stage?.images?.first?.url)
+        #expect(stageLogoURL.isFileURL)
+        let blob = try #require(storedBlob)
+        #expect(blob.role == OME.ImageAsset.Role.logo)
+        #expect(blob.renderKind == OME.ImageAsset.RenderKind.transparent)
+        #expect(blob.sourceURL == sourceFileURL)
+        expectNoDifference(blob.data, sourceData)
+    }
+
+    @Test
+    func materializesRequiredRemoteImagesButLeavesLazyImagesRemote() async throws {
+        let eventHeroURL = try #require(URL(string: "https://example.com/event-hero.jpg"))
+        let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let source = try makeSourceRepository(
+            eventImages: [
+                SourceImageAsset(
+                    source: .url(eventHeroURL),
+                    role: .hero,
+                    renderKind: .fullImage,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ],
+            participantImages: [
+                SourceImageAsset(
+                    source: .url(participantPhotoURL),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let remoteData = Data("remote-hero".utf8)
+
+        try await withDependencies {
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, path, _ in
+                #expect(path == "/event-hero.jpg")
+                return remoteData
+            }
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let event = try await database.read { db in
+            try OME.Event.fetchOne(db)
+        }
+        let participant = try await database.read { db in
+            try OME.Participant.fetchOne(db)
+        }
+        let blobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        let materializedHeroURL = try #require(event?.images?.first?.url)
+        #expect(materializedHeroURL.isFileURL)
+        #expect(participant?.images?.first?.url == participantPhotoURL)
+        #expect(blobs.count == 1)
+        expectNoDifference(blobs.first?.data, remoteData)
+    }
+
+    @Test
     func insertsIntoDefaultDatabaseAfterRunningMigrations() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
@@ -641,6 +754,9 @@ struct SourceDatabaseInsertionTests {
         eventDirectoryName: String = "testival-2026",
         eventName: String = "Testival 2026",
         explicitLocalEventID: OME.ID<OME.Event>? = nil,
+        eventImages: [SourceImageAsset]? = nil,
+        stageImages: [SourceImageAsset]? = nil,
+        participantImages: [SourceImageAsset]? = nil,
         performances: [String: [ScheduleDTO.Performance]] = [
             "meadow": [
                 .init(
@@ -674,7 +790,7 @@ struct SourceDatabaseInsertionTests {
                 DirectoryContent(
                     directoryName: eventDirectoryName,
                     components: OpenMusicEventSourceEvent(
-                        event: OME.Event.Draft(
+                        event: EventDTO(
                             id: explicitLocalEventID.map {
                                 OME.Event.ID(
                                     organizerID: sourceOrganizerID,
@@ -690,9 +806,7 @@ struct SourceDatabaseInsertionTests {
                             locations: nil,
                             uris: nil,
                             timeZone: timeZone,
-                            imageURL: nil,
-                            iconImageURL: nil,
-                            siteMapImageURL: nil,
+                            images: eventImages,
                             contactNumbers: nil,
                             categoryConfigs: nil
                         ),
@@ -700,17 +814,15 @@ struct SourceDatabaseInsertionTests {
                             try FileContent(
                                 fileName: "meadow",
                                 fileType: nil,
-                                data: OME.Stage.Draft(
+                                data: StageDTO(
                                     id: nil,
                                     name: "Meadow",
                                     color: 0x00aaee,
                                     category: nil,
                                     sortIndex: nil,
-                                    iconImageURL: nil,
+                                    images: stageImages,
                                     systemIconName: nil,
                                     iconShortCode: nil,
-                                    imageURL: nil,
-                                    posterImageURL: nil,
                                     lineup: nil
                                 )
                             )
@@ -719,12 +831,11 @@ struct SourceDatabaseInsertionTests {
                             try FileContent(
                                 fileName: "artist-one",
                                 fileType: nil,
-                                data: OME.Participant.Draft(
+                                data: ParticipantDTO(
                                     id: nil,
                                     name: "Artist One",
                                     bio: nil,
-                                    imageURL: nil,
-                                    logoURL: nil,
+                                    images: participantImages,
                                     kind: nil,
                                     links: nil
                                 )
@@ -734,7 +845,7 @@ struct SourceDatabaseInsertionTests {
                             try FileContent(
                                 fileName: "lineup",
                                 fileType: nil,
-                                data: OME.Poster.Draft(
+                                data: PosterDTO(
                                     id: nil,
                                     title: "Lineup",
                                     imageURL: URL(string: "https://example.com/lineup.png")!
@@ -784,6 +895,21 @@ struct SourceDatabaseInsertionTests {
         OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
         return database
+    }
+
+    private func temporaryDirectoryURL() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+}
+
+private func testLocalImageFileStore(directory: URL) -> LocalImageFileStoreClient {
+    LocalImageFileStoreClient { assetKey, data, _ in
+        let fileURL = directory.appending(path: assetKey.replacingOccurrences(of: "|", with: "-"))
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
     }
 }
 

@@ -16,9 +16,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         locations: [OMERecord.Event.Location]?,
         uris: [OMERecord.Event.EventURI]?,
         timeZone: TimeZone,
-        imageURL: URL?,
-        iconImageURL: URL?,
-        siteMapImageURL: URL?,
+        images: [SourceImageAsset]?,
         contactNumbers: [OMERecord.Event.ContactNumber]?,
         categoryConfigs: OMERecord.Event.CategoryConfigs?
     ) {
@@ -32,11 +30,47 @@ public struct EventDTO: Codable, Equatable, Sendable {
         self.locations = locations
         self.uris = uris
         self.timeZone = timeZone
-        self.imageURL = imageURL
-        self.iconImageURL = iconImageURL
-        self.siteMapImageURL = siteMapImageURL
+        self.images = images
         self.contactNumbers = contactNumbers
         self.categoryConfigs = categoryConfigs
+    }
+
+    public init(
+        id: OMERecord.Event.ID?,
+        name: String,
+        description: String?,
+        startDate: LocalDate?,
+        endDate: LocalDate?,
+        status: Open<OMERecord.Event.Status>?,
+        mode: Open<OMERecord.Event.Mode>?,
+        locations: [OMERecord.Event.Location]?,
+        uris: [OMERecord.Event.EventURI]?,
+        timeZone: TimeZone,
+        imageURL: URL?,
+        iconImageURL: URL?,
+        siteMapImageURL: URL?,
+        contactNumbers: [OMERecord.Event.ContactNumber]?,
+        categoryConfigs: OMERecord.Event.CategoryConfigs?
+    ) {
+        self.init(
+            id: id,
+            name: name,
+            description: description,
+            startDate: startDate,
+            endDate: endDate,
+            status: status,
+            mode: mode,
+            locations: locations,
+            uris: uris,
+            timeZone: timeZone,
+            images: Self.legacyImages(
+                heroURL: imageURL,
+                iconURL: iconImageURL,
+                siteMapURL: siteMapImageURL
+            ),
+            contactNumbers: contactNumbers,
+            categoryConfigs: categoryConfigs
+        )
     }
 
     public init(_ draft: OMERecord.Event.Draft) {
@@ -51,9 +85,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
             locations: draft.locations,
             uris: draft.uris,
             timeZone: draft.timeZone,
-            imageURL: draft.imageURL,
-            iconImageURL: draft.iconImageURL,
-            siteMapImageURL: draft.siteMapImageURL,
+            images: draft.images?.map(SourceImageAsset.init),
             contactNumbers: draft.contactNumbers,
             categoryConfigs: draft.categoryConfigs
         )
@@ -69,9 +101,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
     public var locations: [OMERecord.Event.Location]?
     public var uris: [OMERecord.Event.EventURI]?
     @SourceTimeZone public var timeZone: TimeZone
-    public var imageURL: URL?
-    public var iconImageURL: URL?
-    public var siteMapImageURL: URL?
+    public var images: [SourceImageAsset]?
     public var contactNumbers: [OMERecord.Event.ContactNumber]?
     public var categoryConfigs: OMERecord.Event.CategoryConfigs?
 
@@ -87,16 +117,566 @@ public struct EventDTO: Codable, Equatable, Sendable {
             locations: locations,
             uris: uris,
             timeZone: timeZone,
-            imageURL: imageURL,
-            iconImageURL: iconImageURL,
-            siteMapImageURL: siteMapImageURL,
+            images: images?.map(\.recordValue),
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs
         )
     }
+
+    public var imageURL: URL? {
+        images?.first(where: { $0.role == .hero })?.url
+    }
+
+    public var iconImageURL: URL? {
+        images?.first(where: { $0.role == .icon })?.url
+    }
+
+    public var siteMapImageURL: URL? {
+        images?.first(where: { $0.role == .siteMap })?.url
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case startDate
+        case endDate
+        case status
+        case mode
+        case locations
+        case uris
+        case timeZone
+        case images
+        case imageURL
+        case iconImageURL
+        case siteMapImageURL
+        case contactNumbers
+        case categoryConfigs
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let images = try container.decodeIfPresent([SourceImageAsset].self, forKey: .images)
+            ?? Self.legacyImages(
+                heroURL: try container.decodeIfPresent(URL.self, forKey: .imageURL),
+                iconURL: try container.decodeIfPresent(URL.self, forKey: .iconImageURL),
+                siteMapURL: try container.decodeIfPresent(URL.self, forKey: .siteMapImageURL)
+            )
+
+        self.init(
+            id: try container.decodeIfPresent(OMERecord.Event.ID.self, forKey: .id),
+            name: try container.decode(String.self, forKey: .name),
+            description: try container.decodeIfPresent(String.self, forKey: .description),
+            startDate: try container.decodeIfPresent(LocalDate.self, forKey: .startDate),
+            endDate: try container.decodeIfPresent(LocalDate.self, forKey: .endDate),
+            status: try container.decodeIfPresent(Open<OMERecord.Event.Status>.self, forKey: .status),
+            mode: try container.decodeIfPresent(Open<OMERecord.Event.Mode>.self, forKey: .mode),
+            locations: try container.decodeIfPresent([OMERecord.Event.Location].self, forKey: .locations),
+            uris: try container.decodeIfPresent([OMERecord.Event.EventURI].self, forKey: .uris),
+            timeZone: try container.decode(SourceTimeZone.self, forKey: .timeZone).wrappedValue,
+            images: images,
+            contactNumbers: try container.decodeIfPresent([OMERecord.Event.ContactNumber].self, forKey: .contactNumbers),
+            categoryConfigs: try container.decodeIfPresent(OMERecord.Event.CategoryConfigs.self, forKey: .categoryConfigs)
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encodeIfPresent(startDate, forKey: .startDate)
+        try container.encodeIfPresent(endDate, forKey: .endDate)
+        try container.encodeIfPresent(status, forKey: .status)
+        try container.encodeIfPresent(mode, forKey: .mode)
+        try container.encodeIfPresent(locations, forKey: .locations)
+        try container.encodeIfPresent(uris, forKey: .uris)
+        try container.encode(SourceTimeZone(wrappedValue: timeZone), forKey: .timeZone)
+        try container.encodeIfPresent(images, forKey: .images)
+        try container.encodeIfPresent(contactNumbers, forKey: .contactNumbers)
+        try container.encodeIfPresent(categoryConfigs, forKey: .categoryConfigs)
+    }
+
+    private static func legacyImages(
+        heroURL: URL?,
+        iconURL: URL?,
+        siteMapURL: URL?
+    ) -> [SourceImageAsset]? {
+        let images = [
+            heroURL.map {
+                SourceImageAsset(
+                    source: .url($0),
+                    role: .hero,
+                    renderKind: .fullImage,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            },
+            iconURL.map {
+                SourceImageAsset(
+                    source: .url($0),
+                    role: .icon,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            },
+            siteMapURL.map {
+                SourceImageAsset(
+                    source: .url($0),
+                    role: .siteMap,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            },
+        ].compactMap { $0 }
+
+        return images.isEmpty ? nil : images
+    }
 }
 
-public typealias StageDTO = OMERecord.Stage.Draft
-public typealias ParticipantDTO = OMERecord.Participant.Draft
-public typealias PosterDTO = OMERecord.Poster.Draft
+public struct StageDTO: Codable, Equatable, Sendable {
+    public init(
+        id: OMERecord.Stage.ID? = nil,
+        name: String,
+        color: OMEColor,
+        category: OMERecord.Stage.Category? = nil,
+        sortIndex: Int? = nil,
+        images: [SourceImageAsset]? = nil,
+        systemIconName: String? = nil,
+        iconShortCode: String? = nil,
+        lineup: [OMERecord.ID<OMERecord.Participant>]? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.color = color
+        self.category = category
+        self.sortIndex = sortIndex
+        self.images = images
+        self.systemIconName = systemIconName
+        self.iconShortCode = iconShortCode
+        self.lineup = lineup
+    }
+
+    public init(
+        id: OMERecord.Stage.ID? = nil,
+        name: String,
+        color: OMEColor,
+        category: OMERecord.Stage.Category? = nil,
+        sortIndex: Int? = nil,
+        iconImageURL: URL? = nil,
+        systemIconName: String? = nil,
+        iconShortCode: String? = nil,
+        imageURL: URL? = nil,
+        posterImageURL: URL? = nil,
+        lineup: [OMERecord.ID<OMERecord.Participant>]? = nil
+    ) {
+        self.init(
+            id: id,
+            name: name,
+            color: color,
+            category: category,
+            sortIndex: sortIndex,
+            images: Self.legacyImages(
+                logoURL: iconImageURL,
+                heroURL: imageURL,
+                posterURL: posterImageURL
+            ),
+            systemIconName: systemIconName,
+            iconShortCode: iconShortCode,
+            lineup: lineup
+        )
+    }
+
+    public init(_ draft: OMERecord.Stage.Draft) {
+        self.init(
+            id: draft.id,
+            name: draft.name,
+            color: draft.color,
+            category: draft.category,
+            sortIndex: draft.sortIndex,
+            images: draft.images?.map(SourceImageAsset.init),
+            systemIconName: draft.systemIconName,
+            iconShortCode: draft.iconShortCode,
+            lineup: draft.lineup
+        )
+    }
+
+    public var id: OMERecord.Stage.ID?
+    public var name: String
+    public var color: OMEColor
+    public var category: OMERecord.Stage.Category?
+    public var sortIndex: Int?
+    public var images: [SourceImageAsset]?
+    public var systemIconName: String?
+    public var iconShortCode: String?
+    public var lineup: [OMERecord.ID<OMERecord.Participant>]?
+
+    public var recordDraft: OMERecord.Stage.Draft {
+        OMERecord.Stage.Draft(
+            id: id,
+            name: name,
+            color: color,
+            category: category,
+            sortIndex: sortIndex,
+            images: images?.map(\.recordValue),
+            systemIconName: systemIconName,
+            iconShortCode: iconShortCode,
+            lineup: lineup
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case color
+        case category
+        case sortIndex
+        case images
+        case iconImageURL
+        case systemIconName
+        case iconShortCode
+        case imageURL
+        case posterImageURL
+        case lineup
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let images = try container.decodeIfPresent([SourceImageAsset].self, forKey: .images)
+            ?? Self.legacyImages(
+                logoURL: try container.decodeIfPresent(URL.self, forKey: .iconImageURL),
+                heroURL: try container.decodeIfPresent(URL.self, forKey: .imageURL),
+                posterURL: try container.decodeIfPresent(URL.self, forKey: .posterImageURL)
+            )
+
+        self.init(
+            id: try container.decodeIfPresent(OMERecord.Stage.ID.self, forKey: .id),
+            name: try container.decode(String.self, forKey: .name),
+            color: try container.decode(OMEColor.self, forKey: .color),
+            category: try container.decodeIfPresent(OMERecord.Stage.Category.self, forKey: .category),
+            sortIndex: try container.decodeIfPresent(Int.self, forKey: .sortIndex),
+            images: images,
+            systemIconName: try container.decodeIfPresent(String.self, forKey: .systemIconName),
+            iconShortCode: try container.decodeIfPresent(String.self, forKey: .iconShortCode),
+            lineup: try container.decodeIfPresent([OMERecord.ID<OMERecord.Participant>].self, forKey: .lineup)
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(color, forKey: .color)
+        try container.encodeIfPresent(category, forKey: .category)
+        try container.encodeIfPresent(sortIndex, forKey: .sortIndex)
+        try container.encodeIfPresent(images, forKey: .images)
+        try container.encodeIfPresent(systemIconName, forKey: .systemIconName)
+        try container.encodeIfPresent(iconShortCode, forKey: .iconShortCode)
+        try container.encodeIfPresent(lineup, forKey: .lineup)
+    }
+
+    private static func legacyImages(
+        logoURL: URL?,
+        heroURL: URL?,
+        posterURL: URL?
+    ) -> [SourceImageAsset]? {
+        let images = [
+            logoURL.map {
+                SourceImageAsset(
+                    source: .url($0),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            },
+            heroURL.map {
+                SourceImageAsset(
+                    source: .url($0),
+                    role: .hero,
+                    renderKind: .fullImage,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            },
+            posterURL.map {
+                SourceImageAsset(
+                    source: .url($0),
+                    role: .poster,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            },
+        ].compactMap { $0 }
+
+        return images.isEmpty ? nil : images
+    }
+}
+
+public struct ParticipantDTO: Codable, Equatable, Sendable {
+    public init(
+        id: OMERecord.Participant.ID? = nil,
+        name: String,
+        bio: String? = nil,
+        images: [SourceImageAsset]? = nil,
+        kind: OMERecord.Participant.Kind? = nil,
+        links: [ExternalPlatform.Link]? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.bio = bio
+        self.images = images
+        self.kind = kind
+        self.links = links
+    }
+
+    public init(
+        id: OMERecord.Participant.ID? = nil,
+        name: String,
+        bio: String? = nil,
+        imageURL: URL? = nil,
+        logoURL: URL? = nil,
+        kind: OMERecord.Participant.Kind? = nil,
+        links: [ExternalPlatform.Link]? = nil
+    ) {
+        self.init(
+            id: id,
+            name: name,
+            bio: bio,
+            images: Self.legacyImages(photoURL: imageURL, logoURL: logoURL),
+            kind: kind,
+            links: links
+        )
+    }
+
+    public init(_ draft: OMERecord.Participant.Draft) {
+        self.init(
+            id: draft.id,
+            name: draft.name,
+            bio: draft.bio,
+            images: draft.images?.map(SourceImageAsset.init),
+            kind: draft.kind,
+            links: draft.links
+        )
+    }
+
+    public var id: OMERecord.Participant.ID?
+    public var name: String
+    public var bio: String?
+    public var images: [SourceImageAsset]?
+    public var kind: OMERecord.Participant.Kind?
+    public var links: [ExternalPlatform.Link]?
+
+    public var recordDraft: OMERecord.Participant.Draft {
+        OMERecord.Participant.Draft(
+            id: id,
+            name: name,
+            bio: bio,
+            images: images?.map(\.recordValue),
+            kind: kind,
+            links: links
+        )
+    }
+
+    public var imageURL: URL? {
+        images?.first(where: { $0.role == .photo })?.url
+    }
+
+    public var logoURL: URL? {
+        images?.first(where: { $0.role == .logo })?.url
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case bio
+        case images
+        case imageURL
+        case logoURL
+        case kind
+        case links
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let images = try container.decodeIfPresent([SourceImageAsset].self, forKey: .images)
+            ?? Self.legacyImages(
+                photoURL: try container.decodeIfPresent(URL.self, forKey: .imageURL),
+                logoURL: try container.decodeIfPresent(URL.self, forKey: .logoURL)
+            )
+
+        self.init(
+            id: try container.decodeIfPresent(OMERecord.Participant.ID.self, forKey: .id),
+            name: try container.decode(String.self, forKey: .name),
+            bio: try container.decodeIfPresent(String.self, forKey: .bio),
+            images: images,
+            kind: try container.decodeIfPresent(OMERecord.Participant.Kind.self, forKey: .kind),
+            links: try container.decodeIfPresent([ExternalPlatform.Link].self, forKey: .links)
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(bio, forKey: .bio)
+        try container.encodeIfPresent(images, forKey: .images)
+        try container.encodeIfPresent(kind, forKey: .kind)
+        try container.encodeIfPresent(links, forKey: .links)
+    }
+
+    private static func legacyImages(
+        photoURL: URL?,
+        logoURL: URL?
+    ) -> [SourceImageAsset]? {
+        let images = [
+            photoURL.map {
+                SourceImageAsset(
+                    source: .url($0),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            },
+            logoURL.map {
+                SourceImageAsset(
+                    source: .url($0),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .lazy
+                )
+            },
+        ].compactMap { $0 }
+
+        return images.isEmpty ? nil : images
+    }
+}
+
 public typealias ChannelDTO = OMERecord.Channel.Draft
+
+public struct PosterDTO: Codable, Equatable, Sendable {
+    public init(
+        id: OMERecord.Poster.ID?,
+        title: String?,
+        image: SourceImageAsset
+    ) {
+        self.id = id
+        self.title = title
+        self.image = image
+    }
+
+    public init(
+        id: OMERecord.Poster.ID?,
+        title: String?,
+        imageURL: URL
+    ) {
+        self.init(
+            id: id,
+            title: title,
+            image: SourceImageAsset(
+                source: .url(imageURL),
+                role: .poster,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy
+            )
+        )
+    }
+
+    public init(_ draft: OMERecord.Poster.Draft) {
+        self.init(
+            id: draft.id,
+            title: draft.title,
+            image: SourceImageAsset(draft.image)
+        )
+    }
+
+    public var id: OMERecord.Poster.ID?
+    public var title: String?
+    public var image: SourceImageAsset
+
+    public var recordDraft: OMERecord.Poster.Draft {
+        OMERecord.Poster.Draft(
+            id: id,
+            title: title,
+            image: image.recordValue
+        )
+    }
+
+    public var imageURL: URL? {
+        image.url
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case image
+        case imageURL
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let image = try container.decodeIfPresent(SourceImageAsset.self, forKey: .image)
+            ?? SourceImageAsset(
+                source: .url(try container.decode(URL.self, forKey: .imageURL)),
+                role: .poster,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy
+            )
+
+        self.init(
+            id: try container.decodeIfPresent(OMERecord.Poster.ID.self, forKey: .id),
+            title: try container.decodeIfPresent(String.self, forKey: .title),
+            image: image
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encode(image, forKey: .image)
+    }
+}
+
+private extension SourceImageAsset {
+    init(_ imageAsset: OMERecord.ImageAsset) {
+        self.init(
+            assetKey: imageAsset.assetKey,
+            source: {
+                switch imageAsset.source {
+                case let .blob(blob):
+                    // Source DTOs are collaboration-level and should stay path/URL based.
+                    let url = URL(string: "atproto-blob://\(blob.ref.rawValue)")!
+                    return .url(url)
+                case let .url(url):
+                    return .url(url)
+                }
+            }(),
+            role: imageAsset.role,
+            renderKind: imageAsset.renderKind,
+            appearance: imageAsset.appearance,
+            materializationPolicy: imageAsset.materializationPolicy,
+            thumbhash: imageAsset.thumbhash,
+            focalPoint: imageAsset.focalPoint
+        )
+    }
+
+    var recordValue: OMERecord.ImageAsset {
+        OMERecord.ImageAsset(
+            assetKey: assetKey,
+            source: .url(url),
+            role: role,
+            renderKind: renderKind,
+            appearance: appearance,
+            materializationPolicy: materializationPolicy,
+            thumbhash: thumbhash,
+            focalPoint: focalPoint
+        )
+    }
+
+    var url: URL {
+        switch source {
+        case let .file(path):
+            URL(filePath: path)
+        case let .url(url):
+            url
+        }
+    }
+}

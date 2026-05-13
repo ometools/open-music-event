@@ -116,9 +116,8 @@ extension OpenMusicEvent {
 
         // ome-specific
         public var timeZone: TimeZone
-        public var imageURL: URL?
-        public var iconImageURL: URL?
-        public var siteMapImageURL: URL?
+        @Column(as: [OpenMusicEvent.ImageAsset].JSONRepresentation?.self)
+        public var images: [OpenMusicEvent.ImageAsset]?
 
         @Column(as: [ContactNumber].JSONRepresentation?.self)
         public var contactNumbers: [ContactNumber]?
@@ -268,11 +267,10 @@ extension OpenMusicEvent {
         public var color: OMEColor
         public var category: Category?
         public var sortIndex: Int?
-        public var iconImageURL: URL?
+        @Column(as: [OpenMusicEvent.ImageAsset].JSONRepresentation?.self)
+        public var images: [OpenMusicEvent.ImageAsset]?
         public var systemIconName: String?
         public var iconShortCode: String?
-        public var imageURL: URL?
-        public var posterImageURL: URL?
 
         @Column(as: [OME.ID<OpenMusicEvent.Participant>].JSONRepresentation?.self)
         public var lineup: [OME.ID<OpenMusicEvent.Participant>]?
@@ -408,8 +406,8 @@ extension OpenMusicEvent {
 
         public var name: String
         public var bio: String?
-        public var imageURL: URL?
-        public var logoURL: URL?
+        @Column(as: [OpenMusicEvent.ImageAsset].JSONRepresentation?.self)
+        public var images: [OpenMusicEvent.ImageAsset]?
         public var kind: Kind?
 
 //        public var participantDID: DID?
@@ -511,7 +509,8 @@ extension OpenMusicEvent {
         public var id: ID
 
         public var title: String?
-        public var imageURL: URL
+        @Column(as: OpenMusicEvent.ImageAsset.JSONRepresentation.self)
+        public var image: OpenMusicEvent.ImageAsset
     }
 }
 

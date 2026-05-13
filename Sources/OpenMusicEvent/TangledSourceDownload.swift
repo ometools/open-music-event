@@ -10,6 +10,11 @@ struct TangledSourceImportClient: Sendable {
     var importSource: @Sendable (OpenMusicEventSourceValidationRequest) async throws -> OpenMusicEventSourceValidationResult
 }
 
+public struct SourceImportCompleted: FeatureEventKey {
+    public init() {}
+    public typealias Value = OMERecord.Organizer.ID
+}
+
 extension TangledSourceImportClient {
     static var live: Self {
         Self { request in
@@ -97,13 +102,11 @@ public struct TangledSourceDownload {
                             $0.importedSummary = result.summary
                             $0.errorMessage = nil
                         }
-                        if let eventID = result.insertedEventIDs.first {
-                            try store.post(
-                                key: NavigationRequested.self,
-                                value: .event(eventID, nil)
-                            )
-                            try store.dismiss()
-                        }
+                        try store.post(
+                            key: SourceImportCompleted.self,
+                            value: result.organizerID
+                        )
+                        try store.dismiss()
                     } catch {
                         try store.modify {
                             $0.isImporting = false

@@ -253,18 +253,44 @@ public struct TangledSourceArchiveExtractor: Sendable {
         let fileManager = FileManager.default
         let temporaryRoot = fileManager.temporaryDirectory
             .appending(path: "ome-source-clone-\(UUID().uuidString)")
-        let extractionURL = temporaryRoot.appending(path: "extract")
 
-        try fileManager.createDirectory(at: extractionURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
         defer {
             try? fileManager.removeItem(at: temporaryRoot)
         }
 
         do {
-            let tarData = try archiveData.gunzipped()
-            let archive = Archive(data: Array(tarData))
-            _ = try TarExtractor().extract(archive, to: extractionURL.path())
-            try moveExtractedContents(from: extractionURL, to: outputURL)
+            let tarPayloads = try candidateTarPayloads(from: archiveData)
+            var lastError: Error?
+
+            for (index, tarData) in tarPayloads.enumerated() {
+                let extractionURL = temporaryRoot.appending(path: "extract-\(index)")
+                try fileManager.createDirectory(at: extractionURL, withIntermediateDirectories: true)
+
+                do {
+                    let archive = Archive(data: Array(tarData))
+                    let result = try TarExtractor().extract(archive, to: extractionURL.path())
+                    guard result.extractedEntries > 0 else {
+                        lastError = ValidationError("Downloaded archive did not contain any files.")
+                        continue
+                    }
+
+                    try moveExtractedContents(from: extractionURL, to: outputURL)
+                    return
+                } catch {
+                    lastError = error
+                }
+            }
+
+            if let responseBody = archiveErrorResponse(in: archiveData) {
+                throw ValidationError("Tangled did not return an archive: \(responseBody)")
+            }
+
+            if let lastError {
+                throw lastError
+            }
+
+            throw ValidationError("Downloaded archive did not contain any files.")
         } catch let error as ValidationError {
             throw error
         } catch {
@@ -292,6 +318,39 @@ public struct TangledSourceArchiveExtractor: Sendable {
 
         try fileManager.moveItem(at: sourceRoot, to: outputURL)
     }
+
+    private func candidateTarPayloads(from archiveData: Data) throws -> [Data] {
+        var payloads: [Data] = [archiveData]
+
+        // Some HTTP clients transparently decode `Content-Encoding: gzip`,
+        // even when the archive path ends in `.tar.gz`. Try both forms when possible.
+        if archiveData.isGzipped {
+            payloads.insert(try archiveData.gunzipped(), at: 0)
+        } else if let gunzipped = try? archiveData.gunzipped() {
+            payloads.append(gunzipped)
+        }
+
+        return payloads
+    }
+
+    private func archiveErrorResponse(in archiveData: Data) -> String? {
+        guard archiveData.count <= 512 else { return nil }
+        guard let string = String(data: archiveData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !string.isEmpty
+        else { return nil }
+
+//        let printableScalars = string.unicodeScalars.filter(\.properties.isWhitespace.not)
+//        guard printableScalars.allSatisfy({ $0.properties.isASCII && !$0.properties.isControl }) else {
+//            return nil
+//        }
+
+        return string
+    }
+}
+
+private extension Bool {
+    var not: Bool { !self }
 }
 
 public struct TangledSourceArchiveExtractorClient: Sendable {

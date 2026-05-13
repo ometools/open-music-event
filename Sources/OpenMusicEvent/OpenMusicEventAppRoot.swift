@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import OpenMusicEventAppEventViewer
+import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
 
@@ -32,6 +33,7 @@ public struct OpenMusicEventAppRoot {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.eventImagePrefetch) var eventImagePrefetch
 
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -64,6 +66,12 @@ public struct OpenMusicEventAppRoot {
                             .execute(db)
                         }
                     }
+                    store.addTask {
+                        do {
+                            try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
+                        } catch {
+                        }
+                    }
 
                 case .externalURL:
                     break
@@ -77,7 +85,13 @@ public struct OpenMusicEventAppRoot {
                             $0.organizerID = #bind(eventID.organizerID)
                             $0.eventID = #bind(eventID.eventID)
                         }
-                        .execute(db)
+                            .execute(db)
+                    }
+                    store.addTask {
+                        do {
+                            try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
+                        } catch {
+                        }
                     }
                 }
 
@@ -95,6 +109,12 @@ public struct OpenMusicEventAppRoot {
             if let newValue {
                 if state.eventViewer?.eventID != newValue {
                     state.eventViewer = .route(eventID: newValue, target: nil)
+                }
+                store.addTask {
+                    do {
+                        try await eventImagePrefetch.prefetchAssetsOnOpen(newValue)
+                    } catch {
+                    }
                 }
             } else {
                 state.eventViewer = nil

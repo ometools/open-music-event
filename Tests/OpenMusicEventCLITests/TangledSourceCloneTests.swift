@@ -3,6 +3,7 @@ import ATProto
 import CustomDump
 import Dependencies
 import Foundation
+import Gzip
 import HTTPClient
 import HTTPTypes
 import Testing
@@ -345,6 +346,46 @@ struct TangledSourceCloneTests {
             "name: Test\n"
         )
         #expect(!FileManager.default.fileExists(atPath: outputURL.appending(path: "repo").path()))
+    }
+
+    @Test
+    func archiveExtractorExtractsPlainTarAndFlattensTopLevelDirectory() throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-cli-source-extract-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+
+        let gzippedFixture = try #require(Data(base64Encoded: """
+        H4sIAAAAAAAAEytKLcjXZ6AtMDAwMDA3NQXTBgYG6DQWtpm5oRGDgimN3QUGpcUliUUMBgb0sGsQgiJQ/KeWpeaV6FXm5tDGDlCkmpmY4I5/Q2PU+Dc0MDU1YFCgS5yM8PjPS8xNtVIISS0u4Rpop4yCUTAKRsEooCMAAN9H+rQACgAA
+        """))
+        let fixture = try gzippedFixture.gunzipped()
+
+        try TangledSourceArchiveExtractor().extract(fixture, to: outputURL)
+
+        expectNoDifference(
+            try String(contentsOf: outputURL.appending(path: "event.yml"), encoding: .utf8),
+            "name: Test\n"
+        )
+        #expect(!FileManager.default.fileExists(atPath: outputURL.appending(path: "repo").path()))
+    }
+
+    @Test
+    func archiveExtractorSurfacesShortTextErrorBodies() {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-cli-source-extract-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+
+        #expect(throws: ValidationError.self) {
+            try TangledSourceArchiveExtractor().extract(
+                Data("error code: 520".utf8),
+                to: outputURL
+            )
+        } throws: { error in
+            error.message.contains("Tangled did not return an archive: error code: 520")
+        }
     }
 
     @Test

@@ -95,19 +95,10 @@ struct ScheduleStageIcon: View {
     let stage: OMERecord.Stage
 
     var body: some View {
-        if let iconImageURL = stage.iconImageURL {
-            AsyncImage(url: iconImageURL) { phase in
-                switch phase {
-                case let .success(image):
-                    image
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                default:
-                    fallback
-                }
-            }
-        } else {
+        ImageAssetAsyncImage(
+            asset: stage.images?.imageAsset(role: .logo),
+            contentMode: .fit
+        ) {
             fallback
         }
     }

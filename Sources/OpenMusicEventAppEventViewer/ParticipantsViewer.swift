@@ -154,7 +154,7 @@ struct PeopleRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             ParticipantArtworkView(
-                imageURL: participant.imageURL ?? participant.logoURL,
+                asset: participant.preferredArtworkAsset,
                 size: 60
             )
 
@@ -412,8 +412,7 @@ public struct EditParticipant {
                 id: participantRecordID(participantID: participantID),
                 name: trimmedName,
                 bio: bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                imageURL: trimmedImageURL.nilIfEmpty.flatMap(URL.init(string:)),
-                logoURL: trimmedLogoURL.nilIfEmpty.flatMap(URL.init(string:)),
+                images: preparedImages.isEmpty ? nil : preparedImages,
                 kind: kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                     .map { OMERecord.Participant.Kind($0) },
                 links: preparedLinks.nilIfEmpty
@@ -422,6 +421,32 @@ public struct EditParticipant {
 
         var preparedLinks: [ExternalPlatform.Link] {
             links.compactMap(\.preparedLink)
+        }
+
+        var preparedImages: [OMERecord.ImageAsset] {
+            [
+                trimmedImageURL.nilIfEmpty
+                    .flatMap(URL.init(string:))
+                    .map {
+                        OMERecord.ImageAsset(
+                            source: .url($0),
+                            role: .photo,
+                            renderKind: .fullImage,
+                            materializationPolicy: .lazy
+                        )
+                    },
+                trimmedLogoURL.nilIfEmpty
+                    .flatMap(URL.init(string:))
+                    .map {
+                        OMERecord.ImageAsset(
+                            source: .url($0),
+                            role: .logo,
+                            renderKind: .transparent,
+                            materializationPolicy: .lazy
+                        )
+                    },
+            ]
+            .compactMap { $0 }
         }
 
         var validationMessage: String? {
@@ -554,8 +579,8 @@ public struct EditParticipant {
                 }) {
                     state.name = participant.name
                     state.bio = participant.bio ?? ""
-                    state.imageURL = participant.imageURL?.absoluteString ?? ""
-                    state.logoURL = participant.logoURL?.absoluteString ?? ""
+                    state.imageURL = participant.images?.imageAsset(role: .photo)?.url?.absoluteString ?? ""
+                    state.logoURL = participant.images?.imageAsset(role: .logo)?.url?.absoluteString ?? ""
                     state.kind = participant.kind?.rawValue ?? ""
                     state.links = (participant.links ?? []).map(EditableParticipantLink.init)
                     state.hasLoadedDraft = true
@@ -721,7 +746,7 @@ struct ParticipantHeaderView: View {
     var body: some View {
         HStack(spacing: 14) {
             ParticipantArtworkView(
-                imageURL: participant.imageURL ?? participant.logoURL,
+                asset: participant.preferredArtworkAsset,
                 size: 72
             )
 
@@ -744,7 +769,7 @@ struct ParticipantHeaderView: View {
 }
 
 struct ParticipantArtworkView: View {
-    let imageURL: URL?
+    let asset: OMERecord.ImageAsset?
     let size: CGFloat
 
     var body: some View {
@@ -752,22 +777,7 @@ struct ParticipantArtworkView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(.secondary.opacity(0.12))
 
-            if let imageURL {
-                AsyncImage(url: imageURL) { phase in
-                    switch phase {
-                    case .empty:
-                        placeholder
-                    case let .success(image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .failure:
-                        placeholder
-                    @unknown default:
-                        placeholder
-                    }
-                }
-            } else {
+            ImageAssetAsyncImage(asset: asset) {
                 placeholder
             }
         }
@@ -803,6 +813,11 @@ struct ParticipantLinkRow: View {
 }
 
 private extension OMERecord.Participant {
+    var preferredArtworkAsset: OMERecord.ImageAsset? {
+        images?.imageAsset(role: .photo)
+        ?? images?.imageAsset(role: .logo)
+    }
+
     var displayBio: String? {
         let bio = bio?.trimmingCharacters(in: .whitespacesAndNewlines)
         return bio?.isEmpty == false ? bio : nil

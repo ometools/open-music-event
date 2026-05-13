@@ -77,7 +77,8 @@ public struct OpenMusicEventSourceValidator: Sendable {
             .init(
                 source: source,
                 organizerID: organizerID,
-                sourceProvenance: sourceProvenance
+                sourceProvenance: sourceProvenance,
+                sourceRootURL: repositoryURL
             )
         )
 

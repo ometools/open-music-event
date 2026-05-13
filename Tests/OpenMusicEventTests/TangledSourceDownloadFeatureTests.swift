@@ -112,6 +112,27 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func myEventsOpensOrganizerDetailAfterSourceImportCompletes() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = importedEventID().organizerID
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var initialState = MyEventsImportHarness.State()
+            initialState.myEvents.destination = .sourceImport(Spawn(TangledSourceDownload.State()))
+            return TestStore(initialState: initialState) {
+                MyEventsImportHarness()
+            }
+        }
+
+        await store.send(.completeImport(organizerID))?.value
+        await Task.yield()
+        #expect(store.state.destination == nil)
+        #expect(store.state.organizerDetail?.organizerID == organizerID)
+    }
+
+    @Test
     func emptyRefDefaultsToHEAD() async throws {
         let recorder = ImportRecorder()
 
@@ -167,6 +188,45 @@ private actor ImportRecorder {
 
     func record(_ request: OpenMusicEventSourceValidationRequest) {
         requests.append(request)
+    }
+}
+
+@Feature
+private struct MyEventsImportHarness {
+    struct State {
+        var destination: MyEvents.Destination.State?
+        var organizerDetail: OrganizerDetail.State?
+        var myEvents = MyEvents.State()
+    }
+
+    enum Action {
+        case completeImport(OMERecord.Organizer.ID)
+        case myEvents(MyEvents.Action)
+    }
+
+    var body: some Feature {
+        Scope(state: \.myEvents, action: \.myEvents) {
+            MyEvents()
+        }
+        .onChange(of: \.myEvents.destination, initial: true) { _, newValue, state in
+            state.destination = newValue
+        }
+        .onChange(of: \.myEvents.organizerDetail, initial: true) { _, newValue, state in
+            state.organizerDetail = newValue
+        }
+        Update { _, action in
+            switch action {
+            case .completeImport(let organizerID):
+                store.addTask {
+                    try store.post(
+                        key: SourceImportCompleted.self,
+                        value: organizerID
+                    )
+                }
+            case .myEvents:
+                break
+            }
+        }
     }
 }
 
