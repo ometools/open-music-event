@@ -30,14 +30,28 @@ public struct ImportImages {
     public struct State {
         public init(
             configuration: Configuration,
+            imageInfo: Spawn<ImageInfo>? = nil,
             images: [ImportedImage] = []
         ) {
             self.configuration = configuration
+            self.imageInfo = imageInfo
             self.images = images
+        }
+
+        public init(
+            configuration: Configuration,
+            images: [ImportedImage]
+        ) {
+            self.init(
+                configuration: configuration,
+                imageInfo: nil,
+                images: images
+            )
         }
 
         public var configuration: Configuration
         public var errorMessage: String?
+        public var imageInfo: Spawn<ImageInfo>?
         public var images: [ImportedImage]
         public var isImporting = false
         public var isSaving = false
@@ -58,6 +72,7 @@ public struct ImportImages {
 
     public enum Action {
         case cancelButtonTapped
+        case imageInfoButtonTapped(ImportedImage.ID)
         case imageImportFailed(String)
         case imageImportStarted
         case imagesImported([ImportedImage])
@@ -74,6 +89,19 @@ public struct ImportImages {
                 store.addTask {
                     try store.dismiss()
                 }
+
+            case let .imageInfoButtonTapped(id):
+                guard let image = state.images.first(where: { $0.id == id }) else {
+                    return
+                }
+                state.imageInfo = Spawn(
+                    ImageInfo.State(
+                        id: image.id,
+                        asset: image.asset,
+                        configuration: state.configuration.imageInfoConfiguration,
+                        sourceLabel: image.sourceLabel
+                    )
+                )
 
             case let .imageImportFailed(message):
                 state.errorMessage = message
@@ -111,6 +139,16 @@ public struct ImportImages {
                 }
             }
         }
+        .ifLet(\.imageInfo) {
+            ImageInfo { imageID, asset in
+                try store.modify {
+                    guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
+                        return
+                    }
+                    $0.images[index].asset = asset
+                }
+            }
+        }
     }
 }
 
@@ -127,7 +165,8 @@ public extension ImportImages {
             role: OMERecord.ImageAsset.Role,
             renderKind: OMERecord.ImageAsset.RenderKind,
             appearance: OMERecord.ImageAsset.Appearance? = nil,
-            materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy
+            materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy,
+            imageInfoConfiguration: ImageInfo.Configuration? = nil
         ) {
             self.cardinality = cardinality
             self.title = title
@@ -135,9 +174,17 @@ public extension ImportImages {
             self.renderKind = renderKind
             self.appearance = appearance
             self.materializationPolicy = materializationPolicy
+            self.imageInfoConfiguration = imageInfoConfiguration ?? ImageInfo.Configuration(
+                allowedRoles: [role],
+                allowedRenderKinds: [renderKind],
+                allowsAppearance: true,
+                allowsMaterializationPolicy: true,
+                allowedMaterializationPolicies: [materializationPolicy]
+            )
         }
 
         public var cardinality: Cardinality
+        public var imageInfoConfiguration: ImageInfo.Configuration
         public var title: String
         public var role: OMERecord.ImageAsset.Role
         public var renderKind: OMERecord.ImageAsset.RenderKind
@@ -150,7 +197,8 @@ public extension ImportImages {
                 title: "Add Posters",
                 role: .poster,
                 renderKind: .fullImage,
-                materializationPolicy: .lazy
+                materializationPolicy: .lazy,
+                imageInfoConfiguration: .posters
             )
         }
 
@@ -166,18 +214,26 @@ public extension ImportImages {
             mimeType: String,
             data: Data
         ) -> ImportedImage {
-            ImportedImage(
+            let asset = OMERecord.ImageAsset(
+                source: .url(sourceURL ?? Self.transientImportSourceURL(id: id)),
+                role: role,
+                renderKind: renderKind,
+                appearance: appearance,
+                materializationPolicy: materializationPolicy
+            )
+            return ImportedImage(
                 id: id,
                 title: title,
                 sourceName: sourceName,
                 sourceURL: sourceURL,
                 mimeType: mimeType,
                 data: data,
-                role: role,
-                renderKind: renderKind,
-                appearance: appearance,
-                materializationPolicy: materializationPolicy
+                asset: asset
             )
+        }
+
+        private static func transientImportSourceURL(id: UUID) -> URL {
+            URL(string: "open-music-event-import://\(id.uuidString)")!
         }
     }
 
@@ -189,10 +245,7 @@ public extension ImportImages {
             sourceURL: URL? = nil,
             mimeType: String,
             data: Data,
-            role: OMERecord.ImageAsset.Role = .photo,
-            renderKind: OMERecord.ImageAsset.RenderKind = .fullImage,
-            appearance: OMERecord.ImageAsset.Appearance? = nil,
-            materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy = .lazy
+            asset: OMERecord.ImageAsset
         ) {
             self.id = id
             self.title = title ?? sourceName?.deletingPathExtension ?? ""
@@ -200,22 +253,16 @@ public extension ImportImages {
             self.sourceURL = sourceURL
             self.mimeType = mimeType
             self.data = data
-            self.role = role
-            self.renderKind = renderKind
-            self.appearance = appearance
-            self.materializationPolicy = materializationPolicy
+            self.asset = asset
         }
 
+        public var asset: OMERecord.ImageAsset
         public var id: UUID
         public var title: String
         public var sourceName: String?
         public var sourceURL: URL?
         public var mimeType: String
         public var data: Data
-        public var role: OMERecord.ImageAsset.Role
-        public var renderKind: OMERecord.ImageAsset.RenderKind
-        public var appearance: OMERecord.ImageAsset.Appearance?
-        public var materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy
 
         public var trimmedTitle: String {
             title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -238,10 +285,12 @@ public extension ImportImages {
                 data: data,
                 mimeType: mimeType,
                 sourceURL: sourceURL,
-                role: role,
-                renderKind: renderKind,
-                appearance: appearance,
-                materializationPolicy: materializationPolicy
+                role: asset.role,
+                renderKind: asset.renderKind,
+                appearance: asset.appearance,
+                materializationPolicy: asset.materializationPolicy,
+                thumbhash: asset.thumbhash,
+                focalPoint: asset.focalPoint
             )
         }
     }
@@ -269,6 +318,8 @@ public struct ImportImagesView: View {
                 Section("Images") {
                     ForEach($store.images) { $image in
                         ImportImageRowView(image: $image) {
+                            store.send(.imageInfoButtonTapped(image.id))
+                        } onRemove: {
                             store.send(.removeImageButtonTapped(image.id))
                         }
                     }
@@ -307,6 +358,13 @@ public struct ImportImagesView: View {
             allowsMultipleSelection: store.configuration.allowsMultipleSelection,
             onCompletion: fileImportCompleted
         )
+        .sheet(isPresented: $store.imageInfo.isPresented) {
+            if let imageInfoStore = store.spawn(\.imageInfo) {
+                NavigationStack {
+                    ImageInfoView(store: imageInfoStore)
+                }
+            }
+        }
         #if !SKIP && canImport(PhotosUI)
         .onChange(of: selectedPhotoItems) { _, items in
             photoItemsChanged(items)
@@ -422,6 +480,7 @@ public struct ImportImagesView: View {
 
 struct ImportImageRowView: View {
     @Binding var image: ImportImages.ImportedImage
+    let onEditInfo: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
@@ -439,6 +498,14 @@ struct ImportImageRowView: View {
             }
 
             Spacer()
+
+            Button {
+                onEditInfo()
+            } label: {
+                Image(systemName: "info.circle")
+                    .accessibilityLabel("Image Info")
+            }
+            .buttonStyle(.borderless)
 
             Button(role: .destructive) {
                 onRemove()

@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import CustomDump
 import Dependencies
 import Foundation
 import OpenMusicEventDatabase
@@ -38,31 +39,27 @@ struct PosterImportTests {
                 PostersViewer()
             }
         }
+        var firstImage = importConfiguration.importedImage(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            title: "Lineup",
+            sourceName: "lineup.png",
+            sourceURL: sourceURL1,
+            mimeType: "image/png",
+            data: Data("first-poster".utf8)
+        )
+        firstImage.asset.appearance = .dark
+        let secondImage = importConfiguration.importedImage(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            title: "Lineup",
+            sourceName: "lineup-copy.jpg",
+            sourceURL: sourceURL2,
+            mimeType: "image/jpeg",
+            data: Data("second-poster".utf8)
+        )
 
         store.send(.addButtonTapped)
         let importStore = try #require(store.spawn(\.importImages))
-        importStore.send(
-            .imagesImported(
-                [
-                    importConfiguration.importedImage(
-                        id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-                        title: "Lineup",
-                        sourceName: "lineup.png",
-                        sourceURL: sourceURL1,
-                        mimeType: "image/png",
-                        data: Data("first-poster".utf8)
-                    ),
-                    importConfiguration.importedImage(
-                        id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
-                        title: "Lineup",
-                        sourceName: "lineup-copy.jpg",
-                        sourceURL: sourceURL2,
-                        mimeType: "image/jpeg",
-                        data: Data("second-poster".utf8)
-                    ),
-                ]
-            )
-        )
+        importStore.send(.imagesImported([firstImage, secondImage]))
         await importStore.send(.saveButtonTapped)?.value
 
         let posters = try await database.read { db in
@@ -83,6 +80,7 @@ struct PosterImportTests {
         #expect(Set(importedPosters.map(\.image.role)) == [.poster])
         #expect(Set(blobs.compactMap(\.sourceURL)) == [sourceURL1, sourceURL2])
         #expect(Set(blobs.map(\.data)) == [Data("first-poster".utf8), Data("second-poster".utf8)])
+        #expect(importedPosters.first { $0.id.posterID.rawValue.rawValue == "lineup-2" }?.image.appearance == .dark)
 
         for poster in importedPosters {
             let fileURL = try #require(poster.image.url)
@@ -92,13 +90,65 @@ struct PosterImportTests {
     }
 
     @Test
+    func posterImageInfoConfigurationLocksPosterRenderingOptions() {
+        let configuration = ImportImages.Configuration.posters.imageInfoConfiguration
+
+        expectNoDifference(configuration.roleOptions(including: .poster), [.poster])
+        expectNoDifference(configuration.renderKindOptions(including: .fullImage), [.fullImage])
+        expectNoDifference(configuration.allowedMaterializationPolicies, [.lazy])
+        #expect(configuration.allowsAppearance)
+        #expect(!configuration.allowsMaterializationPolicy)
+    }
+
+    @Test
+    func editingPosterImageInfoUpdatesImportedAsset() async throws {
+        let imageID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+        let importedImage = ImportImages.Configuration.posters.importedImage(
+            id: imageID,
+            title: "Night Poster",
+            sourceName: "night-poster.png",
+            sourceURL: URL(fileURLWithPath: "/tmp/night-poster.png"),
+            mimeType: "image/png",
+            data: Data("night-poster".utf8)
+        )
+        var editedAsset = importedImage.asset
+        editedAsset.appearance = .dark
+
+        let store = Store(
+            initialState: ImportImages.State(
+                configuration: .posters,
+                imageInfo: Spawn(
+                    ImageInfo.State(
+                        id: imageID,
+                        asset: editedAsset,
+                        configuration: .posters,
+                        sourceLabel: importedImage.sourceLabel
+                    )
+                ),
+                images: [importedImage]
+            )
+        ) {
+            ImportImages { _ in }
+        }
+        let imageInfoStore = try #require(store.spawn(\.imageInfo))
+
+        await imageInfoStore.send(.saveButtonTapped)?.value
+
+        let updatedImage = try #require(store.images.first)
+        expectNoDifference(updatedImage.asset, editedAsset)
+        expectNoDifference(updatedImage.localImageImportRequest.appearance, .dark)
+        #expect(store.spawn(\.imageInfo) == nil)
+    }
+
+    @Test
     func importImagesDoesNotSaveWithoutImages() {
         let store = Store(initialState: ImportImages.State(configuration: .posters)) {
             ImportImages { _ in }
         }
 
         #expect(store.canSave == false)
-        #expect(store.send(.saveButtonTapped) == nil)
+        store.send(.saveButtonTapped)
+        #expect(store.canSave == false)
     }
 
     private func makePreparedDatabase() throws -> any DatabaseWriter {
