@@ -20,6 +20,23 @@ public struct LocalImageBlob: Equatable, Sendable, Identifiable {
 
     public var id: String { assetKey }
 
+    public static func assetKey(
+        organizerID: OME.Organizer.ID,
+        eventID: OME.ID<OME.Event>,
+        parentKind: ParentKind,
+        parentLocalID: String,
+        role: OME.ImageAsset.Role
+    ) -> String {
+        [
+            organizerID.description,
+            eventID.rawValue.rawValue,
+            parentKind.rawValue,
+            parentLocalID,
+            role.rawValue,
+        ]
+        .joined(separator: "|")
+    }
+
     public enum ParentKind: String, Codable, Sendable, Equatable, CaseIterable, SQLiteType {
         case event
         case stage
@@ -142,6 +159,97 @@ public extension DependencyValues {
         get { self[LocalImageFileStoreKey.self] }
         set { self[LocalImageFileStoreKey.self] = newValue }
     }
+}
+
+public struct LocalImageImportRequest: Equatable, Sendable {
+    public init(
+        data: Data,
+        mimeType: String,
+        sourceURL: URL? = nil,
+        role: OME.ImageAsset.Role,
+        renderKind: OME.ImageAsset.RenderKind,
+        appearance: OME.ImageAsset.Appearance? = nil,
+        materializationPolicy: OME.ImageAsset.MaterializationPolicy,
+        thumbhash: String? = nil,
+        focalPoint: OME.ImageAsset.FocalPoint? = nil
+    ) {
+        self.data = data
+        self.mimeType = mimeType
+        self.sourceURL = sourceURL
+        self.role = role
+        self.renderKind = renderKind
+        self.appearance = appearance
+        self.materializationPolicy = materializationPolicy
+        self.thumbhash = thumbhash
+        self.focalPoint = focalPoint
+    }
+
+    public var data: Data
+    public var mimeType: String
+    public var sourceURL: URL?
+    public var role: OME.ImageAsset.Role
+    public var renderKind: OME.ImageAsset.RenderKind
+    public var appearance: OME.ImageAsset.Appearance?
+    public var materializationPolicy: OME.ImageAsset.MaterializationPolicy
+    public var thumbhash: String?
+    public var focalPoint: OME.ImageAsset.FocalPoint?
+}
+
+public struct LocalImageImportResult: Equatable, Sendable {
+    public init(image: OME.ImageAsset, blob: LocalImageBlob) {
+        self.image = image
+        self.blob = blob
+    }
+
+    public var image: OME.ImageAsset
+    public var blob: LocalImageBlob
+}
+
+public func materializeImportedLocalImage(
+    _ request: LocalImageImportRequest,
+    context: LocalImageCacheContext
+) throws -> LocalImageImportResult {
+    @Dependency(\.date.now) var now
+    @Dependency(\.localImageFileStore) var localImageFileStore
+
+    let assetKey = LocalImageBlob.assetKey(
+        organizerID: context.organizerID,
+        eventID: context.eventID,
+        parentKind: context.parentKind,
+        parentLocalID: context.parentLocalID,
+        role: request.role
+    )
+    let fileURL = try localImageFileStore.write(
+        assetKey,
+        request.data,
+        request.mimeType
+    )
+    let image = OME.ImageAsset(
+        assetKey: assetKey,
+        source: .url(fileURL),
+        role: request.role,
+        renderKind: request.renderKind,
+        appearance: request.appearance,
+        materializationPolicy: request.materializationPolicy,
+        thumbhash: request.thumbhash,
+        focalPoint: request.focalPoint
+    )
+    return LocalImageImportResult(
+        image: image,
+        blob: LocalImageBlob(
+            assetKey: assetKey,
+            organizerID: context.organizerID,
+            eventID: context.eventID,
+            parentKind: context.parentKind,
+            parentLocalID: context.parentLocalID,
+            role: request.role,
+            renderKind: request.renderKind,
+            mimeType: request.mimeType,
+            data: request.data,
+            sourceURL: request.sourceURL,
+            lastFetchedAt: now
+        )
+    )
 }
 
 public struct EventImagePrefetchClient: Sendable {
@@ -508,14 +616,13 @@ struct LocalImageMaterializer {
         parentLocalID: String
     ) -> String {
         image.assetKey
-        ?? [
-            organizerID.description,
-            eventID.rawValue.rawValue,
-            parentKind.rawValue,
-            parentLocalID,
-            image.role.rawValue,
-        ]
-        .joined(separator: "|")
+        ?? LocalImageBlob.assetKey(
+            organizerID: organizerID,
+            eventID: eventID,
+            parentKind: parentKind,
+            parentLocalID: parentLocalID,
+            role: image.role
+        )
     }
 
     private func shouldRestoreImage(
