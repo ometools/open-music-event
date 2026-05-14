@@ -132,6 +132,7 @@ public struct StageDetail {
     public struct State: Identifiable {
         public let stageID: OMERecord.ID<OMERecord.Stage>
         public let eventID: OMERecord.Event.ID
+        public var destination: Destination.State?
 
         @FetchOne public var stage: OMERecord.Stage?
         @FetchAll public var participants: [OMERecord.Participant]
@@ -169,7 +170,15 @@ public struct StageDetail {
         }
     }
 
-    public enum Action {}
+    public enum Action {
+        case destination(Destination.Action)
+        case editButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case editStage(Spawn<EditStage>)
+    }
 
     static func stageQuery(
         stageID: OMERecord.ID<OMERecord.Stage>,
@@ -182,7 +191,27 @@ public struct StageDetail {
     }
 
     public var body: some Feature {
-        Update { _, _ in }
+        Update { state, action in
+            switch action {
+            case .destination:
+                break
+
+            case .editButtonTapped:
+                store.withDependencies {
+                    state.destination = .editStage(
+                        Spawn(
+                            EditStage.State(
+                                stageID: state.stageID,
+                                eventID: state.eventID
+                            )
+                        )
+                    )
+                }
+            }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
     }
 }
 
@@ -220,6 +249,13 @@ public struct StageDetailView: View {
                     }
                 }
                 .navigationTitle(stage.name)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Edit") {
+                            store.send(.editButtonTapped)
+                        }
+                    }
+                }
             } else {
                 ContentUnavailableView(
                     "Stage",
@@ -229,6 +265,402 @@ public struct StageDetailView: View {
                 .navigationTitle("Stage")
             }
         }
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).editStage) { editStore in
+            NavigationStack {
+                EditStageView(store: editStore)
+            }
+        }
+    }
+}
+
+@Feature
+public struct EditStage {
+    public init() {}
+
+    public struct State {
+        public init(
+            stageID: OMERecord.ID<OMERecord.Stage>,
+            eventID: OMERecord.Event.ID
+        ) {
+            self.stageID = stageID
+            self.eventID = eventID
+            self.draft = Self.emptyDraft(stageID: stageID, eventID: eventID)
+        }
+
+        public let stageID: OMERecord.ID<OMERecord.Stage>
+        public let eventID: OMERecord.Event.ID
+
+        var colorHex = ""
+        var draft: OMERecord.Stage.Draft
+        var errorMessage: String?
+        var hasLoadedDraft = false
+        var heroImageURL = ""
+        var isSaving = false
+        var logoURL = ""
+        var sortIndex = ""
+
+        var category: String {
+            get { draft.category?.rawValue ?? "" }
+            set {
+                let value = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                draft.category = value.nilIfEmpty.map { OMERecord.Stage.Category($0) }
+            }
+        }
+
+        var iconShortCode: String {
+            get { draft.iconShortCode ?? "" }
+            set {
+                draft.iconShortCode = newValue
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .nilIfEmpty
+            }
+        }
+
+        var systemIconName: String {
+            get { draft.systemIconName ?? "" }
+            set {
+                draft.systemIconName = newValue
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .nilIfEmpty
+            }
+        }
+
+        var canSubmit: Bool {
+            hasLoadedDraft && !isSaving && validationMessage == nil
+        }
+
+        var navigationTitle: String {
+            "Edit Event Stage"
+        }
+
+        var preparedDraft: OMERecord.Stage.Draft? {
+            guard let color = parsedColor else { return nil }
+
+            var draft = draft
+            draft.id = stageRecordID
+            draft.name = trimmedName
+            draft.color = color
+            draft.sortIndex = parsedSortIndex
+            draft.images = preparedImages.isEmpty ? nil : preparedImages
+            return draft
+        }
+
+        var validationMessage: String? {
+            guard hasLoadedDraft else { return nil }
+
+            if trimmedName.isEmpty {
+                return "Enter a name."
+            }
+
+            if parsedColor == nil {
+                return "Enter a valid hex color."
+            }
+
+            if !trimmedSortIndex.isEmpty, parsedSortIndex == nil {
+                return "Enter a valid sort index."
+            }
+
+            if !trimmedLogoURL.isEmpty, URL(string: trimmedLogoURL) == nil {
+                return "Enter a valid logo URL."
+            }
+
+            if !trimmedHeroImageURL.isEmpty, URL(string: trimmedHeroImageURL) == nil {
+                return "Enter a valid hero image URL."
+            }
+
+            return nil
+        }
+
+        var stageRecordID: OMERecord.Stage.ID {
+            OMERecord.Stage.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                stageID: stageID
+            )
+        }
+
+        private var parsedColor: OMEColor? {
+            Self.parseHexColor(trimmedColorHex)
+        }
+
+        private var parsedSortIndex: Int? {
+            trimmedSortIndex.isEmpty ? nil : Int(trimmedSortIndex)
+        }
+
+        private var preparedImages: [OMERecord.ImageAsset] {
+            var images = (draft.images ?? []).filter {
+                $0.role != .logo && $0.role != .hero
+            }
+
+            images.append(contentsOf: preservedNonURLImages(role: .logo, replacementURL: trimmedLogoURL))
+            images.append(contentsOf: preservedNonURLImages(role: .hero, replacementURL: trimmedHeroImageURL))
+
+            if let logoURL = trimmedLogoURL.nilIfEmpty.flatMap(URL.init(string:)) {
+                images.append(
+                    OMERecord.ImageAsset(
+                        source: .url(logoURL),
+                        role: .logo,
+                        renderKind: .transparent,
+                        materializationPolicy: .prefetchOnOpen
+                    )
+                )
+            }
+
+            if let heroImageURL = trimmedHeroImageURL.nilIfEmpty.flatMap(URL.init(string:)) {
+                images.append(
+                    OMERecord.ImageAsset(
+                        source: .url(heroImageURL),
+                        role: .hero,
+                        renderKind: .fullImage,
+                        materializationPolicy: .prefetchOnOpen
+                    )
+                )
+            }
+
+            return images
+        }
+
+        private var trimmedColorHex: String {
+            colorHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private var trimmedHeroImageURL: String {
+            heroImageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private var trimmedLogoURL: String {
+            logoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private var trimmedName: String {
+            draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private var trimmedSortIndex: String {
+            sortIndex.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private func preservedNonURLImages(
+            role: OMERecord.ImageAsset.Role,
+            replacementURL: String
+        ) -> [OMERecord.ImageAsset] {
+            guard replacementURL.isEmpty else { return [] }
+            return (draft.images ?? []).filter { $0.role == role && $0.url == nil }
+        }
+
+        private static func emptyDraft(
+            stageID: OMERecord.ID<OMERecord.Stage>,
+            eventID: OMERecord.Event.ID
+        ) -> OMERecord.Stage.Draft {
+            OMERecord.Stage.Draft(
+                id: OMERecord.Stage.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    stageID: stageID
+                ),
+                name: "",
+                color: 0,
+                category: nil,
+                sortIndex: nil,
+                images: nil,
+                systemIconName: nil,
+                iconShortCode: nil,
+                lineup: nil
+            )
+        }
+
+        private static func parseHexColor(_ string: String) -> OMEColor? {
+            var value = string
+
+            if value.hasPrefix("#") {
+                value.removeFirst()
+            } else if value.hasPrefix("0x") || value.hasPrefix("0X") {
+                value.removeFirst(2)
+            }
+
+            guard value.count == 6,
+                  let rawValue = Int(value, radix: 16),
+                  (0...0xFFFFFF).contains(rawValue) else {
+                return nil
+            }
+
+            return OMEColor(rawValue)
+        }
+    }
+
+    public enum Action {
+        case cancelButtonTapped
+        case saveButtonTapped
+    }
+
+    @Dependency(\.defaultDatabase) var database
+
+    public var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .cancelButtonTapped:
+                store.addTask {
+                    try store.dismiss()
+                }
+
+            case .saveButtonTapped:
+                guard !state.isSaving else { return }
+                guard state.hasLoadedDraft else {
+                    state.errorMessage = "This event stage could not be loaded."
+                    return
+                }
+
+                guard let validationMessage = state.validationMessage else {
+                    guard let draft = state.preparedDraft else {
+                        state.errorMessage = "Unable to save event stage."
+                        return
+                    }
+
+                    state.errorMessage = nil
+                    state.isSaving = true
+
+                    store.addTask {
+                        do {
+                            try database.write { db in
+                                try OMERecord.Stage.upsert {
+                                    draft
+                                }
+                                .execute(db)
+                            }
+                            try store.modify {
+                                $0.errorMessage = nil
+                                $0.isSaving = false
+                            }
+                            try store.dismiss()
+                        } catch {
+                            try store.modify {
+                                $0.errorMessage = "Unable to save event stage."
+                                $0.isSaving = false
+                            }
+                        }
+                    }
+                    return
+                }
+
+                state.errorMessage = validationMessage
+            }
+        }
+        .onMount { state in
+            guard !state.hasLoadedDraft else { return }
+
+            do {
+                if let stage = try database.read({ db in
+                    try StageDetail.stageQuery(
+                        stageID: state.stageID,
+                        eventID: state.eventID
+                    )
+                    .fetchOne(db)
+                }) {
+                    state.draft = stage.editDraft
+                    state.sortIndex = state.draft.sortIndex.map(String.init) ?? ""
+                    state.colorHex = Self.State.formatHexColor(state.draft.color)
+                    state.logoURL = state.draft.iconImageURL?.absoluteString ?? ""
+                    state.heroImageURL = state.draft.imageURL?.absoluteString ?? ""
+                    state.hasLoadedDraft = true
+                    state.errorMessage = nil
+                } else {
+                    state.errorMessage = "This event stage could not be loaded."
+                }
+            } catch {
+                state.errorMessage = "This event stage could not be loaded."
+            }
+        }
+    }
+}
+
+public struct EditStageView: View {
+    @Bindable var store: StoreOf<EditStage>
+
+    public init(store: StoreOf<EditStage>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Group {
+            if store.hasLoadedDraft {
+                Form {
+                    Section("Event Stage") {
+                        TextField("Name", text: $store.draft.name)
+                        TextField("Category", text: $store.category)
+                        TextField("Sort Index", text: $store.sortIndex)
+                            #if os(iOS)
+                            .keyboardType(.numbersAndPunctuation)
+                            #endif
+                        TextField("Color Hex", text: $store.colorHex)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                            #endif
+                    }
+
+                    Section("Icon") {
+                        TextField("SF Symbol", text: $store.systemIconName)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            #endif
+                        TextField("Short Code", text: $store.iconShortCode)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                            #endif
+                    }
+
+                    Section("Images") {
+                        TextField("Logo URL", text: $store.logoURL)
+                            #if os(iOS)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            #endif
+                        TextField("Hero Image URL", text: $store.heroImageURL)
+                            #if os(iOS)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            #endif
+                    }
+
+                    if let errorMessage = store.errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+            } else {
+                ViewerPlaceholderView(
+                    title: store.navigationTitle,
+                    systemImage: "square.grid.2x2",
+                    description: "This event stage could not be loaded."
+                )
+            }
+        }
+        .disabled(store.isSaving)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    store.send(.cancelButtonTapped)
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                if store.isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        store.send(.saveButtonTapped)
+                    }
+                    .disabled(!store.canSubmit)
+                }
+            }
+        }
+        .navigationTitle(store.navigationTitle)
     }
 }
 
@@ -334,6 +766,20 @@ struct StageIconFallback: View {
 }
 
 private extension OMERecord.Stage {
+    var editDraft: OMERecord.Stage.Draft {
+        OMERecord.Stage.Draft(
+            id: id,
+            name: name,
+            color: color,
+            category: category,
+            sortIndex: sortIndex,
+            images: images,
+            systemIconName: systemIconName,
+            iconShortCode: iconShortCode,
+            lineup: lineup
+        )
+    }
+
     var hasDisplayDetails: Bool {
         category?.displayName != nil || sortIndex != nil
     }
@@ -358,9 +804,19 @@ private extension OMERecord.Stage.Category {
 }
 
 private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+
     var scheduleDivisionTitle: String {
         split { $0 == "-" || $0 == "_" || $0 == " " }
             .map { $0.capitalized }
             .joined(separator: " ")
+    }
+}
+
+private extension EditStage.State {
+    static func formatHexColor(_ color: OMEColor) -> String {
+        String(format: "#%06X", color.rawValue & 0xFFFFFF)
     }
 }

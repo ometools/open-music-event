@@ -1103,6 +1103,120 @@ struct NavigationTests {
     }
 
     @Test
+    func stageDetailEditButtonOpensEventStageEditor() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let stageID = stageLocalID("meadow")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: StageDetail.State(stageID: stageID, eventID: eventID)) {
+                StageDetail()
+            }
+        }
+
+        store.send(.editButtonTapped)
+
+        #expect(store.state.destination?.editStage?.stageID == stageID)
+        #expect(store.state.destination?.editStage?.eventID == eventID)
+    }
+
+    @Test
+    func editStageSavesEventSnapshotChanges() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let stageID = stageLocalID("meadow")
+        let lineupID = participantLocalID("artist-1")
+        let posterURL = try #require(URL(string: "https://example.com/poster.png"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "meadow",
+                name: "Old Meadow",
+                posterImageURL: posterURL,
+                lineup: [lineupID]
+            )
+        }
+        let existingStage = try await database.read { db in
+            try #require(
+                try StageDetail.stageQuery(
+                    stageID: stageID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var state = EditStage.State(stageID: stageID, eventID: eventID)
+            state.hasLoadedDraft = true
+            state.draft = OMERecord.Stage.Draft(
+                id: existingStage.id,
+                name: " New Meadow ",
+                color: existingStage.color,
+                category: existingStage.category,
+                sortIndex: existingStage.sortIndex,
+                images: existingStage.images,
+                systemIconName: existingStage.systemIconName,
+                iconShortCode: existingStage.iconShortCode,
+                lineup: existingStage.lineup
+            )
+            state.category = " workshop "
+            state.sortIndex = " 7 "
+            state.colorHex = " #AABBCC "
+            state.systemIconName = "sparkles"
+            state.iconShortCode = " MD "
+            state.logoURL = "https://example.com/logo.png"
+            state.heroImageURL = "https://example.com/hero.png"
+
+            return TestStore(initialState: state) {
+                EditStage()
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+
+        let stage = try await database.read { db in
+            try #require(
+                try StageDetail.stageQuery(
+                    stageID: stageID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+
+        #expect(stage.name == "New Meadow")
+        #expect(stage.category == OMERecord.Stage.Category("workshop"))
+        #expect(stage.sortIndex == 7)
+        #expect(stage.color.rawValue == 0xAABBCC)
+        #expect(stage.systemIconName == "sparkles")
+        #expect(stage.iconShortCode == "MD")
+        #expect(stage.iconImageURL?.absoluteString == "https://example.com/logo.png")
+        #expect(stage.imageURL?.absoluteString == "https://example.com/hero.png")
+        #expect(stage.posterImageURL?.absoluteString == "https://example.com/poster.png")
+        #expect(stage.lineup == [lineupID])
+    }
+
+    @Test
     func dismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
@@ -1285,8 +1399,15 @@ struct NavigationTests {
         eventID: OMERecord.Event.ID,
         stageID: String,
         name: String,
+        color: OMEColor = 0x336699,
         category: OMERecord.Stage.Category? = nil,
-        sortIndex: Int? = nil
+        sortIndex: Int? = nil,
+        iconImageURL: URL? = nil,
+        systemIconName: String? = nil,
+        iconShortCode: String? = nil,
+        imageURL: URL? = nil,
+        posterImageURL: URL? = nil,
+        lineup: [OMERecord.ID<OMERecord.Participant>]? = nil
     ) throws {
         try OMERecord.Stage.insert {
             OMERecord.Stage.Draft(
@@ -1296,15 +1417,15 @@ struct NavigationTests {
                     stageID: stageLocalID(stageID)
                 ),
                 name: name,
-                color: 0x336699,
+                color: color,
                 category: category,
                 sortIndex: sortIndex,
-                iconImageURL: nil,
-                systemIconName: nil,
-                iconShortCode: nil,
-                imageURL: nil,
-                posterImageURL: nil,
-                lineup: nil
+                iconImageURL: iconImageURL,
+                systemIconName: systemIconName,
+                iconShortCode: iconShortCode,
+                imageURL: imageURL,
+                posterImageURL: posterImageURL,
+                lineup: lineup
             )
         }
         .execute(db)
