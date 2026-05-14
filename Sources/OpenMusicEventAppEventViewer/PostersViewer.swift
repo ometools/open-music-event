@@ -332,17 +332,11 @@ public struct EditPoster {
         public var imageInfo: Spawn<ImageInfo>?
         var errorMessage: String?
         var hasLoadedDraft = false
-        var image: OMERecord.ImageAsset?
         var isSaving = false
         var title = ""
 
         var canSubmit: Bool {
-            hasLoadedDraft && !isSaving && image != nil
-        }
-
-        var imageSourceLabel: String? {
-            displayTitle
-                ?? image?.url?.lastPathComponent
+            hasLoadedDraft && !isSaving && imageInfo != nil
         }
 
         var navigationTitle: String {
@@ -353,12 +347,8 @@ public struct EditPoster {
             title.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        private var displayTitle: String? {
-            trimmedTitle.nilIfEmpty
-        }
-
         func preparedDraft() throws -> OMERecord.Poster.Draft {
-            guard let image else { throw EditPosterSaveError() }
+            guard let image = imageInfo?.asset else { throw EditPosterSaveError() }
             return OMERecord.Poster.Draft(
                 id: posterID,
                 title: trimmedTitle.nilIfEmpty,
@@ -369,7 +359,6 @@ public struct EditPoster {
 
     public enum Action {
         case cancelButtonTapped
-        case imageInfoButtonTapped
         case saveButtonTapped
     }
 
@@ -382,16 +371,6 @@ public struct EditPoster {
                 store.addTask {
                     try store.dismiss()
                 }
-
-            case .imageInfoButtonTapped:
-                guard let image = state.image else { return }
-                state.imageInfo = Spawn(
-                    ImageInfo.State(
-                        asset: image,
-                        configuration: .posters,
-                        sourceLabel: state.imageSourceLabel
-                    )
-                )
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -433,11 +412,7 @@ public struct EditPoster {
             }
         }
         .ifLet(\.imageInfo) {
-            ImageInfo { _, asset in
-                try store.modify {
-                    $0.image = asset
-                }
-            }
+            ImageInfo()
         }
         .onMount { state in
             guard !state.hasLoadedDraft else { return }
@@ -448,7 +423,13 @@ public struct EditPoster {
                         .fetchOne(db)
                 }) {
                     state.title = poster.title ?? ""
-                    state.image = poster.image
+                    state.imageInfo = Spawn(
+                        ImageInfo.State(
+                            asset: poster.image,
+                            configuration: .posters,
+                            sourceLabel: poster.displayTitle ?? poster.image.url?.lastPathComponent
+                        )
+                    )
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
@@ -478,13 +459,8 @@ public struct EditPosterView: View {
                         TextField("Title", text: $store.title)
                     }
 
-                    Section("Image") {
-                        Button {
-                            store.send(.imageInfoButtonTapped)
-                        } label: {
-                            Label("Image Info", systemImage: "info.circle")
-                        }
-                        .disabled(store.image == nil)
+                    if let imageInfoStore = store.spawn(\.imageInfo) {
+                        ImageInfoEditorSection(store: imageInfoStore)
                     }
 
                     if let errorMessage = store.errorMessage {
@@ -520,13 +496,6 @@ public struct EditPosterView: View {
                         store.send(.saveButtonTapped)
                     }
                     .disabled(!store.canSubmit)
-                }
-            }
-        }
-        .sheet(isPresented: $store.imageInfo.isPresented) {
-            if let imageInfoStore = store.spawn(\.imageInfo) {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
                 }
             }
         }

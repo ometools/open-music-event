@@ -161,69 +161,7 @@ public struct ImageInfoView: View {
 
     public var body: some View {
         Form {
-            if let sourceDescription = store.sourceDescription {
-                Section("Source") {
-                    LabeledContent("Image", value: sourceDescription)
-                }
-            }
-
-            Section("Display") {
-                if store.roleOptions.count > 1 {
-                    Picker("Type", selection: $store.asset.role) {
-                        ForEach(store.roleOptions, id: \.self) { role in
-                            Text(role.imageInfoTitle)
-                                .tag(role)
-                        }
-                    }
-                } else {
-                    LabeledContent("Type", value: store.asset.role.imageInfoTitle)
-                }
-
-                if store.renderKindOptions.count > 1 {
-                    Picker("Render", selection: $store.asset.renderKind) {
-                        ForEach(store.renderKindOptions, id: \.self) { renderKind in
-                            Text(renderKind.imageInfoTitle)
-                                .tag(renderKind)
-                        }
-                    }
-                } else {
-                    LabeledContent("Render", value: store.asset.renderKind.imageInfoTitle)
-                }
-
-                if store.configuration.allowsAppearance {
-                    Picker("Appearance", selection: $store.asset.appearance) {
-                        Text("Any")
-                            .tag(nil as OMERecord.ImageAsset.Appearance?)
-                        ForEach(store.appearanceOptions, id: \.self) { appearance in
-                            Text(appearance.imageInfoTitle)
-                                .tag(appearance as OMERecord.ImageAsset.Appearance?)
-                        }
-                    }
-                }
-            }
-
-            if store.configuration.allowsMaterializationPolicy {
-                Section("Storage") {
-                    if store.materializationPolicyOptions.count > 1 {
-                        Picker("Import", selection: $store.asset.materializationPolicy) {
-                            ForEach(store.materializationPolicyOptions, id: \.self) { policy in
-                                Text(policy.imageInfoTitle)
-                                    .tag(policy)
-                            }
-                        }
-                    } else {
-                        LabeledContent("Import", value: store.asset.materializationPolicy.imageInfoTitle)
-                    }
-                }
-            }
-
-            if let errorMessage = store.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-            }
+            ImageInfoEditorSection(store: store)
         }
         .disabled(store.isSaving)
         .navigationTitle("Image Info")
@@ -243,6 +181,76 @@ public struct ImageInfoView: View {
                     }
                     .disabled(!store.canSave)
                 }
+            }
+        }
+    }
+}
+
+public struct ImageInfoEditorSection: View {
+    @Bindable var store: StoreOf<ImageInfo>
+
+    public init(store: StoreOf<ImageInfo>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Section("Image") {
+            if let sourceDescription = store.sourceDescription {
+                LabeledContent("Source", value: sourceDescription)
+            }
+
+            if store.roleOptions.count > 1 {
+                Picker("Type", selection: $store.asset.role) {
+                    ForEach(store.roleOptions, id: \.self) { role in
+                        Text(role.imageInfoTitle)
+                            .tag(role)
+                    }
+                }
+            } else {
+                LabeledContent("Type", value: store.asset.role.imageInfoTitle)
+            }
+
+            if store.renderKindOptions.count > 1 {
+                Picker("Render", selection: $store.asset.renderKind) {
+                    ForEach(store.renderKindOptions, id: \.self) { renderKind in
+                        Text(renderKind.imageInfoTitle)
+                            .tag(renderKind)
+                    }
+                }
+            } else {
+                LabeledContent("Render", value: store.asset.renderKind.imageInfoTitle)
+            }
+
+            if store.configuration.allowsAppearance {
+                Picker("Appearance", selection: $store.asset.appearance) {
+                    Text("Any")
+                        .tag(nil as OMERecord.ImageAsset.Appearance?)
+                    ForEach(store.appearanceOptions, id: \.self) { appearance in
+                        Text(appearance.imageInfoTitle)
+                            .tag(appearance as OMERecord.ImageAsset.Appearance?)
+                    }
+                }
+            }
+
+            if store.configuration.allowsMaterializationPolicy {
+                if store.materializationPolicyOptions.count > 1 {
+                    Picker("Import", selection: $store.asset.materializationPolicy) {
+                        ForEach(store.materializationPolicyOptions, id: \.self) { policy in
+                            Text(policy.imageInfoTitle)
+                                .tag(policy)
+                        }
+                    }
+                } else {
+                    LabeledContent("Import", value: store.asset.materializationPolicy.imageInfoTitle)
+                }
+            }
+        }
+
+        if let errorMessage = store.errorMessage {
+            Section {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
             }
         }
     }

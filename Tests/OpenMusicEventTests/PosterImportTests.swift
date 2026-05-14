@@ -236,18 +236,11 @@ struct PosterImportTests {
             )
         )
         state.title = "Lineup"
-        state.image = poster.image
         state.hasLoadedDraft = true
 
-        let store = Store(initialState: state) {
-            EditPoster()
-        }
-        let imageInfoStore = try #require(store.spawn(\.imageInfo))
+        let draft = try state.preparedDraft()
 
-        await imageInfoStore.send(.saveButtonTapped)?.value
-
-        expectNoDifference(store.image, editedAsset)
-        #expect(store.spawn(\.imageInfo) == nil)
+        expectNoDifference(draft.image, editedAsset)
     }
 
     @Test
@@ -276,7 +269,13 @@ struct PosterImportTests {
         } operation: {
             var state = EditPoster.State(posterID: poster.id)
             state.title = " Updated Lineup "
-            state.image = editedAsset
+            state.imageInfo = Spawn(
+                ImageInfo.State(
+                    asset: editedAsset,
+                    configuration: .posters,
+                    sourceLabel: "Lineup"
+                )
+            )
             state.hasLoadedDraft = true
 
             return Store(initialState: state) {
