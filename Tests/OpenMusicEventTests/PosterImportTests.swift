@@ -141,6 +141,98 @@ struct PosterImportTests {
     }
 
     @Test
+    func posterInfoButtonOpensImageInfoEditor() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let imageURL = try #require(URL(string: "https://example.com/lineup.png"))
+
+        try await seedEvent(eventID, in: database)
+        try await seedPoster(
+            posterID: "lineup",
+            title: "Lineup",
+            eventID: eventID,
+            in: database
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: PostersViewer.State(eventID: eventID, database: database)) {
+                PostersViewer()
+            }
+        }
+        let posterID = OMERecord.Poster.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            posterID: Self.localPosterID("lineup")
+        )
+
+        store.send(.posterInfoButtonTapped(posterID))
+
+        let imageInfoStore = try #require(store.spawn(\.imageInfo))
+        expectNoDifference(store.imageInfoPosterID, posterID)
+        expectNoDifference(imageInfoStore.asset.url, imageURL)
+        expectNoDifference(imageInfoStore.asset.role, .poster)
+        expectNoDifference(imageInfoStore.asset.renderKind, .fullImage)
+        expectNoDifference(imageInfoStore.configuration, .posters)
+    }
+
+    @Test
+    func savingPosterImageInfoUpdatesPosterAsset() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+
+        try await seedEvent(eventID, in: database)
+        try await seedPoster(
+            posterID: "lineup",
+            title: "Lineup",
+            eventID: eventID,
+            in: database
+        )
+
+        let poster = try #require(await database.read { db in
+            try OMERecord.Poster.fetchOne(db)
+        })
+        var editedAsset = poster.image
+        editedAsset.appearance = .dark
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(
+                initialState: PostersViewer.State(
+                    eventID: eventID,
+                    imageInfo: Spawn(
+                        ImageInfo.State(
+                            asset: editedAsset,
+                            configuration: .posters,
+                            sourceLabel: "Lineup"
+                        )
+                    ),
+                    imageInfoPosterID: poster.id,
+                    database: database
+                )
+            ) {
+                PostersViewer()
+            }
+        }
+        let imageInfoStore = try #require(store.spawn(\.imageInfo))
+
+        await imageInfoStore.send(.saveButtonTapped)?.value
+
+        let updatedPoster = try #require(await database.read { db in
+            try OMERecord.Poster.fetchOne(db)
+        })
+        expectNoDifference(updatedPoster.title, "Lineup")
+        expectNoDifference(updatedPoster.image, editedAsset)
+        #expect(store.spawn(\.imageInfo) == nil)
+    }
+
+    @Test
     func importImagesDoesNotSaveWithoutImages() {
         let store = Store(initialState: ImportImages.State(configuration: .posters)) {
             ImportImages { _ in }

@@ -11,12 +11,16 @@ public struct PostersViewer {
     public struct State {
         public init(
             eventID: OMERecord.Event.ID? = nil,
+            imageInfo: Spawn<ImageInfo>? = nil,
+            imageInfoPosterID: OMERecord.Poster.ID? = nil,
             importImages: Spawn<ImportImages>? = nil,
             database: (any DatabaseReader)? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
             let eventID = eventID ?? defaultEventID
             self.eventID = eventID
+            self.imageInfo = imageInfo
+            self.imageInfoPosterID = imageInfoPosterID
             self.importImages = importImages
             _posters = FetchAll(
                 PostersViewer.postersQuery(eventID: eventID),
@@ -25,6 +29,8 @@ public struct PostersViewer {
         }
 
         let eventID: OMERecord.Event.ID
+        var imageInfo: Spawn<ImageInfo>?
+        var imageInfoPosterID: OMERecord.Poster.ID?
         var importImages: Spawn<ImportImages>?
         @FetchAll public var posters: [OMERecord.Poster]
 
@@ -59,6 +65,7 @@ public struct PostersViewer {
 
     public enum Action {
         case addButtonTapped
+        case posterInfoButtonTapped(OMERecord.Poster.ID)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -71,12 +78,45 @@ public struct PostersViewer {
             .where { $0.id.eventID.eq(eventID.eventID) }
     }
 
+    static func posterQuery(
+        posterID: OMERecord.Poster.ID
+    ) -> some SelectStatementOf<OMERecord.Poster> {
+        OMERecord.Poster
+            .where { $0.id.organizerID.eq(posterID.organizerID) }
+            .where { $0.id.eventID.eq(posterID.eventID) }
+            .where { $0.id.posterID.eq(posterID.posterID) }
+    }
+
     public var body: some Feature {
         Update { state, action in
             switch action {
             case .addButtonTapped:
                 state.importImages = Spawn(
                     ImportImages.State(configuration: .posters)
+                )
+
+            case let .posterInfoButtonTapped(posterID):
+                guard let poster = state.posters.first(where: { $0.id == posterID }) else {
+                    return
+                }
+                state.imageInfoPosterID = posterID
+                state.imageInfo = Spawn(
+                    ImageInfo.State(
+                        asset: poster.image,
+                        configuration: .posters,
+                        sourceLabel: poster.displayTitle
+                    )
+                )
+            }
+        }
+        .ifLet(\.imageInfo) {
+            let database = database
+            ImageInfo { _, asset in
+                guard let posterID = store.imageInfoPosterID else { return }
+                try Self.savePosterImageInfo(
+                    asset,
+                    posterID: posterID,
+                    database: database
                 )
             }
         }
@@ -90,6 +130,26 @@ public struct PostersViewer {
                     database: database
                 )
             }
+        }
+    }
+
+    private static func savePosterImageInfo(
+        _ asset: OMERecord.ImageAsset,
+        posterID: OMERecord.Poster.ID,
+        database: any DatabaseWriter
+    ) throws {
+        try database.write { db in
+            guard let poster = try posterQuery(posterID: posterID).fetchOne(db) else {
+                throw PosterInfoSaveError()
+            }
+            try OMERecord.Poster.upsert {
+                OMERecord.Poster.Draft(
+                    id: poster.id,
+                    title: poster.title,
+                    image: asset
+                )
+            }
+            .execute(db)
         }
     }
 
@@ -165,6 +225,8 @@ public struct PostersViewer {
     }
 }
 
+private struct PosterInfoSaveError: Error {}
+
 public struct PostersViewerView: View {
     @Bindable var store: StoreOf<PostersViewer>
 
@@ -190,7 +252,9 @@ public struct PostersViewerView: View {
                 ScrollView {
                     LazyVStack(spacing: 20) {
                         ForEach(store.sortedPosters) { poster in
-                            PosterCardView(poster: poster)
+                            PosterCardView(poster: poster) {
+                                store.send(.posterInfoButtonTapped(poster.id))
+                            }
                         }
                     }
                     .padding()
@@ -215,11 +279,19 @@ public struct PostersViewerView: View {
                 }
             }
         }
+        .sheet(isPresented: $store.imageInfo.isPresented) {
+            if let imageInfoStore = store.spawn(\.imageInfo) {
+                NavigationStack {
+                    ImageInfoView(store: imageInfoStore)
+                }
+            }
+        }
     }
 }
 
 struct PosterCardView: View {
     let poster: OMERecord.Poster
+    let onInfo: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -232,6 +304,23 @@ struct PosterCardView: View {
             }
             .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    onInfo()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.title3)
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background {
+                            Circle()
+                                .fill(.black.opacity(0.55))
+                        }
+                }
+                .accessibilityLabel("Poster Info")
+                .buttonStyle(.borderless)
+                .padding(8)
+            }
 
             if let title = displayTitle {
                 Text(title)
@@ -242,10 +331,7 @@ struct PosterCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var displayTitle: String? {
-        let title = poster.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title?.isEmpty == false ? title : nil
-    }
+    private var displayTitle: String? { poster.displayTitle }
 }
 
 struct PosterPlaceholderView: View {
@@ -274,5 +360,12 @@ extension Optional {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+}
+
+private extension OMERecord.Poster {
+    var displayTitle: String? {
+        let title = self.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title?.isEmpty == false ? title : nil
     }
 }
