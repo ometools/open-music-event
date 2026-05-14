@@ -1125,7 +1125,7 @@ struct NavigationTests {
 
         store.send(.editButtonTapped)
 
-        #expect(store.state.destination?.editStage?.stageID == stageID)
+        #expect(store.state.destination?.editStage?.stageID == Optional(stageID))
         #expect(store.state.destination?.editStage?.eventID == eventID)
     }
 
@@ -1214,6 +1214,117 @@ struct NavigationTests {
         #expect(stage.imageURL?.absoluteString == "https://example.com/hero.png")
         #expect(stage.posterImageURL?.absoluteString == "https://example.com/poster.png")
         #expect(stage.lineup == [lineupID])
+    }
+
+    @Test
+    func stagesViewerAddButtonOpensCreateStageEditor() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: StagesViewer.State(eventID: eventID)) {
+                StagesViewer()
+            }
+        }
+
+        store.send(.addButtonTapped)
+
+        #expect(store.state.destination?.createStage?.stageID == nil)
+        #expect(store.state.destination?.createStage?.eventID == eventID)
+    }
+
+    @Test
+    func createStageSavesNewEventStage() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "new-meadow", name: "Old Meadow")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var state = EditStage.State(eventID: eventID)
+            state.draft.name = " New Meadow "
+            state.category = " workshop "
+            state.sortIndex = " 4 "
+            state.colorHex = "#123456"
+            state.systemIconName = "music.mic"
+            state.iconShortCode = "NM"
+            state.logoURL = "https://example.com/new-logo.png"
+            state.heroImageURL = "https://example.com/new-hero.png"
+
+            return TestStore(initialState: state) {
+                EditStage()
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+
+        let stageID = stageLocalID("new-meadow-2")
+        let stage = try await database.read { db in
+            try #require(
+                try StageDetail.stageQuery(
+                    stageID: stageID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+
+        #expect(stage.name == "New Meadow")
+        #expect(stage.category == OMERecord.Stage.Category("workshop"))
+        #expect(stage.sortIndex == 4)
+        #expect(stage.color.rawValue == 0x123456)
+        #expect(stage.systemIconName == "music.mic")
+        #expect(stage.iconShortCode == "NM")
+        #expect(stage.iconImageURL?.absoluteString == "https://example.com/new-logo.png")
+        #expect(stage.imageURL?.absoluteString == "https://example.com/new-hero.png")
+        #expect(stage.posterImageURL == nil)
+    }
+
+    @Test
+    func stagesViewerDeleteRemovesEventStage() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let stageID = stageLocalID("meadow")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: StagesViewer.State(eventID: eventID)) {
+                StagesViewer()
+            }
+        }
+
+        await store.send(.deleteStages([stageID]))?.value
+
+        #expect(store.state.errorMessage == nil)
+
+        let stage = try await database.read { db in
+            try StageDetail.stageQuery(
+                stageID: stageID,
+                eventID: eventID
+            )
+            .fetchOne(db)
+        }
+        #expect(stage == nil)
     }
 
     @Test

@@ -26,6 +26,7 @@ public struct StagesViewer {
 
         public let eventID: OMERecord.Event.ID
         public var destination: Destination.State?
+        public var errorMessage: String?
         public var searchText = ""
 
         @FetchAll public var stages: [OMERecord.Stage]
@@ -42,14 +43,19 @@ public struct StagesViewer {
     }
 
     public enum Action {
+        case addButtonTapped
+        case deleteStages([OMERecord.ID<OMERecord.Stage>])
         case destination(Destination.Action)
         case stageButtonTapped(OMERecord.ID<OMERecord.Stage>)
     }
 
     @Feature
     public enum Destination {
+        case createStage(Spawn<EditStage>)
         case stageDetail(Spawn<StageDetail>)
     }
+
+    @Dependency(\.defaultDatabase) var database
 
     static func stagesQuery(
         eventID: OMERecord.Event.ID
@@ -63,6 +69,37 @@ public struct StagesViewer {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .addButtonTapped:
+                store.withDependencies {
+                    state.destination = .createStage(
+                        Spawn(EditStage.State(eventID: state.eventID))
+                    )
+                }
+
+            case let .deleteStages(stageIDs):
+                let eventID = state.eventID
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            for stageID in stageIDs {
+                                try OMERecord.Stage
+                                    .where { $0.id.organizerID.eq(eventID.organizerID) }
+                                    .where { $0.id.eventID.eq(eventID.eventID) }
+                                    .where { $0.id.stageID.eq(stageID) }
+                                    .delete()
+                                    .execute(db)
+                            }
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to delete event stage."
+                        }
+                    }
+                }
+
             case .destination:
                 break
 
@@ -100,15 +137,28 @@ public struct StagesViewerView: View {
                     description: "No stages match your search."
                 )
             } else {
-                List(store.filteredStages) { stage in
-                    Button {
-                        store.send(.stageButtonTapped(stage.id.stageID))
-                    } label: {
-                        StageRowView(stage: stage)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
+                List {
+                    if let errorMessage = store.errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
                     }
-                    .buttonStyle(.plain)
+
+                    ForEach(store.filteredStages) { stage in
+                        Button {
+                            store.send(.stageButtonTapped(stage.id.stageID))
+                        } label: {
+                            StageRowView(stage: stage)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .onDelete { offsets in
+                        deleteStages(at: offsets)
+                    }
                 }
                 .listStyle(.plain)
             }
@@ -119,9 +169,33 @@ public struct StagesViewerView: View {
         .textInputAutocapitalization(.never)
         #endif
         .navigationTitle("Stages")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    store.send(.addButtonTapped)
+                } label: {
+                    Image(systemName: "plus")
+                        .accessibilityLabel("Add Event Stage")
+                }
+            }
+        }
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).createStage) { createStore in
+            NavigationStack {
+                EditStageView(store: createStore)
+            }
+        }
         .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).stageDetail) { detailStore in
             StageDetailView(store: detailStore)
         }
+    }
+
+    func deleteStages(at offsets: IndexSet) {
+        let stageIDs = offsets.compactMap { offset in
+            store.filteredStages.indices.contains(offset)
+                ? store.filteredStages[offset].id.stageID
+                : nil
+        }
+        store.send(.deleteStages(stageIDs))
     }
 }
 
@@ -278,17 +352,39 @@ public struct EditStage {
     public init() {}
 
     public struct State {
+        public enum Mode: Equatable {
+            case create
+            case edit(OMERecord.ID<OMERecord.Stage>)
+
+            var stageID: OMERecord.ID<OMERecord.Stage>? {
+                switch self {
+                case .create:
+                    return nil
+                case let .edit(stageID):
+                    return stageID
+                }
+            }
+        }
+
+        public init(eventID: OMERecord.Event.ID) {
+            self.eventID = eventID
+            self.mode = .create
+            self.draft = Self.emptyDraft(stageID: nil, eventID: eventID)
+            self.colorHex = Self.formatHexColor(draft.color)
+            self.hasLoadedDraft = true
+        }
+
         public init(
             stageID: OMERecord.ID<OMERecord.Stage>,
             eventID: OMERecord.Event.ID
         ) {
-            self.stageID = stageID
             self.eventID = eventID
+            self.mode = .edit(stageID)
             self.draft = Self.emptyDraft(stageID: stageID, eventID: eventID)
         }
 
-        public let stageID: OMERecord.ID<OMERecord.Stage>
         public let eventID: OMERecord.Event.ID
+        public let mode: Mode
 
         var colorHex = ""
         var draft: OMERecord.Stage.Draft
@@ -325,19 +421,39 @@ public struct EditStage {
             }
         }
 
+        public var stageID: OMERecord.ID<OMERecord.Stage>? {
+            mode.stageID
+        }
+
         var canSubmit: Bool {
             hasLoadedDraft && !isSaving && validationMessage == nil
         }
 
         var navigationTitle: String {
-            "Edit Event Stage"
+            switch mode {
+            case .create:
+                return "New Event Stage"
+            case .edit:
+                return "Edit Event Stage"
+            }
         }
 
-        var preparedDraft: OMERecord.Stage.Draft? {
+        var submitButtonTitle: String {
+            switch mode {
+            case .create:
+                return "Create"
+            case .edit:
+                return "Save"
+            }
+        }
+
+        func preparedDraft(
+            stageID: OMERecord.ID<OMERecord.Stage>
+        ) -> OMERecord.Stage.Draft? {
             guard let color = parsedColor else { return nil }
 
             var draft = draft
-            draft.id = stageRecordID
+            draft.id = stageRecordID(stageID: stageID)
             draft.name = trimmedName
             draft.color = color
             draft.sortIndex = parsedSortIndex
@@ -371,7 +487,30 @@ public struct EditStage {
             return nil
         }
 
-        var stageRecordID: OMERecord.Stage.ID {
+        func stageID(in db: Database) throws -> OMERecord.ID<OMERecord.Stage> {
+            if let stageID = mode.stageID {
+                return stageID
+            }
+
+            let base = Self.stageIDBase(for: trimmedName)
+            var candidate = base
+            var suffix = 2
+
+            while try StageDetail.stageQuery(
+                stageID: Self.localID(candidate),
+                eventID: eventID
+            )
+            .fetchOne(db) != nil {
+                candidate = "\(base)-\(suffix)"
+                suffix += 1
+            }
+
+            return Self.localID(candidate)
+        }
+
+        func stageRecordID(
+            stageID: OMERecord.ID<OMERecord.Stage>
+        ) -> OMERecord.Stage.ID {
             OMERecord.Stage.ID(
                 organizerID: eventID.organizerID,
                 eventID: eventID.eventID,
@@ -449,17 +588,19 @@ public struct EditStage {
         }
 
         private static func emptyDraft(
-            stageID: OMERecord.ID<OMERecord.Stage>,
+            stageID: OMERecord.ID<OMERecord.Stage>?,
             eventID: OMERecord.Event.ID
         ) -> OMERecord.Stage.Draft {
             OMERecord.Stage.Draft(
-                id: OMERecord.Stage.ID(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    stageID: stageID
-                ),
+                id: stageID.map {
+                    OMERecord.Stage.ID(
+                        organizerID: eventID.organizerID,
+                        eventID: eventID.eventID,
+                        stageID: $0
+                    )
+                },
                 name: "",
-                color: 0,
+                color: 0x336699,
                 category: nil,
                 sortIndex: nil,
                 images: nil,
@@ -467,6 +608,10 @@ public struct EditStage {
                 iconShortCode: nil,
                 lineup: nil
             )
+        }
+
+        private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
+            OMERecord.ID<OMERecord.Stage>(.init(string))
         }
 
         private static func parseHexColor(_ string: String) -> OMEColor? {
@@ -485,6 +630,19 @@ public struct EditStage {
             }
 
             return OMEColor(rawValue)
+        }
+
+        private static func stageIDBase(for name: String) -> String {
+            let normalized = name
+                .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
+                .lowercased()
+            let words = normalized
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }
+
+            return words.isEmpty
+                ? "stage-\(UUID().uuidString.lowercased())"
+                : words.joined(separator: "-")
         }
     }
 
@@ -511,17 +669,17 @@ public struct EditStage {
                 }
 
                 guard let validationMessage = state.validationMessage else {
-                    guard let draft = state.preparedDraft else {
-                        state.errorMessage = "Unable to save event stage."
-                        return
-                    }
-
                     state.errorMessage = nil
                     state.isSaving = true
+                    let draftState = state
 
                     store.addTask {
                         do {
                             try database.write { db in
+                                let stageID = try draftState.stageID(in: db)
+                                guard let draft = draftState.preparedDraft(stageID: stageID) else {
+                                    throw EditStageSaveError()
+                                }
                                 try OMERecord.Stage.upsert {
                                     draft
                                 }
@@ -547,11 +705,16 @@ public struct EditStage {
         }
         .onMount { state in
             guard !state.hasLoadedDraft else { return }
+            guard let stageID = state.mode.stageID else {
+                state.hasLoadedDraft = true
+                state.errorMessage = nil
+                return
+            }
 
             do {
                 if let stage = try database.read({ db in
                     try StageDetail.stageQuery(
-                        stageID: state.stageID,
+                        stageID: stageID,
                         eventID: state.eventID
                     )
                     .fetchOne(db)
@@ -572,6 +735,8 @@ public struct EditStage {
         }
     }
 }
+
+private struct EditStageSaveError: Error {}
 
 public struct EditStageView: View {
     @Bindable var store: StoreOf<EditStage>
@@ -653,7 +818,7 @@ public struct EditStageView: View {
                 if store.isSaving {
                     ProgressView()
                 } else {
-                    Button("Save") {
+                    Button(store.submitButtonTitle) {
                         store.send(.saveButtonTapped)
                     }
                     .disabled(!store.canSubmit)
