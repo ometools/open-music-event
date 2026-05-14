@@ -60,6 +60,7 @@ let package = Package(
             name: "OpenMusicEventAppEventViewer",
             dependencies: [
                 "LiquidGlassSegmentedPicker",
+                "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventTimeZones",
                 "ScheduleComponents",

@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
 
@@ -29,9 +30,13 @@ public struct SiteMapViewerView: View {
     public var body: some View {
         Group {
             if let event = store.event,
-               let asset = event.images?.imageAsset(role: .siteMap) {
+                let asset = event.images?.imageAsset(role: .siteMap) {
                 ScrollView([.vertical, .horizontal]) {
-                    ImageAssetAsyncImage(asset: asset, contentMode: .fit) {
+                    ImageAssetAsyncImage(
+                        asset: asset,
+                        cacheContext: .init(eventID: event.id),
+                        contentMode: .fit
+                    ) {
                         SiteMapPlaceholderView(eventWasLoaded: true)
                     }
                     .frame(maxWidth: .infinity)

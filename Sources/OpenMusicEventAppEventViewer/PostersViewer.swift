@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Foundation
+import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
 
@@ -99,7 +100,11 @@ struct PosterCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ImageAssetAsyncImage(asset: poster.image, contentMode: .fit) {
+            ImageAssetAsyncImage(
+                asset: poster.image,
+                cacheContext: .init(posterID: poster.id),
+                contentMode: .fit
+            ) {
                 PosterPlaceholderView()
             }
             .frame(maxWidth: .infinity)

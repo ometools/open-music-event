@@ -378,14 +378,13 @@ struct TangledSourceCloneTests {
             try? FileManager.default.removeItem(at: outputURL)
         }
 
-        #expect(throws: ValidationError.self) {
+        let error = #expect(throws: ValidationError.self) {
             try TangledSourceArchiveExtractor().extract(
                 Data("error code: 520".utf8),
                 to: outputURL
             )
-        } throws: { error in
-            error.message.contains("Tangled did not return an archive: error code: 520")
         }
+        #expect(error?.message.contains("Tangled did not return an archive: error code: 520") == true)
     }
 
     @Test

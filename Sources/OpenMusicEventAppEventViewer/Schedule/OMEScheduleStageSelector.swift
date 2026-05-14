@@ -1,4 +1,5 @@
 import LiquidGlassSegmentedPicker
+import OpenMusicEventDatabase
 import SwiftUI
 
 struct OMEScheduleStageSelector: View {
@@ -97,6 +98,7 @@ struct ScheduleStageIcon: View {
     var body: some View {
         ImageAssetAsyncImage(
             asset: stage.images?.imageAsset(role: .logo),
+            cacheContext: .init(stageID: stage.id),
             contentMode: .fit
         ) {
             fallback

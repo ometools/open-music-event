@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventDatabase
 import SQLiteData
 import Tagged
 import SwiftUI
@@ -155,6 +156,7 @@ struct PeopleRowView: View {
         HStack(spacing: 12) {
             ParticipantArtworkView(
                 asset: participant.preferredArtworkAsset,
+                cacheContext: .init(participantID: participant.id),
                 size: 60
             )
 
@@ -747,6 +749,7 @@ struct ParticipantHeaderView: View {
         HStack(spacing: 14) {
             ParticipantArtworkView(
                 asset: participant.preferredArtworkAsset,
+                cacheContext: .init(participantID: participant.id),
                 size: 72
             )
 
@@ -770,6 +773,7 @@ struct ParticipantHeaderView: View {
 
 struct ParticipantArtworkView: View {
     let asset: OMERecord.ImageAsset?
+    let cacheContext: LocalImageCacheContext
     let size: CGFloat
 
     var body: some View {
@@ -777,7 +781,7 @@ struct ParticipantArtworkView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(.secondary.opacity(0.12))
 
-            ImageAssetAsyncImage(asset: asset) {
+            ImageAssetAsyncImage(asset: asset, cacheContext: cacheContext) {
                 placeholder
             }
         }

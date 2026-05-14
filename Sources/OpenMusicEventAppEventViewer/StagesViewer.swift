@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -293,6 +294,7 @@ struct StageArtworkView: View {
 
             ImageAssetAsyncImage(
                 asset: stage.images?.imageAsset(role: .logo),
+                cacheContext: .init(stageID: stage.id),
                 contentMode: .fit
             ) {
                 StageIconFallback(stage: stage, size: size)

@@ -208,13 +208,7 @@ private struct MyEventsImportHarness {
         Scope(state: \.myEvents, action: \.myEvents) {
             MyEvents()
         }
-        .onChange(of: \.myEvents.destination, initial: true) { _, newValue, state in
-            state.destination = newValue
-        }
-        .onChange(of: \.myEvents.organizerDetail, initial: true) { _, newValue, state in
-            state.organizerDetail = newValue
-        }
-        Update { _, action in
+        Update { state, action in
             switch action {
             case .completeImport(let organizerID):
                 store.addTask {
@@ -224,7 +218,8 @@ private struct MyEventsImportHarness {
                     )
                 }
             case .myEvents:
-                break
+                state.destination = state.myEvents.destination
+                state.organizerDetail = state.myEvents.organizerDetail
             }
         }
     }

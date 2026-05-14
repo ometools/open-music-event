@@ -24,6 +24,86 @@ public struct LocalImageBlob: Equatable, Sendable, Identifiable {
         case event
         case stage
         case participant
+        case poster
+    }
+}
+
+public struct LocalImageCacheContext: Equatable, Sendable {
+    public enum Parent: Equatable, Sendable {
+        case event(OME.Event.ID)
+        case stage(OME.Stage.ID)
+        case participant(OME.Participant.ID)
+        case poster(OME.Poster.ID)
+    }
+
+    public init(eventID: OME.Event.ID) {
+        self.parent = .event(eventID)
+    }
+
+    public init(stageID: OME.Stage.ID) {
+        self.parent = .stage(stageID)
+    }
+
+    public init(participantID: OME.Participant.ID) {
+        self.parent = .participant(participantID)
+    }
+
+    public init(posterID: OME.Poster.ID) {
+        self.parent = .poster(posterID)
+    }
+
+    public var parent: Parent
+
+    public var organizerID: OME.Organizer.ID {
+        switch parent {
+        case let .event(id):
+            id.organizerID
+        case let .stage(id):
+            id.organizerID
+        case let .participant(id):
+            id.organizerID
+        case let .poster(id):
+            id.organizerID
+        }
+    }
+
+    public var eventID: OME.ID<OME.Event> {
+        switch parent {
+        case let .event(id):
+            id.eventID
+        case let .stage(id):
+            id.eventID
+        case let .participant(id):
+            id.eventID
+        case let .poster(id):
+            id.eventID
+        }
+    }
+
+    public var parentKind: LocalImageBlob.ParentKind {
+        switch parent {
+        case .event:
+            .event
+        case .stage:
+            .stage
+        case .participant:
+            .participant
+        case .poster:
+            .poster
+        }
+    }
+
+    public var parentLocalID: String {
+        switch parent {
+        case let .event(id):
+            id.eventID.rawValue.rawValue
+        case let .stage(id):
+            id.stageID.rawValue.rawValue
+        case let .participant(id):
+            id.participantID.rawValue.rawValue
+        case let .poster(id):
+            id.posterID.rawValue.rawValue
+        }
     }
 }
 
@@ -72,8 +152,8 @@ public struct EventImagePrefetchClient: Sendable {
     public var prefetchAssetsOnOpen: @Sendable (_ eventID: OME.Event.ID) async throws -> Void
 }
 
-private enum EventImagePrefetchKey: DependencyKey {
-    static var liveValue: EventImagePrefetchClient {
+public extension EventImagePrefetchClient {
+    static var live: Self {
         EventImagePrefetchClient { eventID in
             @Dependency(\.defaultDatabase) var database
             @Dependency(\.httpClient) var httpClient
@@ -137,8 +217,16 @@ private enum EventImagePrefetchKey: DependencyKey {
         }
     }
 
+    static let noop = Self { _ in }
+}
+
+private enum EventImagePrefetchKey: DependencyKey {
+    static var liveValue: EventImagePrefetchClient {
+        .live
+    }
+
     static var testValue: EventImagePrefetchClient {
-        EventImagePrefetchClient { _ in }
+        .noop
     }
 }
 
@@ -146,6 +234,106 @@ public extension DependencyValues {
     var eventImagePrefetch: EventImagePrefetchClient {
         get { self[EventImagePrefetchKey.self] }
         set { self[EventImagePrefetchKey.self] = newValue }
+    }
+}
+
+public struct LazyImageCacheClient: Sendable {
+    public init(
+        cache: @escaping @Sendable (
+            _ image: OME.ImageAsset,
+            _ context: LocalImageCacheContext
+        ) async throws -> OME.ImageAsset
+    ) {
+        self.cache = cache
+    }
+
+    public var cache: @Sendable (
+        _ image: OME.ImageAsset,
+        _ context: LocalImageCacheContext
+    ) async throws -> OME.ImageAsset
+}
+
+public extension LazyImageCacheClient {
+    static var live: Self {
+        LazyImageCacheClient { image, context in
+            guard image.materializationPolicy == .lazy else { return image }
+            if let url = image.url,
+               url.isFileURL,
+               FileManager.default.fileExists(atPath: url.path) {
+                return image
+            }
+
+            @Dependency(\.date.now) var now
+            @Dependency(\.defaultDatabase) var database
+            @Dependency(\.httpClient) var httpClient
+            @Dependency(\.localImageFileStore) var localImageFileStore
+
+            let assetKey = LocalImageMaterializer.assetKey(
+                for: image,
+                organizerID: context.organizerID,
+                eventID: context.eventID,
+                parentKind: context.parentKind,
+                parentLocalID: context.parentLocalID
+            )
+            let storedBlob = try await database.read { db in
+                try LocalImageBlob
+                    .where { $0.assetKey.eq(assetKey) }
+                    .fetchOne(db)
+            }
+
+            let materializer = LocalImageMaterializer(
+                now: now,
+                httpClientGet: { url in
+                    try await httpClient.get(url, decodingTo: Data.self)
+                },
+                localFileWriter: localImageFileStore.write,
+                storedBlobs: storedBlob.map { [$0.assetKey: $0] } ?? [:]
+            )
+            let materialized = try await materializer.materializeImage(
+                image,
+                organizerID: context.organizerID,
+                eventID: context.eventID,
+                parentKind: context.parentKind,
+                parentLocalID: context.parentLocalID
+            )
+
+            guard materialized.image != image || materialized.blob != nil else {
+                return image
+            }
+
+            try await database.write { db in
+                let didUpdate = try updateCachedImage(
+                    materialized.image,
+                    replacing: image,
+                    context: context,
+                    in: db
+                )
+                if didUpdate, let blob = materialized.blob {
+                    try LocalImageBlob.insert { [blob] }.execute(db)
+                }
+            }
+
+            return materialized.image
+        }
+    }
+
+    static let noop = Self { image, _ in image }
+}
+
+private enum LazyImageCacheKey: DependencyKey {
+    static var liveValue: LazyImageCacheClient {
+        .live
+    }
+
+    static var testValue: LazyImageCacheClient {
+        .noop
+    }
+}
+
+public extension DependencyValues {
+    var lazyImageCache: LazyImageCacheClient {
+        get { self[LazyImageCacheKey.self] }
+        set { self[LazyImageCacheKey.self] = newValue }
     }
 }
 
@@ -158,6 +346,11 @@ struct LocalImageMaterializer {
     struct Result<Value: Sendable>: Sendable {
         var value: Value
         var blobs: [LocalImageBlob]
+    }
+
+    struct ImageResult: Sendable {
+        var image: OME.ImageAsset
+        var blob: LocalImageBlob?
     }
 
     func materialize(event: OME.Event) async throws -> Result<OME.Event> {
@@ -217,65 +410,15 @@ struct LocalImageMaterializer {
                     continue
                 }
 
-                let storedBlob = image.assetKey.flatMap { storedBlobs[$0] }
-                guard storedBlob != nil || image.url != nil else {
-                    continue
-                }
-
                 group.addTask {
-                    var image = image
-                    let data: Data
-                    let sourceURL: URL
-                    let mimeType: String
-                    if let storedBlob,
-                       shouldRestoreImage(image, from: storedBlob) {
-                        let localFileURL = try localFileWriter(storedBlob.assetKey, storedBlob.data, storedBlob.mimeType)
-                        image.assetKey = storedBlob.assetKey
-                        image.source = .url(localFileURL)
-                        return (index, image, nil)
-                    }
-
-                    guard let url = image.url else {
-                        return (index, image, nil)
-                    }
-
-                    if url.isFileURL {
-                        guard FileManager.default.fileExists(atPath: url.path) else {
-                            return (index, image, nil)
-                        }
-                        data = try Data(contentsOf: url)
-                        sourceURL = url
-                        mimeType = url.inferredImageMimeType
-                    } else {
-                        data = try await httpClientGet(url)
-                        sourceURL = url
-                        mimeType = url.inferredImageMimeType
-                    }
-
-                    let assetKey = image.assetKey
-                        ?? [organizerID.description, eventID.rawValue.rawValue, parentKind.rawValue, parentLocalID, image.role.rawValue]
-                        .joined(separator: "|")
-                    let localFileURL = try localFileWriter(assetKey, data, mimeType)
-                    image.assetKey = assetKey
-                    image.source = .url(localFileURL)
-
-                    return (
-                        index,
+                    let result = try await materializeImage(
                         image,
-                        LocalImageBlob(
-                            assetKey: assetKey,
-                            organizerID: organizerID,
-                            eventID: eventID,
-                            parentKind: parentKind,
-                            parentLocalID: parentLocalID,
-                            role: image.role,
-                            renderKind: image.renderKind,
-                            mimeType: mimeType,
-                            data: data,
-                            sourceURL: sourceURL,
-                            lastFetchedAt: now
-                        )
+                        organizerID: organizerID,
+                        eventID: eventID,
+                        parentKind: parentKind,
+                        parentLocalID: parentLocalID
                     )
+                    return (index, result.image, result.blob)
                 }
             }
 
@@ -288,6 +431,91 @@ struct LocalImageMaterializer {
         }
 
         return (resolvedImages.isEmpty ? nil : resolvedImages, blobs)
+    }
+
+    func materializeImage(
+        _ image: OME.ImageAsset,
+        organizerID: OME.Organizer.ID,
+        eventID: OME.ID<OME.Event>,
+        parentKind: LocalImageBlob.ParentKind,
+        parentLocalID: String
+    ) async throws -> ImageResult {
+        let assetKey = Self.assetKey(
+            for: image,
+            organizerID: organizerID,
+            eventID: eventID,
+            parentKind: parentKind,
+            parentLocalID: parentLocalID
+        )
+        let storedBlob = storedBlobs[assetKey]
+        var image = image
+
+        if let storedBlob,
+           shouldRestoreImage(image, from: storedBlob) {
+            let localFileURL = try localFileWriter(storedBlob.assetKey, storedBlob.data, storedBlob.mimeType)
+            image.assetKey = storedBlob.assetKey
+            image.source = .url(localFileURL)
+            return .init(image: image, blob: nil)
+        }
+
+        guard let url = image.url else {
+            return .init(image: image, blob: nil)
+        }
+
+        let data: Data
+        let sourceURL: URL
+        let mimeType: String
+        if url.isFileURL {
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                return .init(image: image, blob: nil)
+            }
+            data = try Data(contentsOf: url)
+            sourceURL = url
+            mimeType = url.inferredImageMimeType
+        } else {
+            data = try await httpClientGet(url)
+            sourceURL = url
+            mimeType = url.inferredImageMimeType
+        }
+
+        let localFileURL = try localFileWriter(assetKey, data, mimeType)
+        image.assetKey = assetKey
+        image.source = .url(localFileURL)
+
+        return .init(
+            image: image,
+            blob: LocalImageBlob(
+                assetKey: assetKey,
+                organizerID: organizerID,
+                eventID: eventID,
+                parentKind: parentKind,
+                parentLocalID: parentLocalID,
+                role: image.role,
+                renderKind: image.renderKind,
+                mimeType: mimeType,
+                data: data,
+                sourceURL: sourceURL,
+                lastFetchedAt: now
+            )
+        )
+    }
+
+    static func assetKey(
+        for image: OME.ImageAsset,
+        organizerID: OME.Organizer.ID,
+        eventID: OME.ID<OME.Event>,
+        parentKind: LocalImageBlob.ParentKind,
+        parentLocalID: String
+    ) -> String {
+        image.assetKey
+        ?? [
+            organizerID.description,
+            eventID.rawValue.rawValue,
+            parentKind.rawValue,
+            parentLocalID,
+            image.role.rawValue,
+        ]
+        .joined(separator: "|")
     }
 
     private func shouldRestoreImage(
@@ -308,6 +536,76 @@ struct LocalImageMaterializer {
         }
 
         return true
+    }
+}
+
+private func updateCachedImage(
+    _ cachedImage: OME.ImageAsset,
+    replacing originalImage: OME.ImageAsset,
+    context: LocalImageCacheContext,
+    in db: Database
+) throws -> Bool {
+    switch context.parent {
+    case let .event(id):
+        guard var event = try OME.Event.where({ $0.id.eq(id) }).fetchOne(db),
+              replaceImage(originalImage, with: cachedImage, in: &event.images) else {
+            return false
+        }
+        try OME.Event.upsert { event }.execute(db)
+        return true
+
+    case let .stage(id):
+        guard var stage = try OME.Stage.where({ $0.id.eq(id) }).fetchOne(db),
+              replaceImage(originalImage, with: cachedImage, in: &stage.images) else {
+            return false
+        }
+        try OME.Stage.upsert { stage }.execute(db)
+        return true
+
+    case let .participant(id):
+        guard var participant = try OME.Participant.where({ $0.id.eq(id) }).fetchOne(db),
+              replaceImage(originalImage, with: cachedImage, in: &participant.images) else {
+            return false
+        }
+        try OME.Participant.upsert { participant }.execute(db)
+        return true
+
+    case let .poster(id):
+        guard var poster = try OME.Poster.where({ $0.id.eq(id) }).fetchOne(db),
+              poster.image.representsSameImage(as: originalImage) else {
+            return false
+        }
+        poster.image = cachedImage
+        try OME.Poster.upsert { poster }.execute(db)
+        return true
+    }
+}
+
+private func replaceImage(
+    _ originalImage: OME.ImageAsset,
+    with cachedImage: OME.ImageAsset,
+    in images: inout [OME.ImageAsset]?
+) -> Bool {
+    guard var resolvedImages = images,
+          let index = resolvedImages.firstIndex(where: { $0.representsSameImage(as: originalImage) }),
+          resolvedImages[index] != cachedImage else {
+        return false
+    }
+
+    resolvedImages[index] = cachedImage
+    images = resolvedImages
+    return true
+}
+
+private extension OME.ImageAsset {
+    func representsSameImage(as other: OME.ImageAsset) -> Bool {
+        if let assetKey,
+           let otherAssetKey = other.assetKey {
+            return assetKey == otherAssetKey
+        }
+        return role == other.role
+            && appearance == other.appearance
+            && source == other.source
     }
 }
 

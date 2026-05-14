@@ -717,6 +717,7 @@ struct SourceDatabaseInsertionTests {
         let recoveryDirectoryURL = try temporaryDirectoryURL()
         try await withDependencies {
             $0.defaultDatabase = database
+            $0.eventImagePrefetch = .live
             $0.localImageFileStore = testLocalImageFileStore(directory: recoveryDirectoryURL)
             $0.httpClient = .testClient { _, path, _ in
                 Issue.record("Did not expect HTTP request while restoring local image: \(path)")
@@ -797,6 +798,253 @@ struct SourceDatabaseInsertionTests {
         #expect(participant?.images?.first?.url == participantPhotoURL)
         #expect(blobs.count == 1)
         expectNoDifference(blobs.first?.data, remoteData)
+    }
+
+    @Test
+    func cachesLazyRemoteParticipantImagesOnDemand() async throws {
+        let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let source = try makeSourceRepository(
+            participantImages: [
+                SourceImageAsset(
+                    source: .url(participantPhotoURL),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let participant = try #require(await database.read { db in
+            try OME.Participant.fetchOne(db)
+        })
+        let originalImage = try #require(participant.images?.first)
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let remoteData = Data("lazy-participant-photo".utf8)
+
+        let cachedImage = try await withDependencies {
+            $0.date.now = testImageCacheDate
+            $0.defaultDatabase = database
+            $0.lazyImageCache = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, path, _ in
+                #expect(path == "/artist-one.jpg")
+                return remoteData
+            }
+        } operation: {
+            @Dependency(\.lazyImageCache) var lazyImageCache
+            return try await lazyImageCache.cache(
+                originalImage,
+                .init(participantID: participant.id)
+            )
+        }
+
+        let updatedParticipant = try await database.read { db in
+            try OME.Participant.fetchOne(db)
+        }
+        let blobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        let cachedURL = try #require(cachedImage.url)
+        let updatedURL = try #require(updatedParticipant?.images?.first?.url)
+        #expect(cachedURL.isFileURL)
+        #expect(updatedURL == cachedURL)
+        expectNoDifference(try Data(contentsOf: cachedURL), remoteData)
+        let blob = try #require(blobs.first)
+        #expect(blob.parentKind == .participant)
+        #expect(blob.parentLocalID == "artist-one")
+        #expect(blob.sourceURL == participantPhotoURL)
+        expectNoDifference(blob.data, remoteData)
+    }
+
+    @Test
+    func restoresLazyParticipantImagesFromBlobWhenLocalFileIsMissing() async throws {
+        let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let source = try makeSourceRepository(
+            participantImages: [
+                SourceImageAsset(
+                    source: .url(participantPhotoURL),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let participant = try #require(await database.read { db in
+            try OME.Participant.fetchOne(db)
+        })
+        let originalImage = try #require(participant.images?.first)
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let remoteData = Data("lazy-participant-photo".utf8)
+
+        _ = try await withDependencies {
+            $0.date.now = testImageCacheDate
+            $0.defaultDatabase = database
+            $0.lazyImageCache = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, _, _ in remoteData }
+        } operation: {
+            @Dependency(\.lazyImageCache) var lazyImageCache
+            return try await lazyImageCache.cache(
+                originalImage,
+                .init(participantID: participant.id)
+            )
+        }
+
+        let cachedParticipant = try #require(await database.read { db in
+            try OME.Participant.fetchOne(db)
+        })
+        let cachedImage = try #require(cachedParticipant.images?.first)
+        let cachedURL = try #require(cachedImage.url)
+        try FileManager.default.removeItem(at: cachedURL)
+
+        let recoveryDirectoryURL = try temporaryDirectoryURL()
+        let restoredImage = try await withDependencies {
+            $0.date.now = testImageCacheDate
+            $0.defaultDatabase = database
+            $0.lazyImageCache = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: recoveryDirectoryURL)
+            $0.httpClient = .testClient { _, path, _ in
+                Issue.record("Did not expect HTTP request while restoring lazy image: \(path)")
+                return Data()
+            }
+        } operation: {
+            @Dependency(\.lazyImageCache) var lazyImageCache
+            return try await lazyImageCache.cache(
+                cachedImage,
+                .init(participantID: cachedParticipant.id)
+            )
+        }
+
+        let restoredURL = try #require(restoredImage.url)
+        let blobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        #expect(restoredURL.isFileURL)
+        #expect(restoredURL != cachedURL)
+        #expect(FileManager.default.fileExists(atPath: restoredURL.path))
+        expectNoDifference(try Data(contentsOf: restoredURL), remoteData)
+        #expect(blobs.count == 1)
+    }
+
+    @Test
+    func cachesLazyPosterImagesOnDemand() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let poster = try #require(await database.read { db in
+            try OME.Poster.fetchOne(db)
+        })
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let posterData = Data("lineup-poster".utf8)
+
+        let cachedImage = try await withDependencies {
+            $0.date.now = testImageCacheDate
+            $0.defaultDatabase = database
+            $0.lazyImageCache = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, path, _ in
+                #expect(path == "/lineup.png")
+                return posterData
+            }
+        } operation: {
+            @Dependency(\.lazyImageCache) var lazyImageCache
+            return try await lazyImageCache.cache(
+                poster.image,
+                .init(posterID: poster.id)
+            )
+        }
+
+        let updatedPoster = try await database.read { db in
+            try OME.Poster.fetchOne(db)
+        }
+        let blobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        let cachedURL = try #require(cachedImage.url)
+        #expect(cachedURL.isFileURL)
+        #expect(updatedPoster?.image.url == cachedURL)
+        let blob = try #require(blobs.first)
+        #expect(blob.parentKind == .poster)
+        #expect(blob.parentLocalID == "lineup")
+        expectNoDifference(blob.data, posterData)
+    }
+
+    @Test
+    func failingLazyImageCacheDoesNotMutateDatabase() async throws {
+        let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let source = try makeSourceRepository(
+            participantImages: [
+                SourceImageAsset(
+                    source: .url(participantPhotoURL),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let participant = try #require(await database.read { db in
+            try OME.Participant.fetchOne(db)
+        })
+        let originalImage = try #require(participant.images?.first)
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+
+        do {
+            _ = try await withDependencies {
+                $0.date.now = testImageCacheDate
+                $0.defaultDatabase = database
+                $0.lazyImageCache = .live
+                $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+                $0.httpClient = .testClient { _, _, _ -> Data in
+                    throw TestImageCacheError.failed
+                }
+            } operation: {
+                @Dependency(\.lazyImageCache) var lazyImageCache
+                return try await lazyImageCache.cache(
+                    originalImage,
+                    .init(participantID: participant.id)
+                )
+            }
+            Issue.record("Expected lazy image caching to fail.")
+        } catch TestImageCacheError.failed {
+        }
+
+        let updatedParticipant = try await database.read { db in
+            try OME.Participant.fetchOne(db)
+        }
+        let blobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        expectNoDifference(updatedParticipant, participant)
+        #expect(blobs.isEmpty)
     }
 
     @Test
@@ -979,6 +1227,12 @@ struct SourceDatabaseInsertionTests {
         return url
     }
 }
+
+private enum TestImageCacheError: Error {
+    case failed
+}
+
+private let testImageCacheDate = Date(timeIntervalSince1970: 1_700_000_000)
 
 private func testLocalImageFileStore(directory: URL) -> LocalImageFileStoreClient {
     LocalImageFileStoreClient { assetKey, data, _ in
