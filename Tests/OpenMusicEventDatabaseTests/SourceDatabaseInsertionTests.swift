@@ -668,6 +668,81 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func restoresMaterializedStageLogosFromBlobWhenLocalFileIsMissingOnOpen() async throws {
+        let repositoryURL = try temporaryDirectoryURL()
+        let eventDirectoryURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "testival-2026", directoryHint: .isDirectory)
+        let imagesDirectoryURL = eventDirectoryURL.appending(path: "images", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: imagesDirectoryURL, withIntermediateDirectories: true)
+
+        let sourceFileURL = imagesDirectoryURL.appending(path: "meadow-logo.png")
+        let sourceData = Data("stage-logo".utf8)
+        try sourceData.write(to: sourceFileURL)
+
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .file("images/meadow-logo.png"),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceRootURL: repositoryURL
+            )
+        )
+        let database = try makeCoreDatabase()
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+
+        try await withDependencies {
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let insertedStage = try await database.read { db in
+            try OME.Stage.fetchOne(db)
+        }
+        let insertedLogoURL = try #require(insertedStage?.images?.first?.url)
+        try FileManager.default.removeItem(at: insertedLogoURL)
+
+        let recoveryDirectoryURL = try temporaryDirectoryURL()
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.localImageFileStore = testLocalImageFileStore(directory: recoveryDirectoryURL)
+            $0.httpClient = .testClient { _, path, _ in
+                Issue.record("Did not expect HTTP request while restoring local image: \(path)")
+                return Data()
+            }
+        } operation: {
+            @Dependency(\.eventImagePrefetch) var eventImagePrefetch
+            try await eventImagePrefetch.prefetchAssetsOnOpen(openedEventID)
+        }
+
+        let restoredStage = try await database.read { db in
+            try OME.Stage.fetchOne(db)
+        }
+        let restoredLogoURL = try #require(restoredStage?.images?.first?.url)
+        let blobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        #expect(restoredLogoURL.isFileURL)
+        #expect(restoredLogoURL != insertedLogoURL)
+        #expect(FileManager.default.fileExists(atPath: restoredLogoURL.path))
+        expectNoDifference(try Data(contentsOf: restoredLogoURL), sourceData)
+        #expect(blobs.count == 1)
+    }
+
+    @Test
     func materializesRequiredRemoteImagesButLeavesLazyImagesRemote() async throws {
         let eventHeroURL = try #require(URL(string: "https://example.com/event-hero.jpg"))
         let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))

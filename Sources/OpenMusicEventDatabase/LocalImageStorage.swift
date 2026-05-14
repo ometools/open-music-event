@@ -88,18 +88,26 @@ private enum EventImagePrefetchKey: DependencyKey {
                     try OME.Participant
                         .where { $0.id.organizerID.eq(eventID.organizerID) }
                         .where { $0.id.eventID.eq(eventID.eventID) }
+                        .fetchAll(db),
+                    try LocalImageBlob
+                        .where { $0.organizerID.eq(eventID.organizerID) }
+                        .where { $0.eventID.eq(eventID.eventID) }
                         .fetchAll(db)
                 )
             }
 
             guard let event = snapshot.0 else { return }
+            let storedBlobs = Dictionary(
+                uniqueKeysWithValues: snapshot.3.map { ($0.assetKey, $0) }
+            )
 
             let materializer = LocalImageMaterializer(
                 now: Date(),
                 httpClientGet: { url in
                     try await httpClient.get(url, decodingTo: Data.self)
                 },
-                localFileWriter: localImageFileStore.write
+                localFileWriter: localImageFileStore.write,
+                storedBlobs: storedBlobs
             )
 
             let materializedEvent = try await materializer.materialize(
@@ -145,6 +153,7 @@ struct LocalImageMaterializer {
     var now: Date
     var httpClientGet: @Sendable (URL) async throws -> Data
     var localFileWriter: @Sendable (_ assetKey: String, _ data: Data, _ mimeType: String) throws -> URL
+    var storedBlobs: [String: LocalImageBlob] = [:]
 
     struct Result<Value: Sendable>: Sendable {
         var value: Value
@@ -204,8 +213,12 @@ struct LocalImageMaterializer {
 
         try await withThrowingTaskGroup(of: (Int, OME.ImageAsset, LocalImageBlob?).self) { group in
             for (index, image) in images.enumerated() {
-                guard image.materializationPolicy == .prefetchOnOpen,
-                      let url = image.url else {
+                guard image.materializationPolicy == .prefetchOnOpen else {
+                    continue
+                }
+
+                let storedBlob = image.assetKey.flatMap { storedBlobs[$0] }
+                guard storedBlob != nil || image.url != nil else {
                     continue
                 }
 
@@ -214,7 +227,22 @@ struct LocalImageMaterializer {
                     let data: Data
                     let sourceURL: URL
                     let mimeType: String
+                    if let storedBlob,
+                       shouldRestoreImage(image, from: storedBlob) {
+                        let localFileURL = try localFileWriter(storedBlob.assetKey, storedBlob.data, storedBlob.mimeType)
+                        image.assetKey = storedBlob.assetKey
+                        image.source = .url(localFileURL)
+                        return (index, image, nil)
+                    }
+
+                    guard let url = image.url else {
+                        return (index, image, nil)
+                    }
+
                     if url.isFileURL {
+                        guard FileManager.default.fileExists(atPath: url.path) else {
+                            return (index, image, nil)
+                        }
                         data = try Data(contentsOf: url)
                         sourceURL = url
                         mimeType = url.inferredImageMimeType
@@ -260,6 +288,26 @@ struct LocalImageMaterializer {
         }
 
         return (resolvedImages.isEmpty ? nil : resolvedImages, blobs)
+    }
+
+    private func shouldRestoreImage(
+        _ image: OME.ImageAsset,
+        from storedBlob: LocalImageBlob
+    ) -> Bool {
+        guard image.role == storedBlob.role,
+              image.renderKind == storedBlob.renderKind else {
+            return false
+        }
+
+        guard let url = image.url else {
+            return true
+        }
+
+        if url.isFileURL {
+            return !FileManager.default.fileExists(atPath: url.path)
+        }
+
+        return true
     }
 }
 
