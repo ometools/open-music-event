@@ -11,16 +11,14 @@ public struct PostersViewer {
     public struct State {
         public init(
             eventID: OMERecord.Event.ID? = nil,
-            imageInfo: Spawn<ImageInfo>? = nil,
-            imageInfoPosterID: OMERecord.Poster.ID? = nil,
+            destination: Destination.State? = nil,
             importImages: Spawn<ImportImages>? = nil,
             database: (any DatabaseReader)? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
             let eventID = eventID ?? defaultEventID
             self.eventID = eventID
-            self.imageInfo = imageInfo
-            self.imageInfoPosterID = imageInfoPosterID
+            self.destination = destination
             self.importImages = importImages
             _posters = FetchAll(
                 PostersViewer.postersQuery(eventID: eventID),
@@ -29,8 +27,7 @@ public struct PostersViewer {
         }
 
         let eventID: OMERecord.Event.ID
-        var imageInfo: Spawn<ImageInfo>?
-        var imageInfoPosterID: OMERecord.Poster.ID?
+        var destination: Destination.State?
         var importImages: Spawn<ImportImages>?
         @FetchAll public var posters: [OMERecord.Poster]
 
@@ -65,7 +62,13 @@ public struct PostersViewer {
 
     public enum Action {
         case addButtonTapped
-        case posterInfoButtonTapped(OMERecord.Poster.ID)
+        case destination(Destination.Action)
+        case posterButtonTapped(OMERecord.Poster.ID)
+    }
+
+    @Feature
+    public enum Destination {
+        case posterDetail(Spawn<PosterDetail>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -95,30 +98,22 @@ public struct PostersViewer {
                     ImportImages.State(configuration: .posters)
                 )
 
-            case let .posterInfoButtonTapped(posterID):
-                guard let poster = state.posters.first(where: { $0.id == posterID }) else {
-                    return
-                }
-                state.imageInfoPosterID = posterID
-                state.imageInfo = Spawn(
-                    ImageInfo.State(
-                        asset: poster.image,
-                        configuration: .posters,
-                        sourceLabel: poster.displayTitle
+            case .destination:
+                break
+
+            case let .posterButtonTapped(posterID):
+                guard state.posters.contains(where: { $0.id == posterID }) else { return }
+                store.withDependencies {
+                    state.destination = .posterDetail(
+                        Spawn(
+                            PosterDetail.State(posterID: posterID)
+                        )
                     )
-                )
+                }
             }
         }
-        .ifLet(\.imageInfo) {
-            let database = database
-            ImageInfo { _, asset in
-                guard let posterID = store.imageInfoPosterID else { return }
-                try Self.savePosterImageInfo(
-                    asset,
-                    posterID: posterID,
-                    database: database
-                )
-            }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
         .ifLet(\.importImages) {
             let database = database
@@ -130,26 +125,6 @@ public struct PostersViewer {
                     database: database
                 )
             }
-        }
-    }
-
-    private static func savePosterImageInfo(
-        _ asset: OMERecord.ImageAsset,
-        posterID: OMERecord.Poster.ID,
-        database: any DatabaseWriter
-    ) throws {
-        try database.write { db in
-            guard let poster = try posterQuery(posterID: posterID).fetchOne(db) else {
-                throw PosterInfoSaveError()
-            }
-            try OMERecord.Poster.upsert {
-                OMERecord.Poster.Draft(
-                    id: poster.id,
-                    title: poster.title,
-                    image: asset
-                )
-            }
-            .execute(db)
         }
     }
 
@@ -225,7 +200,338 @@ public struct PostersViewer {
     }
 }
 
-private struct PosterInfoSaveError: Error {}
+@Feature
+public struct PosterDetail {
+    public init() {}
+
+    public struct State: Identifiable {
+        public init(
+            posterID: OMERecord.Poster.ID,
+            destination: Destination.State? = nil,
+            database: (any DatabaseReader)? = nil
+        ) {
+            self.posterID = posterID
+            self.destination = destination
+            _poster = FetchOne(
+                PostersViewer.posterQuery(posterID: posterID),
+                database: database
+            )
+        }
+
+        public let posterID: OMERecord.Poster.ID
+        public var destination: Destination.State?
+        @FetchOne public var poster: OMERecord.Poster?
+
+        public var id: OMERecord.Poster.ID { posterID }
+
+        var navigationTitle: String {
+            poster?.displayTitle ?? "Poster"
+        }
+    }
+
+    public enum Action {
+        case destination(Destination.Action)
+        case editButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case editPoster(Spawn<EditPoster>)
+    }
+
+    public var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .destination:
+                break
+
+            case .editButtonTapped:
+                state.destination = .editPoster(
+                    Spawn(
+                        EditPoster.State(posterID: state.posterID)
+                    )
+                )
+            }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
+    }
+}
+
+public struct PosterDetailView: View {
+    @Bindable var store: StoreOf<PosterDetail>
+
+    public init(store: StoreOf<PosterDetail>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Group {
+            if let poster = store.poster {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ImageAssetAsyncImage(
+                            asset: poster.image,
+                            cacheContext: .init(posterID: poster.id),
+                            contentMode: .fit
+                        ) {
+                            PosterPlaceholderView()
+                        }
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                        if let title = poster.displayTitle {
+                            Text(title)
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .padding(.horizontal, 4)
+                        }
+                    }
+                    .padding()
+                }
+            } else {
+                ViewerPlaceholderView(
+                    title: "Poster",
+                    systemImage: "photo",
+                    description: "This poster could not be loaded."
+                )
+            }
+        }
+        .navigationTitle(store.navigationTitle)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Edit") {
+                    store.send(.editButtonTapped)
+                }
+                .disabled(store.poster == nil)
+            }
+        }
+        .sheet(item: $store.scope(state: \.destination, action: \.destination).editPoster) { editStore in
+            NavigationStack {
+                EditPosterView(store: editStore)
+            }
+        }
+    }
+}
+
+@Feature
+public struct EditPoster {
+    public init() {}
+
+    public struct State {
+        public init(
+            posterID: OMERecord.Poster.ID,
+            imageInfo: Spawn<ImageInfo>? = nil
+        ) {
+            self.posterID = posterID
+            self.imageInfo = imageInfo
+        }
+
+        public let posterID: OMERecord.Poster.ID
+        public var imageInfo: Spawn<ImageInfo>?
+        var errorMessage: String?
+        var hasLoadedDraft = false
+        var image: OMERecord.ImageAsset?
+        var isSaving = false
+        var title = ""
+
+        var canSubmit: Bool {
+            hasLoadedDraft && !isSaving && image != nil
+        }
+
+        var imageSourceLabel: String? {
+            displayTitle
+                ?? image?.url?.lastPathComponent
+        }
+
+        var navigationTitle: String {
+            "Edit Poster"
+        }
+
+        var trimmedTitle: String {
+            title.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private var displayTitle: String? {
+            trimmedTitle.nilIfEmpty
+        }
+
+        func preparedDraft() throws -> OMERecord.Poster.Draft {
+            guard let image else { throw EditPosterSaveError() }
+            return OMERecord.Poster.Draft(
+                id: posterID,
+                title: trimmedTitle.nilIfEmpty,
+                image: image
+            )
+        }
+    }
+
+    public enum Action {
+        case cancelButtonTapped
+        case imageInfoButtonTapped
+        case saveButtonTapped
+    }
+
+    @Dependency(\.defaultDatabase) var database
+
+    public var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .cancelButtonTapped:
+                store.addTask {
+                    try store.dismiss()
+                }
+
+            case .imageInfoButtonTapped:
+                guard let image = state.image else { return }
+                state.imageInfo = Spawn(
+                    ImageInfo.State(
+                        asset: image,
+                        configuration: .posters,
+                        sourceLabel: state.imageSourceLabel
+                    )
+                )
+
+            case .saveButtonTapped:
+                guard !state.isSaving else { return }
+                guard state.hasLoadedDraft else {
+                    state.errorMessage = "This poster could not be loaded."
+                    return
+                }
+
+                do {
+                    let draft = try state.preparedDraft()
+                    let posterID = state.posterID
+                    state.errorMessage = nil
+                    state.isSaving = true
+
+                    store.addTask {
+                        do {
+                            try database.write { db in
+                                guard try PostersViewer.posterQuery(posterID: posterID)
+                                    .fetchOne(db) != nil else {
+                                    throw EditPosterSaveError()
+                                }
+                                try OMERecord.Poster.upsert { draft }.execute(db)
+                            }
+                            try store.modify {
+                                $0.errorMessage = nil
+                                $0.isSaving = false
+                            }
+                            try store.dismiss()
+                        } catch {
+                            try store.modify {
+                                $0.errorMessage = "Unable to save poster."
+                                $0.isSaving = false
+                            }
+                        }
+                    }
+                } catch {
+                    state.errorMessage = "Unable to save poster."
+                }
+            }
+        }
+        .ifLet(\.imageInfo) {
+            ImageInfo { _, asset in
+                try store.modify {
+                    $0.image = asset
+                }
+            }
+        }
+        .onMount { state in
+            guard !state.hasLoadedDraft else { return }
+
+            do {
+                if let poster = try database.read({ db in
+                    try PostersViewer.posterQuery(posterID: state.posterID)
+                        .fetchOne(db)
+                }) {
+                    state.title = poster.title ?? ""
+                    state.image = poster.image
+                    state.hasLoadedDraft = true
+                    state.errorMessage = nil
+                } else {
+                    state.errorMessage = "This poster could not be loaded."
+                }
+            } catch {
+                state.errorMessage = "This poster could not be loaded."
+            }
+        }
+    }
+}
+
+private struct EditPosterSaveError: Error {}
+
+public struct EditPosterView: View {
+    @Bindable var store: StoreOf<EditPoster>
+
+    public init(store: StoreOf<EditPoster>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Group {
+            if store.hasLoadedDraft {
+                Form {
+                    Section("Poster") {
+                        TextField("Title", text: $store.title)
+                    }
+
+                    Section("Image") {
+                        Button {
+                            store.send(.imageInfoButtonTapped)
+                        } label: {
+                            Label("Image Info", systemImage: "info.circle")
+                        }
+                        .disabled(store.image == nil)
+                    }
+
+                    if let errorMessage = store.errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+            } else {
+                ViewerPlaceholderView(
+                    title: store.navigationTitle,
+                    systemImage: "photo",
+                    description: "This poster could not be loaded."
+                )
+            }
+        }
+        .disabled(store.isSaving)
+        .navigationTitle(store.navigationTitle)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    store.send(.cancelButtonTapped)
+                }
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                if store.isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        store.send(.saveButtonTapped)
+                    }
+                    .disabled(!store.canSubmit)
+                }
+            }
+        }
+        .sheet(isPresented: $store.imageInfo.isPresented) {
+            if let imageInfoStore = store.spawn(\.imageInfo) {
+                NavigationStack {
+                    ImageInfoView(store: imageInfoStore)
+                }
+            }
+        }
+    }
+}
 
 public struct PostersViewerView: View {
     @Bindable var store: StoreOf<PostersViewer>
@@ -253,7 +559,7 @@ public struct PostersViewerView: View {
                     LazyVStack(spacing: 20) {
                         ForEach(store.sortedPosters) { poster in
                             PosterCardView(poster: poster) {
-                                store.send(.posterInfoButtonTapped(poster.id))
+                                store.send(.posterButtonTapped(poster.id))
                             }
                         }
                     }
@@ -272,17 +578,13 @@ public struct PostersViewerView: View {
                 }
             }
         }
+        .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).posterDetail) { detailStore in
+            PosterDetailView(store: detailStore)
+        }
         .sheet(isPresented: $store.importImages.isPresented) {
             if let importStore = store.spawn(\.importImages) {
                 NavigationStack {
                     ImportImagesView(store: importStore)
-                }
-            }
-        }
-        .sheet(isPresented: $store.imageInfo.isPresented) {
-            if let imageInfoStore = store.spawn(\.imageInfo) {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
                 }
             }
         }
@@ -291,44 +593,33 @@ public struct PostersViewerView: View {
 
 struct PosterCardView: View {
     let poster: OMERecord.Poster
-    let onInfo: () -> Void
+    let onTap: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ImageAssetAsyncImage(
-                asset: poster.image,
-                cacheContext: .init(posterID: poster.id),
-                contentMode: .fit
-            ) {
-                PosterPlaceholderView()
-            }
-            .frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    onInfo()
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.title3)
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background {
-                            Circle()
-                                .fill(.black.opacity(0.55))
-                        }
+        Button {
+            onTap()
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                ImageAssetAsyncImage(
+                    asset: poster.image,
+                    cacheContext: .init(posterID: poster.id),
+                    contentMode: .fit
+                ) {
+                    PosterPlaceholderView()
                 }
-                .accessibilityLabel("Poster Info")
-                .buttonStyle(.borderless)
-                .padding(8)
-            }
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            if let title = displayTitle {
-                Text(title)
-                    .font(.headline)
-                    .padding(.horizontal, 4)
+                if let title = displayTitle {
+                    Text(title)
+                        .font(.headline)
+                        .padding(.horizontal, 4)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
     }
 
     private var displayTitle: String? { poster.displayTitle }

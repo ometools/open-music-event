@@ -141,10 +141,9 @@ struct PosterImportTests {
     }
 
     @Test
-    func posterInfoButtonOpensImageInfoEditor() async throws {
+    func posterTapOpensPosterDetail() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let imageURL = try #require(URL(string: "https://example.com/lineup.png"))
 
         try await seedEvent(eventID, in: database)
         try await seedPoster(
@@ -169,18 +168,90 @@ struct PosterImportTests {
             posterID: Self.localPosterID("lineup")
         )
 
-        store.send(.posterInfoButtonTapped(posterID))
+        store.send(.posterButtonTapped(posterID))
 
-        let imageInfoStore = try #require(store.spawn(\.imageInfo))
-        expectNoDifference(store.imageInfoPosterID, posterID)
-        expectNoDifference(imageInfoStore.asset.url, imageURL)
-        expectNoDifference(imageInfoStore.asset.role, .poster)
-        expectNoDifference(imageInfoStore.asset.renderKind, .fullImage)
-        expectNoDifference(imageInfoStore.configuration, .posters)
+        expectNoDifference(store.destination?.posterDetail?.posterID, posterID)
     }
 
     @Test
-    func savingPosterImageInfoUpdatesPosterAsset() async throws {
+    func posterDetailEditButtonOpensEditPoster() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+
+        try await seedEvent(eventID, in: database)
+        try await seedPoster(
+            posterID: "lineup",
+            title: "Lineup",
+            eventID: eventID,
+            in: database
+        )
+        let posterID = OMERecord.Poster.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            posterID: Self.localPosterID("lineup")
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: PosterDetail.State(posterID: posterID, database: database)) {
+                PosterDetail()
+            }
+        }
+
+        store.send(.editButtonTapped)
+
+        expectNoDifference(store.destination?.editPoster?.posterID, posterID)
+    }
+
+    @Test
+    func editPosterImageInfoUpdatesDraftAsset() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+
+        try await seedEvent(eventID, in: database)
+        try await seedPoster(
+            posterID: "lineup",
+            title: "Lineup",
+            eventID: eventID,
+            in: database
+        )
+
+        let poster = try #require(await database.read { db in
+            try OMERecord.Poster.fetchOne(db)
+        })
+        var editedAsset = poster.image
+        editedAsset.appearance = .dark
+
+        var state = EditPoster.State(
+            posterID: poster.id,
+            imageInfo: Spawn(
+                ImageInfo.State(
+                    asset: editedAsset,
+                    configuration: .posters,
+                    sourceLabel: "Lineup"
+                )
+            )
+        )
+        state.title = "Lineup"
+        state.image = poster.image
+        state.hasLoadedDraft = true
+
+        let store = Store(initialState: state) {
+            EditPoster()
+        }
+        let imageInfoStore = try #require(store.spawn(\.imageInfo))
+
+        await imageInfoStore.send(.saveButtonTapped)?.value
+
+        expectNoDifference(store.image, editedAsset)
+        #expect(store.spawn(\.imageInfo) == nil)
+    }
+
+    @Test
+    func savingEditPosterUpdatesTitleAndImageAsset() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
 
@@ -203,33 +274,24 @@ struct PosterImportTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            Store(
-                initialState: PostersViewer.State(
-                    eventID: eventID,
-                    imageInfo: Spawn(
-                        ImageInfo.State(
-                            asset: editedAsset,
-                            configuration: .posters,
-                            sourceLabel: "Lineup"
-                        )
-                    ),
-                    imageInfoPosterID: poster.id,
-                    database: database
-                )
-            ) {
-                PostersViewer()
+            var state = EditPoster.State(posterID: poster.id)
+            state.title = " Updated Lineup "
+            state.image = editedAsset
+            state.hasLoadedDraft = true
+
+            return Store(initialState: state) {
+                EditPoster()
             }
         }
-        let imageInfoStore = try #require(store.spawn(\.imageInfo))
 
-        await imageInfoStore.send(.saveButtonTapped)?.value
+        await store.send(.saveButtonTapped)?.value
 
         let updatedPoster = try #require(await database.read { db in
             try OMERecord.Poster.fetchOne(db)
         })
-        expectNoDifference(updatedPoster.title, "Lineup")
+        expectNoDifference(updatedPoster.title, "Updated Lineup")
         expectNoDifference(updatedPoster.image, editedAsset)
-        #expect(store.spawn(\.imageInfo) == nil)
+        #expect(store.isPresented == false)
     }
 
     @Test
