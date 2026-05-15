@@ -1,6 +1,5 @@
 import Dependencies
 import Foundation
-import HTTPClient
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
@@ -118,7 +117,6 @@ private struct PreparedSourceDatabaseInsertion {
         baselineDatabaseFileName: String,
         importedAt: Date
     ) async throws {
-        @Dependency(\.httpClient) var httpClient
         @Dependency(\.localImageFileStore) var localImageFileStore
 
         var sourceBaselinesByID: [SourceBaselineRecord.ID: SourceBaselineRecord] = [:]
@@ -146,8 +144,8 @@ private struct PreparedSourceDatabaseInsertion {
 
         let materializer = LocalImageMaterializer(
             now: Date(),
-            httpClientGet: { url in
-                try await httpClient.get(url, decodingTo: Data.self)
+            httpClientGet: { _ in
+                throw SourceImportImageMaterializationError.remoteFetchDisabled
             },
             localFileWriter: localImageFileStore.write
         )
@@ -358,48 +356,10 @@ private extension LocalImageMaterializer {
             resolvedImages.append(image)
         }
 
-        try await withThrowingTaskGroup(of: (Int, OME.ImageAsset, LocalImageBlob).self) { group in
-            for (index, image) in resolvedImages.enumerated() {
-                guard image.materializationPolicy == .prefetchOnOpen,
-                      let assetKey = image.assetKey,
-                      let remoteURL = image.url,
-                      !remoteURL.isFileURL,
-                      pendingFileAssets[assetKey] == nil else {
-                    continue
-                }
-
-                group.addTask {
-                    var image = image
-                    let data = try await httpClientGet(remoteURL)
-                    let mimeType = remoteURL.inferredImageMimeType
-                    let localFileURL = try localFileWriter(assetKey, data, mimeType)
-                    image.source = .url(localFileURL)
-                    return (
-                        index,
-                        image,
-                        LocalImageBlob(
-                            assetKey: assetKey,
-                            organizerID: organizerID,
-                            eventID: eventID,
-                            parentKind: parentKind,
-                            parentLocalID: parentLocalID,
-                            role: image.role,
-                            renderKind: image.renderKind,
-                            mimeType: mimeType,
-                            data: data,
-                            sourceURL: remoteURL,
-                            lastFetchedAt: now
-                        )
-                    )
-                }
-            }
-
-            for try await (index, image, blob) in group {
-                resolvedImages[index] = image
-                blobs.append(blob)
-            }
-        }
-
         return (resolvedImages.isEmpty ? nil : resolvedImages, blobs)
     }
+}
+
+private enum SourceImportImageMaterializationError: Error {
+    case remoteFetchDisabled
 }

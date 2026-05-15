@@ -1001,7 +1001,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func materializesRequiredRemoteImagesButLeavesLazyImagesRemote() async throws {
+    func leavesRemoteImagesUnfetchedUntilEventOpen() async throws {
         let eventHeroURL = try #require(URL(string: "https://example.com/event-hero.jpg"))
         let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let source = try makeSourceRepository(
@@ -1026,15 +1026,14 @@ struct SourceDatabaseInsertionTests {
         let insertion = try OME.SourceDatabaseInsertion(
             .init(source: source, organizerID: organizerID)
         )
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
         let database = try makeCoreDatabase()
-        let cacheDirectoryURL = try temporaryDirectoryURL()
         let remoteData = Data("remote-hero".utf8)
 
         try await withDependencies {
-            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
             $0.httpClient = .testClient { _, path, _ in
-                #expect(path == "/event-hero.jpg")
-                return remoteData
+                Issue.record("Did not expect HTTP request during source insertion: \(path)")
+                return Data()
             }
         } operation: {
             try await insertion.insert(into: database)
@@ -1050,11 +1049,40 @@ struct SourceDatabaseInsertionTests {
             try LocalImageBlob.fetchAll(db)
         }
 
-        let materializedHeroURL = try #require(event?.images?.first?.url)
-        #expect(materializedHeroURL.isFileURL)
+        #expect(event?.images?.first?.url == eventHeroURL)
         #expect(participant?.images?.first?.url == participantPhotoURL)
-        #expect(blobs.count == 1)
-        expectNoDifference(blobs.first?.data, remoteData)
+        #expect(blobs.isEmpty)
+
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.eventImagePrefetch = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, path, _ in
+                #expect(path == "/event-hero.jpg")
+                return remoteData
+            }
+        } operation: {
+            @Dependency(\.eventImagePrefetch) var eventImagePrefetch
+            try await eventImagePrefetch.prefetchAssetsOnOpen(openedEventID)
+        }
+
+        let prefetchedEvent = try await database.read { db in
+            try OME.Event.fetchOne(db)
+        }
+        let prefetchedParticipant = try await database.read { db in
+            try OME.Participant.fetchOne(db)
+        }
+        let prefetchedBlobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        let prefetchedHeroURL = try #require(prefetchedEvent?.images?.first?.url)
+        #expect(prefetchedHeroURL.isFileURL)
+        #expect(prefetchedParticipant?.images?.first?.url == participantPhotoURL)
+        #expect(prefetchedBlobs.count == 1)
+        expectNoDifference(try Data(contentsOf: prefetchedHeroURL), remoteData)
+        expectNoDifference(prefetchedBlobs.first?.data, remoteData)
     }
 
     @Test
