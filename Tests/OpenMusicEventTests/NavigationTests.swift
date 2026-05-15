@@ -1099,6 +1099,34 @@ struct NavigationTests {
     }
 
     @Test
+    func editParticipantSaveSurfacesUnderlyingError() async throws {
+        let database = try defaultDatabase()
+        let eventID = eventID("event-1")
+        let participantID = participantLocalID("artist-1")
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            var state = EditParticipant.State(participantID: participantID, eventID: eventID)
+            state.hasLoadedDraft = true
+            state.name = "New Name"
+
+            return TestStore(initialState: state) {
+                EditParticipant()
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.isPresented)
+        #expect(store.state.errorMessage?.hasPrefix("Unable to save person: ") == true)
+        #expect(store.state.errorMessage != "Unable to save person.")
+    }
+
+    @Test
     func editParticipantStoreBindingsSaveChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -1437,6 +1465,7 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: StagesViewer.State(eventID: eventID)) {
                 StagesViewer()

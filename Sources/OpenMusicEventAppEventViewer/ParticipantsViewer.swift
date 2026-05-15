@@ -552,7 +552,7 @@ public struct EditParticipant {
                             try store.dismiss()
                         } catch {
                             try store.modify {
-                                $0.errorMessage = "Unable to save person."
+                                $0.errorMessage = "Unable to save person: \(error.editParticipantSaveDescription)"
                                 $0.isSaving = false
                             }
                         }
@@ -838,6 +838,13 @@ private extension Array where Element == ExternalPlatform.Link {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+}
+
+private extension Error {
+    var editParticipantSaveDescription: String {
+        let description = String(describing: self)
+        return description.isEmpty ? localizedDescription : description
     }
 }
 
