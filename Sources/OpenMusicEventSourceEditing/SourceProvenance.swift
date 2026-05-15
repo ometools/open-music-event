@@ -37,6 +37,36 @@ public struct SourceBaselineRecord: Equatable, Sendable, Identifiable {
         self.databaseFileName = databaseFileName
         self.importedAt = importedAt
     }
+
+    public init(
+        source: OME.SourceDatabaseInsertion.SourceProvenance,
+        databaseFileName: String,
+        importedAt: Date
+    ) {
+        self.init(
+            id: .init(source: source),
+            sourceKind: source.kind,
+            sourceReference: source.reference,
+            ref: source.ref,
+            databaseFileName: databaseFileName,
+            importedAt: importedAt
+        )
+    }
+}
+
+public extension SourceBaselineRecord.ID {
+    init(source: OME.SourceDatabaseInsertion.SourceProvenance) {
+        let components = [
+            source.kind.rawValue,
+            source.reference,
+            source.ref.map { "some:\($0)" } ?? "none",
+        ]
+        self.init(
+            rawValue: components
+                .map { Data($0.utf8).base64EncodedString() }
+                .joined(separator: ".")
+        )
+    }
 }
 
 extension OME.SourceDatabaseInsertion.EventIDOrigin: SQLiteType {
@@ -75,10 +105,13 @@ public struct EventSourceProvenanceRecord: Equatable, Sendable, Identifiable {
         self.sourceEventDirectory = sourceEventDirectory
     }
 
-    public init(_ provenance: OME.SourceDatabaseInsertion.EventSourceProvenance) {
+    public init(
+        _ provenance: OME.SourceDatabaseInsertion.EventSourceProvenance,
+        sourceBaselineID: SourceBaselineRecord.ID? = nil
+    ) {
         self.init(
             id: provenance.eventID,
-            sourceBaselineID: nil,
+            sourceBaselineID: sourceBaselineID,
             sourceKind: provenance.source.kind,
             sourceReference: provenance.source.reference,
             ref: provenance.source.ref,
@@ -87,4 +120,3 @@ public struct EventSourceProvenanceRecord: Equatable, Sendable, Identifiable {
         )
     }
 }
-

@@ -202,7 +202,20 @@ struct SourceDatabaseInsertionTests {
             )
         )
 
-        try await insertion.insert(into: database)
+        try await database.write { db in
+            try OME.Organizer.insert {
+                insertion.organizers
+            }
+            .execute(db)
+            try OME.Event.insert {
+                insertion.events
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                insertion.eventSourceProvenances.map { EventSourceProvenanceRecord($0) }
+            }
+            .execute(db)
+        }
 
         let missingBaseline = try await database.read { db in
             try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
@@ -217,42 +230,42 @@ struct SourceDatabaseInsertionTests {
             )
         )
 
-        let baselineID = SourceBaselineRecord.ID(rawValue: "testival-source-main")
         let baselineDatabase = try defaultBaselineDatabase()
         defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
-        var baselineMigrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &baselineMigrator)
-        try baselineMigrator.migrate(baselineDatabase.database)
-        try await insertion.insert(into: baselineDatabase.database)
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let baselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let baselineRecord = try await database.read { db in
+            try SourceBaselineRecord
+                .where { $0.id.eq(baselineID) }
+                .fetchOne(db)
+        }
+        #expect(baselineRecord?.id == baselineID)
+        #expect(baselineRecord?.sourceKind == sourceProvenance.kind)
+        #expect(baselineRecord?.sourceReference == sourceProvenance.reference)
+        #expect(baselineRecord?.ref == sourceProvenance.ref)
+        #expect(baselineRecord?.databaseFileName == URL(fileURLWithPath: baselineDatabase.path).lastPathComponent)
+
+        let sourceProvenanceRecord = try await database.read { db in
+            try EventSourceProvenanceRecord
+                .where { $0.id.eq(openedEventID) }
+                .fetchOne(db)
+        }
+        #expect(sourceProvenanceRecord?.sourceBaselineID == baselineID)
+
+        let baselineStage = try baselineDatabase.read { db in
+            try OME.Stage
+                .where { $0.id.eq(stageID("meadow", eventID: "testival-2026", organizerID: organizerID)) }
+                .fetchOne(db)
+        }
+        #expect(baselineStage?.name == "Meadow")
 
         try await database.write { db in
-            try SourceBaselineRecord.insert {
-                [
-                    SourceBaselineRecord(
-                        id: baselineID,
-                        sourceKind: sourceProvenance.kind,
-                        sourceReference: sourceProvenance.reference,
-                        ref: sourceProvenance.ref,
-                        databaseFileName: URL(fileURLWithPath: baselineDatabase.path).lastPathComponent,
-                        importedAt: testImageCacheDate
-                    )
-                ]
-            }
-            .execute(db)
-
-            try EventSourceProvenanceRecord.upsert {
-                EventSourceProvenanceRecord(
-                    id: openedEventID,
-                    sourceBaselineID: baselineID,
-                    sourceKind: sourceProvenance.kind,
-                    sourceReference: sourceProvenance.reference,
-                    ref: sourceProvenance.ref,
-                    eventIDOrigin: .inferred,
-                    sourceEventDirectory: "testival-2026"
-                )
-            }
-            .execute(db)
-
             try OME.Stage
                 .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
                 .update { $0.name = "Updated Meadow" }

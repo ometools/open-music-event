@@ -24,7 +24,22 @@ public extension OME.SourceDatabaseInsertion {
             try validateEventSourceProvenanceConflicts(in: db)
         }
 
-        let prepared = try await PreparedSourceDatabaseInsertion(sourceInsertion: self)
+        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+        let prepared = try await PreparedSourceDatabaseInsertion(
+            sourceInsertion: self,
+            baselineDatabaseFileName: URL(fileURLWithPath: baselineDatabase.path).lastPathComponent,
+            importedAt: Date()
+        )
+
+        if !prepared.sourceBaselines.isEmpty {
+            var migrator = DatabaseMigrator()
+            OME.DatabaseMigrations.register(into: &migrator)
+            try migrator.migrate(baselineDatabase.database)
+
+            try baselineDatabase.write { db in
+                try prepared.insert(into: db)
+            }
+        }
 
         try await database.write { db in
             try prepared.insert(into: db)
@@ -84,10 +99,11 @@ public extension OpenMusicEventSourceValidator {
 }
 
 private struct PreparedSourceDatabaseInsertion {
+    var sourceBaselines: [SourceBaselineRecord]
     var organizers: [OME.Organizer.Draft]
     var events: [OME.Event.Draft]
     var eventOrganizers: [OME.EventOrganizer.Draft]
-    var eventSourceProvenances: [OME.SourceDatabaseInsertion.EventSourceProvenance]
+    var eventSourceProvenances: [EventSourceProvenanceRecord]
     var stages: [OME.Stage.Draft]
     var schedules: [OME.Schedule.Draft]
     var participants: [OME.Participant.Draft]
@@ -97,14 +113,28 @@ private struct PreparedSourceDatabaseInsertion {
     var performanceParticipants: [OME.Performance.Participants.Draft]
     var localImageBlobs: [LocalImageBlob]
 
-    init(sourceInsertion: OME.SourceDatabaseInsertion) async throws {
+    init(
+        sourceInsertion: OME.SourceDatabaseInsertion,
+        baselineDatabaseFileName: String,
+        importedAt: Date
+    ) async throws {
         @Dependency(\.httpClient) var httpClient
         @Dependency(\.localImageFileStore) var localImageFileStore
 
+        var sourceBaselinesByID: [SourceBaselineRecord.ID: SourceBaselineRecord] = [:]
+        self.eventSourceProvenances = sourceInsertion.eventSourceProvenances.map { provenance in
+            let baseline = SourceBaselineRecord(
+                source: provenance.source,
+                databaseFileName: baselineDatabaseFileName,
+                importedAt: importedAt
+            )
+            sourceBaselinesByID[baseline.id] = baseline
+            return EventSourceProvenanceRecord(provenance, sourceBaselineID: baseline.id)
+        }
+        self.sourceBaselines = sourceBaselinesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
         self.organizers = sourceInsertion.organizers
         self.events = sourceInsertion.events
         self.eventOrganizers = sourceInsertion.eventOrganizers
-        self.eventSourceProvenances = sourceInsertion.eventSourceProvenances
         self.stages = sourceInsertion.stages
         self.schedules = sourceInsertion.schedules
         self.participants = sourceInsertion.participants
@@ -160,6 +190,12 @@ private struct PreparedSourceDatabaseInsertion {
     }
 
     func insert(into db: Database) throws {
+        if !sourceBaselines.isEmpty {
+            try SourceBaselineRecord.insert {
+                sourceBaselines
+            }
+            .execute(db)
+        }
         if !organizers.isEmpty {
             try OME.Organizer.insert {
                 organizers
@@ -185,7 +221,7 @@ private struct PreparedSourceDatabaseInsertion {
         }
         if !eventSourceProvenances.isEmpty {
             try EventSourceProvenanceRecord.insert {
-                eventSourceProvenances.map(EventSourceProvenanceRecord.init)
+                eventSourceProvenances
             }
             .execute(db)
         }
