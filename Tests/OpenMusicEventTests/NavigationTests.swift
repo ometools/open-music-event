@@ -1073,7 +1073,13 @@ struct NavigationTests {
             }
         }
 
-        await store.send(.saveButtonTapped)?.value
+        let task = store.send(.saveButtonTapped) {
+            $0.isSaving = true
+        }
+        await store.receive(\.saveSucceeded, timeout: .seconds(1)) {
+            $0.isSaving = false
+        }?.value
+        await task?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)
@@ -1118,7 +1124,13 @@ struct NavigationTests {
             }
         }
 
-        await store.send(.saveButtonTapped)?.value
+        let task = store.send(.saveButtonTapped) {
+            $0.isSaving = true
+        }
+        await store.receive(\.saveFailed, timeout: .seconds(1)) {
+            $0.isSaving = false
+        }
+        await task?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.isPresented)
@@ -1238,7 +1250,13 @@ struct NavigationTests {
             }
         }
 
-        await store.send(.saveButtonTapped)?.value
+        let task = store.send(.saveButtonTapped) {
+            $0.isSaving = true
+        }
+        await store.receive(\.saveSucceeded, timeout: .seconds(1)) {
+            $0.isSaving = false
+        }?.value
+        await task?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)

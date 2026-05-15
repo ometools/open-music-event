@@ -313,7 +313,7 @@ public struct EditParticipant {
     public init() {}
 
     public struct State {
-        public enum Mode: Equatable {
+        public enum Mode: Equatable, Sendable {
             case create
             case edit(OMERecord.ID<OMERecord.Participant>)
 
@@ -376,49 +376,69 @@ public struct EditParticipant {
             }
         }
 
-        func participantID(in db: Database) throws -> OMERecord.ID<OMERecord.Participant> {
-            if let participantID = mode.participantID {
-                return participantID
+        fileprivate struct SaveRequest: Sendable {
+            let bio: String?
+            let eventID: OMERecord.Event.ID
+            let images: [OMERecord.ImageAsset]?
+            let kind: OMERecord.Participant.Kind?
+            let links: [ExternalPlatform.Link]?
+            let mode: Mode
+            let name: String
+
+            init(state: State) {
+                self.bio = state.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                self.eventID = state.eventID
+                self.images = state.preparedImages.isEmpty ? nil : state.preparedImages
+                self.kind = state.kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                    .map { OMERecord.Participant.Kind($0) }
+                self.links = state.preparedLinks.nilIfEmpty
+                self.mode = state.mode
+                self.name = state.trimmedName
             }
 
-            let base = Self.participantIDBase(for: trimmedName)
-            var candidate = base
-            var suffix = 2
+            func participantID(in db: Database) throws -> OMERecord.ID<OMERecord.Participant> {
+                if let participantID = mode.participantID {
+                    return participantID
+                }
 
-            while try ParticipantDetail.participantQuery(
-                participantID: Self.localID(candidate),
-                eventID: eventID
-            )
-            .fetchOne(db) != nil {
-                candidate = "\(base)-\(suffix)"
-                suffix += 1
+                let base = State.participantIDBase(for: name)
+                var candidate = base
+                var suffix = 2
+
+                while try ParticipantDetail.participantQuery(
+                    participantID: State.localID(candidate),
+                    eventID: eventID
+                )
+                .fetchOne(db) != nil {
+                    candidate = "\(base)-\(suffix)"
+                    suffix += 1
+                }
+
+                return State.localID(candidate)
             }
 
-            return Self.localID(candidate)
-        }
+            func participantRecordID(
+                participantID: OMERecord.ID<OMERecord.Participant>
+            ) -> OMERecord.Participant.ID {
+                OMERecord.Participant.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    participantID: participantID
+                )
+            }
 
-        func participantRecordID(
-            participantID: OMERecord.ID<OMERecord.Participant>
-        ) -> OMERecord.Participant.ID {
-            OMERecord.Participant.ID(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                participantID: participantID
-            )
-        }
-
-        func preparedDraft(
-            participantID: OMERecord.ID<OMERecord.Participant>
-        ) -> OMERecord.Participant.Draft {
-            OMERecord.Participant.Draft(
-                id: participantRecordID(participantID: participantID),
-                name: trimmedName,
-                bio: bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                images: preparedImages.isEmpty ? nil : preparedImages,
-                kind: kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                    .map { OMERecord.Participant.Kind($0) },
-                links: preparedLinks.nilIfEmpty
-            )
+            func preparedDraft(
+                participantID: OMERecord.ID<OMERecord.Participant>
+            ) -> OMERecord.Participant.Draft {
+                OMERecord.Participant.Draft(
+                    id: participantRecordID(participantID: participantID),
+                    name: name,
+                    bio: bio,
+                    images: images,
+                    kind: kind,
+                    links: links
+                )
+            }
         }
 
         var preparedLinks: [ExternalPlatform.Link] {
@@ -504,6 +524,8 @@ public struct EditParticipant {
         case cancelButtonTapped
         case removeLinkButtonTapped(UUID)
         case saveButtonTapped
+        case saveFailed(String)
+        case saveSucceeded
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -533,34 +555,40 @@ public struct EditParticipant {
                 guard let validationMessage = state.validationMessage else {
                     state.errorMessage = nil
                     state.isSaving = true
-                    let draftState = state
+                    let saveRequest = State.SaveRequest(state: state)
 
                     store.addTask {
                         do {
-                            try database.write { db in
-                                let participantID = try draftState.participantID(in: db)
-                                let draft = draftState.preparedDraft(participantID: participantID)
+                            try await database.write { db in
+                                let participantID = try saveRequest.participantID(in: db)
+                                let draft = saveRequest.preparedDraft(participantID: participantID)
                                 try OMERecord.Participant.upsert {
                                     draft
                                 }
                                 .execute(db)
                             }
-                            try store.modify {
-                                $0.errorMessage = nil
-                                $0.isSaving = false
-                            }
-                            try store.dismiss()
+                            try store.send(.saveSucceeded)
                         } catch {
-                            try store.modify {
-                                $0.errorMessage = "Unable to save person: \(error.editParticipantSaveDescription)"
-                                $0.isSaving = false
-                            }
+                            try store.send(
+                                .saveFailed("Unable to save person: \(error.editParticipantSaveDescription)")
+                            )
                         }
                     }
                     return
                 }
 
                 state.errorMessage = validationMessage
+
+            case let .saveFailed(message):
+                state.errorMessage = message
+                state.isSaving = false
+
+            case .saveSucceeded:
+                state.errorMessage = nil
+                state.isSaving = false
+                store.addTask {
+                    _ = try? store.dismiss()
+                }
             }
         }
         .onMount { state in

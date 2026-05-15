@@ -12,6 +12,7 @@ extension DependencyValues {
         @Dependency(\.context) var context
 
         var configuration = Configuration()
+        configuration.busyMode = .timeout(5)
         configuration.foreignKeysEnabled = true
 
         #if DEBUG
