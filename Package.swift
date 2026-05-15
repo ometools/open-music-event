@@ -14,6 +14,7 @@ let package = Package(
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
         .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
         .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
+        .library(name: "SourceEditing", targets: ["SourceEditing"]),
         .library(name: "LiquidGlassSegmentedPicker", targets: ["LiquidGlassSegmentedPicker"]),
         .library(name: "ScheduleComponents", targets: ["ScheduleComponents"]),
         .library(name: "SwiftUITabFeatures", targets: ["SwiftUITabFeatures"]),
@@ -75,6 +76,12 @@ let package = Package(
         .target(
             name: "LiquidGlassSegmentedPicker",
             plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "SourceEditing",
+            dependencies: [
+                .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
         ),
         .target(
             name: "OpenMusicEventDatabase",
@@ -176,6 +183,13 @@ let package = Package(
             name: "ScheduleComponentsTests",
             dependencies: [
                 "ScheduleComponents",
+            ]
+        ),
+        .testTarget(
+            name: "SourceEditingTests",
+            dependencies: [
+                "SourceEditing",
+                .product(name: "CustomDump", package: "swift-custom-dump"),
             ]
         ),
         .testTarget(
