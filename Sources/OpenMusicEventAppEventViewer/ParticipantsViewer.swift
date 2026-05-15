@@ -344,15 +344,15 @@ public struct EditParticipant {
         public let eventID: OMERecord.Event.ID
         let mode: Mode
 
-        var bio = ""
-        var errorMessage: String?
-        var hasLoadedDraft = false
-        var imageURL = ""
-        var isSaving = false
-        var kind = ""
+        @DebugSnapshotTracked var bio: String = ""
+        @DebugSnapshotTracked var errorMessage: String?
+        @DebugSnapshotTracked var hasLoadedDraft: Bool = false
+        @DebugSnapshotTracked var imageURL: String = ""
+        @DebugSnapshotTracked var isSaving: Bool = false
+        @DebugSnapshotTracked var kind: String = ""
         var links: [EditableParticipantLink] = []
-        var logoURL = ""
-        var name = ""
+        @DebugSnapshotTracked var logoURL: String = ""
+        @DebugSnapshotTracked var name: String = ""
 
         var canSubmit: Bool {
             hasLoadedDraft && !isSaving && validationMessage == nil

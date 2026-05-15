@@ -5,6 +5,7 @@ import DebugSnapshots
 import Foundation
 import Sharing
 import SQLiteData
+import SwiftUI
 import Testing
 
 @testable import OpenMusicEvent
@@ -175,6 +176,22 @@ struct NavigationTests {
             store.state.eventViewer.peopleViewer?.destination?.participantDetail?.participantID == participantID
         )
         #expect(store.state.lastRequest == nil)
+    }
+
+    @Test
+    func eventViewerSearchUsesMountedEventIDForParticipantNavigation() async throws {
+        let selectedEventID = eventID("event-1")
+        let ambientEventID = eventID("other-event")
+        let participantID = participantLocalID("participant-1")
+        let store = try makeEventViewerHarnessStore(eventID: selectedEventID, defaultEventID: ambientEventID)
+
+        await store.send(to: \.eventViewer.eventSearch, .openParticipant(participantID))?.value
+        await Task.yield()
+
+        #expect(store.state.eventViewer.selectedFeature == .people)
+        #expect(
+            store.state.eventViewer.peopleViewer?.destination?.participantDetail?.eventID == selectedEventID
+        )
     }
 
     @Test
@@ -1082,6 +1099,95 @@ struct NavigationTests {
     }
 
     @Test
+    func editParticipantStoreBindingsSaveChanges() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let participantID = participantLocalID("artist-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertParticipant(db, eventID: eventID, participantID: "artist-1", name: "Old Name")
+        }
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditParticipant.State(participantID: participantID, eventID: eventID)) {
+                EditParticipant()
+            }
+        }
+
+        #expect(store.hasLoadedDraft)
+        #expect(store.name == "Old Name")
+
+        $store.name.wrappedValue = "New Name"
+        await store.send(.saveButtonTapped)?.value
+
+        let participant = try await database.read { db in
+            try #require(
+                try ParticipantDetail.participantQuery(
+                    participantID: participantID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+
+        #expect(participant.name == "New Name")
+    }
+
+    @Test
+    func participantDetailEditSheetBindingsSaveChanges() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let participantID = participantLocalID("artist-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertParticipant(db, eventID: eventID, participantID: "artist-1", name: "Old Name")
+        }
+
+        @Bindable var detailStore = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: ParticipantDetail.State(participantID: participantID, eventID: eventID)) {
+                ParticipantDetail()
+            }
+        }
+
+        detailStore.send(.editButtonTapped)
+
+        @Bindable var editStore = try #require(
+            $detailStore
+                .scope(state: \.destination, action: \.destination)
+                .editParticipant
+                .wrappedValue
+        )
+
+        #expect(editStore.hasLoadedDraft)
+        #expect(editStore.name == "Old Name")
+
+        $editStore.name.wrappedValue = "New Name"
+        await editStore.send(.saveButtonTapped)?.value
+
+        let participant = try await database.read { db in
+            try #require(
+                try ParticipantDetail.participantQuery(
+                    participantID: participantID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+
+        #expect(participant.name == "New Name")
+        #expect(detailStore.participant?.name == "New Name")
+        #expect(detailStore.destination == nil)
+    }
+
+    @Test
     func createParticipantSavesNewPerson() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -1582,13 +1688,14 @@ struct NavigationTests {
     }
 
     private func makeEventViewerHarnessStore(
-        eventID: OMERecord.Event.ID = eventID("event-1")
+        eventID: OMERecord.Event.ID = eventID("event-1"),
+        defaultEventID: OMERecord.Event.ID? = nil
     ) throws -> TestStore<EventViewerHarness> {
         let database = try makePreparedDatabase()
         return withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultEventID = eventID
+            $0.defaultEventID = defaultEventID ?? eventID
         } operation: {
             TestStore(initialState: EventViewerHarness.State(eventID: eventID)) {
                 EventViewerHarness()

@@ -296,6 +296,38 @@ struct SourceDatabaseInsertionTests {
                 deleted: 0
             )
         )
+
+        try await database.write { db in
+            try OME.Participant
+                .find(participantID("artist-one", eventID: "testival-2026", organizerID: organizerID))
+                .update { $0.name = "Updated Artist One" }
+                .execute(db)
+        }
+
+        let withParticipantChange = try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await database.read { db in
+                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            }
+        }
+
+        #expect(withParticipantChange.eventID == openedEventID)
+        #expect(withParticipantChange.availability == .available)
+        #expect(withParticipantChange.totalCount == 2)
+        let participantGroup = try #require(
+            withParticipantChange.groups.first { $0.id == OME.Participant.tableName }
+        )
+        expectNoDifference(
+            participantGroup,
+            SourceChangeGroup(
+                id: OME.Participant.tableName,
+                displayName: "Participant",
+                added: 0,
+                modified: 1,
+                deleted: 0
+            )
+        )
     }
 
     @Test
