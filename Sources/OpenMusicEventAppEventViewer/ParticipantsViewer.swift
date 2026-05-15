@@ -509,6 +509,7 @@ public struct EditParticipant {
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
+        let _ = Self._logChanges()
         Update { state, action in
             switch action {
             case .addLinkButtonTapped:

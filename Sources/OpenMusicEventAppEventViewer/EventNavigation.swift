@@ -39,7 +39,9 @@ public enum EventTarget: Equatable, Sendable {
             .posters
         case .notifications:
             .notifications
-        case .about, .edit:
+        case .edit:
+            .edit
+        case .about:
             .about
         }
     }

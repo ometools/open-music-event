@@ -2,7 +2,6 @@ import ComposableArchitecture2
 import Dependencies
 import Sharing
 import OpenMusicEventDatabase
-import OpenMusicEventSourceEditing
 import SQLiteData
 import SwiftUI
 import SwiftUITabFeatures
@@ -47,6 +46,7 @@ public struct EventViewer {
         case siteMap
         case posters
         case notifications
+        case edit
         case search
         case about
 
@@ -60,6 +60,7 @@ public struct EventViewer {
             .siteMap,
             .posters,
             .notifications,
+            .edit,
             .search,
             .about,
         ]
@@ -92,6 +93,8 @@ public struct EventViewer {
                 self = .posters
             case "notifications":
                 self = .notifications
+            case "edit":
+                self = .edit
             case "search":
                 self = .search
             case "about":
@@ -124,6 +127,8 @@ public struct EventViewer {
                 return "posters"
             case .notifications:
                 return "notifications"
+            case .edit:
+                return "edit"
             case .search:
                 return "search"
             case .about:
@@ -142,6 +147,7 @@ public struct EventViewer {
             case .siteMap: "Site Map"
             case .posters: "Posters"
             case .notifications: "Alerts"
+            case .edit: "Edit"
             case .search: "Search"
             case .about: "About"
             }
@@ -158,6 +164,7 @@ public struct EventViewer {
             case .siteMap: "map"
             case .posters: "photo.on.rectangle"
             case .notifications: "bell"
+            case .edit: "pencil"
             case .search: "magnifyingglass"
             case .about: "info.circle"
             }
@@ -174,6 +181,7 @@ public struct EventViewer {
             case .siteMap: .teal
             case .posters: .purple
             case .notifications: .red
+            case .edit: .yellow
             case .search: nil
             case .about: .gray
             }
@@ -194,6 +202,7 @@ public struct EventViewer {
             case .siteMap: return "openMusicEvent.eventViewer.siteMap"
             case .posters: return "openMusicEvent.eventViewer.posters"
             case .notifications: return "openMusicEvent.eventViewer.notifications"
+            case .edit: return "openMusicEvent.eventViewer.edit"
             case .search: return "openMusicEvent.eventViewer.search"
             case .about: return "openMusicEvent.eventViewer.about"
             }
@@ -237,14 +246,6 @@ public struct EventViewer {
 
             self.eventID = eventID
             self._eventViewerState = Shared(.eventViewerState(eventID))
-            self._editSummary = Fetch(
-                wrappedValue: EventEditSummary(
-                    eventID: eventID,
-                    availability: .notSourceBacked,
-                    groups: []
-                ),
-                EventEditSummaryRequest(eventID: eventID)
-            )
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
 
@@ -279,6 +280,8 @@ public struct EventViewer {
                         self.postersViewer = Spawn(PostersViewer.State())
                     case .notifications:
                         self.notificationsViewer = Spawn(NotificationsViewer.State())
+                    case .edit:
+                        self.editEvent = Spawn(EditEvent.State(eventID: eventID))
                     case .search:
                         self.eventSearch = Spawn(EventSearch.State())
                     case .about:
@@ -299,8 +302,6 @@ public struct EventViewer {
 
         public let eventID: OMERecord.Event.ID
         @Shared public var eventViewerState: EventViewerState
-        @DebugSnapshotIgnored
-        @Fetch public var editSummary: EventEditSummary
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
 
@@ -313,6 +314,7 @@ public struct EventViewer {
         public var siteMapViewer: Spawn<SiteMapViewer>?
         public var postersViewer: Spawn<PostersViewer>?
         public var notificationsViewer: Spawn<NotificationsViewer>?
+        public var editEvent: Spawn<EditEvent>?
         public var eventSearch = Spawn(EventSearch.State())
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
@@ -381,10 +383,10 @@ public struct EventViewer {
                 self.eventSearch.state = EventSearch.State()
                 self.peopleViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                if self.eventInfoViewer == nil {
-                    self.eventInfoViewer = Spawn(EventInfoViewer.State())
+                self.eventInfoViewer?.state.destination = nil
+                if self.editEvent == nil {
+                    self.editEvent = Spawn(EditEvent.State(eventID: self.eventID))
                 }
-                self.eventInfoViewer?.state.destination = .editEventInfo(Spawn(EditEventInfo.State()))
             default:
                 self.eventSearch.state = EventSearch.State()
                 self.peopleViewer?.state.destination = nil
@@ -439,6 +441,9 @@ public struct EventViewer {
         }
         .ifLet(\.notificationsViewer) {
             NotificationsViewer()
+        }
+        .ifLet(\.editEvent) {
+            EditEvent()
         }
         .ifLet(\.eventInfoViewer) {
             EventInfoViewer()
@@ -596,6 +601,18 @@ public struct EventViewerView: View {
                     }
                 }
 
+                if let featureStore = store.spawn(\.editEvent) {
+                    TabFeature(
+                        .edit,
+                        title: EventViewer.EventFeature.edit.title,
+                        systemImage: EventViewer.EventFeature.edit.systemImage,
+                        labelTint: EventViewer.EventFeature.edit.labelTint,
+                        navigation: .stack
+                    ) {
+                        EditEventView(store: featureStore)
+                    }
+                }
+
                 if let featureStore = store.spawn(\.eventInfoViewer) {
                     TabFeature(
                         .about,
@@ -697,6 +714,13 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.notifications)
             }
 
+            if let featureStore = store.spawn(\.editEvent) {
+                viewerTab(.edit) {
+                    EditEventView(store: featureStore)
+                }
+                .tag(EventViewer.EventFeature.edit)
+            }
+
             if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
                     EventInfoViewerView(store: featureStore)
@@ -775,6 +799,13 @@ public struct EventViewerView: View {
                     NotificationsViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.notifications)
+            }
+
+            if let featureStore = store.spawn(\.editEvent) {
+                viewerTab(.edit) {
+                    EditEventView(store: featureStore)
+                }
+                .tag(EventViewer.EventFeature.edit)
             }
 
             if let featureStore = store.spawn(\.eventInfoViewer) {

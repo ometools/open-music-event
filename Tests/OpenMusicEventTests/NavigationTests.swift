@@ -67,6 +67,10 @@ struct NavigationTests {
                 "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/stages/stage-1",
                 AppRoute.event(eventID("event-1"), .stage(stageLocalID("stage-1")))
             ),
+            (
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/edit",
+                AppRoute.event(eventID("event-1"), .edit)
+            ),
         ]
     )
     func appRouteRoundTrips(urlString: String, expected: AppRoute) throws {
@@ -138,6 +142,24 @@ struct NavigationTests {
         #expect(
             store.state.root.eventViewer?.stagesViewer?.destination?.stageDetail?.stageID == stageID
         )
+    }
+
+    @Test
+    func navigationRequestSelectsEditEventFeature() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            store.send(.root(.handleNavigationRequest(.event(eventID, .edit))))
+        }
+
+        #expect(store.state.root.eventViewer?.selectedFeature == .edit)
+        #expect(store.state.root.eventViewer?.editEvent?.eventID == eventID)
     }
 
     @Test
@@ -826,6 +848,8 @@ struct NavigationTests {
             "schedule:workshop",
         ])
         #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
+        #expect(state.installedFeatures.contains(.edit))
+        #expect(state.editEvent?.eventID == eventID)
     }
 
     @Test
