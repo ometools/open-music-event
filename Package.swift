@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
         .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
+        .library(name: "OpenMusicEventSourceEditing", targets: ["OpenMusicEventSourceEditing"]),
         .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
         .library(name: "SourceEditing", targets: ["SourceEditing"]),
         .library(name: "LiquidGlassSegmentedPicker", targets: ["LiquidGlassSegmentedPicker"]),
@@ -63,6 +64,7 @@ let package = Package(
                 "LiquidGlassSegmentedPicker",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",
+                "OpenMusicEventSourceEditing",
                 "OpenMusicEventTimeZones",
                 "ScheduleComponents",
                 "SwiftUITabFeatures",
@@ -89,6 +91,7 @@ let package = Package(
             dependencies: [
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
+                "OpenMusicEventSourceEditing",
                 "OpenMusicEventTimeZones",
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
@@ -103,6 +106,16 @@ let package = Package(
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "Lexicon", package: "tcatproto"),
                 .product(name: "LexiconSQLiteData", package: "tcatproto"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
+            ]
+        ),
+        .target(
+            name: "OpenMusicEventSourceEditing",
+            dependencies: [
+                "OpenMusicEventLexicon",
+                "OpenMusicEventSource",
+                "SourceEditing",
+                .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),

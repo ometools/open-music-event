@@ -523,30 +523,3 @@ extension OpenMusicEvent.Performance.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Participant.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Poster.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Channel.Draft: Codable, Equatable, Sendable {}
-
-public extension OpenMusicEvent {
-    protocol SourceRecord: Sendable {
-    }
-
-    static var sourceRecordTypes: [any SourceRecord.Type] {
-        [
-            Event.self,
-            Stage.self,
-            Participant.self,
-            Schedule.self,
-            Performance.self,
-            Performance.Participants.self,
-            Channel.self,
-            Poster.self,
-        ]
-    }
-}
-
-extension OpenMusicEvent.Event: OpenMusicEvent.SourceRecord {}
-extension OpenMusicEvent.Stage: OpenMusicEvent.SourceRecord {}
-extension OpenMusicEvent.Participant: OpenMusicEvent.SourceRecord {}
-extension OpenMusicEvent.Schedule: OpenMusicEvent.SourceRecord {}
-extension OpenMusicEvent.Performance: OpenMusicEvent.SourceRecord {}
-extension OpenMusicEvent.Performance.Participants: OpenMusicEvent.SourceRecord {}
-extension OpenMusicEvent.Channel: OpenMusicEvent.SourceRecord {}
-extension OpenMusicEvent.Poster: OpenMusicEvent.SourceRecord {}

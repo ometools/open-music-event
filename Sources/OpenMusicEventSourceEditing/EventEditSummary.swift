@@ -1,21 +1,24 @@
+import Dependencies
 import OpenMusicEventLexicon
 import SQLiteData
+import SourceEditing
 
 public struct EventEditSummary: Equatable, Sendable {
     public enum Availability: Equatable, Sendable {
         case available
         case missingBaseline
         case notSourceBacked
+        case unavailable(SourceChangeSummary.UnavailableReason)
     }
 
     public var eventID: OME.Event.ID
     public var availability: Availability
-    public var groups: [AnyRecordChangeGroup]
+    public var groups: [SourceChangeGroup]
 
     public init(
         eventID: OME.Event.ID,
         availability: Availability,
-        groups: [AnyRecordChangeGroup]
+        groups: [SourceChangeGroup]
     ) {
         self.eventID = eventID
         self.availability = availability
@@ -24,66 +27,6 @@ public struct EventEditSummary: Equatable, Sendable {
 
     public var totalCount: Int {
         groups.reduce(0) { $0 + $1.totalCount }
-    }
-}
-
-public struct RecordChangeGroup<Record: OME.SourceRecord>: Equatable, Sendable {
-    public var added: Int
-    public var modified: Int
-    public var deleted: Int
-
-    public init(
-        added: Int = 0,
-        modified: Int = 0,
-        deleted: Int = 0
-    ) {
-        self.added = added
-        self.modified = modified
-        self.deleted = deleted
-    }
-
-    public var recordName: String {
-        String(describing: Record.self)
-    }
-
-    public var totalCount: Int {
-        added + modified + deleted
-    }
-}
-
-public struct AnyRecordChangeGroup: Equatable, Sendable, Identifiable {
-    public var id: String
-    public var recordName: String
-    public var added: Int
-    public var modified: Int
-    public var deleted: Int
-
-    public init<Record: OME.SourceRecord>(_ group: RecordChangeGroup<Record>) {
-        self.init(
-            id: String(reflecting: Record.self),
-            recordName: String(describing: Record.self),
-            added: group.added,
-            modified: group.modified,
-            deleted: group.deleted
-        )
-    }
-
-    public init(
-        id: String,
-        recordName: String,
-        added: Int,
-        modified: Int,
-        deleted: Int
-    ) {
-        self.id = id
-        self.recordName = recordName
-        self.added = added
-        self.modified = modified
-        self.deleted = deleted
-    }
-
-    public var totalCount: Int {
-        added + modified + deleted
     }
 }
 
@@ -122,10 +65,43 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
             )
         }
 
-        return EventEditSummary(
-            eventID: eventID,
-            availability: .available,
-            groups: []
+        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+        let sourceSummary = try SourceEditingComparer().summary(
+            in: db,
+            baselineDatabase: baselineDatabase,
+            descriptors: OME.sourceTableDescriptors,
+            scope: eventScope
+        )
+
+        switch sourceSummary.availability {
+        case .available:
+            return EventEditSummary(
+                eventID: eventID,
+                availability: .available,
+                groups: sourceSummary.groups
+            )
+
+        case let .unavailable(reason):
+            return EventEditSummary(
+                eventID: eventID,
+                availability: .unavailable(reason),
+                groups: []
+            )
+        }
+    }
+
+    private var eventScope: SourceRecordScope {
+        SourceRecordScope(
+            filters: [
+                SourceRecordScope.Filter(
+                    columnName: "organizerID",
+                    value: eventID.organizerID.queryBinding
+                ),
+                SourceRecordScope.Filter(
+                    columnName: "eventID",
+                    value: eventID.eventID.rawValue.rawValue.queryBinding
+                ),
+            ]
         )
     }
 }

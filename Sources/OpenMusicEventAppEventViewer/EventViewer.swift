@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Sharing
 import OpenMusicEventDatabase
+import OpenMusicEventSourceEditing
 import SQLiteData
 import SwiftUI
 import SwiftUITabFeatures

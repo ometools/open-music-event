@@ -3,6 +3,7 @@ import Foundation
 import HTTPClient
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceEditing
 import SQLiteData
 
 public extension OME.SourceDatabaseInsertion {

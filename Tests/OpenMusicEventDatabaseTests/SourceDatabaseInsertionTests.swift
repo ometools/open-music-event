@@ -6,6 +6,7 @@ import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceEditing
 import SQLiteData
 import Testing
 
@@ -145,7 +146,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func lexiconListsSourceRecordTypes() {
+    func sourceEditingListsSourceRecordTypes() {
         expectNoDifference(
             OME.sourceRecordTypes.map(ObjectIdentifier.init),
             [
@@ -153,8 +154,6 @@ struct SourceDatabaseInsertionTests {
                 ObjectIdentifier(OME.Stage.self),
                 ObjectIdentifier(OME.Participant.self),
                 ObjectIdentifier(OME.Schedule.self),
-                ObjectIdentifier(OME.Performance.self),
-                ObjectIdentifier(OME.Performance.Participants.self),
                 ObjectIdentifier(OME.Channel.self),
                 ObjectIdentifier(OME.Poster.self),
             ]
@@ -162,19 +161,17 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func recordChangeGroupErasesGenericRecordType() {
-        let group = RecordChangeGroup<OME.Stage>(
+    func sourceChangeGroupCountsTotals() {
+        let group = SourceChangeGroup(
+            id: "stages",
+            displayName: "Stage",
             added: 1,
             modified: 2,
             deleted: 3
         )
-        let erased = AnyRecordChangeGroup(group)
 
-        #expect(group.recordName == "Stage")
+        #expect(group.displayName == "Stage")
         #expect(group.totalCount == 6)
-        #expect(erased.id == String(reflecting: OME.Stage.self))
-        #expect(erased.recordName == "Stage")
-        #expect(erased.totalCount == 6)
     }
 
     @Test
@@ -221,6 +218,13 @@ struct SourceDatabaseInsertionTests {
         )
 
         let baselineID = SourceBaselineRecord.ID(rawValue: "testival-source-main")
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+        var baselineMigrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &baselineMigrator)
+        try baselineMigrator.migrate(baselineDatabase.database)
+        try await insertion.insert(into: baselineDatabase.database)
+
         try await database.write { db in
             try SourceBaselineRecord.insert {
                 [
@@ -229,7 +233,7 @@ struct SourceDatabaseInsertionTests {
                         sourceKind: sourceProvenance.kind,
                         sourceReference: sourceProvenance.reference,
                         ref: sourceProvenance.ref,
-                        databaseFileName: "testival-source-main.sqlite",
+                        databaseFileName: URL(fileURLWithPath: baselineDatabase.path).lastPathComponent,
                         importedAt: testImageCacheDate
                     )
                 ]
@@ -248,18 +252,35 @@ struct SourceDatabaseInsertionTests {
                 )
             }
             .execute(db)
+
+            try OME.Stage
+                .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
+                .update { $0.name = "Updated Meadow" }
+                .execute(db)
         }
 
-        let available = try await database.read { db in
-            try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+        let available = try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await database.read { db in
+                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            }
         }
 
+        #expect(available.eventID == openedEventID)
+        #expect(available.availability == .available)
+        #expect(available.totalCount == 1)
+        let stageGroup = try #require(
+            available.groups.first { $0.id == OME.Stage.tableName }
+        )
         expectNoDifference(
-            available,
-            EventEditSummary(
-                eventID: openedEventID,
-                availability: .available,
-                groups: []
+            stageGroup,
+            SourceChangeGroup(
+                id: OME.Stage.tableName,
+                displayName: "Stage",
+                added: 0,
+                modified: 1,
+                deleted: 0
             )
         )
     }
