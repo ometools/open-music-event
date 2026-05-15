@@ -5,10 +5,10 @@ import SourceEditing
 import SQLiteData
 import Testing
 
-@Table("sourceRecords")
-private struct SourceRecord: Equatable, Sendable, Identifiable, SourceEditableTable {
+@Table("todos")
+private struct Todo: Equatable, Sendable, Identifiable, SourceEditableTable {
     @Column(primaryKey: true) var id: Int
-    var eventID: String
+    var listID: String
     var title: String
     var note: String?
     var localCache: String?
@@ -18,7 +18,7 @@ private struct SourceRecord: Equatable, Sendable, Identifiable, SourceEditableTa
     }
 
     static var sourceDisplayName: String {
-        "Source Record"
+        "Todo"
     }
 }
 
@@ -27,13 +27,13 @@ struct SourceEditingTests {
     @Test
     func descriptorDerivesTableMetadata() {
         expectNoDifference(
-            SourceRecord.sourceDescriptor,
+            Todo.sourceDescriptor,
             SourceTableDescriptor(
-                id: "sourceRecords",
-                tableName: "sourceRecords",
+                id: "todos",
+                tableName: "todos",
                 primaryKeyColumns: ["id"],
-                comparedColumns: ["eventID", "title", "note"],
-                displayName: "Source Record"
+                comparedColumns: ["listID", "title", "note"],
+                displayName: "Todo"
             )
         )
     }
@@ -44,10 +44,10 @@ struct SourceEditingTests {
         try fixture.updateWorking(id: 2, title: "New title")
         try fixture.deleteWorking(id: 3)
         try fixture.updateWorking(id: 4, localCache: "new")
-        try fixture.updateWorking(id: 5, title: "Other event changed")
-        try fixture.insertWorking(SourceRecord(id: 6, eventID: "event-1", title: "Added", note: nil, localCache: nil))
+        try fixture.updateWorking(id: 5, title: "Other list changed")
+        try fixture.insertWorking(Todo(id: 6, listID: "list-1", title: "Added", note: nil, localCache: nil))
 
-        let summary = try fixture.summary(scope: eventScope("event-1"))
+        let summary = try fixture.summary(scope: listScope("list-1"))
 
         expectNoDifference(
             summary,
@@ -55,8 +55,8 @@ struct SourceEditingTests {
                 availability: .available,
                 groups: [
                     SourceChangeGroup(
-                        id: "sourceRecords",
-                        displayName: "Source Record",
+                        id: "todos",
+                        displayName: "Todo",
                         added: 1,
                         modified: 1,
                         deleted: 1
@@ -71,14 +71,14 @@ struct SourceEditingTests {
     func nullValuesCompareAsUnchanged() throws {
         let fixture = try SourceEditingFixture()
 
-        let summary = try fixture.summary(scope: eventScope("event-1"))
+        let summary = try fixture.summary(scope: listScope("list-1"))
 
         expectNoDifference(
             summary.groups,
             [
                 SourceChangeGroup(
-                    id: "sourceRecords",
-                    displayName: "Source Record",
+                    id: "todos",
+                    displayName: "Todo",
                     added: 0,
                     modified: 0,
                     deleted: 0
@@ -93,7 +93,7 @@ struct SourceEditingTests {
         let fixture = try SourceEditingFixture()
         try fixture.updateWorking(id: 1, note: "Updated")
 
-        let summary = try fixture.summary(scope: eventScope("event-1"))
+        let summary = try fixture.summary(scope: listScope("list-1"))
 
         #expect(summary.groups.first?.modified == 1)
         #expect(summary.totalCount == 1)
@@ -104,12 +104,12 @@ struct SourceEditingTests {
         let fixture = try SourceEditingFixture(createBaselineTable: false)
         try fixture.createBaselineTable(columns: [
             #""id" INTEGER PRIMARY KEY NOT NULL"#,
-            #""eventID" TEXT NOT NULL"#,
+            #""listID" TEXT NOT NULL"#,
             #""note" TEXT"#,
             #""localCache" TEXT"#,
         ])
 
-        let summary = try fixture.summary(scope: eventScope("event-1"))
+        let summary = try fixture.summary(scope: listScope("list-1"))
 
         expectNoDifference(
             summary,
@@ -118,7 +118,7 @@ struct SourceEditingTests {
                     .schemaMismatch([
                         SourceSchemaMismatch(
                             role: .baseline,
-                            tableName: "sourceRecords",
+                            tableName: "todos",
                             missingColumnNames: ["title"]
                         )
                     ])
@@ -138,11 +138,11 @@ private final class SourceEditingFixture {
         self.baselineDatabase = try defaultBaselineDatabase()
 
         try workingDatabase.write { db in
-            try createSourceRecordsTable(in: db)
+            try createTodosTable(in: db)
         }
         if createBaselineTable {
             try baselineDatabase.write { db in
-                try createSourceRecordsTable(in: db)
+                try createTodosTable(in: db)
             }
         }
 
@@ -156,13 +156,13 @@ private final class SourceEditingFixture {
         try? FileManager.default.removeItem(atPath: baselineDatabase.path)
     }
 
-    static var records: [SourceRecord] {
+    static var records: [Todo] {
         [
-            SourceRecord(id: 1, eventID: "event-1", title: "Title", note: nil, localCache: nil),
-            SourceRecord(id: 2, eventID: "event-1", title: "Old title", note: nil, localCache: nil),
-            SourceRecord(id: 3, eventID: "event-1", title: "Deleted candidate", note: nil, localCache: nil),
-            SourceRecord(id: 4, eventID: "event-1", title: "Ignored cache", note: nil, localCache: "old"),
-            SourceRecord(id: 5, eventID: "event-2", title: "Other event", note: nil, localCache: nil),
+            Todo(id: 1, listID: "list-1", title: "Title", note: nil, localCache: nil),
+            Todo(id: 2, listID: "list-1", title: "Old title", note: nil, localCache: nil),
+            Todo(id: 3, listID: "list-1", title: "Deleted candidate", note: nil, localCache: nil),
+            Todo(id: 4, listID: "list-1", title: "Ignored cache", note: nil, localCache: "old"),
+            Todo(id: 5, listID: "list-2", title: "Other list", note: nil, localCache: nil),
         ]
     }
 
@@ -171,7 +171,7 @@ private final class SourceEditingFixture {
             let columnDefinitions = columns.joined(separator: ", ")
             try SQLQueryExpression(
                 """
-                CREATE TABLE "sourceRecords" (
+                CREATE TABLE "todos" (
                   \(raw: columnDefinitions)
                 ) STRICT
                 """
@@ -180,30 +180,30 @@ private final class SourceEditingFixture {
         }
     }
 
-    func insertWorking(_ records: [SourceRecord]) throws {
+    func insertWorking(_ records: [Todo]) throws {
         try workingDatabase.write { db in
-            try SourceRecord.insert { records }.execute(db)
+            try Todo.insert { records }.execute(db)
         }
     }
 
-    func insertWorking(_ record: SourceRecord) throws {
+    func insertWorking(_ record: Todo) throws {
         try insertWorking([record])
     }
 
-    func insertBaseline(_ records: [SourceRecord]) throws {
+    func insertBaseline(_ records: [Todo]) throws {
         try baselineDatabase.write { db in
-            try SourceRecord.insert { records }.execute(db)
+            try Todo.insert { records }.execute(db)
         }
     }
 
     func updateWorking(
-        id: SourceRecord.ID,
+        id: Todo.ID,
         title: String? = nil,
         note: String? = nil,
         localCache: String? = nil
     ) throws {
         try workingDatabase.write { db in
-            var record = try SourceRecord.find(id).fetchOne(db)!
+            var record = try Todo.find(id).fetchOne(db)!
             if let title {
                 record.title = title
             }
@@ -213,13 +213,13 @@ private final class SourceEditingFixture {
             if let localCache {
                 record.localCache = localCache
             }
-            try SourceRecord.update(record).execute(db)
+            try Todo.update(record).execute(db)
         }
     }
 
-    func deleteWorking(id: SourceRecord.ID) throws {
+    func deleteWorking(id: Todo.ID) throws {
         try workingDatabase.write { db in
-            try SourceRecord.find(id).delete().execute(db)
+            try Todo.find(id).delete().execute(db)
         }
     }
 
@@ -229,18 +229,18 @@ private final class SourceEditingFixture {
             $0.defaultBaselineDatabase = baselineDatabase
         } operation: {
             try SourceEditingComparer().summary(
-                descriptors: [SourceRecord.sourceDescriptor],
+                descriptors: [Todo.sourceDescriptor],
                 scope: scope
             )
         }
     }
 }
 
-private func createSourceRecordsTable(in db: Database) throws {
+private func createTodosTable(in db: Database) throws {
     try #sql("""
-        CREATE TABLE "sourceRecords" (
+        CREATE TABLE "todos" (
           "id" INTEGER PRIMARY KEY NOT NULL,
-          "eventID" TEXT NOT NULL,
+          "listID" TEXT NOT NULL,
           "title" TEXT NOT NULL,
           "note" TEXT,
           "localCache" TEXT
@@ -249,12 +249,12 @@ private func createSourceRecordsTable(in db: Database) throws {
         .execute(db)
 }
 
-private func eventScope(_ eventID: String) -> SourceRecordScope {
+private func listScope(_ listID: String) -> SourceRecordScope {
     SourceRecordScope(
         filters: [
             SourceRecordScope.Filter(
-                columnName: "eventID",
-                value: eventID.queryBinding
+                columnName: "listID",
+                value: listID.queryBinding
             )
         ]
     )
