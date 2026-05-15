@@ -80,6 +80,7 @@ let package = Package(
         .target(
             name: "SourceEditing",
             dependencies: [
+                .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),

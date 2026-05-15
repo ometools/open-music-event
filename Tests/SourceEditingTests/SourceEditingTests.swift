@@ -1,4 +1,5 @@
 import CustomDump
+import Dependencies
 import Foundation
 import SourceEditing
 import SQLiteData
@@ -40,20 +41,11 @@ struct SourceEditingTests {
     @Test
     func summaryCountsAddedModifiedAndDeletedRowsInsideScope() throws {
         let fixture = try SourceEditingFixture()
-        try fixture.insertBaseline([
-            SourceRecord(id: 1, eventID: "event-1", title: "Unchanged", note: nil, localCache: nil),
-            SourceRecord(id: 2, eventID: "event-1", title: "Old title", note: nil, localCache: nil),
-            SourceRecord(id: 3, eventID: "event-1", title: "Deleted", note: nil, localCache: nil),
-            SourceRecord(id: 4, eventID: "event-1", title: "Ignored cache", note: nil, localCache: "old"),
-            SourceRecord(id: 5, eventID: "event-2", title: "Other event", note: nil, localCache: nil),
-        ])
-        try fixture.insertWorking([
-            SourceRecord(id: 1, eventID: "event-1", title: "Unchanged", note: nil, localCache: nil),
-            SourceRecord(id: 2, eventID: "event-1", title: "New title", note: nil, localCache: nil),
-            SourceRecord(id: 4, eventID: "event-1", title: "Ignored cache", note: nil, localCache: "new"),
-            SourceRecord(id: 5, eventID: "event-2", title: "Other event changed", note: nil, localCache: nil),
-            SourceRecord(id: 6, eventID: "event-1", title: "Added", note: nil, localCache: nil),
-        ])
+        try fixture.updateWorking(id: 2, title: "New title")
+        try fixture.deleteWorking(id: 3)
+        try fixture.updateWorking(id: 4, localCache: "new")
+        try fixture.updateWorking(id: 5, title: "Other event changed")
+        try fixture.insertWorking(SourceRecord(id: 6, eventID: "event-1", title: "Added", note: nil, localCache: nil))
 
         let summary = try fixture.summary(scope: eventScope("event-1"))
 
@@ -78,12 +70,6 @@ struct SourceEditingTests {
     @Test
     func nullValuesCompareAsUnchanged() throws {
         let fixture = try SourceEditingFixture()
-        try fixture.insertBaseline([
-            SourceRecord(id: 1, eventID: "event-1", title: "Title", note: nil, localCache: nil),
-        ])
-        try fixture.insertWorking([
-            SourceRecord(id: 1, eventID: "event-1", title: "Title", note: nil, localCache: nil),
-        ])
 
         let summary = try fixture.summary(scope: eventScope("event-1"))
 
@@ -105,12 +91,7 @@ struct SourceEditingTests {
     @Test
     func nullAndNonNullValuesCompareAsModified() throws {
         let fixture = try SourceEditingFixture()
-        try fixture.insertBaseline([
-            SourceRecord(id: 1, eventID: "event-1", title: "Title", note: nil, localCache: nil),
-        ])
-        try fixture.insertWorking([
-            SourceRecord(id: 1, eventID: "event-1", title: "Title", note: "Updated", localCache: nil),
-        ])
+        try fixture.updateWorking(id: 1, note: "Updated")
 
         let summary = try fixture.summary(scope: eventScope("event-1"))
 
@@ -126,9 +107,6 @@ struct SourceEditingTests {
             #""eventID" TEXT NOT NULL"#,
             #""note" TEXT"#,
             #""localCache" TEXT"#,
-        ])
-        try fixture.insertWorking([
-            SourceRecord(id: 1, eventID: "event-1", title: "Title", note: nil, localCache: nil),
         ])
 
         let summary = try fixture.summary(scope: eventScope("event-1"))
@@ -153,17 +131,11 @@ struct SourceEditingTests {
 
 private final class SourceEditingFixture {
     let workingDatabase: any DatabaseWriter
-    let baselineDatabase: any DatabaseWriter
-    let baselineDatabaseURL: URL
+    let baselineDatabase: SourceBaselineDatabase
 
     init(createBaselineTable: Bool = true) throws {
-        let baselineDatabaseURL = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
-            .appendingPathComponent("SourceEditingTests-\(UUID().uuidString)")
-            .appendingPathExtension("sqlite")
-
         self.workingDatabase = try SQLiteData.defaultDatabase()
-        self.baselineDatabase = try DatabasePool(path: baselineDatabaseURL.path)
-        self.baselineDatabaseURL = baselineDatabaseURL
+        self.baselineDatabase = try defaultBaselineDatabase()
 
         try workingDatabase.write { db in
             try createSourceRecordsTable(in: db)
@@ -173,10 +145,25 @@ private final class SourceEditingFixture {
                 try createSourceRecordsTable(in: db)
             }
         }
+
+        try insertWorking(Self.records)
+        if createBaselineTable {
+            try insertBaseline(Self.records)
+        }
     }
 
     deinit {
-        try? FileManager.default.removeItem(at: baselineDatabaseURL)
+        try? FileManager.default.removeItem(atPath: baselineDatabase.path)
+    }
+
+    static var records: [SourceRecord] {
+        [
+            SourceRecord(id: 1, eventID: "event-1", title: "Title", note: nil, localCache: nil),
+            SourceRecord(id: 2, eventID: "event-1", title: "Old title", note: nil, localCache: nil),
+            SourceRecord(id: 3, eventID: "event-1", title: "Deleted candidate", note: nil, localCache: nil),
+            SourceRecord(id: 4, eventID: "event-1", title: "Ignored cache", note: nil, localCache: "old"),
+            SourceRecord(id: 5, eventID: "event-2", title: "Other event", note: nil, localCache: nil),
+        ]
     }
 
     func createBaselineTable(columns: [String]) throws {
@@ -199,17 +186,49 @@ private final class SourceEditingFixture {
         }
     }
 
+    func insertWorking(_ record: SourceRecord) throws {
+        try insertWorking([record])
+    }
+
     func insertBaseline(_ records: [SourceRecord]) throws {
         try baselineDatabase.write { db in
             try SourceRecord.insert { records }.execute(db)
         }
     }
 
+    func updateWorking(
+        id: SourceRecord.ID,
+        title: String? = nil,
+        note: String? = nil,
+        localCache: String? = nil
+    ) throws {
+        try workingDatabase.write { db in
+            var record = try SourceRecord.find(id).fetchOne(db)!
+            if let title {
+                record.title = title
+            }
+            if let note {
+                record.note = note
+            }
+            if let localCache {
+                record.localCache = localCache
+            }
+            try SourceRecord.update(record).execute(db)
+        }
+    }
+
+    func deleteWorking(id: SourceRecord.ID) throws {
+        try workingDatabase.write { db in
+            try SourceRecord.find(id).delete().execute(db)
+        }
+    }
+
     func summary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
-        try workingDatabase.read { db in
+        try withDependencies {
+            $0.defaultDatabase = workingDatabase
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
             try SourceEditingComparer().summary(
-                in: db,
-                baselineDatabasePath: baselineDatabaseURL.path,
                 descriptors: [SourceRecord.sourceDescriptor],
                 scope: scope
             )

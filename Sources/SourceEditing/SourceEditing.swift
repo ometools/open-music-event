@@ -1,3 +1,4 @@
+import Dependencies
 import Foundation
 import SQLiteData
 
@@ -154,6 +155,37 @@ public struct SourceSchemaMismatch: Equatable, Hashable, Sendable, Identifiable 
 
 public struct SourceEditingComparer: Sendable {
     public init() {}
+
+    public func summary(
+        descriptors: [SourceTableDescriptor],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
+        @Dependency(\.defaultDatabase) var database
+        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+
+        return try database.read { db in
+            try summary(
+                in: db,
+                baselineDatabase: baselineDatabase,
+                descriptors: descriptors,
+                scope: scope
+            )
+        }
+    }
+
+    public func summary(
+        in db: Database,
+        baselineDatabase: SourceBaselineDatabase,
+        descriptors: [SourceTableDescriptor],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
+        try summary(
+            in: db,
+            baselineDatabasePath: baselineDatabase.path,
+            descriptors: descriptors,
+            scope: scope
+        )
+    }
 
     public func summary(
         in db: Database,
