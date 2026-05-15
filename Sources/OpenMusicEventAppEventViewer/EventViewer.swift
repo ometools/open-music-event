@@ -2,7 +2,9 @@ import ComposableArchitecture2
 import Dependencies
 import Sharing
 import OpenMusicEventDatabase
+import OpenMusicEventSourceEditing
 import SQLiteData
+import SourceEditing
 import SwiftUI
 import SwiftUITabFeatures
 import Tagged
@@ -35,6 +37,8 @@ extension OMERecord.Event {
 @Feature
 public struct EventViewer {
     public init() {}
+
+    @Dependency(\.defaultDatabase) var database
 
     public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeatureValue {
         case schedule(ScheduleViewer.ScheduleDivision)
@@ -243,14 +247,20 @@ public struct EventViewer {
             eventID: OMERecord.Event.ID,
             features: [EventFeature]
         ) {
+            let sourceEditingSession = try? SourceEditingSession.openMusicEvent(eventID: eventID)
 
             self.eventID = eventID
+            self.sourceEditingSession = sourceEditingSession
             self._eventViewerState = Shared(.eventViewerState(eventID))
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
 
             withDependencies {
                 $0.defaultEventID = eventID
+                if let sourceEditingSession {
+                    $0.defaultDatabase = sourceEditingSession.database
+                    $0.sourceEditingSession = sourceEditingSession
+                }
             } operation: {
 
                 for feature in features {
@@ -301,6 +311,8 @@ public struct EventViewer {
         }
 
         public let eventID: OMERecord.Event.ID
+        @DebugSnapshotIgnored
+        public var sourceEditingSession: SourceEditingSession?
         @Shared public var eventViewerState: EventViewerState
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
@@ -449,6 +461,8 @@ public struct EventViewer {
             EventInfoViewer()
         }
         .dependency(\.defaultEventID, store.eventID)
+        .dependency(\.sourceEditingSession, store.sourceEditingSession)
+        .dependency(\.defaultDatabase, store.sourceEditingSession?.database ?? database)
     }
 }
 

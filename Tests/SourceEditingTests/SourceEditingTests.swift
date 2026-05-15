@@ -127,14 +127,61 @@ struct SourceEditingTests {
             )
         )
     }
+
+    @Test
+    func sessionUsesAttachedBaselineForSummariesAndWrites() throws {
+        let fixture = try SourceEditingFixture()
+        let session = try SourceEditingSession(
+            workingDatabasePath: fixture.workingDatabasePath,
+            baselineDatabasePath: fixture.baselineDatabase.path
+        )
+
+        try session.database.write { db in
+            try Todo
+                .find(2)
+                .update { $0.title = "Changed through session" }
+                .execute(db)
+        }
+
+        let summary = try withDependencies {
+            $0.defaultDatabase = session.database
+            $0.sourceEditingSession = session
+        } operation: {
+            try SourceEditingComparer().summary(
+                descriptors: [Todo.sourceDescriptor],
+                scope: listScope("list-1")
+            )
+        }
+
+        expectNoDifference(
+            summary,
+            SourceChangeSummary(
+                availability: .available,
+                groups: [
+                    SourceChangeGroup(
+                        id: "todos",
+                        displayName: "Todo",
+                        added: 0,
+                        modified: 1,
+                        deleted: 0
+                    )
+                ]
+            )
+        )
+    }
 }
 
 private final class SourceEditingFixture {
+    let workingDatabasePath: String
     let workingDatabase: any DatabaseWriter
     let baselineDatabase: SourceBaselineDatabase
 
     init(createBaselineTable: Bool = true) throws {
-        self.workingDatabase = try SQLiteData.defaultDatabase()
+        self.workingDatabasePath = FileManager.default.temporaryDirectory
+            .appending(path: "SourceEditingTests-\(UUID().uuidString)")
+            .appendingPathExtension("sqlite")
+            .path
+        self.workingDatabase = try DatabasePool(path: workingDatabasePath)
         self.baselineDatabase = try defaultBaselineDatabase()
 
         try workingDatabase.write { db in
@@ -153,6 +200,7 @@ private final class SourceEditingFixture {
     }
 
     deinit {
+        try? FileManager.default.removeItem(atPath: workingDatabasePath)
         try? FileManager.default.removeItem(atPath: baselineDatabase.path)
     }
 

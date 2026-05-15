@@ -65,13 +65,24 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
             )
         }
 
-        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
-        let sourceSummary = try SourceEditingComparer().summary(
-            in: db,
-            baselineDatabase: baselineDatabase,
-            descriptors: OME.sourceTableDescriptors,
-            scope: eventScope
-        )
+        @Dependency(\.sourceEditingSession) var sourceEditingSession
+        let sourceSummary: SourceChangeSummary
+        if let sourceEditingSession {
+            sourceSummary = try SourceEditingComparer().summary(
+                in: db,
+                baselineSchemaName: sourceEditingSession.baselineSchemaName,
+                descriptors: OME.sourceTableDescriptors,
+                scope: eventScope
+            )
+        } else {
+            @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+            sourceSummary = try SourceEditingComparer().summary(
+                in: db,
+                baselineDatabase: baselineDatabase,
+                descriptors: OME.sourceTableDescriptors,
+                scope: eventScope
+            )
+        }
 
         switch sourceSummary.availability {
         case .available:

@@ -50,6 +50,7 @@ let package = Package(
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
                 "OpenMusicEventTimeZones",
+                "SourceEditing",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
@@ -67,6 +68,7 @@ let package = Package(
                 "OpenMusicEventSourceEditing",
                 "OpenMusicEventTimeZones",
                 "ScheduleComponents",
+                "SourceEditing",
                 "SwiftUITabFeatures",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
@@ -210,6 +212,7 @@ let package = Package(
             name: "OpenMusicEventDatabaseTests",
             dependencies: [
                 "OpenMusicEventDatabase",
+                "SourceEditing",
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
             ]

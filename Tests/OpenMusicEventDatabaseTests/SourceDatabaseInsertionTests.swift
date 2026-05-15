@@ -8,6 +8,7 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SQLiteData
+import SourceEditing
 import Testing
 
 struct SourceDatabaseInsertionTests {
@@ -323,6 +324,76 @@ struct SourceDatabaseInsertionTests {
             SourceChangeGroup(
                 id: OME.Participant.tableName,
                 displayName: "Participant",
+                added: 0,
+                modified: 1,
+                deleted: 0
+            )
+        )
+    }
+
+    @Test
+    func eventEditSummaryUsesSourceEditingSessionDatabase() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appendingPathComponent("baseline.sqlite").path
+        )
+        let database = try makeCoreDatabase(path: workingDatabasePath)
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let session = try withDependencies {
+            $0.defaultDatabase = database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceEditingWorkingDatabasePath = workingDatabasePath
+        } operation: {
+            try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
+        }
+
+        try await session.database.write { db in
+            try OME.Stage
+                .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
+                .update { $0.name = "Changed through session" }
+                .execute(db)
+        }
+
+        let summary = try await withDependencies {
+            $0.defaultDatabase = session.database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceEditingSession = session
+        } operation: {
+            try await session.database.read { db in
+                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            }
+        }
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 1)
+        let stageGroup = try #require(
+            summary.groups.first { $0.id == OME.Stage.tableName }
+        )
+        expectNoDifference(
+            stageGroup,
+            SourceChangeGroup(
+                id: OME.Stage.tableName,
+                displayName: "Stage",
                 added: 0,
                 modified: 1,
                 deleted: 0
@@ -1398,8 +1469,16 @@ struct SourceDatabaseInsertionTests {
         )
     }
 
-    private func makeCoreDatabase() throws -> any DatabaseWriter {
-        let database = try SQLiteData.defaultDatabase()
+    private func makeCoreDatabase(path: String? = nil) throws -> any DatabaseWriter {
+        let database: any DatabaseWriter
+        if let path {
+            var configuration = Configuration()
+            configuration.busyMode = .timeout(5)
+            configuration.foreignKeysEnabled = true
+            database = try DatabasePool(path: path, configuration: configuration)
+        } else {
+            database = try SQLiteData.defaultDatabase()
+        }
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)

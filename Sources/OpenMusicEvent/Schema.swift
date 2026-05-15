@@ -2,6 +2,7 @@ import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SQLiteData
+import SourceEditing
 
 public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
@@ -45,6 +46,7 @@ extension DependencyValues {
             path = nil
         }
         let database = try SQLiteData.defaultDatabase(path: path, configuration: configuration)
+        sourceEditingWorkingDatabasePath = path
 
         var migrator = DatabaseMigrator()
         #if DEBUG

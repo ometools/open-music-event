@@ -161,10 +161,20 @@ public struct SourceEditingComparer: Sendable {
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
         @Dependency(\.defaultDatabase) var database
-        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+        @Dependency(\.sourceEditingSession) var sourceEditingSession
 
         return try database.read { db in
-            try summary(
+            if let sourceEditingSession {
+                return try summary(
+                    in: db,
+                    baselineSchemaName: sourceEditingSession.baselineSchemaName,
+                    descriptors: descriptors,
+                    scope: scope
+                )
+            }
+
+            @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+            return try summary(
                 in: db,
                 baselineDatabase: baselineDatabase,
                 descriptors: descriptors,
@@ -203,6 +213,20 @@ public struct SourceEditingComparer: Sendable {
             try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
         }
 
+        return try summary(
+            in: db,
+            baselineSchemaName: baselineSchemaName,
+            descriptors: descriptors,
+            scope: scope
+        )
+    }
+
+    public func summary(
+        in db: Database,
+        baselineSchemaName: String,
+        descriptors: [SourceTableDescriptor],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
         let mismatches = try schemaMismatches(
             in: db,
             baselineSchemaName: baselineSchemaName,
