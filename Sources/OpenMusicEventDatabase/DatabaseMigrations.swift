@@ -213,6 +213,26 @@ public extension OME {
                     .execute(db)
             }
 
+            migrator.registerMigration("Create OpenMusicEvent source baseline schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "sourceBaselines" (
+                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                      "sourceKind" TEXT NOT NULL,
+                      "sourceReference" TEXT NOT NULL,
+                      "ref" TEXT,
+                      "databaseFileName" TEXT NOT NULL,
+                      "importedAt" TEXT NOT NULL
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    ALTER TABLE "eventSourceProvenances"
+                    ADD COLUMN "sourceBaselineID" TEXT REFERENCES "sourceBaselines"("id") ON DELETE SET NULL
+                    """)
+                    .execute(db)
+            }
+
             migrator.registerMigration("Create OpenMusicEvent local image blob schema") { db in
                 try #sql("""
                     CREATE TABLE IF NOT EXISTS "localImageBlobs" (

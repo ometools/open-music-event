@@ -145,6 +145,126 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func lexiconListsSourceRecordTypes() {
+        expectNoDifference(
+            OME.sourceRecordTypes.map(ObjectIdentifier.init),
+            [
+                ObjectIdentifier(OME.Event.self),
+                ObjectIdentifier(OME.Stage.self),
+                ObjectIdentifier(OME.Participant.self),
+                ObjectIdentifier(OME.Schedule.self),
+                ObjectIdentifier(OME.Performance.self),
+                ObjectIdentifier(OME.Performance.Participants.self),
+                ObjectIdentifier(OME.Channel.self),
+                ObjectIdentifier(OME.Poster.self),
+            ]
+        )
+    }
+
+    @Test
+    func recordChangeGroupErasesGenericRecordType() {
+        let group = RecordChangeGroup<OME.Stage>(
+            added: 1,
+            modified: 2,
+            deleted: 3
+        )
+        let erased = AnyRecordChangeGroup(group)
+
+        #expect(group.recordName == "Stage")
+        #expect(group.totalCount == 6)
+        #expect(erased.id == String(reflecting: OME.Stage.self))
+        #expect(erased.recordName == "Stage")
+        #expect(erased.totalCount == 6)
+    }
+
+    @Test
+    func eventEditSummaryReportsSourceBaselineAvailability() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let database = try makeCoreDatabase()
+
+        let notSourceBacked = try await database.read { db in
+            try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+        }
+
+        expectNoDifference(
+            notSourceBacked,
+            EventEditSummary(
+                eventID: openedEventID,
+                availability: .notSourceBacked,
+                groups: []
+            )
+        )
+
+        try await insertion.insert(into: database)
+
+        let missingBaseline = try await database.read { db in
+            try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+        }
+
+        expectNoDifference(
+            missingBaseline,
+            EventEditSummary(
+                eventID: openedEventID,
+                availability: .missingBaseline,
+                groups: []
+            )
+        )
+
+        let baselineID = SourceBaselineRecord.ID(rawValue: "testival-source-main")
+        try await database.write { db in
+            try SourceBaselineRecord.insert {
+                [
+                    SourceBaselineRecord(
+                        id: baselineID,
+                        sourceKind: sourceProvenance.kind,
+                        sourceReference: sourceProvenance.reference,
+                        ref: sourceProvenance.ref,
+                        databaseFileName: "testival-source-main.sqlite",
+                        importedAt: testImageCacheDate
+                    )
+                ]
+            }
+            .execute(db)
+
+            try EventSourceProvenanceRecord.upsert {
+                EventSourceProvenanceRecord(
+                    id: openedEventID,
+                    sourceBaselineID: baselineID,
+                    sourceKind: sourceProvenance.kind,
+                    sourceReference: sourceProvenance.reference,
+                    ref: sourceProvenance.ref,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "testival-2026"
+                )
+            }
+            .execute(db)
+        }
+
+        let available = try await database.read { db in
+            try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+        }
+
+        expectNoDifference(
+            available,
+            EventEditSummary(
+                eventID: openedEventID,
+                availability: .available,
+                groups: []
+            )
+        )
+    }
+
+    @Test
     func importsSameLocalEventIDForDifferentOrganizers() async throws {
         let source = try makeSourceRepository(eventDirectoryName: "2025")
         let firstOrganizerID = try #require(OME.Organizer.ID("did:plc:firstorg"))

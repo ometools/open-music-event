@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Sharing
+import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
 import SwiftUITabFeatures
@@ -235,6 +236,14 @@ public struct EventViewer {
 
             self.eventID = eventID
             self._eventViewerState = Shared(.eventViewerState(eventID))
+            self._editSummary = Fetch(
+                wrappedValue: EventEditSummary(
+                    eventID: eventID,
+                    availability: .notSourceBacked,
+                    groups: []
+                ),
+                EventEditSummaryRequest(eventID: eventID)
+            )
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
 
@@ -289,6 +298,8 @@ public struct EventViewer {
 
         public let eventID: OMERecord.Event.ID
         @Shared public var eventViewerState: EventViewerState
+        @DebugSnapshotIgnored
+        @Fetch public var editSummary: EventEditSummary
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
 
