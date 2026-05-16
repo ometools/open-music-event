@@ -86,6 +86,7 @@ let package = Package(
         .target(
             name: "SourceEditing",
             dependencies: [
+                .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "SQLiteData", package: "sqlite-data"),

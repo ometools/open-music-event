@@ -1,3 +1,4 @@
+import CustomDump
 import Dependencies
 import Foundation
 import GRDB
@@ -30,6 +31,116 @@ public extension SourceEditableTable {
             comparedColumns: comparedColumns,
             displayName: sourceDisplayName
         )
+    }
+}
+
+private enum SourceRecordSnapshot<Record: Sendable>: Sendable {
+    case missing
+    case record(Record)
+}
+
+private struct SourceRecordDiffSnapshot<Record: Sendable>: Sendable, CustomDumpRepresentable {
+    var snapshot: SourceRecordSnapshot<Record>
+    var includedColumnNames: Set<String>
+
+    var customDumpValue: Any {
+        switch snapshot {
+        case .missing:
+            "missing"
+        case let .record(record):
+            SourceRecordDump(
+                record: record,
+                includedColumnNames: includedColumnNames
+            )
+        }
+    }
+}
+
+private struct SourceRecordDump<Record: Sendable>: Sendable, CustomDumpReflectable {
+    var record: Record
+    var includedColumnNames: Set<String>
+
+    var customDumpMirror: Mirror {
+        let mirror = Mirror(reflecting: record)
+        let children = mirror.children.compactMap { child -> Mirror.Child? in
+            guard let label = child.label,
+                  includedColumnNames.contains(label)
+            else { return nil }
+
+            return child
+        }
+
+        return Mirror(
+            record,
+            children: children,
+            displayStyle: mirror.displayStyle
+        )
+    }
+}
+
+public struct AnySourceEditableRecordType {
+    public var descriptor: SourceTableDescriptor
+    public var recordDiff: (SourceRecordChange, Database, String) throws -> String
+
+    public init(
+        descriptor: SourceTableDescriptor,
+        recordDiff: @escaping (SourceRecordChange, Database, String) throws -> String
+    ) {
+        self.descriptor = descriptor
+        self.recordDiff = recordDiff
+    }
+}
+
+public extension SourceEditableTable where QueryOutput: Sendable {
+    static var sourceRecordType: AnySourceEditableRecordType {
+        AnySourceEditableRecordType(
+            descriptor: sourceDescriptor,
+            recordDiff: { change, db, baselineSchemaName in
+                let includedColumnNames = Set(
+                    change.fieldChanges.map(\.columnName)
+                )
+                let baseline = SourceRecordDiffSnapshot(
+                    snapshot: try sourceRecordSnapshot(
+                        for: change,
+                        schemaName: baselineSchemaName,
+                        in: db
+                    ),
+                    includedColumnNames: includedColumnNames
+                )
+                let working = SourceRecordDiffSnapshot(
+                    snapshot: try sourceRecordSnapshot(
+                        for: change,
+                        schemaName: "main",
+                        in: db
+                    ),
+                    includedColumnNames: includedColumnNames
+                )
+
+                return diff(baseline, working) ?? ""
+            }
+        )
+    }
+
+    private static func sourceRecordSnapshot(
+        for change: SourceRecordChange,
+        schemaName: String,
+        in db: Database
+    ) throws -> SourceRecordSnapshot<QueryOutput> {
+        let record = try SQLQueryExpression<Self>(
+            """
+            SELECT *
+            FROM \(qualifiedTable(tableName, schemaName: schemaName))
+            WHERE \(try primaryKeyValuesPredicate(change.primaryKeyValues))
+            LIMIT 1
+            """,
+            as: Self.self
+        )
+        .fetchOne(db)
+
+        if let record {
+            return .record(record)
+        }
+        return .missing
     }
 }
 
@@ -127,15 +238,18 @@ public struct SourceRecordChange: Equatable, Hashable, Sendable, Identifiable {
     public var kind: SourceRecordChangeKind
     public var primaryKeyValues: [SourceColumnValue]
     public var fieldChanges: [SourceFieldChange]
+    public var recordDiff: String?
 
     public init(
         kind: SourceRecordChangeKind,
         primaryKeyValues: [SourceColumnValue],
-        fieldChanges: [SourceFieldChange]
+        fieldChanges: [SourceFieldChange],
+        recordDiff: String? = nil
     ) {
         self.kind = kind
         self.primaryKeyValues = primaryKeyValues
         self.fieldChanges = fieldChanges
+        self.recordDiff = recordDiff
     }
 }
 
@@ -250,6 +364,33 @@ public struct SourceEditingComparer: Sendable {
     }
 
     public func summary(
+        recordTypes: [AnySourceEditableRecordType],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
+        @Dependency(\.defaultDatabase) var database
+        @Dependency(\.sourceEditingSession) var sourceEditingSession
+
+        return try database.read { db in
+            if let sourceEditingSession {
+                return try summary(
+                    in: db,
+                    baselineSchemaName: sourceEditingSession.baselineSchemaName,
+                    recordTypes: recordTypes,
+                    scope: scope
+                )
+            }
+
+            @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+            return try summary(
+                in: db,
+                baselineDatabase: baselineDatabase,
+                recordTypes: recordTypes,
+                scope: scope
+            )
+        }
+    }
+
+    public func summary(
         in db: Database,
         baselineDatabase: SourceBaselineDatabase,
         descriptors: [SourceTableDescriptor],
@@ -259,6 +400,20 @@ public struct SourceEditingComparer: Sendable {
             in: db,
             baselineDatabasePath: baselineDatabase.path,
             descriptors: descriptors,
+            scope: scope
+        )
+    }
+
+    public func summary(
+        in db: Database,
+        baselineDatabase: SourceBaselineDatabase,
+        recordTypes: [AnySourceEditableRecordType],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
+        try summary(
+            in: db,
+            baselineDatabasePath: baselineDatabase.path,
+            recordTypes: recordTypes,
             scope: scope
         )
     }
@@ -283,6 +438,30 @@ public struct SourceEditingComparer: Sendable {
             in: db,
             baselineSchemaName: baselineSchemaName,
             descriptors: descriptors,
+            scope: scope
+        )
+    }
+
+    public func summary(
+        in db: Database,
+        baselineDatabasePath: String,
+        recordTypes: [AnySourceEditableRecordType],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
+        let baselineSchemaName = "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
+
+        try #sql(
+            "ATTACH DATABASE \(bind: baselineDatabasePath) AS \(quote: baselineSchemaName)"
+        )
+        .execute(db)
+        defer {
+            try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+        }
+
+        return try summary(
+            in: db,
+            baselineSchemaName: baselineSchemaName,
+            recordTypes: recordTypes,
             scope: scope
         )
     }
@@ -316,6 +495,49 @@ public struct SourceEditingComparer: Sendable {
         }
         return SourceChangeSummary(
             availability: .available,
+            groups: groups
+        )
+    }
+
+    public func summary(
+        in db: Database,
+        baselineSchemaName: String,
+        recordTypes: [AnySourceEditableRecordType],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
+        let summary = try summary(
+            in: db,
+            baselineSchemaName: baselineSchemaName,
+            descriptors: recordTypes.map(\.descriptor),
+            scope: scope
+        )
+        guard case .available = summary.availability else {
+            return summary
+        }
+
+        let recordTypesByID = Dictionary(
+            uniqueKeysWithValues: recordTypes.map { ($0.descriptor.id, $0) }
+        )
+        let groups = try summary.groups.map { group in
+            guard let recordType = recordTypesByID[group.id] else {
+                return group
+            }
+
+            var group = group
+            group.records = try group.records.map { record in
+                var record = record
+                record.recordDiff = try recordType.recordDiff(
+                    record,
+                    db,
+                    baselineSchemaName
+                )
+                return record
+            }
+            return group
+        }
+
+        return SourceChangeSummary(
+            availability: summary.availability,
             groups: groups
         )
     }
@@ -665,6 +887,21 @@ private func primaryKeyPredicate(
     return "(\(predicate))"
 }
 
+private func primaryKeyValuesPredicate(
+    _ primaryKeyValues: [SourceColumnValue]
+) throws -> QueryFragment {
+    guard !primaryKeyValues.isEmpty else {
+        return "0"
+    }
+
+    let predicate = try primaryKeyValues.map { primaryKeyValue in
+        let binding = try queryBinding(for: primaryKeyValue.value)
+        return "\(quote: primaryKeyValue.columnName) = \(binding)"
+    }
+    .joined(separator: " AND ")
+    return "(\(predicate))"
+}
+
 private func fetchRows(
     _ query: QueryFragment,
     in db: Database
@@ -727,6 +964,21 @@ private func databaseValue(for binding: QueryBinding) throws -> DatabaseValue {
 
 private struct SourceEditingUnsignedIntegerOverflow: Error {
     var unsignedInteger: UInt64
+}
+
+private func queryBinding(for databaseValue: DatabaseValue) throws -> QueryBinding {
+    switch databaseValue.storage {
+    case .null:
+        return .null
+    case let .int64(value):
+        return .int(value)
+    case let .double(value):
+        return .double(value)
+    case let .string(value):
+        return .text(value)
+    case let .blob(value):
+        return .blob([UInt8](value))
+    }
 }
 
 private func modifiedPredicate(

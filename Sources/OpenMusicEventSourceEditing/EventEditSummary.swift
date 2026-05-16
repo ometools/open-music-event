@@ -71,7 +71,7 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
             sourceSummary = try SourceEditingComparer().summary(
                 in: db,
                 baselineSchemaName: sourceEditingSession.baselineSchemaName,
-                descriptors: OME.sourceTableDescriptors,
+                recordTypes: OME.sourceRecordTypes,
                 scope: eventScope
             )
         } else {
@@ -79,7 +79,7 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
             sourceSummary = try SourceEditingComparer().summary(
                 in: db,
                 baselineDatabase: baselineDatabase,
-                descriptors: OME.sourceTableDescriptors,
+                recordTypes: OME.sourceRecordTypes,
                 scope: eventScope
             )
         }

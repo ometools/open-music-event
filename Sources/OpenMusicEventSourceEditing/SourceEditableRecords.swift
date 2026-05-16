@@ -2,7 +2,7 @@ import OpenMusicEventLexicon
 import SourceEditing
 
 public extension OME {
-    static var sourceRecordTypes: [any SourceEditableTable.Type] {
+    static var sourceRecordTableTypes: [any SourceEditableTable.Type] {
         [
             Event.self,
             Stage.self,
@@ -13,15 +13,19 @@ public extension OME {
         ]
     }
 
-    static var sourceTableDescriptors: [SourceTableDescriptor] {
+    static var sourceRecordTypes: [AnySourceEditableRecordType] {
         [
-            Event.sourceDescriptor,
-            Stage.sourceDescriptor,
-            Participant.sourceDescriptor,
-            Schedule.sourceDescriptor,
-            Channel.sourceDescriptor,
-            Poster.sourceDescriptor,
+            Event.sourceRecordType,
+            Stage.sourceRecordType,
+            Participant.sourceRecordType,
+            Schedule.sourceRecordType,
+            Channel.sourceRecordType,
+            Poster.sourceRecordType,
         ]
+    }
+
+    static var sourceTableDescriptors: [SourceTableDescriptor] {
+        sourceRecordTypes.map(\.descriptor)
     }
 }
 

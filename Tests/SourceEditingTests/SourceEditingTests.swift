@@ -23,6 +23,17 @@ private struct Todo: Equatable, Sendable, Identifiable, SourceEditableTable {
     }
 }
 
+private struct TodoAttachment: Codable, Equatable, Sendable {
+    var label: String
+    var rank: Int
+}
+
+@Table("typed_todos")
+private struct TypedTodo: Equatable, Sendable, Identifiable, SourceEditableTable {
+    @Column(primaryKey: true) var id: Int
+    @Column(as: TodoAttachment.JSONRepresentation.self) var attachment: TodoAttachment
+}
+
 @Suite
 struct SourceEditingTests {
     @Test
@@ -147,6 +158,51 @@ struct SourceEditingTests {
                 )
             ]
         )
+    }
+
+    @Test
+    func recordTypesRenderTypedDiffs() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.updateWorking(
+            id: 2,
+            title: "New title",
+            localCache: "Hidden cache"
+        )
+
+        let summary = try fixture.typedSummary(scope: listScope("list-1"))
+
+        let group = try #require(summary.groups.first)
+        let record = try #require(group.records.first)
+        #expect(record.recordDiff?.contains("Old title") == true)
+        #expect(record.recordDiff?.contains("New title") == true)
+        #expect(record.recordDiff?.contains("Hidden cache") == false)
+        #expect(record.recordDiff?.contains("localCache") == false)
+    }
+
+    @Test
+    func recordTypesDiffDecodedJSONColumns() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.createTypedTodosTable()
+        let record = TypedTodo(
+            id: 1,
+            attachment: TodoAttachment(label: "Before label", rank: 1)
+        )
+        try fixture.insertWorking(record)
+        try fixture.insertBaseline(record)
+        try fixture.updateWorkingTypedTodoAttachment(
+            id: 1,
+            attachment: TodoAttachment(label: "After label", rank: 1)
+        )
+
+        let summary = try fixture.typedTodoSummary()
+
+        let group = try #require(summary.groups.first)
+        let changedRecord = try #require(group.records.first)
+        let recordDiff = try #require(changedRecord.recordDiff)
+        #expect(recordDiff.contains("Before label"))
+        #expect(recordDiff.contains("After label"))
+        #expect(recordDiff.contains("TodoAttachment"))
+        #expect(!recordDiff.contains(#"{"label""#))
     }
 
     @Test
@@ -303,9 +359,21 @@ private final class SourceEditingFixture {
         try insertWorking([record])
     }
 
+    func insertWorking(_ record: TypedTodo) throws {
+        try workingDatabase.write { db in
+            try TypedTodo.insert { record }.execute(db)
+        }
+    }
+
     func insertBaseline(_ records: [Todo]) throws {
         try baselineDatabase.write { db in
             try Todo.insert { records }.execute(db)
+        }
+    }
+
+    func insertBaseline(_ record: TypedTodo) throws {
+        try baselineDatabase.write { db in
+            try TypedTodo.insert { record }.execute(db)
         }
     }
 
@@ -336,6 +404,26 @@ private final class SourceEditingFixture {
         }
     }
 
+    func createTypedTodosTable() throws {
+        try workingDatabase.write { db in
+            try createTypedTodosSQLTable(in: db)
+        }
+        try baselineDatabase.write { db in
+            try createTypedTodosSQLTable(in: db)
+        }
+    }
+
+    func updateWorkingTypedTodoAttachment(
+        id: TypedTodo.ID,
+        attachment: TodoAttachment
+    ) throws {
+        try workingDatabase.write { db in
+            var record = try TypedTodo.find(id).fetchOne(db)!
+            record.attachment = attachment
+            try TypedTodo.update(record).execute(db)
+        }
+    }
+
     func summary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
         try withDependencies {
             $0.defaultDatabase = workingDatabase
@@ -343,6 +431,30 @@ private final class SourceEditingFixture {
         } operation: {
             try SourceEditingComparer().summary(
                 descriptors: [Todo.sourceDescriptor],
+                scope: scope
+            )
+        }
+    }
+
+    func typedSummary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
+        try withDependencies {
+            $0.defaultDatabase = workingDatabase
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try SourceEditingComparer().summary(
+                recordTypes: [Todo.sourceRecordType],
+                scope: scope
+            )
+        }
+    }
+
+    func typedTodoSummary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
+        try withDependencies {
+            $0.defaultDatabase = workingDatabase
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try SourceEditingComparer().summary(
+                recordTypes: [TypedTodo.sourceRecordType],
                 scope: scope
             )
         }
@@ -357,6 +469,16 @@ private func createTodosTable(in db: Database) throws {
           "title" TEXT NOT NULL,
           "note" TEXT,
           "localCache" TEXT
+        ) STRICT
+        """)
+        .execute(db)
+}
+
+private func createTypedTodosSQLTable(in db: Database) throws {
+    try #sql("""
+        CREATE TABLE "typed_todos" (
+          "id" INTEGER PRIMARY KEY NOT NULL,
+          "attachment" TEXT NOT NULL
         ) STRICT
         """)
         .execute(db)

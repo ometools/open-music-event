@@ -150,7 +150,7 @@ struct SourceDatabaseInsertionTests {
     @Test
     func sourceEditingListsSourceRecordTypes() {
         expectNoDifference(
-            OME.sourceRecordTypes.map(ObjectIdentifier.init),
+            OME.sourceRecordTableTypes.map(ObjectIdentifier.init),
             [
                 ObjectIdentifier(OME.Event.self),
                 ObjectIdentifier(OME.Stage.self),
@@ -294,6 +294,7 @@ struct SourceDatabaseInsertionTests {
         #expect(stageGroup.deleted == 0)
         let stageRecord = try #require(stageGroup.records.first)
         #expect(stageRecord.kind == .modified)
+        #expect(stageRecord.recordDiff?.contains("Updated Meadow") == true)
         expectNoDifference(
             stageRecord.fieldChanges,
             [
@@ -332,6 +333,7 @@ struct SourceDatabaseInsertionTests {
         #expect(participantGroup.deleted == 0)
         let participantRecord = try #require(participantGroup.records.first)
         #expect(participantRecord.kind == .modified)
+        #expect(participantRecord.recordDiff?.contains("Updated Artist One") == true)
         expectNoDifference(
             participantRecord.fieldChanges,
             [
@@ -408,6 +410,7 @@ struct SourceDatabaseInsertionTests {
         #expect(stageGroup.deleted == 0)
         let stageRecord = try #require(stageGroup.records.first)
         #expect(stageRecord.kind == .modified)
+        #expect(stageRecord.recordDiff?.contains("Changed through session") == true)
         expectNoDifference(
             stageRecord.fieldChanges,
             [

@@ -138,8 +138,15 @@ struct SourceRecordChangeRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            ForEach(record.fieldChanges) { change in
-                SourceFieldChangeRow(change: change)
+            if let recordDiff = record.recordDiff, !recordDiff.isEmpty {
+                Text(recordDiff)
+                    .font(.caption)
+                    .monospaced()
+                    .textSelection(.enabled)
+            } else {
+                ForEach(record.fieldChanges) { change in
+                    SourceFieldChangeRow(change: change)
+                }
             }
         }
         .padding(.vertical, 4)
