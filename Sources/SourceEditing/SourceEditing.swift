@@ -1,5 +1,6 @@
 import Dependencies
 import Foundation
+import GRDB
 import SQLiteData
 
 public protocol SourceEditableTable: PrimaryKeyedTable {
@@ -76,25 +77,90 @@ public struct SourceRecordScope: Equatable, Hashable, Sendable {
     }
 }
 
+public enum SourceRecordChangeKind: String, CaseIterable, Equatable, Hashable, Sendable {
+    case added
+    case modified
+    case deleted
+}
+
+public struct SourceColumnValue: Equatable, Hashable, Sendable, Identifiable {
+    public var id: String { columnName }
+
+    public var columnName: String
+    public var value: DatabaseValue
+
+    public init(
+        columnName: String,
+        value: DatabaseValue
+    ) {
+        self.columnName = columnName
+        self.value = value
+    }
+}
+
+public struct SourceFieldChange: Equatable, Hashable, Sendable, Identifiable {
+    public var id: String { columnName }
+
+    public var columnName: String
+    public var baselineValue: DatabaseValue?
+    public var workingValue: DatabaseValue?
+
+    public init(
+        columnName: String,
+        baselineValue: DatabaseValue?,
+        workingValue: DatabaseValue?
+    ) {
+        self.columnName = columnName
+        self.baselineValue = baselineValue
+        self.workingValue = workingValue
+    }
+}
+
+public struct SourceRecordChange: Equatable, Hashable, Sendable, Identifiable {
+    public var id: String {
+        let primaryKey = primaryKeyValues
+            .map { "\($0.columnName)=\($0.value)" }
+            .joined(separator: ",")
+        return "\(kind.rawValue):\(primaryKey)"
+    }
+
+    public var kind: SourceRecordChangeKind
+    public var primaryKeyValues: [SourceColumnValue]
+    public var fieldChanges: [SourceFieldChange]
+
+    public init(
+        kind: SourceRecordChangeKind,
+        primaryKeyValues: [SourceColumnValue],
+        fieldChanges: [SourceFieldChange]
+    ) {
+        self.kind = kind
+        self.primaryKeyValues = primaryKeyValues
+        self.fieldChanges = fieldChanges
+    }
+}
+
 public struct SourceChangeGroup: Equatable, Hashable, Sendable, Identifiable {
     public var id: String
     public var displayName: String
     public var added: Int
     public var modified: Int
     public var deleted: Int
+    public var records: [SourceRecordChange]
 
     public init(
         id: String,
         displayName: String,
         added: Int,
         modified: Int,
-        deleted: Int
+        deleted: Int,
+        records: [SourceRecordChange] = []
     ) {
         self.id = id
         self.displayName = displayName
         self.added = added
         self.modified = modified
         self.deleted = deleted
+        self.records = records
     }
 
     public var totalCount: Int {
@@ -311,38 +377,142 @@ public struct SourceEditingComparer: Sendable {
         baselineSchemaName: String,
         scope: SourceRecordScope
     ) throws -> SourceChangeGroup {
-        let added = try fetchCount(
-            addedRowsQuery(
+        let records =
+            try addedRecords(
                 descriptor: descriptor,
                 baselineSchemaName: baselineSchemaName,
-                scope: scope
-            ),
-            in: db
-        )
-        let deleted = try fetchCount(
-            deletedRowsQuery(
+                scope: scope,
+                in: db
+            )
+            + modifiedRecords(
                 descriptor: descriptor,
                 baselineSchemaName: baselineSchemaName,
-                scope: scope
-            ),
-            in: db
-        )
-        let modified = try fetchCount(
-            modifiedRowsQuery(
+                scope: scope,
+                in: db
+            )
+            + deletedRecords(
                 descriptor: descriptor,
                 baselineSchemaName: baselineSchemaName,
-                scope: scope
-            ),
-            in: db
-        )
+                scope: scope,
+                in: db
+            )
 
         return SourceChangeGroup(
             id: descriptor.id,
             displayName: descriptor.displayName,
-            added: added,
-            modified: modified,
-            deleted: deleted
+            added: records.filter { $0.kind == .added }.count,
+            modified: records.filter { $0.kind == .modified }.count,
+            deleted: records.filter { $0.kind == .deleted }.count,
+            records: records
         )
+    }
+
+    private func addedRecords(
+        descriptor: SourceTableDescriptor,
+        baselineSchemaName: String,
+        scope: SourceRecordScope,
+        in db: Database
+    ) throws -> [SourceRecordChange] {
+        try fetchRows(
+            addedRowsQuery(
+                descriptor: descriptor,
+                baselineSchemaName: baselineSchemaName,
+                scope: scope
+            )
+            .query,
+            in: db
+        )
+        .map { row in
+            SourceRecordChange(
+                kind: .added,
+                primaryKeyValues: sourceColumnValues(
+                    descriptor.primaryKeyColumns,
+                    in: row
+                ),
+                fieldChanges: descriptor.comparedColumns.map { columnName in
+                    SourceFieldChange(
+                        columnName: columnName,
+                        baselineValue: nil,
+                        workingValue: row.databaseValue(forColumn: columnName)
+                    )
+                }
+            )
+        }
+    }
+
+    private func modifiedRecords(
+        descriptor: SourceTableDescriptor,
+        baselineSchemaName: String,
+        scope: SourceRecordScope,
+        in db: Database
+    ) throws -> [SourceRecordChange] {
+        guard !descriptor.comparedColumns.isEmpty else {
+            return []
+        }
+
+        return try fetchRows(
+            modifiedRowsQuery(
+                descriptor: descriptor,
+                baselineSchemaName: baselineSchemaName,
+                scope: scope
+            )
+            .query,
+            in: db
+        )
+        .map { row in
+            let fieldChanges = descriptor.comparedColumns.compactMap { columnName -> SourceFieldChange? in
+                let baselineValue = row.databaseValue(forColumn: "baseline_\(columnName)")
+                let workingValue = row.databaseValue(forColumn: "working_\(columnName)")
+                guard baselineValue != workingValue else { return nil }
+                return SourceFieldChange(
+                    columnName: columnName,
+                    baselineValue: baselineValue,
+                    workingValue: workingValue
+                )
+            }
+
+            return SourceRecordChange(
+                kind: .modified,
+                primaryKeyValues: sourceColumnValues(
+                    descriptor.primaryKeyColumns,
+                    in: row
+                ),
+                fieldChanges: fieldChanges
+            )
+        }
+    }
+
+    private func deletedRecords(
+        descriptor: SourceTableDescriptor,
+        baselineSchemaName: String,
+        scope: SourceRecordScope,
+        in db: Database
+    ) throws -> [SourceRecordChange] {
+        try fetchRows(
+            deletedRowsQuery(
+                descriptor: descriptor,
+                baselineSchemaName: baselineSchemaName,
+                scope: scope
+            )
+            .query,
+            in: db
+        )
+        .map { row in
+            SourceRecordChange(
+                kind: .deleted,
+                primaryKeyValues: sourceColumnValues(
+                    descriptor.primaryKeyColumns,
+                    in: row
+                ),
+                fieldChanges: descriptor.comparedColumns.map { columnName in
+                    SourceFieldChange(
+                        columnName: columnName,
+                        baselineValue: row.databaseValue(forColumn: columnName),
+                        workingValue: nil
+                    )
+                }
+            )
+        }
     }
 }
 
@@ -360,24 +530,20 @@ private func tableColumnNames(
     )
 }
 
-private func fetchCount(
-    _ query: SQLQueryExpression<Int>,
-    in db: Database
-) throws -> Int {
-    try query.fetchOne(db) ?? 0
-}
-
 private func addedRowsQuery(
     descriptor: SourceTableDescriptor,
     baselineSchemaName: String,
     scope: SourceRecordScope
-) -> SQLQueryExpression<Int> {
+) -> SQLQueryExpression<Any> {
     let workingAlias = "working"
     let baselineAlias = "baseline"
 
     return #sql(
         """
-        SELECT count(*)
+        SELECT \(columnSelections(
+            descriptor.primaryKeyColumns + descriptor.comparedColumns,
+            tableAlias: workingAlias
+        ))
         FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: workingAlias)
         WHERE \(scopePredicate(scope, alias: workingAlias))
         AND NOT EXISTS (
@@ -386,6 +552,7 @@ private func addedRowsQuery(
           WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
           AND \(scopePredicate(scope, alias: baselineAlias))
         )
+        ORDER BY \(orderByColumns(descriptor.primaryKeyColumns, tableAlias: workingAlias))
         """,
         as: Int.self
     )
@@ -395,13 +562,16 @@ private func deletedRowsQuery(
     descriptor: SourceTableDescriptor,
     baselineSchemaName: String,
     scope: SourceRecordScope
-) -> SQLQueryExpression<Int> {
+) -> SQLQueryExpression<Any> {
     let workingAlias = "working"
     let baselineAlias = "baseline"
 
     return #sql(
         """
-        SELECT count(*)
+        SELECT \(columnSelections(
+            descriptor.primaryKeyColumns + descriptor.comparedColumns,
+            tableAlias: baselineAlias
+        ))
         FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
         WHERE \(scopePredicate(scope, alias: baselineAlias))
         AND NOT EXISTS (
@@ -410,6 +580,7 @@ private func deletedRowsQuery(
           WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
           AND \(scopePredicate(scope, alias: workingAlias))
         )
+        ORDER BY \(orderByColumns(descriptor.primaryKeyColumns, tableAlias: baselineAlias))
         """,
         as: Int.self
     )
@@ -419,26 +590,57 @@ private func modifiedRowsQuery(
     descriptor: SourceTableDescriptor,
     baselineSchemaName: String,
     scope: SourceRecordScope
-) -> SQLQueryExpression<Int> {
-    guard !descriptor.comparedColumns.isEmpty else {
-        return #sql("SELECT 0", as: Int.self)
-    }
-
+) -> SQLQueryExpression<Any> {
     let workingAlias = "working"
     let baselineAlias = "baseline"
 
     return #sql(
         """
-        SELECT count(*)
+        SELECT \(columnSelections(
+            descriptor.primaryKeyColumns,
+            tableAlias: workingAlias
+        )),
+        \(columnSelections(
+            descriptor.comparedColumns,
+            tableAlias: baselineAlias,
+            outputPrefix: "baseline_"
+        )),
+        \(columnSelections(
+            descriptor.comparedColumns,
+            tableAlias: workingAlias,
+            outputPrefix: "working_"
+        ))
         FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: workingAlias)
         INNER JOIN \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
         ON \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
         WHERE \(scopePredicate(scope, alias: workingAlias))
         AND \(scopePredicate(scope, alias: baselineAlias))
         AND \(modifiedPredicate(descriptor.comparedColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
+        ORDER BY \(orderByColumns(descriptor.primaryKeyColumns, tableAlias: workingAlias))
         """,
         as: Int.self
     )
+}
+
+private func columnSelections(
+    _ columnNames: [String],
+    tableAlias: String,
+    outputPrefix: String = ""
+) -> QueryFragment {
+    columnNames
+        .map { columnName in
+            "\(quote: tableAlias).\(quote: columnName) AS \(quote: "\(outputPrefix)\(columnName)")"
+        }
+        .joined(separator: ", ")
+}
+
+private func orderByColumns(
+    _ columnNames: [String],
+    tableAlias: String
+) -> QueryFragment {
+    columnNames
+        .map { "\(quote: tableAlias).\(quote: $0)" }
+        .joined(separator: ", ")
 }
 
 private func qualifiedTable(
@@ -461,6 +663,70 @@ private func primaryKeyPredicate(
     }
     .joined(separator: " AND ")
     return "(\(predicate))"
+}
+
+private func fetchRows(
+    _ query: QueryFragment,
+    in db: Database
+) throws -> [Row] {
+    let prepared = query.prepare { _ in "?" }
+    return try Row.fetchAll(
+        db,
+        sql: prepared.sql,
+        arguments: StatementArguments(
+            try prepared.bindings.map { try databaseValue(for: $0) }
+        )
+    )
+}
+
+private func sourceColumnValues(
+    _ columnNames: [String],
+    in row: Row
+) -> [SourceColumnValue] {
+    columnNames.map { columnName in
+        SourceColumnValue(
+            columnName: columnName,
+            value: row.databaseValue(forColumn: columnName)
+        )
+    }
+}
+
+private extension Row {
+    func databaseValue(forColumn columnName: String) -> DatabaseValue {
+        self[columnName] as DatabaseValue
+    }
+}
+
+private func databaseValue(for binding: QueryBinding) throws -> DatabaseValue {
+    switch binding {
+    case let .blob(blob):
+        return Data(blob).databaseValue
+    case let .bool(bool):
+        return (bool ? 1 : 0).databaseValue
+    case let .date(date):
+        return ISO8601DateFormatter().string(from: date).databaseValue
+    case let .double(double):
+        return double.databaseValue
+    case let .int(int):
+        return int.databaseValue
+    case .null:
+        return .null
+    case let .text(text):
+        return text.databaseValue
+    case let .uint(uint):
+        guard uint <= UInt64(Int64.max) else {
+            throw SourceEditingUnsignedIntegerOverflow(unsignedInteger: uint)
+        }
+        return uint.databaseValue
+    case let .uuid(uuid):
+        return uuid.uuidString.lowercased().databaseValue
+    case let .invalid(error):
+        throw error
+    }
+}
+
+private struct SourceEditingUnsignedIntegerOverflow: Error {
+    var unsignedInteger: UInt64
 }
 
 private func modifiedPredicate(

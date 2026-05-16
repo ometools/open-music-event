@@ -1,4 +1,6 @@
 import ComposableArchitecture2
+import Foundation
+import GRDB
 import OpenMusicEventSourceEditing
 import SQLiteData
 import SwiftUI
@@ -60,10 +62,8 @@ public struct EditEventView: View {
                         }
                     }
 
-                    Section("Records") {
-                        ForEach(store.editSummary.groups.filter { $0.totalCount > 0 }) { group in
-                            SourceChangeGroupRow(group: group)
-                        }
+                    ForEach(store.editSummary.groups.filter { !$0.records.isEmpty }) { group in
+                        SourceChangeGroupSections(group: group)
                     }
                 }
 
@@ -87,42 +87,147 @@ public struct EditEventView: View {
     }
 }
 
-struct SourceChangeGroupRow: View {
+struct SourceChangeGroupSections: View {
     let group: SourceChangeGroup
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(group.displayName)
-                Text(group.changeSummary)
+        ForEach(kinds, id: \.self) { kind in
+            SourceChangeKindSection(
+                title: "\(kind.title) \(group.displayName)",
+                records: records(for: kind)
+            )
+        }
+    }
+
+    private var kinds: [SourceRecordChangeKind] {
+        SourceRecordChangeKind.allCases.filter { kind in
+            group.records.contains { $0.kind == kind }
+        }
+    }
+
+    private func records(for kind: SourceRecordChangeKind) -> [SourceRecordChange] {
+        group.records.filter { $0.kind == kind }
+    }
+}
+
+struct SourceChangeKindSection: View {
+    let title: String
+    let records: [SourceRecordChange]
+
+    var body: some View {
+        Section(title) {
+            ForEach(records) { record in
+                SourceRecordChangeRow(record: record)
+            }
+        }
+    }
+}
+
+struct SourceRecordChangeRow: View {
+    let record: SourceRecordChange
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(record.kind.title)
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(record.primaryKeySummary)
+                    .font(.caption)
+                    .monospaced()
                     .foregroundStyle(.secondary)
             }
 
-            Spacer()
-
-            Text(group.totalCount, format: .number)
-                .font(.headline)
-                .monospacedDigit()
+            ForEach(record.fieldChanges) { change in
+                SourceFieldChangeRow(change: change)
+            }
         }
         .padding(.vertical, 4)
     }
 }
 
-private extension SourceChangeGroup {
-    var changeSummary: String {
-        [
-            changeSummaryPart(count: added, name: "added"),
-            changeSummaryPart(count: modified, name: "modified"),
-            changeSummaryPart(count: deleted, name: "deleted"),
-        ]
-        .compactMap { $0 }
-        .joined(separator: ", ")
-    }
+struct SourceFieldChangeRow: View {
+    let change: SourceFieldChange
 
-    func changeSummaryPart(count: Int, name: String) -> String? {
-        guard count > 0 else { return nil }
-        return "\(count) \(name)"
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(change.columnName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("\(change.baselineValue.sourceDisplayValue) -> \(change.workingValue.sourceDisplayValue)")
+                .font(.caption)
+                .monospaced()
+                .textSelection(.enabled)
+        }
+    }
+}
+
+private extension SourceRecordChangeKind {
+    var title: String {
+        switch self {
+        case .added:
+            "Added"
+        case .modified:
+            "Modified"
+        case .deleted:
+            "Deleted"
+        }
+    }
+}
+
+private extension SourceRecordChange {
+    var primaryKeySummary: String {
+        primaryKeyValues
+            .map { "\($0.columnName)=\($0.value.sourceDisplayValue)" }
+            .joined(separator: ", ")
+    }
+}
+
+private extension Optional where Wrapped == DatabaseValue {
+    var sourceDisplayValue: String {
+        switch self {
+        case let .some(value):
+            value.sourceDisplayValue
+        case .none:
+            "missing"
+        }
+    }
+}
+
+private extension DatabaseValue {
+    var sourceDisplayValue: String {
+        switch storage {
+        case .null:
+            "NULL"
+        case let .int64(value):
+            "\(value)"
+        case let .double(value):
+            "\(value)"
+        case let .string(value):
+            value.sourceStringDisplayValue
+        case let .blob(data):
+            "<blob \(data.count) bytes>"
+        }
+    }
+}
+
+private extension String {
+    var sourceStringDisplayValue: String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isLikelyJSON {
+            return "<json \(utf8.count) bytes>"
+        }
+        if count > 240 {
+            return "\(String(prefix(160)).debugDescription) ... <\(utf8.count) bytes>"
+        }
+        return debugDescription
+    }
+}
+
+private extension String {
+    var isLikelyJSON: Bool {
+        (hasPrefix("{") && hasSuffix("}"))
+            || (hasPrefix("[") && hasSuffix("]"))
     }
 }
 

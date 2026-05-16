@@ -3,6 +3,7 @@ import CustomDump
 import Dependencies
 import FileTree
 import Foundation
+import GRDB
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
@@ -287,15 +288,21 @@ struct SourceDatabaseInsertionTests {
         let stageGroup = try #require(
             available.groups.first { $0.id == OME.Stage.tableName }
         )
+        #expect(stageGroup.displayName == "Stage")
+        #expect(stageGroup.added == 0)
+        #expect(stageGroup.modified == 1)
+        #expect(stageGroup.deleted == 0)
+        let stageRecord = try #require(stageGroup.records.first)
+        #expect(stageRecord.kind == .modified)
         expectNoDifference(
-            stageGroup,
-            SourceChangeGroup(
-                id: OME.Stage.tableName,
-                displayName: "Stage",
-                added: 0,
-                modified: 1,
-                deleted: 0
-            )
+            stageRecord.fieldChanges,
+            [
+                SourceFieldChange(
+                    columnName: "name",
+                    baselineValue: "Meadow".databaseValue,
+                    workingValue: "Updated Meadow".databaseValue
+                )
+            ]
         )
 
         try await database.write { db in
@@ -319,15 +326,21 @@ struct SourceDatabaseInsertionTests {
         let participantGroup = try #require(
             withParticipantChange.groups.first { $0.id == OME.Participant.tableName }
         )
+        #expect(participantGroup.displayName == "Participant")
+        #expect(participantGroup.added == 0)
+        #expect(participantGroup.modified == 1)
+        #expect(participantGroup.deleted == 0)
+        let participantRecord = try #require(participantGroup.records.first)
+        #expect(participantRecord.kind == .modified)
         expectNoDifference(
-            participantGroup,
-            SourceChangeGroup(
-                id: OME.Participant.tableName,
-                displayName: "Participant",
-                added: 0,
-                modified: 1,
-                deleted: 0
-            )
+            participantRecord.fieldChanges,
+            [
+                SourceFieldChange(
+                    columnName: "name",
+                    baselineValue: "Artist One".databaseValue,
+                    workingValue: "Updated Artist One".databaseValue
+                )
+            ]
         )
     }
 
@@ -389,15 +402,21 @@ struct SourceDatabaseInsertionTests {
         let stageGroup = try #require(
             summary.groups.first { $0.id == OME.Stage.tableName }
         )
+        #expect(stageGroup.displayName == "Stage")
+        #expect(stageGroup.added == 0)
+        #expect(stageGroup.modified == 1)
+        #expect(stageGroup.deleted == 0)
+        let stageRecord = try #require(stageGroup.records.first)
+        #expect(stageRecord.kind == .modified)
         expectNoDifference(
-            stageGroup,
-            SourceChangeGroup(
-                id: OME.Stage.tableName,
-                displayName: "Stage",
-                added: 0,
-                modified: 1,
-                deleted: 0
-            )
+            stageRecord.fieldChanges,
+            [
+                SourceFieldChange(
+                    columnName: "name",
+                    baselineValue: "Meadow".databaseValue,
+                    workingValue: "Changed through session".databaseValue
+                )
+            ]
         )
     }
 

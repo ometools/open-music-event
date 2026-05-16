@@ -28,6 +28,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+        .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
@@ -72,6 +73,7 @@ let package = Package(
                 "SwiftUITabFeatures",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ],
@@ -85,6 +87,7 @@ let package = Package(
             name: "SourceEditing",
             dependencies: [
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),
@@ -206,6 +209,7 @@ let package = Package(
             dependencies: [
                 "SourceEditing",
                 .product(name: "CustomDump", package: "swift-custom-dump"),
+                .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),
         .testTarget(
@@ -215,6 +219,7 @@ let package = Package(
                 "SourceEditing",
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
+                .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),
         .testTarget(

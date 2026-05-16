@@ -1,6 +1,7 @@
 import CustomDump
 import Dependencies
 import Foundation
+import GRDB
 import SourceEditing
 import SQLiteData
 import Testing
@@ -59,7 +60,44 @@ struct SourceEditingTests {
                         displayName: "Todo",
                         added: 1,
                         modified: 1,
-                        deleted: 1
+                        deleted: 1,
+                        records: [
+                            SourceRecordChange(
+                                kind: .added,
+                                primaryKeyValues: [
+                                    sourceColumnValue("id", 6.databaseValue)
+                                ],
+                                fieldChanges: [
+                                    sourceFieldChange("listID", workingValue: "list-1".databaseValue),
+                                    sourceFieldChange("title", workingValue: "Added".databaseValue),
+                                    sourceFieldChange("note", workingValue: .null),
+                                ]
+                            ),
+                            SourceRecordChange(
+                                kind: .modified,
+                                primaryKeyValues: [
+                                    sourceColumnValue("id", 2.databaseValue)
+                                ],
+                                fieldChanges: [
+                                    sourceFieldChange(
+                                        "title",
+                                        baselineValue: "Old title".databaseValue,
+                                        workingValue: "New title".databaseValue
+                                    )
+                                ]
+                            ),
+                            SourceRecordChange(
+                                kind: .deleted,
+                                primaryKeyValues: [
+                                    sourceColumnValue("id", 3.databaseValue)
+                                ],
+                                fieldChanges: [
+                                    sourceFieldChange("listID", baselineValue: "list-1".databaseValue),
+                                    sourceFieldChange("title", baselineValue: "Deleted candidate".databaseValue),
+                                    sourceFieldChange("note", baselineValue: .null),
+                                ]
+                            ),
+                        ]
                     )
                 ]
             )
@@ -97,6 +135,18 @@ struct SourceEditingTests {
 
         #expect(summary.groups.first?.modified == 1)
         #expect(summary.totalCount == 1)
+        let group = try #require(summary.groups.first)
+        let record = try #require(group.records.first)
+        expectNoDifference(
+            record.fieldChanges,
+            [
+                sourceFieldChange(
+                    "note",
+                    baselineValue: .null,
+                    workingValue: "Updated".databaseValue
+                )
+            ]
+        )
     }
 
     @Test
@@ -163,7 +213,22 @@ struct SourceEditingTests {
                         displayName: "Todo",
                         added: 0,
                         modified: 1,
-                        deleted: 0
+                        deleted: 0,
+                        records: [
+                            SourceRecordChange(
+                                kind: .modified,
+                                primaryKeyValues: [
+                                    sourceColumnValue("id", 2.databaseValue)
+                                ],
+                                fieldChanges: [
+                                    sourceFieldChange(
+                                        "title",
+                                        baselineValue: "Old title".databaseValue,
+                                        workingValue: "Changed through session".databaseValue
+                                    )
+                                ]
+                            )
+                        ]
                     )
                 ]
             )
@@ -305,5 +370,27 @@ private func listScope(_ listID: String) -> SourceRecordScope {
                 value: listID.queryBinding
             )
         ]
+    )
+}
+
+private func sourceColumnValue(
+    _ columnName: String,
+    _ value: DatabaseValue
+) -> SourceColumnValue {
+    SourceColumnValue(
+        columnName: columnName,
+        value: value
+    )
+}
+
+private func sourceFieldChange(
+    _ columnName: String,
+    baselineValue: DatabaseValue? = nil,
+    workingValue: DatabaseValue? = nil
+) -> SourceFieldChange {
+    SourceFieldChange(
+        columnName: columnName,
+        baselineValue: baselineValue,
+        workingValue: workingValue
     )
 }
