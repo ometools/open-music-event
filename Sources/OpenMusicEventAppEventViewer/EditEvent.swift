@@ -91,34 +91,38 @@ struct SourceChangeGroupRow: View {
     let group: SourceChangeGroup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(group.displayName)
-                Spacer()
-                Text(group.totalCount, format: .number)
-                    .font(.headline)
-                    .monospacedDigit()
+                Text(group.changeSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 12) {
-                ChangeCountLabel(title: "Added", count: group.added)
-                ChangeCountLabel(title: "Modified", count: group.modified)
-                ChangeCountLabel(title: "Deleted", count: group.deleted)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            Spacer()
+
+            Text(group.totalCount, format: .number)
+                .font(.headline)
+                .monospacedDigit()
         }
         .padding(.vertical, 4)
     }
 }
 
-struct ChangeCountLabel: View {
-    let title: String
-    let count: Int
+private extension SourceChangeGroup {
+    var changeSummary: String {
+        [
+            changeSummaryPart(count: added, name: "added"),
+            changeSummaryPart(count: modified, name: "modified"),
+            changeSummaryPart(count: deleted, name: "deleted"),
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
+    }
 
-    var body: some View {
-        Text("\(title) \(count)")
-            .monospacedDigit()
+    func changeSummaryPart(count: Int, name: String) -> String? {
+        guard count > 0 else { return nil }
+        return "\(count) \(name)"
     }
 }
 
