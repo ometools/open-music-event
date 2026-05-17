@@ -206,6 +206,36 @@ struct SourceEditingTests {
     }
 
     @Test
+    func recordTypeResolversCanSuppressCandidateChangesAndRecomputeCounts() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.updateWorking(id: 2, title: "New title")
+
+        let summary = try fixture.typedSummary(
+            recordTypes: [
+                AnySourceEditableRecordType(
+                    descriptor: Todo.sourceDescriptor,
+                    resolveRecordChange: { _, _, _ in nil }
+                )
+            ],
+            scope: listScope("list-1")
+        )
+
+        expectNoDifference(
+            summary.groups,
+            [
+                SourceChangeGroup(
+                    id: "todos",
+                    displayName: "Todo",
+                    added: 0,
+                    modified: 0,
+                    deleted: 0
+                )
+            ]
+        )
+        #expect(summary.totalCount == 0)
+    }
+
+    @Test
     func schemaMismatchReturnsUnavailableSummary() throws {
         let fixture = try SourceEditingFixture(createBaselineTable: false)
         try fixture.createBaselineTable(columns: [
@@ -436,13 +466,16 @@ private final class SourceEditingFixture {
         }
     }
 
-    func typedSummary(scope: SourceRecordScope = .all) throws -> SourceChangeSummary {
+    func typedSummary(
+        recordTypes: [AnySourceEditableRecordType] = [Todo.sourceRecordType],
+        scope: SourceRecordScope = .all
+    ) throws -> SourceChangeSummary {
         try withDependencies {
             $0.defaultDatabase = workingDatabase
             $0.defaultBaselineDatabase = baselineDatabase
         } operation: {
             try SourceEditingComparer().summary(
-                recordTypes: [Todo.sourceRecordType],
+                recordTypes: recordTypes,
                 scope: scope
             )
         }

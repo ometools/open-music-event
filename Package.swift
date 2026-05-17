@@ -121,7 +121,9 @@ let package = Package(
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
                 "SourceEditing",
+                .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Lexicon", package: "tcatproto"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),

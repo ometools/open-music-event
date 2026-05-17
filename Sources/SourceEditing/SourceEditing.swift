@@ -80,14 +80,28 @@ private struct SourceRecordDump<Record: Sendable>: Sendable, CustomDumpReflectab
 
 public struct AnySourceEditableRecordType {
     public var descriptor: SourceTableDescriptor
-    public var recordDiff: (SourceRecordChange, Database, String) throws -> String
+    public var resolveRecordChange: (SourceRecordChange, Database, String) throws -> SourceRecordChange?
+
+    public init(
+        descriptor: SourceTableDescriptor,
+        resolveRecordChange: @escaping (SourceRecordChange, Database, String) throws -> SourceRecordChange?
+    ) {
+        self.descriptor = descriptor
+        self.resolveRecordChange = resolveRecordChange
+    }
 
     public init(
         descriptor: SourceTableDescriptor,
         recordDiff: @escaping (SourceRecordChange, Database, String) throws -> String
     ) {
-        self.descriptor = descriptor
-        self.recordDiff = recordDiff
+        self.init(
+            descriptor: descriptor,
+            resolveRecordChange: { change, db, baselineSchemaName in
+                var change = change
+                change.recordDiff = try recordDiff(change, db, baselineSchemaName)
+                return change
+            }
+        )
     }
 }
 
@@ -126,7 +140,22 @@ public extension SourceEditableTable where QueryOutput: Sendable {
         schemaName: String,
         in db: Database
     ) throws -> SourceRecordSnapshot<QueryOutput> {
-        let record = try SQLQueryExpression<Self>(
+        if let record = try sourceRecord(
+            for: change,
+            schemaName: schemaName,
+            in: db
+        ) {
+            return .record(record)
+        }
+        return .missing
+    }
+
+    static func sourceRecord(
+        for change: SourceRecordChange,
+        schemaName: String,
+        in db: Database
+    ) throws -> QueryOutput? {
+        try SQLQueryExpression<Self>(
             """
             SELECT *
             FROM \(qualifiedTable(tableName, schemaName: schemaName))
@@ -136,11 +165,6 @@ public extension SourceEditableTable where QueryOutput: Sendable {
             as: Self.self
         )
         .fetchOne(db)
-
-        if let record {
-            return .record(record)
-        }
-        return .missing
     }
 }
 
@@ -524,15 +548,16 @@ public struct SourceEditingComparer: Sendable {
             }
 
             var group = group
-            group.records = try group.records.map { record in
-                var record = record
-                record.recordDiff = try recordType.recordDiff(
+            group.records = try group.records.compactMap { record in
+                try recordType.resolveRecordChange(
                     record,
                     db,
                     baselineSchemaName
                 )
-                return record
             }
+            group.added = group.records.filter { $0.kind == .added }.count
+            group.modified = group.records.filter { $0.kind == .modified }.count
+            group.deleted = group.records.filter { $0.kind == .deleted }.count
             return group
         }
 

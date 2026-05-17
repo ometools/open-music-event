@@ -424,6 +424,224 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func eventEditSummaryIgnoresImageFileURLBaseChangesWhenAssetKeyMatches() async throws {
+        let repositoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
+        let eventDirectoryURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "testival-2026", directoryHint: .isDirectory)
+        let imagesDirectoryURL = eventDirectoryURL.appending(path: "images", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: imagesDirectoryURL, withIntermediateDirectories: true)
+        try Data("stage-logo".utf8).write(to: imagesDirectoryURL.appending(path: "meadow-logo.png"))
+        try Data("artist-photo".utf8).write(to: imagesDirectoryURL.appending(path: "artist-one.png"))
+
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .file("images/meadow-logo.png"),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ],
+            participantImages: [
+                SourceImageAsset(
+                    source: .file("images/artist-one.png"),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source", ref: "main"),
+                sourceRootURL: repositoryURL
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let movedCacheDirectoryURL = try temporaryDirectoryURL()
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        try await database.write { db in
+            var stage = try #require(
+                try OME.Stage
+                    .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
+                    .fetchOne(db)
+            )
+            var stageImages = try #require(stage.images)
+            var stageImage = try #require(stageImages.first)
+            let stageURL = try #require(stageImage.url)
+            stageImage.source = .url(movedCacheDirectoryURL.appending(path: stageURL.lastPathComponent))
+            stageImages[0] = stageImage
+            stage.images = stageImages
+            try OME.Stage.update(stage).execute(db)
+
+            var participant = try #require(
+                try OME.Participant
+                    .find(participantID("artist-one", eventID: "testival-2026", organizerID: organizerID))
+                    .fetchOne(db)
+            )
+            var participantImages = try #require(participant.images)
+            var participantImage = try #require(participantImages.first)
+            let participantURL = try #require(participantImage.url)
+            participantImage.source = .url(movedCacheDirectoryURL.appending(path: participantURL.lastPathComponent))
+            participantImages[0] = participantImage
+            participant.images = participantImages
+            try OME.Participant.update(participant).execute(db)
+        }
+
+        let summary = try await eventEditSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 0)
+    }
+
+    @Test
+    func eventEditSummaryCountsRemoteImageURLChanges() async throws {
+        let baselinePhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let workingPhotoURL = try #require(URL(string: "https://example.com/artist-two.jpg"))
+        let source = try makeSourceRepository(
+            participantImages: [
+                SourceImageAsset(
+                    source: .url(baselinePhotoURL),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source", ref: "main")
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        try await database.write { db in
+            var participant = try #require(
+                try OME.Participant
+                    .find(participantID("artist-one", eventID: "testival-2026", organizerID: organizerID))
+                    .fetchOne(db)
+            )
+            var images = try #require(participant.images)
+            var image = try #require(images.first)
+            image.source = .url(workingPhotoURL)
+            images[0] = image
+            participant.images = images
+            try OME.Participant.update(participant).execute(db)
+        }
+
+        let summary = try await eventEditSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 1)
+        let participantGroup = try #require(
+            summary.groups.first { $0.id == OME.Participant.tableName }
+        )
+        #expect(participantGroup.modified == 1)
+        let record = try #require(participantGroup.records.first)
+        #expect(record.fieldChanges.map(\.columnName) == ["images"])
+        #expect(record.recordDiff?.contains(workingPhotoURL.absoluteString) == true)
+    }
+
+    @Test
+    func eventEditSummaryCountsImageMetadataChanges() async throws {
+        let photoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let source = try makeSourceRepository(
+            participantImages: [
+                SourceImageAsset(
+                    source: .url(photoURL),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source", ref: "main")
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        try await database.write { db in
+            var participant = try #require(
+                try OME.Participant
+                    .find(participantID("artist-one", eventID: "testival-2026", organizerID: organizerID))
+                    .fetchOne(db)
+            )
+            var images = try #require(participant.images)
+            var image = try #require(images.first)
+            image.focalPoint = OME.ImageAsset.FocalPoint(x: 0.25, y: 0.75)
+            images[0] = image
+            participant.images = images
+            try OME.Participant.update(participant).execute(db)
+        }
+
+        let summary = try await eventEditSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 1)
+        let participantGroup = try #require(
+            summary.groups.first { $0.id == OME.Participant.tableName }
+        )
+        #expect(participantGroup.modified == 1)
+        let record = try #require(participantGroup.records.first)
+        #expect(record.fieldChanges.map(\.columnName) == ["images"])
+        #expect(record.recordDiff?.contains("focalPoint") == true)
+    }
+
+    @Test
     func importsSameLocalEventIDForDifferentOrganizers() async throws {
         let source = try makeSourceRepository(eventDirectoryName: "2025")
         let firstOrganizerID = try #require(OME.Organizer.ID("did:plc:firstorg"))
@@ -1517,6 +1735,20 @@ struct SourceDatabaseInsertionTests {
                 )
             ]
         )
+    }
+
+    private func eventEditSummary(
+        eventID: OME.Event.ID,
+        database: any DatabaseReader,
+        baselineDatabase: SourceBaselineDatabase
+    ) async throws -> EventEditSummary {
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await database.read { db in
+                try EventEditSummaryRequest(eventID: eventID).fetch(db)
+            }
+        }
     }
 
     private func makeCoreDatabase(path: String? = nil) throws -> any DatabaseWriter {
