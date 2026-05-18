@@ -15,6 +15,7 @@ public struct OpenMusicEventBrowser {
         case following
         case myEvents
         case search
+        case settings
     }
 
     public struct State {
@@ -24,6 +25,7 @@ public struct OpenMusicEventBrowser {
         public var browse = Spawn(Browse.State())
         public var following = Spawn(Following.State())
         public var search = Spawn(Search.State())
+        public var settings = Spawn(Settings.State())
         public var myEvents = Spawn(MyEvents.State())
     }
 
@@ -48,6 +50,9 @@ public struct OpenMusicEventBrowser {
         }
         .spawn(\.search) {
             Search()
+        }
+        .spawn(\.settings) {
+            Settings()
         }
         .spawn(\.myEvents) { MyEvents() }
     }
@@ -94,6 +99,12 @@ public struct OpenMusicEventBrowserView: View {
                 }
             }
 
+            Tab("Settings", systemImage: "gearshape", value: OpenMusicEventBrowser.Tab.settings) {
+                NavigationStack {
+                    SettingsFeatureView(store: store.spawn(\.settings))
+                }
+            }
+
             Tab(value: OpenMusicEventBrowser.Tab.search, role: .search) {
                 SearchView(store: store.spawn(\.search))
             }
@@ -125,6 +136,14 @@ public struct OpenMusicEventBrowserView: View {
                 Label("My Events", systemImage: "star")
             }
             .tag(OpenMusicEventBrowser.Tab.myEvents)
+
+            NavigationStack {
+                SettingsFeatureView(store: store.spawn(\.settings))
+            }
+            .tabItem {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .tag(OpenMusicEventBrowser.Tab.settings)
 
             SearchView(store: store.spawn(\.search))
                 .tabItem {
@@ -160,6 +179,14 @@ public struct OpenMusicEventBrowserView: View {
                 Label("My Events", systemImage: "star")
             }
             .tag(OpenMusicEventBrowser.Tab.myEvents)
+
+            NavigationStack {
+                SettingsFeatureView(store: store.spawn(\.settings))
+            }
+            .tabItem {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .tag(OpenMusicEventBrowser.Tab.settings)
 
             NavigationStack {
                 SearchView(store: store.spawn(\.search))

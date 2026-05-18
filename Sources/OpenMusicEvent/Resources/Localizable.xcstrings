@@ -205,6 +205,9 @@
     "End Date" : {
 
     },
+    "Error Handling" : {
+
+    },
     "Event Name" : {
 
     },
@@ -509,6 +512,9 @@
     "Search feature stub." : {
 
     },
+    "Send Test Error" : {
+
+    },
     "Settings" : {
       "comment" : "Tab bar item title for the Settings tab",
       "localizations" : {
@@ -577,6 +583,9 @@
       }
     },
     "Testival 2026" : {
+
+    },
+    "Test error." : {
 
     },
     "This organizer has no events." : {
