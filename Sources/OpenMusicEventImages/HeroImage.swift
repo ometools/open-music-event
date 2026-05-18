@@ -1,16 +1,17 @@
 import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 import SwiftUI
 
-struct HeroImage<Placeholder: View>: View {
+public struct HeroImage<Placeholder: View>: View {
     let title: Text
-    let asset: OMERecord.ImageAsset?
+    let asset: OME.ImageAsset?
     let cacheContext: LocalImageCacheContext?
     let tint: Color
     @ViewBuilder var placeholder: () -> Placeholder
 
-    init(
+    public init(
         title: Text,
-        asset: OMERecord.ImageAsset?,
+        asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext?,
         tint: Color = .accentColor,
         @ViewBuilder placeholder: @escaping () -> Placeholder
@@ -22,7 +23,7 @@ struct HeroImage<Placeholder: View>: View {
         self.placeholder = placeholder
     }
 
-    var body: some View {
+    public var body: some View {
         ImageAssetAsyncImage(
             asset: asset,
             cacheContext: cacheContext,
@@ -40,7 +41,7 @@ struct HeroImage<Placeholder: View>: View {
     }
 }
 
-struct HeroImageList<HeroContent: View, ListContent: View>: View {
+public struct HeroImageList<HeroContent: View, ListContent: View>: View {
     let title: Text
     let heroContent: HeroContent
     let listContent: ListContent
@@ -49,7 +50,7 @@ struct HeroImageList<HeroContent: View, ListContent: View>: View {
     let stretchFactor: CGFloat = 400
     let coordinateSpaceName = "HeroImageListScroll"
 
-    init(
+    public init(
         title: Text,
         @ViewBuilder hero: () -> HeroContent,
         @ViewBuilder content: () -> ListContent
@@ -59,7 +60,7 @@ struct HeroImageList<HeroContent: View, ListContent: View>: View {
         self.listContent = content()
     }
 
-    var body: some View {
+    public var body: some View {
         #if os(Android)
         List {
             heroContent

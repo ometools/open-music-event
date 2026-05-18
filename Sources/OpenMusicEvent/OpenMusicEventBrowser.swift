@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventImages
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -508,11 +509,16 @@ public struct OrganizerDetailView: View {
     }
 
     public var body: some View {
-        List {
-            Section {
-                OrganizerHeaderView(organizerID: store.organizer?.id ?? store.organizerID)
+        HeroImageList(title: Text(organizerTitle)) {
+            HeroImage(
+                title: Text(organizerTitle),
+                asset: nil,
+                cacheContext: nil
+            ) {
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: 82, weight: .semibold))
             }
-
+        } content: {
             if !sections.currentEvents.isEmpty {
                 Section("Happening Now") {
                     eventRows(sections.currentEvents)
@@ -539,7 +545,6 @@ public struct OrganizerDetailView: View {
                 )
             }
         }
-        .navigationTitle(store.organizerID.description)
         .sheet(item: $store.scope(state: \.destination, action: \.destination).createEvent) { createEventStore in
             NavigationStack {
                 CreateEventView(store: createEventStore)
@@ -556,6 +561,10 @@ public struct OrganizerDetailView: View {
         OrganizerDetail.EventSections(events: store.events, now: now)
     }
 
+    private var organizerTitle: String {
+        (store.organizer?.id ?? store.organizerID).description
+    }
+
     @ViewBuilder
     private func eventRows(_ events: [OMERecord.Event]) -> some View {
         ForEach(events) { event in
@@ -565,31 +574,6 @@ public struct OrganizerDetailView: View {
                 EventRowView(event: event)
             }
         }
-    }
-}
-
-struct OrganizerHeaderView: View {
-    var organizerID: OMERecord.Organizer.ID
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "person.crop.circle")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-                .frame(width: 60, height: 60)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Organizer")
-                    .font(.headline)
-                Text(organizerID.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, 8)
     }
 }
 

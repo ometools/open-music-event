@@ -1,19 +1,20 @@
 import Dependencies
 import OpenMusicEventDatabase
+import OpenMusicEventLexicon
 import SwiftUI
 
-struct ImageAssetAsyncImage<Placeholder: View>: View {
-    let asset: OMERecord.ImageAsset?
+public struct ImageAssetAsyncImage<Placeholder: View>: View {
+    let asset: OME.ImageAsset?
     let cacheContext: LocalImageCacheContext?
     var contentMode: ContentMode?
     @ViewBuilder var placeholder: () -> Placeholder
     @Dependency(\.lazyImageCache) var lazyImageCache
-    @State var cachedAsset: OMERecord.ImageAsset?
+    @State var cachedAsset: OME.ImageAsset?
     @State var cachedTaskID: String?
     @State var failedTaskID: String?
 
-    init(
-        asset: OMERecord.ImageAsset?,
+    public init(
+        asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
         @ViewBuilder placeholder: @escaping () -> Placeholder
@@ -24,7 +25,7 @@ struct ImageAssetAsyncImage<Placeholder: View>: View {
         self.placeholder = placeholder
     }
 
-    var body: some View {
+    public var body: some View {
         if shouldShowCachePlaceholder {
             placeholder()
                 .task(id: cacheTaskID) {
@@ -51,7 +52,7 @@ struct ImageAssetAsyncImage<Placeholder: View>: View {
         }
     }
 
-    private var displayAsset: OMERecord.ImageAsset? {
+    private var displayAsset: OME.ImageAsset? {
         cachedTaskID == cacheTaskID ? cachedAsset ?? asset : asset
     }
 

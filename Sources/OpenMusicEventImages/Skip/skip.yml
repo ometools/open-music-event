@@ -1,0 +1,4 @@
+# Skip configuration for OpenMusicEventImages module
+
+skip:
+  mode: 'native'

@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventDatabase
+import OpenMusicEventImages
 import SQLiteData
 import Tagged
 import SwiftUI
@@ -266,8 +267,21 @@ public struct ParticipantDetailView: View {
     public var body: some View {
         Group {
             if let participant = store.participant {
-                List {
-                    ParticipantHeaderView(participant: participant)
+                HeroImageList(title: Text(participant.name)) {
+                    HeroImage(
+                        title: Text(participant.name),
+                        asset: participant.preferredArtworkAsset,
+                        cacheContext: .init(participantID: participant.id)
+                    ) {
+                        Image(systemName: "person.crop.square")
+                            .font(.system(size: 82, weight: .semibold))
+                    }
+                } content: {
+                    if let kind = participant.kind?.displayName {
+                        Section("Details") {
+                            LabeledContent("Kind", value: kind)
+                        }
+                    }
 
                     if let bio = participant.displayBio {
                         Section("About") {
@@ -283,7 +297,6 @@ public struct ParticipantDetailView: View {
                         }
                     }
                 }
-                .navigationTitle(participant.name)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Edit") {
@@ -768,35 +781,6 @@ public struct EditableParticipantLink: Identifiable, Equatable {
 
     private var trimmedURL: String {
         url.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-struct ParticipantHeaderView: View {
-    let participant: OMERecord.Participant
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ParticipantArtworkView(
-                asset: participant.preferredArtworkAsset,
-                cacheContext: .init(participantID: participant.id),
-                size: 72
-            )
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(participant.name)
-                    .font(.headline)
-                    .lineLimit(2)
-
-                if let kind = participant.kind?.displayName {
-                    Text(kind)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, 6)
     }
 }
 

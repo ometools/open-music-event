@@ -1,5 +1,6 @@
 import LiquidGlassSegmentedPicker
 import OpenMusicEventDatabase
+import OpenMusicEventImages
 import SwiftUI
 
 struct OMEScheduleStageSelector: View {

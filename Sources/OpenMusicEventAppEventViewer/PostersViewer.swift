@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Foundation
 import OpenMusicEventDatabase
+import OpenMusicEventImages
 import SQLiteData
 import SwiftUI
 

@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
         .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
+        .library(name: "OpenMusicEventImages", targets: ["OpenMusicEventImages"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
         .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
         .library(name: "OpenMusicEventSourceEditing", targets: ["OpenMusicEventSourceEditing"]),
@@ -52,6 +53,7 @@ let package = Package(
                 "ErrorHandling",
                 "OpenMusicEventAppEventViewer",
                 "OpenMusicEventDatabase",
+                "OpenMusicEventImages",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
                 "OpenMusicEventTimeZones",
@@ -71,6 +73,7 @@ let package = Package(
                 "ErrorHandling",
                 "LiquidGlassSegmentedPicker",
                 "OpenMusicEventDatabase",
+                "OpenMusicEventImages",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSourceEditing",
                 "OpenMusicEventTimeZones",
@@ -82,6 +85,15 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+            ],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "OpenMusicEventImages",
+            dependencies: [
+                "OpenMusicEventDatabase",
+                "OpenMusicEventLexicon",
+                .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),

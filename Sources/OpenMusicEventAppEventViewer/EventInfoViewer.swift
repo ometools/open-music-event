@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import Lexicon
+import OpenMusicEventImages
 import SQLiteData
 import SwiftUI
 
