@@ -30,25 +30,29 @@ public struct HeroImage<Placeholder: View>: View {
     }
 
     public var body: some View {
-        ImageAssetAsyncImage(
-            asset: asset,
-            cacheContext: cacheContext,
-            contentMode: .fill
-        ) {
-            HeroImageFallback(tint: tint) {
-                placeholder()
+        GeometryReader { geometry in
+            ImageAssetAsyncImage(
+                asset: asset,
+                cacheContext: cacheContext,
+                contentMode: .fill
+            ) {
+                HeroImageFallback(tint: tint) {
+                    placeholder()
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+            .overlay(alignment: .bottomLeading) {
+                HeroImageBottomChrome(
+                    title: title,
+                    logoAsset: logoAsset,
+                    logoCacheContext: logoCacheContext,
+                    tint: tint
+                )
+                .frame(width: geometry.size.width, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
-        .overlay(alignment: .bottomLeading) {
-            HeroImageBottomChrome(
-                title: title,
-                logoAsset: logoAsset,
-                logoCacheContext: logoCacheContext,
-                tint: tint
-            )
-        }
     }
 }
 
