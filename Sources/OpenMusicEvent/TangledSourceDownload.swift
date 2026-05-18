@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import ErrorHandling
 import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
@@ -117,26 +118,28 @@ public struct TangledSourceDownload {
                 state.errorMessage = nil
 
                 store.addTask {
-                    do {
-                        let result = try await tangledSourceImport.importSource(request)
-                        try store.modify {
-                            $0.isImporting = false
-                            $0.importedSummary = result.summary
-                            $0.errorMessage = nil
-                        }
-                        try store.post(
-                            key: SourceImportCompleted.self,
-                            value: result.organizerID
-                        )
-                        try store.dismiss()
-                    } catch {
-                        try store.modify {
-                            $0.isImporting = false
-                            $0.importedSummary = nil
-                            $0.errorMessage = error.localizedDescription
-                        }
-                        reportIssue(error)
+                    let result = await store.withErrorHandling(
+                        fallbackMessage: .sourceImportFailed,
+                        operation: .sourceImport
+                    ) {
+                        try await tangledSourceImport.importSource(request)
+                    } cleanup: {
+                        $0.isImporting = false
+                    } parseError: {
+                        SourceImportError.parser
                     }
+                    guard let result else { return }
+
+                    try store.modify {
+                        $0.isImporting = false
+                        $0.importedSummary = result.summary
+                        $0.errorMessage = nil
+                    }
+                    try store.post(
+                        key: SourceImportCompleted.self,
+                        value: result.organizerID
+                    )
+                    try store.dismiss()
                 }
             }
         }

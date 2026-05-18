@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%lld events" : {
+
+    },
     "%lld Items" : {
       "comment" : "Header title for a list that contains the number of items",
       "localizations" : {
@@ -199,18 +202,6 @@
     "Dates are saved as local calendar dates in %@." : {
 
     },
-    "%lld events" : {
-
-    },
-    "Import" : {
-
-    },
-    "Import Source" : {
-
-    },
-    "Imported" : {
-
-    },
     "End Date" : {
 
     },
@@ -320,6 +311,15 @@
       }
     },
     "https://tangled.org/owner/repo" : {
+
+    },
+    "Import" : {
+
+    },
+    "Import Source" : {
+
+    },
+    "Imported" : {
 
     },
     "Light" : {
@@ -607,6 +607,9 @@
           }
         }
       }
+    },
+    "Unable to import source." : {
+
     },
     "Upcoming Events" : {
 

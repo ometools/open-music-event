@@ -15,6 +15,7 @@ let package = Package(
         .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
         .library(name: "OpenMusicEventSourceEditing", targets: ["OpenMusicEventSourceEditing"]),
         .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
+        .library(name: "ErrorHandling", targets: ["ErrorHandling"]),
         .library(name: "SourceEditing", targets: ["SourceEditing"]),
         .library(name: "LiquidGlassSegmentedPicker", targets: ["LiquidGlassSegmentedPicker"]),
         .library(name: "ScheduleComponents", targets: ["ScheduleComponents"]),
@@ -28,6 +29,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
+        .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
@@ -46,6 +48,7 @@ let package = Package(
         .target(
             name: "OpenMusicEvent",
             dependencies: [
+                "ErrorHandling",
                 "OpenMusicEventAppEventViewer",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",
@@ -78,6 +81,13 @@ let package = Package(
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "ErrorHandling",
+            dependencies: [
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+            ]
         ),
         .target(
             name: "LiquidGlassSegmentedPicker",
@@ -192,12 +202,22 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "ErrorHandlingTests",
+            dependencies: [
+                "ErrorHandling",
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+            ]
+        ),
+        .testTarget(
             name: "OpenMusicEventTests",
             dependencies: [
+                "ErrorHandling",
                 "OpenMusicEvent",
                 "OpenMusicEventLexicon",
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),

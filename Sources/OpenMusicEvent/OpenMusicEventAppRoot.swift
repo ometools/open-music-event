@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import ErrorHandling
 import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import SQLiteData
@@ -14,6 +15,7 @@ public struct OpenMusicEventAppRoot {
 
         public var browser = Spawn(OpenMusicEventBrowser.State())
         public var eventViewer: Spawn<EventViewer>?
+        public var latestError: HandledError?
 
         @FetchOne(AppState.find(1))
         public var appState: AppState?
@@ -26,6 +28,7 @@ public struct OpenMusicEventAppRoot {
     public enum Action {
         case eventViewerDismissed
         case handleNavigationRequest(NavigationRequest)
+        case latestErrorBannerTapped
         case openRoute(AppRoute)
         case openURL(URL)
         case task
@@ -72,6 +75,9 @@ public struct OpenMusicEventAppRoot {
                 case .externalURL:
                     break
                 }
+
+            case .latestErrorBannerTapped:
+                break
 
             case .openRoute(let route):
                 if case let .event(eventID, target) = route.navigationRequest {
@@ -121,6 +127,9 @@ public struct OpenMusicEventAppRoot {
                 try store.send(.handleNavigationRequest(request))
             }
         }
+        .onEvent(ErrorReported.self) { error, state in
+            state.latestError = error
+        }
         .spawn(\.browser) {
             OpenMusicEventBrowser()
         }
@@ -139,6 +148,15 @@ public struct OpenMusicEventAppRootView: View {
 
     public var body: some View {
         browserView
+            .overlay(alignment: .top) {
+                if let latestError = store.latestError {
+                    GlobalErrorBanner(error: latestError) {
+                        store.send(.latestErrorBannerTapped)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                }
+            }
             .task {
                 await store.send(.task)?.value
             }
@@ -185,5 +203,35 @@ public struct OpenMusicEventAppRootView: View {
                 }
             }
         )
+    }
+}
+
+struct GlobalErrorBanner: View {
+    let error: HandledError
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .imageScale(.small)
+                Text(error.message.resource)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.red.opacity(0.35), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }

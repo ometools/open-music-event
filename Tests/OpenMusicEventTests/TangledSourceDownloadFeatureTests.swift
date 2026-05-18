@@ -1,8 +1,10 @@
 import ComposableArchitecture2
 import ATProto
 import Dependencies
+import ErrorHandling
 import Foundation
 import HTTPClient
+import IssueReporting
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
@@ -240,6 +242,35 @@ struct TangledSourceDownloadFeatureTests {
         await store.send(.importButtonTapped)?.value
 
         #expect(await recorder.requests.map(\.ref) == ["HEAD"])
+    }
+
+    @Test
+    func failedImportPostsErrorReported() async throws {
+        let store = withDependencies {
+            $0.context = .test
+            $0.exhaustivity = .off
+            $0.tangledSourceImport = TangledSourceImportClient { _ in
+                throw ImportFailure()
+            }
+        } operation: {
+            var initialState = SourceImportErrorHost.State()
+            initialState.sourceImport.state.repository = "https://tangled.org/woody.fm/shambhala-ome"
+            return TestStore(initialState: initialState) {
+                SourceImportErrorHost()
+            }
+        }
+
+        await withIssueReporters([]) {
+            await store.send(to: \.sourceImport, .importButtonTapped)?.value
+        }
+
+        #expect(store.state.sourceImport.state.isImporting == false)
+        #expect(store.state.sourceImport.state.importedSummary == nil)
+        #expect(store.state.sourceImport.state.errorMessage == nil)
+        #expect(store.isPresented == true)
+        #expect(store.state.latestError?.kind == .unhandled)
+        #expect(store.state.latestError?.message.fallback == "Unable to import source.")
+        #expect(store.state.latestError?.operation == .sourceImport)
     }
 
     @Test
@@ -579,6 +610,28 @@ private final class SourceRepositoryRemovalRecorder: @unchecked Sendable {
         lock.withLock {
             _values.append(sourceProvenance)
         }
+    }
+}
+
+private struct ImportFailure: Error {}
+
+@Feature
+private struct SourceImportErrorHost {
+    struct State {
+        var latestError: HandledError?
+        var sourceImport = Spawn(TangledSourceDownload.State())
+    }
+
+    enum Action {}
+
+    var body: some Feature {
+        Update { _, _ in }
+            .spawn(\.sourceImport) {
+                TangledSourceDownload()
+            }
+            .onEvent(ErrorReported.self) { error, state in
+                state.latestError = error
+            }
     }
 }
 
