@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import ATProto
 import Dependencies
+import DependenciesTestSupport
 import ErrorHandling
 import Foundation
 import HTTPClient
@@ -246,8 +247,10 @@ struct TangledSourceDownloadFeatureTests {
 
     @Test
     func failedImportPostsErrorReported() async throws {
+        let clock = TestClock()
         let store = withDependencies {
             $0.context = .test
+            $0.continuousClock = clock
             $0.exhaustivity = .off
             $0.tangledSourceImport = TangledSourceImportClient { _ in
                 throw ImportFailure()

@@ -86,6 +86,7 @@ let package = Package(
             name: "ErrorHandling",
             dependencies: [
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
             ]
         ),
@@ -206,6 +207,7 @@ let package = Package(
             dependencies: [
                 "ErrorHandling",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
             ]
         ),
@@ -217,6 +219,7 @@ let package = Package(
                 "OpenMusicEventLexicon",
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]

@@ -35,6 +35,7 @@ public struct OpenMusicEventAppRoot {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
+    @Dependency(\.continuousClock) var clock
 
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -125,6 +126,12 @@ public struct OpenMusicEventAppRoot {
         }
         .onEvent(ErrorReported.self) { error, state in
             state.errorNotifications.state.report(error)
+            store.addTask {
+                try await clock.sleep(for: ErrorNotifications.automaticDismissDelay)
+                try store.modify {
+                    $0.errorNotifications.state.dismiss(id: error.id)
+                }
+            }
         }
         .spawn(\.browser) {
             OpenMusicEventBrowser()
@@ -220,6 +227,8 @@ public struct OpenMusicEventGlobalErrorWindowView: View {
             if let latestError = store.latestError {
                 GlobalNotificationView(error: latestError) {
                     store.send(.latestErrorNotificationTapped)
+                } onDismiss: {
+                    store.send(.latestErrorNotificationDismissed)
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
@@ -236,12 +245,14 @@ public struct OpenMusicEventGlobalErrorWindowView: View {
 
 struct GlobalNotificationView: View {
     let error: HandledError
-    let action: () -> Void
+    let onTap: () -> Void
+    let onDismiss: () -> Void
 
     @Environment(\.colorScheme) var colorScheme
+    @GestureState var dragTranslation = CGSize.zero
 
     var body: some View {
-        Button(action: action) {
+        Button(action: onTap) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -283,6 +294,30 @@ struct GlobalNotificationView: View {
             .shadow(color: notificationShadow, radius: 18, y: 8)
         }
         .buttonStyle(.plain)
+        .offset(
+            x: dragTranslation.width,
+            y: min(0, dragTranslation.height)
+        )
+        .opacity(notificationOpacity)
+        .gesture(dismissGesture)
+    }
+
+    private var dismissGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .updating($dragTranslation) { value, state, _ in
+                state = value.translation
+            }
+            .onEnded { value in
+                if shouldDismiss(value) {
+                    onDismiss()
+                }
+            }
+    }
+
+    private var notificationOpacity: Double {
+        let verticalProgress = min(max(-dragTranslation.height / 80, 0), 1)
+        let horizontalProgress = min(max(abs(dragTranslation.width) / 180, 0), 1)
+        return 1 - max(verticalProgress, horizontalProgress) * 0.6
     }
 
     private var notificationSurface: Color {
@@ -317,6 +352,11 @@ struct GlobalNotificationView: View {
             Color.black.opacity(0.20)
         }
     }
+
+    private func shouldDismiss(_ value: DragGesture.Value) -> Bool {
+        value.predictedEndTranslation.height < -80
+            || abs(value.predictedEndTranslation.width) > 160
+    }
 }
 
 private extension View {
@@ -327,6 +367,8 @@ private extension View {
             if let error = store.latestError {
                 GlobalNotificationView(error: error) {
                     store.send(.latestErrorNotificationTapped)
+                } onDismiss: {
+                    store.send(.latestErrorNotificationDismissed)
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
