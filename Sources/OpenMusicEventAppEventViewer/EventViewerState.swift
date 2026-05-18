@@ -71,8 +71,7 @@ struct EventViewerStateKey: SharedKey {
         #if canImport(Combine)
         let fetch = Fetch(
             wrappedValue: EventViewerState(id: eventID),
-            EventViewerStateRequest(eventID: eventID),
-            database: database
+            EventViewerStateRequest(eventID: eventID)
         )
         let subscription = EventViewerStateFetchSubscription(fetch: fetch, subscriber: subscriber)
         return SharedSubscription {

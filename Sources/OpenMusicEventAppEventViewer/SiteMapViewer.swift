@@ -12,15 +12,9 @@ public struct SiteMapViewer {
         public let eventID: OMERecord.Event.ID
         @FetchOne public var event: OMERecord.Event?
 
-        public init(
-            eventID: OMERecord.Event.ID,
-            database: (any DatabaseReader)? = nil
-        ) {
+        public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
-            _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) },
-                database: database
-            )
+            _event = FetchOne(OMERecord.Event.where { $0.id.eq(eventID) })
         }
     }
 

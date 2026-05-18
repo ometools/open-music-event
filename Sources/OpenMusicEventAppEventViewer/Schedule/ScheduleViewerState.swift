@@ -170,8 +170,7 @@ struct ScheduleViewerStateKey: SharedKey {
             ScheduleViewerStateRequest(
                 eventID: eventID,
                 scheduleDivision: scheduleDivision
-            ),
-            database: database
+            )
         )
         let subscription = ScheduleViewerStateFetchSubscription(fetch: fetch, subscriber: subscriber)
         return SharedSubscription {

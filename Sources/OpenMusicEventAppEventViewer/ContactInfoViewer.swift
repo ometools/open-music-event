@@ -15,14 +15,12 @@ public struct ContactInfoViewer {
 
         public init(
             eventID: OMERecord.Event.ID,
-            destination: Destination.State? = nil,
-            database: (any DatabaseReader)? = nil
+            destination: Destination.State? = nil
         ) {
             self.eventID = eventID
             self.destination = destination
             _event = FetchOne(
-                OMERecord.Event.where { $0.id.eq(eventID) },
-                database: database
+                OMERecord.Event.where { $0.id.eq(eventID) }
             )
         }
     }

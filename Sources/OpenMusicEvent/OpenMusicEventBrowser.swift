@@ -289,11 +289,7 @@ public struct Following {
         Update { state, action in
             switch action {
             case .organizerRowTapped(let organizerID):
-                @Dependency(\.defaultDatabase) var database
-                state.organizerDetail = .init(
-                    organizerID: organizerID,
-                    database: database
-                )
+                state.organizerDetail = .init(organizerID: organizerID)
 
             case .eventButtonTapped(let eventID):
                 store.addTask {
@@ -344,19 +340,10 @@ public struct OrganizerDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public init(
-            organizerID: OMERecord.Organizer.ID,
-            database: (any DatabaseReader)? = nil
-        ) {
+        public init(organizerID: OMERecord.Organizer.ID) {
             self.organizerID = organizerID
-            _organizer = FetchOne(
-                OrganizerDetail.organizerQuery(organizerID: organizerID),
-                database: database
-            )
-            _events = FetchAll(
-                OrganizerDetail.eventsQuery(organizerID: organizerID),
-                database: database
-            )
+            _organizer = FetchOne(OrganizerDetail.organizerQuery(organizerID: organizerID))
+            _events = FetchAll(OrganizerDetail.eventsQuery(organizerID: organizerID))
         }
 
         var destination: Destination.State?

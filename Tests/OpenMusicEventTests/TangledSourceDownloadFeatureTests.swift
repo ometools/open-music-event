@@ -108,8 +108,7 @@ struct TangledSourceDownloadFeatureTests {
         } operation: {
             var initialState = MyEvents.State()
             initialState.organizerDetail = OrganizerDetail.State(
-                organizerID: eventID.organizerID,
-                database: database
+                organizerID: eventID.organizerID
             )
             return TestStore(initialState: initialState) {
                 MyEvents()

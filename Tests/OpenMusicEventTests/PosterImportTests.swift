@@ -35,7 +35,7 @@ struct PosterImportTests {
             $0.defaultEventID = eventID
             $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
         } operation: {
-            Store(initialState: PostersViewer.State(eventID: eventID, database: database)) {
+            Store(initialState: PostersViewer.State(eventID: eventID)) {
                 PostersViewer()
             }
         }
@@ -158,7 +158,7 @@ struct PosterImportTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            Store(initialState: PostersViewer.State(eventID: eventID, database: database)) {
+            Store(initialState: PostersViewer.State(eventID: eventID)) {
                 PostersViewer()
             }
         }
@@ -196,7 +196,7 @@ struct PosterImportTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            Store(initialState: PosterDetail.State(posterID: posterID, database: database)) {
+            Store(initialState: PosterDetail.State(posterID: posterID)) {
                 PosterDetail()
             }
         }

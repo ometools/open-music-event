@@ -14,14 +14,12 @@ public struct PeopleViewer {
     public struct State {
         public init(
             eventID: OMERecord.Event.ID,
-            destination: Destination.State? = nil,
-            database: (any DatabaseReader)? = nil
+            destination: Destination.State? = nil
         ) {
             self.eventID = eventID
             self.destination = destination
             _participants = FetchAll(
-                PeopleViewer.participantsQuery(eventID: eventID),
-                database: database
+                PeopleViewer.participantsQuery(eventID: eventID)
             )
         }
 
@@ -193,8 +191,7 @@ public struct ParticipantDetail {
 
         public init(
             participantID: OMERecord.ID<OMERecord.Participant>,
-            eventID: OMERecord.Event.ID? = nil,
-            database: (any DatabaseReader)? = nil
+            eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
 
@@ -204,8 +201,7 @@ public struct ParticipantDetail {
                 ParticipantDetail.participantQuery(
                     participantID: participantID,
                     eventID: self.eventID
-                ),
-                database: database
+                )
             )
         }
 

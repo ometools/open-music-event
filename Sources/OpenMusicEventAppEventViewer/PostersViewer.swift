@@ -13,8 +13,7 @@ public struct PostersViewer {
         public init(
             eventID: OMERecord.Event.ID? = nil,
             destination: Destination.State? = nil,
-            importImages: Spawn<ImportImages>? = nil,
-            database: (any DatabaseReader)? = nil
+            importImages: Spawn<ImportImages>? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
             let eventID = eventID ?? defaultEventID
@@ -22,8 +21,7 @@ public struct PostersViewer {
             self.destination = destination
             self.importImages = importImages
             _posters = FetchAll(
-                PostersViewer.postersQuery(eventID: eventID),
-                database: database
+                PostersViewer.postersQuery(eventID: eventID)
             )
         }
 
@@ -208,14 +206,12 @@ public struct PosterDetail {
     public struct State: Identifiable {
         public init(
             posterID: OMERecord.Poster.ID,
-            destination: Destination.State? = nil,
-            database: (any DatabaseReader)? = nil
+            destination: Destination.State? = nil
         ) {
             self.posterID = posterID
             self.destination = destination
             _poster = FetchOne(
-                PostersViewer.posterQuery(posterID: posterID),
-                database: database
+                PostersViewer.posterQuery(posterID: posterID)
             )
         }
 
