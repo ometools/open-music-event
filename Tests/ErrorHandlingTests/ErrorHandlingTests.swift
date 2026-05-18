@@ -90,17 +90,18 @@ struct ErrorHandlingTests {
         }
 
         #expect(store.state.isRunning == false)
-        #expect(store.state.latestError?.kind == .unhandled)
-        #expect(store.state.latestError?.message.fallback == "Fallback")
-        #expect(store.state.latestError?.operation == .test)
+        let latestError = store.state.errorNotifications.state.latestError
+        #expect(latestError?.kind == .unhandled)
+        #expect(latestError?.message.fallback == "Fallback")
+        #expect(latestError?.operation == .test)
     }
 }
 
 @Feature
 private struct CleanupFeature {
     struct State {
+        var errorNotifications = Spawn(ErrorNotifications.State())
         var isRunning = false
-        var latestError: HandledError?
     }
 
     enum Action {
@@ -124,8 +125,11 @@ private struct CleanupFeature {
                 }
             }
         }
+        .spawn(\.errorNotifications) {
+            ErrorNotifications()
+        }
         .onEvent(ErrorReported.self) { error, state in
-            state.latestError = error
+            state.errorNotifications.state.report(error)
         }
     }
 }

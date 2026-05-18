@@ -14,8 +14,8 @@ public struct OpenMusicEventAppRoot {
         public init() {}
 
         public var browser = Spawn(OpenMusicEventBrowser.State())
+        public var errorNotifications = Spawn(ErrorNotifications.State())
         public var eventViewer: Spawn<EventViewer>?
-        public var latestError: HandledError?
 
         @FetchOne(AppState.find(1))
         public var appState: AppState?
@@ -28,7 +28,6 @@ public struct OpenMusicEventAppRoot {
     public enum Action {
         case eventViewerDismissed
         case handleNavigationRequest(NavigationRequest)
-        case latestErrorNotificationTapped
         case openRoute(AppRoute)
         case openURL(URL)
         case task
@@ -75,9 +74,6 @@ public struct OpenMusicEventAppRoot {
                 case .externalURL:
                     break
                 }
-
-            case .latestErrorNotificationTapped:
-                break
 
             case .openRoute(let route):
                 if case let .event(eventID, target) = route.navigationRequest {
@@ -128,10 +124,13 @@ public struct OpenMusicEventAppRoot {
             }
         }
         .onEvent(ErrorReported.self) { error, state in
-            state.latestError = error
+            state.errorNotifications.state.report(error)
         }
         .spawn(\.browser) {
             OpenMusicEventBrowser()
+        }
+        .spawn(\.errorNotifications) {
+            ErrorNotifications()
         }
         .ifLet(\.eventViewer) {
             EventViewer()
@@ -163,10 +162,7 @@ public struct OpenMusicEventAppRootView: View {
         #else
         browserView
             .globalNotificationOverlay(
-                error: store.latestError,
-                action: {
-                    store.send(.latestErrorNotificationTapped)
-                }
+                store: store.spawn(\.errorNotifications)
             )
         #endif
     }
@@ -213,11 +209,11 @@ public struct OpenMusicEventAppRootView: View {
 }
 
 public struct OpenMusicEventGlobalErrorWindowView: View {
-    public init(store: StoreOf<OpenMusicEventAppRoot>) {
+    public init(store: StoreOf<ErrorNotifications>) {
         self.store = store
     }
 
-    @Bindable var store: StoreOf<OpenMusicEventAppRoot>
+    @Bindable var store: StoreOf<ErrorNotifications>
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -325,14 +321,15 @@ struct GlobalNotificationView: View {
 
 private extension View {
     func globalNotificationOverlay(
-        error: HandledError?,
-        action: @escaping () -> Void
+        store: StoreOf<ErrorNotifications>
     ) -> some View {
         overlay(alignment: .top) {
-            if let error {
-                GlobalNotificationView(error: error, action: action)
-                    .padding(.horizontal)
-                    .padding(.top, 8)
+            if let error = store.latestError {
+                GlobalNotificationView(error: error) {
+                    store.send(.latestErrorNotificationTapped)
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
             }
         }
     }

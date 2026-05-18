@@ -268,9 +268,10 @@ struct TangledSourceDownloadFeatureTests {
         #expect(store.state.sourceImport.state.importedSummary == nil)
         #expect(store.state.sourceImport.state.errorMessage == nil)
         #expect(store.isPresented == true)
-        #expect(store.state.latestError?.kind == .unhandled)
-        #expect(store.state.latestError?.message.fallback == "Unable to import source.")
-        #expect(store.state.latestError?.operation == .sourceImport)
+        let latestError = store.state.errorNotifications.state.latestError
+        #expect(latestError?.kind == .unhandled)
+        #expect(latestError?.message.fallback == "Unable to import source.")
+        #expect(latestError?.operation == .sourceImport)
     }
 
     @Test
@@ -618,7 +619,7 @@ private struct ImportFailure: Error {}
 @Feature
 private struct SourceImportErrorHost {
     struct State {
-        var latestError: HandledError?
+        var errorNotifications = Spawn(ErrorNotifications.State())
         var sourceImport = Spawn(TangledSourceDownload.State())
     }
 
@@ -629,8 +630,11 @@ private struct SourceImportErrorHost {
             .spawn(\.sourceImport) {
                 TangledSourceDownload()
             }
+            .spawn(\.errorNotifications) {
+                ErrorNotifications()
+            }
             .onEvent(ErrorReported.self) { error, state in
-                state.latestError = error
+                state.errorNotifications.state.report(error)
             }
     }
 }
