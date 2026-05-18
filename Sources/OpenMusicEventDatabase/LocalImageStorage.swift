@@ -410,13 +410,15 @@ public extension LazyImageCacheClient {
             }
 
             try await database.write { db in
-                let didUpdate = try updateCachedImage(
-                    materialized.image,
-                    replacing: image,
-                    context: context,
-                    in: db
-                )
-                if didUpdate, let blob = materialized.blob {
+                if materialized.shouldPersistImage {
+                    _ = try updateCachedImage(
+                        materialized.image,
+                        replacing: image,
+                        context: context,
+                        in: db
+                    )
+                }
+                if let blob = materialized.blob {
                     try LocalImageBlob.insert { [blob] }.execute(db)
                 }
             }
@@ -459,6 +461,7 @@ struct LocalImageMaterializer {
     struct ImageResult: Sendable {
         var image: OME.ImageAsset
         var blob: LocalImageBlob?
+        var shouldPersistImage: Bool
     }
 
     func materialize(event: OME.Event) async throws -> Result<OME.Event> {
@@ -512,7 +515,7 @@ struct LocalImageMaterializer {
         var blobs: [LocalImageBlob] = []
         var resolvedImages = images
 
-        try await withThrowingTaskGroup(of: (Int, OME.ImageAsset, LocalImageBlob?).self) { group in
+        try await withThrowingTaskGroup(of: (Int, ImageResult).self) { group in
             for (index, image) in images.enumerated() {
                 guard image.materializationPolicy == .prefetchOnOpen else {
                     continue
@@ -526,13 +529,15 @@ struct LocalImageMaterializer {
                         parentKind: parentKind,
                         parentLocalID: parentLocalID
                     )
-                    return (index, result.image, result.blob)
+                    return (index, result)
                 }
             }
 
-            for try await (index, image, blob) in group {
-                resolvedImages[index] = image
-                if let blob {
+            for try await (index, result) in group {
+                if result.shouldPersistImage {
+                    resolvedImages[index] = result.image
+                }
+                if let blob = result.blob {
                     blobs.append(blob)
                 }
             }
@@ -558,24 +563,33 @@ struct LocalImageMaterializer {
         let storedBlob = storedBlobs[assetKey]
         var image = image
 
-        if let storedBlob,
-           shouldRestoreImage(image, from: storedBlob) {
+        if let storedBlob {
+            guard shouldRestoreImage(image, from: storedBlob) else {
+                return .init(image: image, blob: nil, shouldPersistImage: false)
+            }
+
+            let shouldPersistImage = shouldPersistCachedImage(originalImage: image)
             let localFileURL = try localFileWriter(storedBlob.assetKey, storedBlob.data, storedBlob.mimeType)
             image.assetKey = storedBlob.assetKey
             image.source = .url(localFileURL)
-            return .init(image: image, blob: nil)
+            return .init(
+                image: image,
+                blob: nil,
+                shouldPersistImage: shouldPersistImage
+            )
         }
 
         guard let url = image.url else {
-            return .init(image: image, blob: nil)
+            return .init(image: image, blob: nil, shouldPersistImage: false)
         }
 
         let data: Data
         let sourceURL: URL
         let mimeType: String
+        let shouldPersistImage = url.isFileURL
         if url.isFileURL {
             guard FileManager.default.fileExists(atPath: url.path) else {
-                return .init(image: image, blob: nil)
+                return .init(image: image, blob: nil, shouldPersistImage: false)
             }
             data = try Data(contentsOf: url)
             sourceURL = url
@@ -604,8 +618,17 @@ struct LocalImageMaterializer {
                 data: data,
                 sourceURL: sourceURL,
                 lastFetchedAt: now
-            )
+            ),
+            shouldPersistImage: shouldPersistImage
         )
+    }
+
+    private func shouldPersistCachedImage(originalImage: OME.ImageAsset) -> Bool {
+        guard let url = originalImage.url else {
+            return false
+        }
+
+        return url.isFileURL
     }
 
     static func assetKey(

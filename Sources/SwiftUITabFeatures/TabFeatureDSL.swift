@@ -554,7 +554,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                     ) {
                         primaryFeatureDestination(for: feature)
                     }
-                    .badge(feature.badgeValue ?? 0)
+                    .tabFeatureBadge(feature.badgeValue)
                 }
             }
 
@@ -567,7 +567,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                         overflowFeatureBody: overflowFeatureBody(for:)
                     )
                 }
-                .badge(resolved.overflowBadgeValue ?? 0)
+                .tabFeatureBadge(resolved.overflowBadgeValue)
             }
 
             if let searchTab = resolved.searchTab {
@@ -670,6 +670,18 @@ enum TabFeaturesSelection<Value: TabFeatureValue>: Hashable {
     case more
 }
 
+@available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
+private extension TabContent {
+    @TabContentBuilder<Self.TabValue>
+    func tabFeatureBadge(_ badgeValue: Int?) -> some TabContent<Self.TabValue> {
+        if let badgeValue, badgeValue > 0 {
+            self.badge(badgeValue)
+        } else {
+            self
+        }
+    }
+}
+
 struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     @Binding var overflowSelection: Value?
     let overflowFeatures: [TabFeatureMetadata<Value>]
@@ -763,12 +775,26 @@ struct TabFeatureMoreRow: View {
             Spacer()
 
             if let badgeValue, badgeValue > 0 {
-                Text(badgeValue, format: .number)
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                TabFeatureBadgeValueView(value: badgeValue)
             }
         }
+    }
+}
+
+struct TabFeatureBadgeValueView: View {
+    let value: Int
+
+    var body: some View {
+        Text(value, format: .number)
+            .font(.caption2.weight(.semibold))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(.red)
+            }
     }
 }
 

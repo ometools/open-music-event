@@ -578,6 +578,60 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func eventEditSummaryIgnoresRemoteImagePrefetchCache() async throws {
+        let remoteLogoURL = try #require(URL(string: "https://example.com/meadow-logo.png"))
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .url(remoteLogoURL),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source", ref: "main")
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.eventImagePrefetch = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, _, _ in Data("remote-stage-logo".utf8) }
+        } operation: {
+            @Dependency(\.eventImagePrefetch) var eventImagePrefetch
+            try await eventImagePrefetch.prefetchAssetsOnOpen(openedEventID)
+        }
+
+        let summary = try await eventEditSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 0)
+        #expect(summary.badgeCount == nil)
+    }
+
+    @Test
     func eventEditSummaryCountsRemoteImageURLChanges() async throws {
         let baselinePhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let workingPhotoURL = try #require(URL(string: "https://example.com/artist-two.jpg"))
@@ -1502,12 +1556,82 @@ struct SourceDatabaseInsertionTests {
             try LocalImageBlob.fetchAll(db)
         }
 
-        let prefetchedHeroURL = try #require(prefetchedEvent?.images?.first?.url)
-        #expect(prefetchedHeroURL.isFileURL)
+        let prefetchedHeroImage = try #require(prefetchedEvent?.images?.first)
+        let prefetchedHeroURL = try #require(prefetchedHeroImage.url)
+        #expect(prefetchedHeroURL == eventHeroURL)
         #expect(prefetchedParticipant?.images?.first?.url == participantPhotoURL)
         #expect(prefetchedBlobs.count == 1)
-        expectNoDifference(try Data(contentsOf: prefetchedHeroURL), remoteData)
-        expectNoDifference(prefetchedBlobs.first?.data, remoteData)
+        let blob = try #require(prefetchedBlobs.first)
+        #expect(blob.sourceURL == eventHeroURL)
+        let cachedHeroURL = testLocalImageFileURL(
+            directory: cacheDirectoryURL,
+            assetKey: try #require(prefetchedHeroImage.assetKey)
+        )
+        #expect(FileManager.default.fileExists(atPath: cachedHeroURL.path))
+        expectNoDifference(try Data(contentsOf: cachedHeroURL), remoteData)
+        expectNoDifference(blob.data, remoteData)
+    }
+
+    @Test
+    func prefetchesRemoteStageLogosWithoutMutatingStageSource() async throws {
+        let remoteLogoURL = try #require(URL(string: "https://example.com/meadow-logo.png"))
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .url(remoteLogoURL),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let insertedStage = try #require(await database.read { db in
+            try OME.Stage.fetchOne(db)
+        })
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let remoteData = Data("remote-stage-logo".utf8)
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.eventImagePrefetch = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, path, _ in
+                #expect(path == "/meadow-logo.png")
+                return remoteData
+            }
+        } operation: {
+            @Dependency(\.eventImagePrefetch) var eventImagePrefetch
+            try await eventImagePrefetch.prefetchAssetsOnOpen(openedEventID)
+        }
+
+        let prefetchedStage = try #require(await database.read { db in
+            try OME.Stage.fetchOne(db)
+        })
+        let blobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        expectNoDifference(prefetchedStage, insertedStage)
+        let blob = try #require(blobs.first)
+        #expect(blobs.count == 1)
+        #expect(blob.parentKind == .stage)
+        #expect(blob.parentLocalID == "meadow")
+        #expect(blob.sourceURL == remoteLogoURL)
+        expectNoDifference(blob.data, remoteData)
+        let cachedLogoURL = testLocalImageFileURL(
+            directory: cacheDirectoryURL,
+            assetKey: try #require(insertedStage.images?.first?.assetKey)
+        )
+        #expect(FileManager.default.fileExists(atPath: cachedLogoURL.path))
+        expectNoDifference(try Data(contentsOf: cachedLogoURL), remoteData)
     }
 
     @Test
@@ -1564,13 +1688,14 @@ struct SourceDatabaseInsertionTests {
         let cachedURL = try #require(cachedImage.url)
         let updatedURL = try #require(updatedParticipant?.images?.first?.url)
         #expect(cachedURL.isFileURL)
-        #expect(updatedURL == cachedURL)
+        #expect(updatedURL == participantPhotoURL)
         expectNoDifference(try Data(contentsOf: cachedURL), remoteData)
         let blob = try #require(blobs.first)
         #expect(blob.parentKind == .participant)
         #expect(blob.parentLocalID == "artist-one")
         #expect(blob.sourceURL == participantPhotoURL)
         expectNoDifference(blob.data, remoteData)
+        expectNoDifference(updatedParticipant, participant)
     }
 
     @Test
@@ -1600,7 +1725,7 @@ struct SourceDatabaseInsertionTests {
         let cacheDirectoryURL = try temporaryDirectoryURL()
         let remoteData = Data("lazy-participant-photo".utf8)
 
-        _ = try await withDependencies {
+        let cachedImage = try await withDependencies {
             $0.date.now = testImageCacheDate
             $0.defaultDatabase = database
             $0.lazyImageCache = .live
@@ -1613,13 +1738,15 @@ struct SourceDatabaseInsertionTests {
                 .init(participantID: participant.id)
             )
         }
+        let cachedURL = try #require(cachedImage.url)
+        #expect(cachedURL.isFileURL)
+        try FileManager.default.removeItem(at: cachedURL)
 
         let cachedParticipant = try #require(await database.read { db in
             try OME.Participant.fetchOne(db)
         })
-        let cachedImage = try #require(cachedParticipant.images?.first)
-        let cachedURL = try #require(cachedImage.url)
-        try FileManager.default.removeItem(at: cachedURL)
+        let cachedParticipantImage = try #require(cachedParticipant.images?.first)
+        #expect(cachedParticipantImage.url == participantPhotoURL)
 
         let recoveryDirectoryURL = try temporaryDirectoryURL()
         let restoredImage = try await withDependencies {
@@ -1634,7 +1761,7 @@ struct SourceDatabaseInsertionTests {
         } operation: {
             @Dependency(\.lazyImageCache) var lazyImageCache
             return try await lazyImageCache.cache(
-                cachedImage,
+                cachedParticipantImage,
                 .init(participantID: cachedParticipant.id)
             )
         }
@@ -1643,11 +1770,15 @@ struct SourceDatabaseInsertionTests {
         let blobs = try await database.read { db in
             try LocalImageBlob.fetchAll(db)
         }
+        let restoredParticipant = try await database.read { db in
+            try OME.Participant.fetchOne(db)
+        }
 
         #expect(restoredURL.isFileURL)
         #expect(restoredURL != cachedURL)
         #expect(FileManager.default.fileExists(atPath: restoredURL.path))
         expectNoDifference(try Data(contentsOf: restoredURL), remoteData)
+        expectNoDifference(restoredParticipant, participant)
         #expect(blobs.count == 1)
     }
 
@@ -1693,11 +1824,12 @@ struct SourceDatabaseInsertionTests {
 
         let cachedURL = try #require(cachedImage.url)
         #expect(cachedURL.isFileURL)
-        #expect(updatedPoster?.image.url == cachedURL)
+        #expect(updatedPoster?.image.url == poster.image.url)
         let blob = try #require(blobs.first)
         #expect(blob.parentKind == .poster)
         #expect(blob.parentLocalID == "lineup")
         expectNoDifference(blob.data, posterData)
+        expectNoDifference(updatedPoster, poster)
     }
 
     @Test
@@ -1968,10 +2100,14 @@ private let testImageCacheDate = Date(timeIntervalSince1970: 1_700_000_000)
 
 private func testLocalImageFileStore(directory: URL) -> LocalImageFileStoreClient {
     LocalImageFileStoreClient { assetKey, data, _ in
-        let fileURL = directory.appending(path: assetKey.replacingOccurrences(of: "|", with: "-"))
+        let fileURL = testLocalImageFileURL(directory: directory, assetKey: assetKey)
         try data.write(to: fileURL, options: .atomic)
         return fileURL
     }
+}
+
+private func testLocalImageFileURL(directory: URL, assetKey: String) -> URL {
+    directory.appending(path: assetKey.replacingOccurrences(of: "|", with: "-"))
 }
 
 private func id<Record>(_ string: String) -> OME.ID<Record> {
