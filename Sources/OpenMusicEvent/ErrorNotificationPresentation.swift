@@ -2,10 +2,36 @@ import Dependencies
 import ErrorHandling
 import Foundation
 
+struct GlobalNotificationMessage: Sendable {
+    enum State: Sendable {
+        case error
+        case info
+        case success
+        case warning
+    }
+
+    var selectedError: HandledError?
+    var state: State
+    var subtitle: String?
+    var title: String
+}
+
+extension GlobalNotificationMessage {
+    static func error(_ error: HandledError) -> Self {
+        let message = error.message.localizedString
+        return Self(
+            selectedError: error,
+            state: .error,
+            subtitle: message.isEmpty ? error.message.fallback : message,
+            title: "Error"
+        )
+    }
+}
+
 struct ErrorNotificationPresentationClient: Sendable {
     var hideCurrent: @Sendable () async -> Void
     var selections: @Sendable () async -> AsyncStream<HandledError>
-    var show: @Sendable (_ error: HandledError) async -> Void
+    var show: @Sendable (_ message: GlobalNotificationMessage) async -> Void
 }
 
 extension ErrorNotificationPresentationClient {
@@ -52,28 +78,69 @@ private extension ErrorNotificationPresentationClient {
             selections: {
                 await ErrorNotificationSelectionCenter.shared.selections
             },
-            show: { error in
+            show: { message in
                 await MainActor.run {
-                    let message = error.message.localizedString
-                    let drop = Drop(
-                        title: "OpenMusicEvent",
-                        subtitle: message.isEmpty ? error.message.fallback : message,
-                        icon: UIImage(systemName: "music.note"),
-                        action: .init {
+                    let action = message.selectedError.map { error in
+                        Drop.Action {
                             Task { @MainActor in
                                 ErrorNotificationSelectionCenter.shared.select(error)
                                 Drops.hideCurrent()
                             }
-                        },
+                        }
+                    }
+                    let drop = Drop(
+                        title: message.title,
+                        subtitle: message.subtitle,
+                        icon: message.state.icon,
+                        action: action,
                         position: .top,
                         duration: 5.0,
-                        accessibility: .init(message: "Alert: OpenMusicEvent, \(error.message.fallback)")
+                        accessibility: .init(message: message.accessibilityMessage)
                     )
 
                     Drops.show(drop)
                 }
             }
         )
+    }
+}
+
+private extension GlobalNotificationMessage {
+    var accessibilityMessage: String {
+        [title, subtitle].compactMap { $0 }.joined(separator: ", ")
+    }
+}
+
+private extension GlobalNotificationMessage.State {
+    var icon: UIImage? {
+        UIImage(systemName: systemImageName)?
+            .withTintColor(tintColor, renderingMode: .alwaysOriginal)
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .error:
+            "xmark.circle.fill"
+        case .info:
+            "info.circle.fill"
+        case .success:
+            "checkmark.circle.fill"
+        case .warning:
+            "exclamationmark.triangle.fill"
+        }
+    }
+
+    var tintColor: UIColor {
+        switch self {
+        case .error:
+            .systemRed
+        case .info:
+            .systemBlue
+        case .success:
+            .systemGreen
+        case .warning:
+            .systemYellow
+        }
     }
 }
 

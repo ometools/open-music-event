@@ -136,7 +136,7 @@ public struct OpenMusicEventAppRoot {
         .onEvent(ErrorReported.self) { error, state in
             state.errorNotifications.state.report(error)
             store.addTask {
-                await errorNotificationPresentation.show(error)
+                await errorNotificationPresentation.show(.error(error))
             }
             store.addTask {
                 try await clock.sleep(for: ErrorNotifications.automaticDismissDelay)
