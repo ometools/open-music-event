@@ -79,7 +79,16 @@ public struct EventInfoViewerView: View {
     public var body: some View {
         Group {
             if let event = store.event {
-                List {
+                HeroImageList(title: Text(event.name)) {
+                    HeroImage(
+                        title: Text(event.name),
+                        asset: event.images?.imageAsset(role: .hero),
+                        cacheContext: .init(eventID: event.id)
+                    ) {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 82, weight: .semibold))
+                    }
+                } content: {
                     if let description = event.eventInfoDescription {
                         Section("About") {
                             Text(description)
@@ -118,7 +127,6 @@ public struct EventInfoViewerView: View {
                         }
                     }
                 }
-                .navigationTitle(event.name)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Edit") {

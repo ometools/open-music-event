@@ -299,9 +299,16 @@ public struct StageDetailView: View {
     public var body: some View {
         Group {
             if let stage = store.stage {
-                List {
-                    StageHeaderView(stage: stage)
-
+                HeroImageList(title: Text(stage.name)) {
+                    HeroImage(
+                        title: Text(stage.name),
+                        asset: stage.images?.imageAsset(role: .hero),
+                        cacheContext: .init(stageID: stage.id),
+                        tint: stage.color.swiftUIColor
+                    ) {
+                        StageIconFallback(stage: stage, size: 150)
+                    }
+                } content: {
                     if stage.hasDisplayDetails {
                         Section("Details") {
                             if let category = stage.category?.displayName {
@@ -322,7 +329,6 @@ public struct StageDetailView: View {
                         }
                     }
                 }
-                .navigationTitle(stage.name)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Edit") {
@@ -852,31 +858,6 @@ struct StageRowView: View {
         }
         .padding(.vertical, 4)
         .foregroundStyle(.primary)
-    }
-}
-
-struct StageHeaderView: View {
-    let stage: OMERecord.Stage
-
-    var body: some View {
-        HStack(spacing: 14) {
-            StageArtworkView(stage: stage, size: 72)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(stage.name)
-                    .font(.headline)
-                    .lineLimit(2)
-
-                if let category = stage.category?.displayName {
-                    Text(category)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, 6)
     }
 }
 
