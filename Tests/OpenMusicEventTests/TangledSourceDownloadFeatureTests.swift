@@ -316,6 +316,91 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func liveStorageReplacesExistingStoredRepository() throws {
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:replace-test/repository-\(UUID().uuidString)",
+            ref: "HEAD"
+        )
+        let storedURL = try SourceRepositoryStorageClient
+            .storedRepositoryURL(for: sourceProvenance)
+            .standardizedFileURL
+        try? FileManager.default.removeItem(at: storedURL)
+        defer { try? FileManager.default.removeItem(at: storedURL) }
+
+        try FileManager.default.createDirectory(at: storedURL, withIntermediateDirectories: true)
+        try "old".write(
+            to: storedURL.appending(path: "old.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-source-repository-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try writeMinimalSourceRepository(at: sourceURL)
+
+        let result = try SourceRepositoryStorageClient.live.store(
+            sourceURL,
+            sourceProvenance
+        )
+
+        #expect(result.normalizedSourceRepositoryPath == storedURL.normalizedSourceRepositoryPath)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: storedURL.appending(path: "events").path(percentEncoded: false)
+            )
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: storedURL.appending(path: "old.txt").path(percentEncoded: false)
+            )
+        )
+    }
+
+    @Test
+    func liveStorageReplacesDanglingStoredRepositorySymlink() throws {
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:replace-symlink-test/repository-\(UUID().uuidString)",
+            ref: "HEAD"
+        )
+        let storedURL = try SourceRepositoryStorageClient
+            .storedRepositoryURL(for: sourceProvenance)
+            .standardizedFileURL
+        try? FileManager.default.removeItem(at: storedURL)
+        defer { try? FileManager.default.removeItem(at: storedURL) }
+
+        let missingURL = storedURL
+            .deletingLastPathComponent()
+            .appending(path: "missing-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(
+            at: storedURL,
+            withDestinationURL: missingURL
+        )
+        #expect(!FileManager.default.fileExists(atPath: storedURL.path(percentEncoded: false)))
+
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-source-repository-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try writeMinimalSourceRepository(at: sourceURL)
+
+        let result = try SourceRepositoryStorageClient.live.store(
+            sourceURL,
+            sourceProvenance
+        )
+
+        #expect(result.normalizedSourceRepositoryPath == storedURL.normalizedSourceRepositoryPath)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: storedURL.appending(path: "events").path(percentEncoded: false)
+            )
+        )
+    }
+
+    @Test
     func reportsEmptyRepository() throws {
         let store = withDependencies {
             $0.context = .test
@@ -532,6 +617,16 @@ private func importedEventID() -> OMERecord.Event.ID {
 
 private func localID<Record>(_ string: String) -> OMERecord.ID<Record> {
     OMERecord.ID<Record>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private extension URL {
+    var normalizedSourceRepositoryPath: String {
+        var path = path(percentEncoded: false)
+        while path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path
+    }
 }
 
 private func writeMinimalSourceRepository(at repositoryURL: URL) throws {

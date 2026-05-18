@@ -27,17 +27,17 @@ extension SourceRepositoryStorageClient {
                 guard sourceURL != standardizedDestinationURL else {
                     return standardizedDestinationURL
                 }
-                if FileManager.default.fileExists(atPath: standardizedDestinationURL.path()) {
-                    try FileManager.default.removeItem(at: standardizedDestinationURL)
-                }
-                try FileManager.default.moveItem(at: sourceURL, to: standardizedDestinationURL)
+                try replaceItem(at: sourceURL, withItemAt: standardizedDestinationURL)
                 return standardizedDestinationURL
             },
             remove: { provenance in
                 guard provenance.kind == .tangled else { return }
                 let url = try storedRepositoryURL(for: provenance)
-                guard FileManager.default.fileExists(atPath: url.path()) else { return }
-                try FileManager.default.removeItem(at: url)
+                do {
+                    try FileManager.default.removeItem(at: url)
+                } catch {
+                    guard error.isMissingFile else { throw error }
+                }
             }
         )
     }
@@ -91,6 +91,63 @@ extension SourceRepositoryStorageClient {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func replaceItem(
+        at sourceURL: URL,
+        withItemAt destinationURL: URL
+    ) throws {
+        let fileManager = FileManager.default
+        let parentURL = destinationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(
+            at: parentURL,
+            withIntermediateDirectories: true
+        )
+
+        let oldDestinationURL = parentURL
+            .appendingPathComponent(
+                ".\(destinationURL.lastPathComponent).old-\(UUID().uuidString)",
+                isDirectory: true
+            )
+
+        let movedOldDestination: Bool
+        do {
+            try fileManager.moveItem(at: destinationURL, to: oldDestinationURL)
+            movedOldDestination = true
+        } catch {
+            if error.isMissingFile {
+                movedOldDestination = false
+            } else {
+                throw error
+            }
+        }
+
+        do {
+            try fileManager.moveItem(at: sourceURL, to: destinationURL)
+            if movedOldDestination {
+                try? fileManager.removeItem(at: oldDestinationURL)
+            }
+        } catch {
+            if movedOldDestination {
+                try? fileManager.moveItem(at: oldDestinationURL, to: destinationURL)
+            }
+            throw error
+        }
+    }
+}
+
+private extension Error {
+    var isMissingFile: Bool {
+        let error = self as NSError
+        if error.domain == NSCocoaErrorDomain,
+           error.code == NSFileNoSuchFileError {
+            return true
+        }
+        if error.domain == NSPOSIXErrorDomain,
+           error.code == Int(ENOENT) {
+            return true
+        }
+        return false
     }
 }
 
