@@ -2,6 +2,10 @@ import SwiftUI
 import OpenMusicEvent
 import Dependencies
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 private typealias AppRootView = OpenMusicEventApplicationRootView
 private typealias AppDelegate = OpenMusicEventAppDelegate
 
@@ -18,7 +22,16 @@ private typealias AppDelegate = OpenMusicEventAppDelegate
 
     var body: some Scene {
         WindowGroup {
+            #if canImport(UIKit)
             AppRootView()
+                .background {
+                    GlobalErrorWindowPresenter {
+                        AppRootView.globalErrorWindowContent()
+                    }
+                }
+            #else
+            AppRootView()
+            #endif
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             switch newPhase {
@@ -91,3 +104,96 @@ typealias AppType = NSApplication
     #endif
 
 }
+
+#if canImport(UIKit)
+private struct GlobalErrorWindowPresenter<Content: View>: UIViewControllerRepresentable {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    func makeUIViewController(context: Context) -> GlobalErrorWindowPresenterController<Content> {
+        GlobalErrorWindowPresenterController(content: content)
+    }
+
+    func updateUIViewController(
+        _ viewController: GlobalErrorWindowPresenterController<Content>,
+        context: Context
+    ) {
+        viewController.update(content: content)
+    }
+}
+
+@MainActor
+private final class GlobalErrorWindowPresenterController<Content: View>: UIViewController {
+    private var content: Content
+    private var hostingController: UIHostingController<Content>?
+    private var window: PassthroughWindow?
+
+    init(content: Content) {
+        self.content = content
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        window?.isHidden = true
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        installWindowIfPossible()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        installWindowIfPossible()
+    }
+
+    func update(content: Content) {
+        self.content = content
+        hostingController?.rootView = content
+        installWindowIfPossible()
+    }
+
+    private func installWindowIfPossible() {
+        guard let windowScene = view.window?.windowScene else { return }
+
+        if let window, window.windowScene === windowScene {
+            return
+        }
+
+        window?.isHidden = true
+
+        let hostingController = UIHostingController(rootView: content)
+        hostingController.view.backgroundColor = .clear
+
+        let window = PassthroughWindow(windowScene: windowScene)
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.rootViewController = hostingController
+        window.windowLevel = .alert + 1
+        window.isHidden = false
+
+        self.hostingController = hostingController
+        self.window = window
+    }
+}
+
+private final class PassthroughWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let hitView = super.hitTest(point, with: event) else { return nil }
+
+        if let rootView = rootViewController?.view, hitView === rootView {
+            return nil
+        }
+
+        return hitView
+    }
+}
+#endif
