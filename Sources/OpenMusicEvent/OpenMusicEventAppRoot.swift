@@ -13,7 +13,7 @@ public struct OpenMusicEventAppRoot {
         public init() {}
 
         public var browser = Spawn(OpenMusicEventBrowser.State())
-        public var eventViewer: EventViewer.State?
+        public var eventViewer: Spawn<EventViewer>?
 
         @FetchOne(AppState.find(1))
         public var appState: AppState?
@@ -24,7 +24,6 @@ public struct OpenMusicEventAppRoot {
     }
 
     public enum Action {
-        case eventViewer(EventViewer.Action)
         case eventViewerDismissed
         case handleNavigationRequest(NavigationRequest)
         case openRoute(AppRoute)
@@ -40,7 +39,7 @@ public struct OpenMusicEventAppRoot {
 
         Update { state, action in
             switch action {
-            case .eventViewer(.closeButtonTapped), .eventViewerDismissed:
+            case .eventViewerDismissed:
                 state.eventViewer = nil
                 try? database.write { db in
                     try AppState.update {
@@ -50,13 +49,10 @@ public struct OpenMusicEventAppRoot {
                     .execute(db)
                 }
 
-            case .eventViewer:
-                break
-
             case .handleNavigationRequest(let request):
                 switch request {
                 case let .event(eventID, target):
-                    state.eventViewer = .route(eventID: eventID, target: target)
+                    state.eventViewer = Spawn(.route(eventID: eventID, target: target))
                     if state.selectedEventID != eventID {
                         try? database.write { db in
                             try AppState.update {
@@ -79,7 +75,7 @@ public struct OpenMusicEventAppRoot {
 
             case .openRoute(let route):
                 if case let .event(eventID, target) = route.navigationRequest {
-                    state.eventViewer = .route(eventID: eventID, target: target)
+                    state.eventViewer = Spawn(.route(eventID: eventID, target: target))
                     try? database.write { db in
                         try AppState.update {
                             $0.organizerID = #bind(eventID.organizerID)
@@ -107,8 +103,8 @@ public struct OpenMusicEventAppRoot {
         }
         .onChange(of: store.selectedEventID, initial: true) { _, newValue, state in
             if let newValue {
-                if state.eventViewer?.eventID != newValue {
-                    state.eventViewer = .route(eventID: newValue, target: nil)
+                if state.eventViewer?.state.eventID != newValue {
+                    state.eventViewer = Spawn(.route(eventID: newValue, target: nil))
                 }
                 store.addTask {
                     do {
@@ -128,7 +124,7 @@ public struct OpenMusicEventAppRoot {
         .spawn(\.browser) {
             OpenMusicEventBrowser()
         }
-        .ifLet(\.eventViewer, action: \.eventViewer) {
+        .ifLet(\.eventViewer) {
             EventViewer()
         }
     }
@@ -156,23 +152,38 @@ public struct OpenMusicEventAppRootView: View {
         #if os(iOS)
         OpenMusicEventBrowserView(store: store.spawn(\.browser))
             .fullScreenCover(
-                item: $store.scope(state: \.eventViewer, action: \.eventViewer),
+                isPresented: eventViewerIsPresented,
                 onDismiss: {
                     store.send(.eventViewerDismissed)
                 }
-            ) { eventViewerStore in
-                EventViewerView(store: eventViewerStore)
+            ) {
+                if let eventViewerStore = store.spawn(\.eventViewer) {
+                    EventViewerView(store: eventViewerStore)
+                }
             }
         #else
         OpenMusicEventBrowserView(store: store.spawn(\.browser))
             .sheet(
-                item: $store.scope(state: \.eventViewer, action: \.eventViewer),
+                isPresented: eventViewerIsPresented,
                 onDismiss: {
                     store.send(.eventViewerDismissed)
                 }
-            ) { eventViewerStore in
-                EventViewerView(store: eventViewerStore)
+            ) {
+                if let eventViewerStore = store.spawn(\.eventViewer) {
+                    EventViewerView(store: eventViewerStore)
+                }
             }
         #endif
+    }
+
+    private var eventViewerIsPresented: Binding<Bool> {
+        Binding(
+            get: { store.eventViewer != nil },
+            set: { isPresented in
+                if !isPresented {
+                    store.send(.eventViewerDismissed)
+                }
+            }
+        )
     }
 }

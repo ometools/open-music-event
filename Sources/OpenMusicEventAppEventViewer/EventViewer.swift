@@ -254,6 +254,7 @@ public struct EventViewer {
             self._eventViewerState = Shared(.eventViewerState(eventID))
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
+            self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
 
             withDependencies {
                 $0.defaultEventID = eventID
@@ -279,23 +280,23 @@ public struct EventViewer {
                     case .stages:
                         self.stagesViewer = Spawn(StagesViewer.State(eventID: eventID))
                     case .communications:
-                        self.communicationsViewer = Spawn(CommunicationsViewer.State())
+                        self.communicationsViewer = Spawn(CommunicationsViewer.State(eventID: eventID))
                     case .contactInfo:
-                        self.contactInfoViewer = Spawn(ContactInfoViewer.State())
+                        self.contactInfoViewer = Spawn(ContactInfoViewer.State(eventID: eventID))
                     case .location:
-                        self.locationViewer = Spawn(LocationViewer.State())
+                        self.locationViewer = Spawn(LocationViewer.State(eventID: eventID))
                     case .siteMap:
-                        self.siteMapViewer = Spawn(SiteMapViewer.State())
+                        self.siteMapViewer = Spawn(SiteMapViewer.State(eventID: eventID))
                     case .posters:
-                        self.postersViewer = Spawn(PostersViewer.State())
+                        self.postersViewer = Spawn(PostersViewer.State(eventID: eventID))
                     case .notifications:
-                        self.notificationsViewer = Spawn(NotificationsViewer.State())
+                        self.notificationsViewer = Spawn(NotificationsViewer.State(eventID: eventID))
                     case .edit:
                         self.editEvent = Spawn(EditEvent.State(eventID: eventID))
                     case .search:
-                        self.eventSearch = Spawn(EventSearch.State())
+                        self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
                     case .about:
-                        self.eventInfoViewer = Spawn(EventInfoViewer.State())
+                        self.eventInfoViewer = Spawn(EventInfoViewer.State(eventID: eventID))
                     }
                 }
             }
@@ -327,14 +328,14 @@ public struct EventViewer {
         public var postersViewer: Spawn<PostersViewer>?
         public var notificationsViewer: Spawn<NotificationsViewer>?
         public var editEvent: Spawn<EditEvent>?
-        public var eventSearch = Spawn(EventSearch.State())
+        public var eventSearch: Spawn<EventSearch>
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
         public var id: OMERecord.Event.ID { eventID }
 
         mutating func navigate(to target: EventTarget?) {
             guard let target else {
-                self.eventSearch.state = EventSearch.State()
+                self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.peopleViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
@@ -346,7 +347,7 @@ public struct EventViewer {
             switch target {
             case let .participant(participantID):
                 let eventID = self.eventID
-                self.eventSearch.state = EventSearch.State()
+                self.eventSearch.state = EventSearch.State(eventID: eventID)
                 if self.peopleViewer == nil {
                     self.peopleViewer = Spawn(PeopleViewer.State(eventID: eventID))
                 }
@@ -361,13 +362,13 @@ public struct EventViewer {
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             case .people:
-                self.eventSearch.state = EventSearch.State()
+                self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.peopleViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             case let .stage(stageID):
                 let eventID = self.eventID
-                self.eventSearch.state = EventSearch.State()
+                self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.peopleViewer?.state.destination = nil
                 if self.stagesViewer == nil {
                     self.stagesViewer = Spawn(StagesViewer.State(eventID: eventID))
@@ -382,17 +383,17 @@ public struct EventViewer {
                 )
                 self.eventInfoViewer?.state.destination = nil
             case .stages:
-                self.eventSearch.state = EventSearch.State()
+                self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.peopleViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             case .search:
-                self.eventSearch.state = EventSearch.State.route(target: target)
+                self.eventSearch.state = EventSearch.State.route(eventID: eventID, target: target)
                 self.peopleViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             case .edit:
-                self.eventSearch.state = EventSearch.State()
+                self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.peopleViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
@@ -400,7 +401,7 @@ public struct EventViewer {
                     self.editEvent = Spawn(EditEvent.State(eventID: self.eventID))
                 }
             default:
-                self.eventSearch.state = EventSearch.State()
+                self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.peopleViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
@@ -416,7 +417,12 @@ public struct EventViewer {
     public var body: some Feature {
         Update { _, action in
             switch action {
-            case .closeButtonTapped, .eventSearch:
+            case .closeButtonTapped:
+                store.addTask {
+                    try store.dismiss()
+                }
+
+            case .eventSearch:
                 break
             }
         }

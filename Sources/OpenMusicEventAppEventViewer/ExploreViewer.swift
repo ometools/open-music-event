@@ -7,31 +7,41 @@ public struct EventSearch {
     public init() {}
 
     public struct State {
-        public init(destination: Destination.State? = nil) {
+        public init(
+            eventID: OMERecord.Event.ID,
+            destination: Destination.State? = nil
+        ) {
+            self.eventID = eventID
             self.destination = destination
         }
 
+        public let eventID: OMERecord.Event.ID
 
         public var query = ""
 
         public var destination: Destination.State?
 
-        public static func route(target: EventTarget?) -> Self {
+        public static func route(
+            eventID: OMERecord.Event.ID,
+            target: EventTarget?
+        ) -> Self {
             switch target {
             case let .participant(participantID):
                 return .init(
+                    eventID: eventID,
                     destination: .participantDetail(
-                        Spawn(.init(participantID: participantID))
+                        Spawn(.init(participantID: participantID, eventID: eventID))
                     )
                 )
             case let .stage(stageID):
                 return .init(
+                    eventID: eventID,
                     destination: .stageDetail(
-                        Spawn(.init(stageID: stageID))
+                        Spawn(.init(stageID: stageID, eventID: eventID))
                     )
                 )
             default:
-                return .init()
+                return .init(eventID: eventID)
             }
         }
     }
@@ -48,8 +58,6 @@ public struct EventSearch {
         case stageDetail(Spawn<StageDetail>)
     }
 
-    @Dependency(\.defaultEventID) var defaultEventID
-
     public var body: some Feature {
         Update { state, action in
             switch action {
@@ -57,18 +65,20 @@ public struct EventSearch {
                 break
 
             case .openParticipant(let participantID):
+                let eventID = state.eventID
                 store.addTask {
                     try store.post(
                         key: NavigationRequested.self,
-                        value: .event(defaultEventID, .participant(participantID))
+                        value: .event(eventID, .participant(participantID))
                     )
                 }
 
             case .openStage(let stageID):
+                let eventID = state.eventID
                 store.addTask {
                     try store.post(
                         key: NavigationRequested.self,
-                        value: .event(defaultEventID, .stage(stageID))
+                        value: .event(eventID, .stage(stageID))
                     )
                 }
             }

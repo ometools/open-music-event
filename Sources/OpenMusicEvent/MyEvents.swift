@@ -9,7 +9,9 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import SQLiteData
 import SwiftUI
 
@@ -17,6 +19,7 @@ import SwiftUI
 public struct MyEvents {
     public struct State {
         var destination: Destination.State?
+        var errorMessage: String?
         var organizerDetail: OrganizerDetail.State?
 
         @DebugSnapshotIgnored
@@ -33,6 +36,7 @@ public struct MyEvents {
         case didTapEvent(OMERecord.Event)
         case didTapImportSource
         case didTapOrganizer(OMERecord.Organizer.ID)
+        case deleteOrganizers([OMERecord.Organizer.ID])
         case destination(Destination.Action)
         case organizerDetail(OrganizerDetail.Action)
     }
@@ -58,10 +62,41 @@ public struct MyEvents {
         case sourceImport(Spawn<TangledSourceDownload>)
     }
 
+    @Dependency(\.defaultDatabase) var database
+    @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
+
     public var body: some Feature {
         let _ = Self._logChanges()
         Update { state, action in
             switch action {
+            case .deleteOrganizers(let organizerIDs):
+                store.addTask {
+                    do {
+                        let sourceProvenances = try database.write { db in
+                            var sourceProvenances: [OMERecord.SourceDatabaseInsertion.SourceProvenance] = []
+                            for organizerID in organizerIDs {
+                                let sourceData = try deleteDownloadedOrganizer(organizerID, in: db)
+                                sourceProvenances.append(contentsOf: sourceData.sourceProvenances)
+                            }
+                            return sourceProvenances
+                        }
+                        for sourceProvenance in sourceProvenances {
+                            try sourceRepositoryStorage.remove(sourceProvenance)
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                            if let organizerDetail = $0.organizerDetail,
+                               organizerIDs.contains(organizerDetail.organizerID) {
+                                $0.organizerDetail = nil
+                            }
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to delete organizer."
+                        }
+                    }
+                }
+
             case .didTapCreateEvent:
                 state.destination = .createEvent(Spawn(CreateEvent.State()))
 
@@ -107,11 +142,129 @@ public struct MyEvents {
     }
 }
 
+private func deleteDownloadedOrganizer(
+    _ organizerID: OMERecord.Organizer.ID,
+    in db: Database
+) throws -> OMERecord.DeletedOrganizerSourceData {
+    let sourceData = try OMERecord.deleteDownloadedOrganizerSourceData(
+        for: organizerID,
+        in: db
+    )
+    let appState = try AppState.find(1).fetchOne(db)
+    if appState?.organizerID == organizerID {
+        try AppState.update {
+            $0.organizerID = #bind(nil as OMERecord.Organizer.ID?)
+            $0.eventID = #bind(nil as OMERecord.ID<OMERecord.Event>?)
+        }
+        .execute(db)
+    }
+
+    try OrganizerPreferences
+        .where { $0.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+
+    try deleteOrganizerOwnedRecords(organizerID, in: db)
+
+    try OMERecord.Organizer
+        .where { $0.id.eq(organizerID) }
+        .delete()
+        .execute(db)
+
+    try EventViewerState
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try ScheduleViewerState
+        .where { $0.id.eventID.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try ParticipantPreferences
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try PerformancePreferences
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try ChannelPreferences
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try PosterPreferences
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try LocalImageBlob
+        .where { $0.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    return sourceData
+}
+
+private func deleteOrganizerOwnedRecords(
+    _ organizerID: OMERecord.Organizer.ID,
+    in db: Database
+) throws {
+    try OMERecord.Performance.Participants
+        .where { $0.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.Performance
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.Poster
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.Channel
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.Participant.Claim
+        .where { $0.participantID.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.Participant
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.Schedule
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.Stage
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.EventOrganizer
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.EventOrganizer
+        .where { $0.id.eventOrganizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+    try OMERecord.Event
+        .where { $0.id.organizerID.eq(organizerID) }
+        .delete()
+        .execute(db)
+}
+
 struct MyEventsView: View {
     @Bindable var store: StoreOf<MyEvents>
 
     var body: some View {
         List {
+            if let errorMessage = store.errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+
             if !store.organizers.isEmpty {
                 Section("Organizers") {
                     ForEach(store.organizers) { organizer in
@@ -120,6 +273,9 @@ struct MyEventsView: View {
                         } label: {
                             OrganizerRowView(organizer: organizer)
                         }
+                    }
+                    .onDelete { offsets in
+                        deleteOrganizers(at: offsets)
                     }
                 }
             }
@@ -160,6 +316,15 @@ struct MyEventsView: View {
         .navigationDestination(item: $store.scope(state: \.organizerDetail, action: \.organizerDetail)) { detailStore in
             OrganizerDetailView(store: detailStore)
         }
+    }
+
+    func deleteOrganizers(at offsets: IndexSet) {
+        let organizerIDs = offsets.compactMap { offset in
+            store.organizers.indices.contains(offset)
+                ? store.organizers[offset].id
+                : nil
+        }
+        store.send(.deleteOrganizers(organizerIDs))
     }
 }
 

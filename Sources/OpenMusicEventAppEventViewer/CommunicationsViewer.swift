@@ -1,5 +1,4 @@
 import ComposableArchitecture2
-import Dependencies
 import SwiftUI
 
 @Feature
@@ -7,15 +6,16 @@ public struct CommunicationsViewer {
     public init() {}
 
     public struct State {
-        public init() {}
+        public init(eventID: OMERecord.Event.ID) {
+            self.eventID = eventID
+        }
+
+        let eventID: OMERecord.Event.ID
     }
 
     public enum Action {}
 
-    @Dependency(\.defaultEventID) var defaultEventID
-
     public var body: some Feature {
-        let _ = defaultEventID
         Update { _, _ in }
     }
 }

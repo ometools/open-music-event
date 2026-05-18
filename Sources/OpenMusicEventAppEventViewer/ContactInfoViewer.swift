@@ -9,11 +9,21 @@ public struct ContactInfoViewer {
     public init() {}
 
     public struct State {
-        @FetchOne(OMERecord.Event.defaultEvent) public var event: OMERecord.Event?
+        public let eventID: OMERecord.Event.ID
+        @FetchOne public var event: OMERecord.Event?
         public var destination: Destination.State?
 
-        public init(destination: Destination.State? = nil) {
+        public init(
+            eventID: OMERecord.Event.ID,
+            destination: Destination.State? = nil,
+            database: (any DatabaseReader)? = nil
+        ) {
+            self.eventID = eventID
             self.destination = destination
+            _event = FetchOne(
+                OMERecord.Event.where { $0.id.eq(eventID) },
+                database: database
+            )
         }
     }
 
@@ -35,7 +45,9 @@ public struct ContactInfoViewer {
 
             case .editButtonTapped:
                 store.withDependencies {
-                    state.destination = .editContactInfo(Spawn(EditContactInfo.State()))
+                    state.destination = .editContactInfo(
+                        Spawn(EditContactInfo.State(eventID: state.eventID))
+                    )
                 }
             }
         }
@@ -100,8 +112,11 @@ public struct EditContactInfo {
     public init() {}
 
     public struct State {
-        public init() {}
+        public init(eventID: OMERecord.Event.ID) {
+            self.eventID = eventID
+        }
 
+        let eventID: OMERecord.Event.ID
         var draft: OMERecord.Event.Draft = .placeholder
         var contactNumbers: [EditableContactNumber] = []
         var hasLoadedDraft = false
@@ -137,7 +152,6 @@ public struct EditContactInfo {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.defaultEventID) var defaultEventID
 
     public var body: some Feature {
         Update { state, action in
@@ -196,7 +210,7 @@ public struct EditContactInfo {
 
             do {
                 if let event = try database.read({ db in
-                    try OMERecord.Event.where { $0.id.eq(defaultEventID) }.fetchOne(db)
+                    try OMERecord.Event.where { $0.id.eq(state.eventID) }.fetchOne(db)
                 }) {
                     state.draft = .init(event)
                     state.contactNumbers = (event.contactNumbers ?? []).map(EditableContactNumber.init)

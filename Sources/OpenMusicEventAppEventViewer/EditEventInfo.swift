@@ -12,9 +12,10 @@ public struct EditEventInfo {
     public init() {}
 
     public struct State {
-        public init() {
+        public init(eventID: OMERecord.Event.ID) {
             @Dependency(\.date) var date
             let now = date()
+            self.eventID = eventID
             self.draft = .placeholder
             self.hasStartDate = false
             self.startDateSelection = now
@@ -22,6 +23,7 @@ public struct EditEventInfo {
             self.endDateSelection = now
         }
 
+        let eventID: OMERecord.Event.ID
         var draft: OMERecord.Event.Draft
         var hasStartDate: Bool
         var startDateSelection: Date
@@ -122,7 +124,6 @@ public struct EditEventInfo {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.defaultEventID) var defaultEventID
 
     public var body: some Feature {
         Update { state, action in
@@ -176,7 +177,7 @@ public struct EditEventInfo {
 
             do {
                 if let event = try database.read({ db in
-                    try OMERecord.Event.where { $0.id.eq(defaultEventID) }.fetchOne(db)
+                    try OMERecord.Event.where { $0.id.eq(state.eventID) }.fetchOne(db)
                 }) {
                     state.draft = .init(event)
                     state.hasStartDate = event.startDate != nil

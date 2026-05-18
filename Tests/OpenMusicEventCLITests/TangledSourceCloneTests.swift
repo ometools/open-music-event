@@ -388,6 +388,24 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func archiveExtractorSurfacesGzippedTextErrorBodies() throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-cli-source-extract-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+
+        let error = #expect(throws: ValidationError.self) {
+            try TangledSourceArchiveExtractor().extract(
+                try Data("error code: 520".utf8).gzipped(),
+                to: outputURL
+            )
+        }
+        #expect(error?.message.contains("Tangled did not return an archive: error code: 520") == true)
+        #expect(error?.message.contains("checksum") == false)
+    }
+
+    @Test
     func cloneCommandDownloadsExpectedArchivePathWithExplicitOutput() async throws {
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-cli-source-clone-\(UUID().uuidString)")

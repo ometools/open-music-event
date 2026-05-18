@@ -830,6 +830,127 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func reimportsSameSourceRefWithoutDuplicatingSourceBaseline() async throws {
+        let firstSource = try makeSourceRepository(
+            eventDirectoryName: "2026",
+            eventName: "Wicked Woods"
+        )
+        let secondSource = try makeSourceRepository(
+            eventDirectoryName: "2026",
+            eventName: "Wicked Woods Updated"
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let sourceProvenance = tangledSourceProvenance("wicked-woods", ref: "main")
+        let firstInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: firstSource,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let secondInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: secondSource,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await firstInsertion.insert(into: database)
+            try await secondInsertion.insert(into: database)
+        }
+
+        let baselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let baselineRecords = try await database.read { db in
+            try SourceBaselineRecord.fetchAll(db)
+        }
+        let baselineDatabaseRecords = try baselineDatabase.read { db in
+            try SourceBaselineRecord.fetchAll(db)
+        }
+        let baselineEvent = try baselineDatabase.read { db in
+            try OME.Event
+                .where { $0.id.eq(eventID("2026", organizerID: organizerID)) }
+                .fetchOne(db)
+        }
+
+        expectNoDifference(baselineRecords.map(\.id), [baselineID])
+        expectNoDifference(baselineDatabaseRecords.map(\.id), [baselineID])
+        #expect(baselineEvent?.name == "Wicked Woods Updated")
+    }
+
+    @Test
+    func deletesDownloadedOrganizerSourceData() async throws {
+        let source = try makeSourceRepository(
+            eventDirectoryName: "2026",
+            eventName: "Wicked Woods"
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let sourceProvenance = tangledSourceProvenance("wicked-woods", ref: "main")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let deletion = try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await database.write { db in
+                try OME.deleteDownloadedOrganizerSourceData(
+                    for: organizerID,
+                    in: db
+                )
+            }
+        }
+        try await database.write { db in
+            try OME.Organizer
+                .where { $0.id.eq(organizerID) }
+                .delete()
+                .execute(db)
+        }
+
+        let sourceBaselineCount = try await database.read { db in
+            try SourceBaselineRecord.fetchCount(db)
+        }
+        let baselineSourceBaselineCount = try baselineDatabase.read { db in
+            try SourceBaselineRecord.fetchCount(db)
+        }
+        let sourceProvenanceCount = try await database.read { db in
+            try EventSourceProvenanceRecord.fetchCount(db)
+        }
+        let baselineSourceProvenanceCount = try baselineDatabase.read { db in
+            try EventSourceProvenanceRecord.fetchCount(db)
+        }
+        let baselineOrganizerCount = try baselineDatabase.read { db in
+            try OME.Organizer.fetchCount(db)
+        }
+
+        expectNoDifference(deletion.sourceProvenances, [sourceProvenance])
+        #expect(sourceBaselineCount == 0)
+        #expect(baselineSourceBaselineCount == 0)
+        #expect(sourceProvenanceCount == 0)
+        #expect(baselineSourceProvenanceCount == 0)
+        #expect(baselineOrganizerCount == 0)
+    }
+
+    @Test
     func explicitEventIDUpdatesAcrossSources() async throws {
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let firstSource = try makeSourceRepository(

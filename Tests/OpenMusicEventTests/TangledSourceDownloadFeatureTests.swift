@@ -1,7 +1,12 @@
 import ComposableArchitecture2
+import ATProto
 import Dependencies
 import Foundation
+import HTTPClient
+import OpenMusicEventDatabase
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
+import OpenMusicEventSourceEditing
 import SQLiteData
 import Testing
 
@@ -34,31 +39,7 @@ struct TangledSourceDownloadFeatureTests {
     func myEventsFetchesDownloadedOrganizers() async throws {
         let database = try makePreparedDatabase()
         let eventID = importedEventID()
-        try await database.write { db in
-            try OMERecord.Organizer.insert {
-                OMERecord.Organizer.Draft(id: eventID.organizerID)
-            }
-            .execute(db)
-            try OMERecord.Event.insert {
-                CreateEvent.makeEventDraft(
-                    id: eventID,
-                    name: "Imported Event",
-                    startDate: nil,
-                    endDate: nil
-                )
-            }
-            .execute(db)
-            try OMERecord.EventOrganizer.insert {
-                OMERecord.EventOrganizer.Draft(
-                    id: .init(
-                        organizerID: eventID.organizerID,
-                        eventID: eventID.eventID,
-                        eventOrganizerID: eventID.organizerID
-                    )
-                )
-            }
-            .execute(db)
-        }
+        try await insertImportedEvent(eventID, into: database)
 
         let organizers = try await database.read { db in
             try MyEvents.organizersQuery.fetchAll(db)
@@ -69,6 +50,131 @@ struct TangledSourceDownloadFeatureTests {
 
         #expect(organizers.map(\.id) == [eventID.organizerID])
         #expect(events.isEmpty)
+    }
+
+    @Test
+    func myEventsDeletesDownloadedOrganizer() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = importedEventID()
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/imported-source",
+            ref: "main"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let sourceRepositoryRemovals = SourceRepositoryRemovalRecorder()
+
+        try await insertImportedEvent(eventID, into: database)
+        try await insertImportedEventData(eventID, into: database)
+        try await database.write { db in
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    source: sourceProvenance,
+                    databaseFileName: "baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 0)
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceBaselineID: sourceBaselineID,
+                    sourceKind: sourceProvenance.kind,
+                    sourceReference: sourceProvenance.reference,
+                    ref: sourceProvenance.ref,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: eventID.eventID.rawValue.rawValue
+                )
+            }
+            .execute(db)
+            try AppState.update {
+                $0.organizerID = #bind(eventID.organizerID)
+                $0.eventID = #bind(eventID.eventID)
+            }
+            .execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
+                store: { repositoryURL, _ in repositoryURL },
+                remove: { sourceRepositoryRemovals.record($0) }
+            )
+        } operation: {
+            var initialState = MyEvents.State()
+            initialState.organizerDetail = OrganizerDetail.State(
+                organizerID: eventID.organizerID,
+                database: database
+            )
+            return TestStore(initialState: initialState) {
+                MyEvents()
+            }
+        }
+
+        await store.send(.deleteOrganizers([eventID.organizerID]))?.value
+
+        let organizerCount = try await database.read { db in
+            try OMERecord.Organizer.fetchCount(db)
+        }
+        let eventCount = try await database.read { db in
+            try OMERecord.Event.fetchCount(db)
+        }
+        let eventOrganizerCount = try await database.read { db in
+            try OMERecord.EventOrganizer.fetchCount(db)
+        }
+        let stageCount = try await database.read { db in
+            try OMERecord.Stage.fetchCount(db)
+        }
+        let scheduleCount = try await database.read { db in
+            try OMERecord.Schedule.fetchCount(db)
+        }
+        let participantCount = try await database.read { db in
+            try OMERecord.Participant.fetchCount(db)
+        }
+        let channelCount = try await database.read { db in
+            try OMERecord.Channel.fetchCount(db)
+        }
+        let posterCount = try await database.read { db in
+            try OMERecord.Poster.fetchCount(db)
+        }
+        let performanceCount = try await database.read { db in
+            try OMERecord.Performance.fetchCount(db)
+        }
+        let performanceParticipantCount = try await database.read { db in
+            try OMERecord.Performance.Participants.fetchCount(db)
+        }
+        let sourceBaselineCount = try await database.read { db in
+            try SourceBaselineRecord.fetchCount(db)
+        }
+        let sourceProvenanceCount = try await database.read { db in
+            try EventSourceProvenanceRecord.fetchCount(db)
+        }
+        let organizers = try await database.read { db in
+            try MyEvents.organizersQuery.fetchAll(db)
+        }
+        let appState = try await database.read { db in
+            try AppState.fetchOne(db)
+        }
+
+        #expect(store.state.errorMessage == nil)
+        #expect(store.state.organizerDetail == nil)
+        #expect(organizerCount == 0)
+        #expect(eventCount == 0)
+        #expect(eventOrganizerCount == 0)
+        #expect(stageCount == 0)
+        #expect(scheduleCount == 0)
+        #expect(participantCount == 0)
+        #expect(channelCount == 0)
+        #expect(posterCount == 0)
+        #expect(performanceCount == 0)
+        #expect(performanceParticipantCount == 0)
+        #expect(sourceBaselineCount == 0)
+        #expect(sourceProvenanceCount == 0)
+        #expect(organizers.isEmpty)
+        #expect(appState?.selectedEventID == nil)
+        #expect(sourceRepositoryRemovals.values == [sourceProvenance])
     }
 
     @Test
@@ -112,27 +218,6 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func myEventsOpensOrganizerDetailAfterSourceImportCompletes() async throws {
-        let database = try makePreparedDatabase()
-        let organizerID = importedEventID().organizerID
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-        } operation: {
-            var initialState = MyEventsImportHarness.State()
-            initialState.myEvents.destination = .sourceImport(Spawn(TangledSourceDownload.State()))
-            return TestStore(initialState: initialState) {
-                MyEventsImportHarness()
-            }
-        }
-
-        await store.send(.completeImport(organizerID))?.value
-        await Task.yield()
-        #expect(store.state.destination == nil)
-        #expect(store.state.organizerDetail?.organizerID == organizerID)
-    }
-
-    @Test
     func emptyRefDefaultsToHEAD() async throws {
         let recorder = ImportRecorder()
 
@@ -155,6 +240,79 @@ struct TangledSourceDownloadFeatureTests {
         await store.send(.importButtonTapped)?.value
 
         #expect(await recorder.requests.map(\.ref) == ["HEAD"])
+    }
+
+    @Test
+    func liveImportReplacesExistingStoredRepositoryAfterSuccessfulImport() async throws {
+        let database = try makePreparedDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        let targetURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-source-repository-\(UUID().uuidString)")
+            .standardizedFileURL
+        try FileManager.default.createDirectory(at: targetURL, withIntermediateDirectories: true)
+        try "old".write(
+            to: targetURL.appending(path: "old.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: targetURL) }
+
+        let uuid = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000003"))
+        let expectedTemporaryURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid)
+        defer { try? FileManager.default.removeItem(at: expectedTemporaryURL) }
+
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome",
+            ref: "HEAD"
+        )
+        nonisolated(unsafe) var removedProvenances: [OMERecord.SourceDatabaseInsertion.SourceProvenance] = []
+
+        let result = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.uuid = .constant(uuid)
+            $0.httpClient = .testClient { _, _, _ in
+                Data("archive".utf8)
+            }
+            $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient { _, outputURL in
+                #expect(outputURL == expectedTemporaryURL)
+                try writeMinimalSourceRepository(at: outputURL)
+            }
+            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
+                store: { repositoryURL, provenance in
+                    #expect(repositoryURL == expectedTemporaryURL)
+                    #expect(provenance == sourceProvenance)
+                    if FileManager.default.fileExists(atPath: targetURL.path()) {
+                        try FileManager.default.removeItem(at: targetURL)
+                    }
+                    try FileManager.default.moveItem(at: repositoryURL, to: targetURL)
+                    return targetURL
+                },
+                remove: { provenance in
+                    removedProvenances.append(provenance)
+                }
+            )
+        } operation: {
+            try await TangledSourceImportClient.live.importSource(
+                OpenMusicEventSourceValidationRequest(
+                    source: "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
+                )
+            )
+        }
+
+        let eventCount = try await database.read { db in
+            try OMERecord.Event.fetchCount(db)
+        }
+
+        #expect(result.repositoryURL == targetURL)
+        #expect(eventCount == 1)
+        #expect(removedProvenances.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: targetURL.appending(path: "events").path()))
+        #expect(!FileManager.default.fileExists(atPath: targetURL.appending(path: "old.txt").path()))
     }
 
     @Test
@@ -183,6 +341,139 @@ struct TangledSourceDownloadFeatureTests {
     }
 }
 
+private func insertImportedEventData(
+    _ eventID: OMERecord.Event.ID,
+    into database: any DatabaseWriter
+) async throws {
+    let scheduleDate = try #require(LocalDate("2026-08-07"))
+    try await database.write { db in
+        try OMERecord.Stage.insert {
+            OMERecord.Stage.Draft(
+                id: OMERecord.Stage.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    stageID: localID("main")
+                ),
+                name: "Main",
+                color: 0x336699
+            )
+        }
+        .execute(db)
+        try OMERecord.Schedule.insert {
+            OMERecord.Schedule.Draft(
+                id: OMERecord.Schedule.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    scheduleID: localID("friday")
+                ),
+                date: scheduleDate,
+                startsAt: nil,
+                endsAt: nil,
+                customTitle: nil
+            )
+        }
+        .execute(db)
+        try OMERecord.Participant.insert {
+            OMERecord.Participant.Draft(
+                id: OMERecord.Participant.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    participantID: localID("artist")
+                ),
+                name: "Artist"
+            )
+        }
+        .execute(db)
+        try OMERecord.Channel.insert {
+            OMERecord.Channel.Draft(
+                id: OMERecord.Channel.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    channelID: localID("general")
+                ),
+                name: "General",
+                description: "Updates",
+                iconImageURL: nil,
+                headerImageURL: nil,
+                sortIndex: nil,
+                defaultNotificationState: .subscribed,
+                notificationsRequired: false
+            )
+        }
+        .execute(db)
+        try OMERecord.Poster.insert {
+            OMERecord.Poster.Draft(
+                id: OMERecord.Poster.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    posterID: localID("lineup")
+                ),
+                title: "Lineup",
+                imageURL: URL(string: "https://example.com/lineup.png")!
+            )
+        }
+        .execute(db)
+        try OMERecord.Performance.insert {
+            OMERecord.Performance.Draft(
+                id: OMERecord.Performance.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    performanceID: localID("opening")
+                ),
+                stageID: localID("main"),
+                scheduleID: localID("friday"),
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Opening",
+                description: nil,
+                recordings: []
+            )
+        }
+        .execute(db)
+        try OMERecord.Performance.Participants.insert {
+            OMERecord.Performance.Participants.Draft(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                performanceID: localID("opening"),
+                participantID: localID("artist"),
+                anonymousName: nil
+            )
+        }
+        .execute(db)
+    }
+}
+
+private func insertImportedEvent(
+    _ eventID: OMERecord.Event.ID,
+    into database: any DatabaseWriter
+) async throws {
+    try await database.write { db in
+        try OMERecord.Organizer.insert {
+            OMERecord.Organizer.Draft(id: eventID.organizerID)
+        }
+        .execute(db)
+        try OMERecord.Event.insert {
+            CreateEvent.makeEventDraft(
+                id: eventID,
+                name: "Imported Event",
+                startDate: nil,
+                endDate: nil
+            )
+        }
+        .execute(db)
+        try OMERecord.EventOrganizer.insert {
+            OMERecord.EventOrganizer.Draft(
+                id: .init(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    eventOrganizerID: eventID.organizerID
+                )
+            )
+        }
+        .execute(db)
+    }
+}
+
 private actor ImportRecorder {
     var requests: [OpenMusicEventSourceValidationRequest] = []
 
@@ -191,36 +482,17 @@ private actor ImportRecorder {
     }
 }
 
-@Feature
-private struct MyEventsImportHarness {
-    struct State {
-        var destination: MyEvents.Destination.State?
-        var organizerDetail: OrganizerDetail.State?
-        var myEvents = MyEvents.State()
+private final class SourceRepositoryRemovalRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [OMERecord.SourceDatabaseInsertion.SourceProvenance] = []
+
+    var values: [OMERecord.SourceDatabaseInsertion.SourceProvenance] {
+        lock.withLock { _values }
     }
 
-    enum Action {
-        case completeImport(OMERecord.Organizer.ID)
-        case myEvents(MyEvents.Action)
-    }
-
-    var body: some Feature {
-        Scope(state: \.myEvents, action: \.myEvents) {
-            MyEvents()
-        }
-        Update { state, action in
-            switch action {
-            case .completeImport(let organizerID):
-                store.addTask {
-                    try store.post(
-                        key: SourceImportCompleted.self,
-                        value: organizerID
-                    )
-                }
-            case .myEvents:
-                state.destination = state.myEvents.destination
-                state.organizerDetail = state.myEvents.organizerDetail
-            }
+    func record(_ sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance) {
+        lock.withLock {
+            _values.append(sourceProvenance)
         }
     }
 }
@@ -255,5 +527,25 @@ private func importedEventID() -> OMERecord.Event.ID {
     return OMERecord.Event.ID(
         organizerID: organizerID,
         eventID: OMERecord.ID<OMERecord.Event>(.init("imported-event"))
+    )
+}
+
+private func localID<Record>(_ string: String) -> OMERecord.ID<Record> {
+    OMERecord.ID<Record>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private func writeMinimalSourceRepository(at repositoryURL: URL) throws {
+    let eventURL = repositoryURL
+        .appending(path: "events", directoryHint: .isDirectory)
+        .appending(path: "imported-event", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: eventURL, withIntermediateDirectories: true)
+    try """
+    name: Imported Event
+    timeZone: America/Denver
+    """
+    .write(
+        to: eventURL.appending(path: "event.yml"),
+        atomically: true,
+        encoding: .utf8
     )
 }

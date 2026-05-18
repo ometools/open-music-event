@@ -191,6 +191,8 @@ private struct PreparedSourceDatabaseInsertion {
         if !sourceBaselines.isEmpty {
             try SourceBaselineRecord.insert {
                 sourceBaselines
+            } onConflict: {
+                $0.id
             }
             .execute(db)
         }

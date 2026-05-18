@@ -18,7 +18,29 @@ public struct SourceImportCompleted: FeatureEventKey {
 extension TangledSourceImportClient {
     static var live: Self {
         Self { request in
-            try await OpenMusicEventSourceValidator(request)
+            @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
+            var request = request
+            if request.outputURL == nil,
+               let sourceProvenance = try request.tangledSourceProvenance() {
+                @Dependency(\.uuid) var uuid
+                let temporaryOutputURL = SourceRepositoryStorageClient
+                    .temporaryDownloadURL(uuid: uuid())
+                request.outputURL = temporaryOutputURL
+                do {
+                    var result = try await OpenMusicEventSourceValidator(request)
+                        .validateAndInsertIntoDefaultDatabase()
+                    result.repositoryURL = try sourceRepositoryStorage.store(
+                        temporaryOutputURL,
+                        sourceProvenance
+                    )
+                    return result
+                } catch {
+                    try? FileManager.default.removeItem(at: temporaryOutputURL)
+                    throw error
+                }
+            }
+
+            return try await OpenMusicEventSourceValidator(request)
                 .validateAndInsertIntoDefaultDatabase()
         }
     }

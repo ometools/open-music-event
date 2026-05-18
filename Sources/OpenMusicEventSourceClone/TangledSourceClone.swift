@@ -267,6 +267,11 @@ public struct TangledSourceArchiveExtractor: Sendable {
                 let extractionURL = temporaryRoot.appending(path: "extract-\(index)")
                 try fileManager.createDirectory(at: extractionURL, withIntermediateDirectories: true)
 
+                if let responseBody = archiveErrorResponse(in: tarData) {
+                    lastError = ValidationError("Tangled did not return an archive: \(responseBody)")
+                    continue
+                }
+
                 do {
                     let archive = Archive(data: Array(tarData))
                     let result = try TarExtractor().extract(archive, to: extractionURL.path())
@@ -274,12 +279,13 @@ public struct TangledSourceArchiveExtractor: Sendable {
                         lastError = ValidationError("Downloaded archive did not contain any files.")
                         continue
                     }
-
-                    try moveExtractedContents(from: extractionURL, to: outputURL)
-                    return
                 } catch {
                     lastError = error
+                    continue
                 }
+
+                try moveExtractedContents(from: extractionURL, to: outputURL)
+                return
             }
 
             if let responseBody = archiveErrorResponse(in: archiveData) {
@@ -320,13 +326,16 @@ public struct TangledSourceArchiveExtractor: Sendable {
     }
 
     private func candidateTarPayloads(from archiveData: Data) throws -> [Data] {
-        var payloads: [Data] = [archiveData]
-
         // Some HTTP clients transparently decode `Content-Encoding: gzip`,
-        // even when the archive path ends in `.tar.gz`. Try both forms when possible.
+        // even when the archive path ends in `.tar.gz`. Try plain tar when
+        // the payload is already decoded, but do not feed raw gzip bytes into
+        // the tar parser when the gzip magic is still present.
         if archiveData.isGzipped {
-            payloads.insert(try archiveData.gunzipped(), at: 0)
-        } else if let gunzipped = try? archiveData.gunzipped() {
+            return [try archiveData.gunzipped()]
+        }
+
+        var payloads: [Data] = [archiveData]
+        if let gunzipped = try? archiveData.gunzipped(), gunzipped != archiveData {
             payloads.append(gunzipped)
         }
 
@@ -334,16 +343,16 @@ public struct TangledSourceArchiveExtractor: Sendable {
     }
 
     private func archiveErrorResponse(in archiveData: Data) -> String? {
-        guard archiveData.count <= 512 else { return nil }
+        guard archiveData.count <= 4_096 else { return nil }
         guard let string = String(data: archiveData, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !string.isEmpty
         else { return nil }
 
-//        let printableScalars = string.unicodeScalars.filter(\.properties.isWhitespace.not)
-//        guard printableScalars.allSatisfy({ $0.properties.isASCII && !$0.properties.isControl }) else {
-//            return nil
-//        }
+        let printableScalars = string.unicodeScalars.filter { !$0.properties.isWhitespace }
+        guard printableScalars.allSatisfy({ $0.isASCII && $0.value >= 0x20 && $0.value != 0x7F }) else {
+            return nil
+        }
 
         return string
     }

@@ -100,7 +100,7 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == eventID)
-        #expect(store.state.root.eventViewer?.eventID == eventID)
+        #expect(store.state.root.eventViewer?.state.eventID == eventID)
     }
 
     @Test
@@ -118,9 +118,9 @@ struct NavigationTests {
             store.send(.root(.handleNavigationRequest(.event(eventID, .participant(participantID)))))
         }
 
-        #expect(store.state.root.eventViewer?.selectedFeature == .people)
+        #expect(store.state.root.eventViewer?.state.selectedFeature == .people)
         #expect(
-            store.state.root.eventViewer?.peopleViewer?.destination?.participantDetail?.participantID == participantID
+            store.state.root.eventViewer?.state.peopleViewer?.destination?.participantDetail?.participantID == participantID
         )
     }
 
@@ -139,9 +139,9 @@ struct NavigationTests {
             store.send(.root(.handleNavigationRequest(.event(eventID, .stage(stageID)))))
         }
 
-        #expect(store.state.root.eventViewer?.selectedFeature == .stages)
+        #expect(store.state.root.eventViewer?.state.selectedFeature == .stages)
         #expect(
-            store.state.root.eventViewer?.stagesViewer?.destination?.stageDetail?.stageID == stageID
+            store.state.root.eventViewer?.state.stagesViewer?.destination?.stageDetail?.stageID == stageID
         )
     }
 
@@ -159,8 +159,8 @@ struct NavigationTests {
             store.send(.root(.handleNavigationRequest(.event(eventID, .edit))))
         }
 
-        #expect(store.state.root.eventViewer?.selectedFeature == .edit)
-        #expect(store.state.root.eventViewer?.editEvent?.eventID == eventID)
+        #expect(store.state.root.eventViewer?.state.selectedFeature == .edit)
+        #expect(store.state.root.eventViewer?.state.editEvent?.eventID == eventID)
     }
 
     @Test
@@ -1517,7 +1517,7 @@ struct NavigationTests {
         }
 
         let store = makeRootHarnessStore(database: database, eventID: eventID)
-        #expect(store.state.root.eventViewer?.eventID == eventID)
+        #expect(store.state.root.eventViewer?.state.eventID == eventID)
 
         store.send(.root(.eventViewerDismissed))
 

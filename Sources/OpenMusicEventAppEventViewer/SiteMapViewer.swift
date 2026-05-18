@@ -8,9 +8,19 @@ public struct SiteMapViewer {
     public init() {}
 
     public struct State {
-        @FetchOne(OMERecord.Event.defaultEvent) public var event: OMERecord.Event?
+        public let eventID: OMERecord.Event.ID
+        @FetchOne public var event: OMERecord.Event?
 
-        public init() {}
+        public init(
+            eventID: OMERecord.Event.ID,
+            database: (any DatabaseReader)? = nil
+        ) {
+            self.eventID = eventID
+            _event = FetchOne(
+                OMERecord.Event.where { $0.id.eq(eventID) },
+                database: database
+            )
+        }
     }
 
     public enum Action {}

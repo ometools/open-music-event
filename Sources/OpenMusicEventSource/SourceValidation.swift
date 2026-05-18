@@ -26,6 +26,20 @@ public struct OpenMusicEventSourceValidationRequest: Equatable, Sendable {
         let trimmedRef = ref.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedRef.isEmpty ? "HEAD" : trimmedRef
     }
+
+    public func tangledSourceProvenance() throws -> OME.SourceDatabaseInsertion.SourceProvenance? {
+        switch try SourceRepositoryLocation(parsing: source) {
+        case .local:
+            return nil
+
+        case let .tangled(repository):
+            return OME.SourceDatabaseInsertion.SourceProvenance(
+                kind: .tangled,
+                reference: repository.normalizedReference,
+                ref: resolvedRef
+            )
+        }
+    }
 }
 
 public struct OpenMusicEventSourceValidationResult: Equatable, Sendable {
