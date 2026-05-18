@@ -72,6 +72,10 @@ struct NavigationTests {
                 "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/edit",
                 AppRoute.event(eventID("event-1"), .edit)
             ),
+            (
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/settings",
+                AppRoute.event(eventID("event-1"), .settings)
+            ),
         ]
     )
     func appRouteRoundTrips(urlString: String, expected: AppRoute) throws {
@@ -866,7 +870,9 @@ struct NavigationTests {
         ])
         #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
         #expect(state.installedFeatures.contains(.edit))
+        #expect(state.installedFeatures.contains(.settings))
         #expect(state.editEvent?.eventID == eventID)
+        #expect(state.eventSettings?.eventID == eventID)
     }
 
     @Test

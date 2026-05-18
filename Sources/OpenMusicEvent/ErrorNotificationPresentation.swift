@@ -67,7 +67,7 @@ private extension ErrorNotificationPresentationClient {
                         },
                         position: .top,
                         duration: 5.0,
-                        accessibility: "Alert: OpenMusicEvent, \(error.message.fallback)"
+                        accessibility: .init(message: "Alert: OpenMusicEvent, \(error.message.fallback)")
                     )
 
                     Drops.show(drop)

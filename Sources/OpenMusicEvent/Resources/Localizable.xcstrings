@@ -424,9 +424,6 @@
         }
       }
     },
-    "now" : {
-
-    },
     "OpenMusicEvent" : {
 
     },
@@ -582,10 +579,10 @@
         }
       }
     },
-    "Testival 2026" : {
+    "Test error." : {
 
     },
-    "Test error." : {
+    "Testival 2026" : {
 
     },
     "This organizer has no events." : {

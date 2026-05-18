@@ -13,6 +13,7 @@ public enum EventTarget: Equatable, Sendable {
     case siteMap
     case posters
     case notifications
+    case settings
     case search
     case about
     case edit
@@ -39,6 +40,8 @@ public enum EventTarget: Equatable, Sendable {
             .posters
         case .notifications:
             .notifications
+        case .settings:
+            .settings
         case .edit:
             .edit
         case .about:

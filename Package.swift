@@ -68,6 +68,7 @@ let package = Package(
         .target(
             name: "OpenMusicEventAppEventViewer",
             dependencies: [
+                "ErrorHandling",
                 "LiquidGlassSegmentedPicker",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",

@@ -50,6 +50,7 @@ public struct EventViewer {
         case siteMap
         case posters
         case notifications
+        case settings
         case edit
         case search
         case about
@@ -64,6 +65,7 @@ public struct EventViewer {
             .siteMap,
             .posters,
             .notifications,
+            .settings,
             .edit,
             .search,
             .about,
@@ -97,6 +99,8 @@ public struct EventViewer {
                 self = .posters
             case "notifications":
                 self = .notifications
+            case "settings":
+                self = .settings
             case "edit":
                 self = .edit
             case "search":
@@ -131,6 +135,8 @@ public struct EventViewer {
                 return "posters"
             case .notifications:
                 return "notifications"
+            case .settings:
+                return "settings"
             case .edit:
                 return "edit"
             case .search:
@@ -151,6 +157,7 @@ public struct EventViewer {
             case .siteMap: "Site Map"
             case .posters: "Posters"
             case .notifications: "Alerts"
+            case .settings: "Settings"
             case .edit: "Edit"
             case .search: "Search"
             case .about: "About"
@@ -168,6 +175,7 @@ public struct EventViewer {
             case .siteMap: "map"
             case .posters: "photo.on.rectangle"
             case .notifications: "bell"
+            case .settings: "gearshape"
             case .edit: "pencil"
             case .search: "magnifyingglass"
             case .about: "info.circle"
@@ -185,6 +193,7 @@ public struct EventViewer {
             case .siteMap: .teal
             case .posters: .purple
             case .notifications: .red
+            case .settings: .gray
             case .edit: .yellow
             case .search: nil
             case .about: .gray
@@ -206,6 +215,7 @@ public struct EventViewer {
             case .siteMap: return "openMusicEvent.eventViewer.siteMap"
             case .posters: return "openMusicEvent.eventViewer.posters"
             case .notifications: return "openMusicEvent.eventViewer.notifications"
+            case .settings: return "openMusicEvent.eventViewer.settings"
             case .edit: return "openMusicEvent.eventViewer.edit"
             case .search: return "openMusicEvent.eventViewer.search"
             case .about: return "openMusicEvent.eventViewer.about"
@@ -291,6 +301,8 @@ public struct EventViewer {
                         self.postersViewer = Spawn(PostersViewer.State(eventID: eventID))
                     case .notifications:
                         self.notificationsViewer = Spawn(NotificationsViewer.State(eventID: eventID))
+                    case .settings:
+                        self.eventSettings = Spawn(EventSettings.State(eventID: eventID))
                     case .edit:
                         self.editEvent = Spawn(EditEvent.State(eventID: eventID))
                     case .search:
@@ -327,6 +339,7 @@ public struct EventViewer {
         public var siteMapViewer: Spawn<SiteMapViewer>?
         public var postersViewer: Spawn<PostersViewer>?
         public var notificationsViewer: Spawn<NotificationsViewer>?
+        public var eventSettings: Spawn<EventSettings>?
         public var editEvent: Spawn<EditEvent>?
         public var eventSearch: Spawn<EventSearch>
         public var eventInfoViewer: Spawn<EventInfoViewer>?
@@ -459,6 +472,9 @@ public struct EventViewer {
         }
         .ifLet(\.notificationsViewer) {
             NotificationsViewer()
+        }
+        .ifLet(\.eventSettings) {
+            EventSettings()
         }
         .ifLet(\.editEvent) {
             EditEvent()
@@ -621,6 +637,18 @@ public struct EventViewerView: View {
                     }
                 }
 
+                if let featureStore = store.spawn(\.eventSettings) {
+                    TabFeature(
+                        .settings,
+                        title: EventViewer.EventFeature.settings.title,
+                        systemImage: EventViewer.EventFeature.settings.systemImage,
+                        labelTint: EventViewer.EventFeature.settings.labelTint,
+                        navigation: .stack
+                    ) {
+                        EventSettingsView(store: featureStore)
+                    }
+                }
+
                 if let featureStore = store.spawn(\.editEvent) {
                     TabFeature(
                         .edit,
@@ -735,6 +763,13 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.notifications)
             }
 
+            if let featureStore = store.spawn(\.eventSettings) {
+                viewerTab(.settings) {
+                    EventSettingsView(store: featureStore)
+                }
+                .tag(EventViewer.EventFeature.settings)
+            }
+
             if let featureStore = store.spawn(\.editEvent) {
                 viewerTab(.edit, badgeValue: featureStore.changeCount) {
                     EditEventView(store: featureStore)
@@ -820,6 +855,13 @@ public struct EventViewerView: View {
                     NotificationsViewerView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.notifications)
+            }
+
+            if let featureStore = store.spawn(\.eventSettings) {
+                viewerTab(.settings) {
+                    EventSettingsView(store: featureStore)
+                }
+                .tag(EventViewer.EventFeature.settings)
             }
 
             if let featureStore = store.spawn(\.editEvent) {
