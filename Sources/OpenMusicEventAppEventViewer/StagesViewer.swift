@@ -300,12 +300,16 @@ public struct StageDetailView: View {
     public var body: some View {
         Group {
             if let stage = store.stage {
-                HeroImageList(title: Text(stage.name)) {
+                let logoAsset = stage.images?.imageAsset(role: .logo)
+                HeroImageList(
+                    title: Text(stage.name),
+                    showsNavigationTitleBeforeScroll: logoAsset != nil
+                ) {
                     HeroImage(
                         title: Text(stage.name),
                         asset: stage.images?.imageAsset(role: .hero),
                         cacheContext: .init(stageID: stage.id),
-                        logoAsset: stage.images?.imageAsset(role: .logo),
+                        logoAsset: logoAsset,
                         tint: stage.color.swiftUIColor
                     ) {
                         StageIconFallback(stage: stage, size: 150)

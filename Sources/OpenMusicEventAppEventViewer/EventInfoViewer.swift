@@ -80,12 +80,16 @@ public struct EventInfoViewerView: View {
     public var body: some View {
         Group {
             if let event = store.event {
-                HeroImageList(title: Text(event.name)) {
+                let logoAsset = event.images?.imageAsset(role: .icon)
+                HeroImageList(
+                    title: Text(event.name),
+                    showsNavigationTitleBeforeScroll: logoAsset != nil
+                ) {
                     HeroImage(
                         title: Text(event.name),
                         asset: event.images?.imageAsset(role: .hero),
                         cacheContext: .init(eventID: event.id),
-                        logoAsset: event.images?.imageAsset(role: .icon)
+                        logoAsset: logoAsset
                     ) {
                         Image(systemName: "music.note")
                             .font(.system(size: 82, weight: .semibold))

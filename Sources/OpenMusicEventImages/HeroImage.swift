@@ -54,19 +54,21 @@ public struct HeroImage<Placeholder: View>: View {
 
 public struct HeroImageList<HeroContent: View, ListContent: View>: View {
     let title: Text
+    let showsNavigationTitleBeforeScroll: Bool
     let heroContent: HeroContent
     let listContent: ListContent
 
     @State var scrollOffset: CGFloat = .zero
-    let stretchFactor: CGFloat = 400
     let coordinateSpaceName = "HeroImageListScroll"
 
     public init(
         title: Text,
+        showsNavigationTitleBeforeScroll: Bool = false,
         @ViewBuilder hero: () -> HeroContent,
         @ViewBuilder content: () -> ListContent
     ) {
         self.title = title
+        self.showsNavigationTitleBeforeScroll = showsNavigationTitleBeforeScroll
         self.heroContent = hero()
         self.listContent = content()
     }
@@ -84,36 +86,58 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
         .navigationTitle(title)
         #else
         GeometryReader { geometry in
-            List {
-                heroRow(height: heroHeight(for: geometry.size.width))
-
-                listContent
-            }
-            .listStyle(.plain)
-            .coordinateSpace(name: coordinateSpaceName)
-            .onPreferenceChange(HeroImageOffsetPreferenceKey.self) { minY in
-                scrollOffset = -minY
-            }
-            .ignoresSafeArea(.all, edges: .top)
-            .navigationTitle(showNavigationTitle ? title : Text(""))
-            .toolbarBackground(showNavigationChrome ? .visible : .hidden)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .animation(.default, value: showNavigationChrome)
+            scrollTrackedList(height: heroHeight(for: geometry.size.width))
         }
         #endif
+    }
+
+    @ViewBuilder
+    private func scrollTrackedList(height: CGFloat) -> some View {
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            list(height: height)
+                .onScrollGeometryChange(for: CGFloat.self) {
+                    $0.contentOffset.y + $0.contentInsets.top
+                } action: { _, newValue in
+                    scrollOffset = newValue
+                }
+        } else {
+            list(height: height)
+        }
+        #else
+        list(height: height)
+        #endif
+    }
+
+    private func list(height: CGFloat) -> some View {
+        List {
+            heroRow(height: height)
+
+            listContent
+        }
+        .listStyle(.plain)
+        .coordinateSpace(name: coordinateSpaceName)
+        .onPreferenceChange(HeroImageOffsetPreferenceKey.self) { minY in
+            geometryOffsetChanged(minY)
+        }
+        .ignoresSafeArea(.all, edges: .top)
+        .navigationTitle(shouldShowNavigationTitle ? title : Text(""))
+        .toolbarBackground(showNavigationChrome ? .visible : .hidden)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .animation(.default, value: showNavigationChrome)
     }
 
     private func heroRow(height: CGFloat) -> some View {
         heroContent
             .frame(maxWidth: .infinity)
-            .frame(height: height)
-            .background(HeroImageOffsetReader(coordinateSpaceName: coordinateSpaceName))
+            .frame(height: height + pullDistance)
             .overlay {
                 topChromeOverlay
             }
-            .scaleEffect(stretchScale, anchor: .bottom)
+            .frame(height: height, alignment: .bottom)
+            .background(HeroImageOffsetReader(coordinateSpaceName: coordinateSpaceName))
             .listRowInsets(EdgeInsets())
             .listRowSeparator(.hidden, edges: .top)
             .ignoresSafeArea(.all, edges: .top)
@@ -130,8 +154,8 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
         min(max(width, 280), 420)
     }
 
-    private var stretchScale: CGFloat {
-        max(1, (-scrollOffset / stretchFactor) + 1)
+    private var pullDistance: CGFloat {
+        max(0, -scrollOffset)
     }
 
     private var showNavigationChrome: Bool {
@@ -140,6 +164,10 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
 
     private var showNavigationTitle: Bool {
         scrollOffset > 10
+    }
+
+    private var shouldShowNavigationTitle: Bool {
+        showsNavigationTitleBeforeScroll || showNavigationTitle
     }
 
     @Environment(\.colorScheme) var colorScheme
@@ -171,6 +199,13 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
     private var chromeOpacity: CGFloat {
         guard scrollOffset > 0 else { return 0 }
         return min(scrollOffset, 100) / 100
+    }
+
+    private func geometryOffsetChanged(_ minY: CGFloat) {
+        #if os(iOS)
+        if #available(iOS 18.0, *) { return }
+        #endif
+        scrollOffset = -minY
     }
 }
 

@@ -267,12 +267,16 @@ public struct ParticipantDetailView: View {
     public var body: some View {
         Group {
             if let participant = store.participant {
-                HeroImageList(title: Text(participant.name)) {
+                let logoAsset = participant.images?.imageAsset(role: .logo)
+                HeroImageList(
+                    title: Text(participant.name),
+                    showsNavigationTitleBeforeScroll: logoAsset != nil
+                ) {
                     HeroImage(
                         title: Text(participant.name),
                         asset: participant.preferredArtworkAsset,
                         cacheContext: .init(participantID: participant.id),
-                        logoAsset: participant.images?.imageAsset(role: .logo)
+                        logoAsset: logoAsset
                     ) {
                         Image(systemName: "person.crop.square")
                             .font(.system(size: 82, weight: .semibold))
