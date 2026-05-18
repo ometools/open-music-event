@@ -103,9 +103,11 @@ public struct StagesViewer {
                 break
 
             case let .stageButtonTapped(stageID):
-                state.destination = .stageDetail(
-                    Spawn(.init(stageID: stageID, eventID: state.eventID))
-                )
+                store.withDependencies {
+                    state.destination = .stageDetail(
+                        Spawn(.init(stageID: stageID, eventID: state.eventID))
+                    )
+                }
             }
         }
         .ifLet(\.destination, action: \.destination) {

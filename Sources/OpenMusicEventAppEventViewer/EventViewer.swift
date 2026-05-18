@@ -360,18 +360,25 @@ public struct EventViewer {
             switch target {
             case let .participant(participantID):
                 let eventID = self.eventID
-                self.eventSearch.state = EventSearch.State(eventID: eventID)
-                if self.peopleViewer == nil {
-                    self.peopleViewer = Spawn(PeopleViewer.State(eventID: eventID))
+                self.eventSearch.state = withEventDependencies {
+                    EventSearch.State(eventID: eventID)
                 }
-                self.peopleViewer?.state.destination = .participantDetail(
-                    Spawn(
-                        ParticipantDetail.State(
-                            participantID: participantID,
-                            eventID: eventID
+                if self.peopleViewer == nil {
+                    self.peopleViewer = withEventDependencies {
+                        Spawn(PeopleViewer.State(eventID: eventID))
+                    }
+                }
+                let destination = withEventDependencies {
+                    PeopleViewer.Destination.State.participantDetail(
+                        Spawn(
+                            ParticipantDetail.State(
+                                participantID: participantID,
+                                eventID: eventID
+                            )
                         )
                     )
-                )
+                }
+                self.peopleViewer?.state.destination = destination
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             case .people:
@@ -381,19 +388,26 @@ public struct EventViewer {
                 self.eventInfoViewer?.state.destination = nil
             case let .stage(stageID):
                 let eventID = self.eventID
-                self.eventSearch.state = EventSearch.State(eventID: eventID)
+                self.eventSearch.state = withEventDependencies {
+                    EventSearch.State(eventID: eventID)
+                }
                 self.peopleViewer?.state.destination = nil
                 if self.stagesViewer == nil {
-                    self.stagesViewer = Spawn(StagesViewer.State(eventID: eventID))
+                    self.stagesViewer = withEventDependencies {
+                        Spawn(StagesViewer.State(eventID: eventID))
+                    }
                 }
-                self.stagesViewer?.state.destination = .stageDetail(
-                    Spawn(
-                        StageDetail.State(
-                            stageID: stageID,
-                            eventID: eventID
+                let destination = withEventDependencies {
+                    StagesViewer.Destination.State.stageDetail(
+                        Spawn(
+                            StageDetail.State(
+                                stageID: stageID,
+                                eventID: eventID
+                            )
                         )
                     )
-                )
+                }
+                self.stagesViewer?.state.destination = destination
                 self.eventInfoViewer?.state.destination = nil
             case .stages:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
@@ -418,6 +432,20 @@ public struct EventViewer {
                 self.peopleViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
+            }
+        }
+
+        private func withEventDependencies<Value>(_ operation: () -> Value) -> Value {
+            let eventID = self.eventID
+            let sourceEditingSession = self.sourceEditingSession
+            return withDependencies {
+                $0.defaultEventID = eventID
+                if let sourceEditingSession {
+                    $0.defaultDatabase = sourceEditingSession.database
+                    $0.sourceEditingSession = sourceEditingSession
+                }
+            } operation: {
+                operation()
             }
         }
     }

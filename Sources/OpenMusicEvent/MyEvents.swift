@@ -112,7 +112,9 @@ public struct MyEvents {
                 }
 
             case .didTapOrganizer(let organizerID):
-                state.organizerDetail = .init(organizerID: organizerID)
+                store.withDependencies {
+                    state.organizerDetail = .init(organizerID: organizerID)
+                }
 
             case .destination:
                 return
@@ -129,7 +131,9 @@ public struct MyEvents {
         }
         .onEvent(SourceImportCompleted.self) { organizerID, state in
             state.destination = nil
-            state.organizerDetail = .init(organizerID: organizerID)
+            store.withDependencies {
+                state.organizerDetail = .init(organizerID: organizerID)
+            }
         }
     }
 }

@@ -289,7 +289,9 @@ public struct Following {
         Update { state, action in
             switch action {
             case .organizerRowTapped(let organizerID):
-                state.organizerDetail = .init(organizerID: organizerID)
+                store.withDependencies {
+                    state.organizerDetail = .init(organizerID: organizerID)
+                }
 
             case .eventButtonTapped(let eventID):
                 store.addTask {

@@ -3,6 +3,7 @@ import ATProto
 import Dependencies
 import DebugSnapshots
 import Foundation
+import Observation
 import Sharing
 import SQLiteData
 import SwiftUI
@@ -38,6 +39,18 @@ private func scheduleLocalID(_ string: String) -> OMERecord.ID<OMERecord.Schedul
 
 private func stageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
     OMERecord.ID<OMERecord.Stage>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private actor ObservationRecorder<Value: Sendable> {
+    private var recordedValues: [Value] = []
+
+    var values: [Value] {
+        recordedValues
+    }
+
+    func record(_ value: Value) {
+        recordedValues.append(value)
+    }
 }
 
 @MainActor
@@ -1229,6 +1242,69 @@ struct NavigationTests {
         }
 
         #expect(participant.name == "New Name")
+        #expect(detailStore.participant?.name == "New Name")
+        #expect(detailStore.destination == nil)
+    }
+
+    @Test
+    func spawnedParticipantDetailObservesSavedChanges() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let participantID = participantLocalID("artist-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertParticipant(db, eventID: eventID, participantID: "artist-1", name: "Old Name")
+        }
+
+        @Bindable var peopleStore = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: PeopleViewer.State(eventID: eventID)) {
+                PeopleViewer()
+            }
+        }
+
+        peopleStore.send(.participantButtonTapped(participantID))
+        @Bindable var detailStore = try #require(
+            $peopleStore
+                .scope(state: \.destination, action: \.destination)
+                .participantDetail
+                .wrappedValue
+        )
+
+        let storeObservationRecorder = ObservationRecorder<String>()
+        let viewObservationRecorder = ObservationRecorder<String>()
+        withObservationTracking {
+            _ = detailStore.participant?.name
+        } onChange: {
+            Task {
+                await storeObservationRecorder.record("invalidated")
+            }
+        }
+        withObservationTracking {
+            _ = ParticipantDetailView(store: detailStore).body
+        } onChange: {
+            Task {
+                await viewObservationRecorder.record("invalidated")
+            }
+        }
+
+        detailStore.send(.editButtonTapped)
+        @Bindable var editStore = try #require(
+            $detailStore
+                .scope(state: \.destination, action: \.destination)
+                .editParticipant
+                .wrappedValue
+        )
+        $editStore.name.wrappedValue = "New Name"
+        await editStore.send(.saveButtonTapped)?.value
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(await storeObservationRecorder.values == ["invalidated"])
+        #expect(await viewObservationRecorder.values == ["invalidated"])
         #expect(detailStore.participant?.name == "New Name")
         #expect(detailStore.destination == nil)
     }

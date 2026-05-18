@@ -58,16 +58,6 @@ public struct EventInfoViewer {
     }
 }
 
-extension _FeatureStore {
-    func withDependencies<T>(operation: () -> T) -> T? {
-        withErrorReporting {
-            try Dependencies.withDependencies { $0 = try self.dependencies } operation: {
-                operation()
-            }
-        }
-    }
-}
-
 public struct EventInfoViewerView: View {
     @Bindable var store: StoreOf<EventInfoViewer>
 

@@ -75,9 +75,11 @@ public struct PeopleViewer {
                 break
 
             case let .participantButtonTapped(participantID):
-                state.destination = .participantDetail(
-                    Spawn(.init(participantID: participantID, eventID: state.eventID))
-                )
+                store.withDependencies {
+                    state.destination = .participantDetail(
+                        Spawn(.init(participantID: participantID, eventID: state.eventID))
+                    )
+                }
             }
         }
         .ifLet(\.destination, action: \.destination) {

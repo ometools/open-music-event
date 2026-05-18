@@ -56,7 +56,9 @@ public struct OpenMusicEventAppRoot {
             case .handleNavigationRequest(let request):
                 switch request {
                 case let .event(eventID, target):
-                    state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                    store.withDependencies {
+                        state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                    }
                     if state.selectedEventID != eventID {
                         try? database.write { db in
                             try AppState.update {
@@ -79,7 +81,9 @@ public struct OpenMusicEventAppRoot {
 
             case .openRoute(let route):
                 if case let .event(eventID, target) = route.navigationRequest {
-                    state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                    store.withDependencies {
+                        state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                    }
                     try? database.write { db in
                         try AppState.update {
                             $0.organizerID = #bind(eventID.organizerID)
@@ -116,7 +120,9 @@ public struct OpenMusicEventAppRoot {
         .onChange(of: store.selectedEventID, initial: true) { _, newValue, state in
             if let newValue {
                 if state.eventViewer?.state.eventID != newValue {
-                    state.eventViewer = Spawn(.route(eventID: newValue, target: nil))
+                    store.withDependencies {
+                        state.eventViewer = Spawn(.route(eventID: newValue, target: nil))
+                    }
                 }
                 store.addTask {
                     do {
