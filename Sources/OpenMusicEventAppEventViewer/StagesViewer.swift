@@ -305,6 +305,7 @@ public struct StageDetailView: View {
                         title: Text(stage.name),
                         asset: stage.images?.imageAsset(role: .hero),
                         cacheContext: .init(stageID: stage.id),
+                        logoAsset: stage.images?.imageAsset(role: .logo),
                         tint: stage.color.swiftUIColor
                     ) {
                         StageIconFallback(stage: stage, size: 150)

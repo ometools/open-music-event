@@ -6,6 +6,8 @@ public struct HeroImage<Placeholder: View>: View {
     let title: Text
     let asset: OME.ImageAsset?
     let cacheContext: LocalImageCacheContext?
+    let logoAsset: OME.ImageAsset?
+    let logoCacheContext: LocalImageCacheContext?
     let tint: Color
     @ViewBuilder var placeholder: () -> Placeholder
 
@@ -13,12 +15,16 @@ public struct HeroImage<Placeholder: View>: View {
         title: Text,
         asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext?,
+        logoAsset: OME.ImageAsset? = nil,
+        logoCacheContext: LocalImageCacheContext? = nil,
         tint: Color = .accentColor,
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.title = title
         self.asset = asset
         self.cacheContext = cacheContext
+        self.logoAsset = logoAsset
+        self.logoCacheContext = logoCacheContext ?? cacheContext
         self.tint = tint
         self.placeholder = placeholder
     }
@@ -36,7 +42,12 @@ public struct HeroImage<Placeholder: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .overlay(alignment: .bottomLeading) {
-            HeroImageTitle(title: title)
+            HeroImageBottomChrome(
+                title: title,
+                logoAsset: logoAsset,
+                logoCacheContext: logoCacheContext,
+                tint: tint
+            )
         }
     }
 }
@@ -102,7 +113,7 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
             .overlay {
                 topChromeOverlay
             }
-            .scaleEffect(heroScale, anchor: .bottom)
+            .scaleEffect(stretchScale, anchor: .bottom)
             .listRowInsets(EdgeInsets())
             .listRowSeparator(.hidden, edges: .top)
             .ignoresSafeArea(.all, edges: .top)
@@ -119,13 +130,8 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
         min(max(width, 280), 420)
     }
 
-    private var heroScale: CGFloat {
-        let trueScale = (-scrollOffset / stretchFactor) + 1
-        if trueScale >= 1 {
-            return trueScale
-        } else {
-            return pow(max(trueScale, 0.01), 1 / 5)
-        }
+    private var stretchScale: CGFloat {
+        max(1, (-scrollOffset / stretchFactor) + 1)
     }
 
     private var showNavigationChrome: Bool {
@@ -185,19 +191,29 @@ struct HeroImageFallback<Content: View>: View {
     }
 }
 
-struct HeroImageTitle: View {
+struct HeroImageBottomChrome: View {
     let title: Text
+    let logoAsset: OME.ImageAsset?
+    let logoCacheContext: LocalImageCacheContext?
+    let tint: Color
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        title
-            .font(.largeTitle)
-            .fontWeight(.bold)
-            .lineLimit(2)
-            #if os(iOS)
-            .minimumScaleFactor(0.72)
-            #endif
-            .shadow(color: .black.opacity(0.5), radius: 5, x: 0.5, y: 2)
+        HStack {
+            if let logoAsset {
+                ImageAssetAsyncImage(
+                    asset: logoAsset,
+                    cacheContext: logoCacheContext,
+                    contentMode: .fit
+                ) {
+                    HeroImageName(title: title)
+                }
+                .frame(width: 164, height: 72, alignment: .leading)
+                .accessibilityLabel(title)
+            } else {
+                HeroImageName(title: title)
+            }
+        }
             .padding(.horizontal, 16)
             .padding(.top, 56)
             .padding(.bottom, 18)
@@ -220,6 +236,22 @@ struct HeroImageTitle: View {
         @unknown default:
             .black
         }
+    }
+}
+
+struct HeroImageName: View {
+    let title: Text
+
+    var body: some View {
+        title
+            .font(.largeTitle)
+            .fontWeight(.bold)
+            .lineLimit(2)
+            #if os(iOS)
+            .minimumScaleFactor(0.72)
+            #endif
+            .shadow(color: .black.opacity(0.5), radius: 5, x: 0.5, y: 2)
+            .opacity(0.92)
     }
 }
 

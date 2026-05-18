@@ -271,7 +271,8 @@ public struct ParticipantDetailView: View {
                     HeroImage(
                         title: Text(participant.name),
                         asset: participant.preferredArtworkAsset,
-                        cacheContext: .init(participantID: participant.id)
+                        cacheContext: .init(participantID: participant.id),
+                        logoAsset: participant.images?.imageAsset(role: .logo)
                     ) {
                         Image(systemName: "person.crop.square")
                             .font(.system(size: 82, weight: .semibold))

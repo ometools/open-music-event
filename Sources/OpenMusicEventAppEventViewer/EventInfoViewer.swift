@@ -84,7 +84,8 @@ public struct EventInfoViewerView: View {
                     HeroImage(
                         title: Text(event.name),
                         asset: event.images?.imageAsset(role: .hero),
-                        cacheContext: .init(eventID: event.id)
+                        cacheContext: .init(eventID: event.id),
+                        logoAsset: event.images?.imageAsset(role: .icon)
                     ) {
                         Image(systemName: "music.note")
                             .font(.system(size: 82, weight: .semibold))
