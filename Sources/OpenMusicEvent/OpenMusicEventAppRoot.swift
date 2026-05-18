@@ -36,6 +36,7 @@ public struct OpenMusicEventAppRoot {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     @Dependency(\.continuousClock) var clock
+    @Dependency(\.errorNotificationPresentation) var errorNotificationPresentation
 
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -101,7 +102,15 @@ public struct OpenMusicEventAppRoot {
                 }
 
             case .task:
-                break
+                store.addTask {
+                    let selections = await errorNotificationPresentation.selections()
+                    for await error in selections {
+                        try store.post(
+                            key: ErrorNotificationSelected.self,
+                            value: error
+                        )
+                    }
+                }
             }
         }
         .onChange(of: store.selectedEventID, initial: true) { _, newValue, state in
@@ -126,6 +135,9 @@ public struct OpenMusicEventAppRoot {
         }
         .onEvent(ErrorReported.self) { error, state in
             state.errorNotifications.state.report(error)
+            store.addTask {
+                await errorNotificationPresentation.show(error)
+            }
             store.addTask {
                 try await clock.sleep(for: ErrorNotifications.automaticDismissDelay)
                 try store.modify {
@@ -164,14 +176,7 @@ public struct OpenMusicEventAppRootView: View {
 
     @ViewBuilder
     private var content: some View {
-        #if os(iOS)
         browserView
-        #else
-        browserView
-            .globalNotificationOverlay(
-                store: store.spawn(\.errorNotifications)
-            )
-        #endif
     }
 
     @ViewBuilder
@@ -212,167 +217,5 @@ public struct OpenMusicEventAppRootView: View {
                 }
             }
         )
-    }
-}
-
-public struct OpenMusicEventGlobalErrorWindowView: View {
-    public init(store: StoreOf<ErrorNotifications>) {
-        self.store = store
-    }
-
-    @Bindable var store: StoreOf<ErrorNotifications>
-
-    public var body: some View {
-        VStack(spacing: 0) {
-            if let latestError = store.latestError {
-                GlobalNotificationView(error: latestError) {
-                    store.send(.latestErrorNotificationTapped)
-                } onDismiss: {
-                    store.send(.latestErrorNotificationDismissed)
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(.snappy, value: store.latestError?.id)
-        .allowsHitTesting(store.latestError != nil)
-    }
-}
-
-struct GlobalNotificationView: View {
-    let error: HandledError
-    let onTap: () -> Void
-    let onDismiss: () -> Void
-
-    @Environment(\.colorScheme) var colorScheme
-    @GestureState var dragTranslation = CGSize.zero
-
-    var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.accentColor)
-                        .frame(width: 18, height: 18)
-                        .overlay {
-                            Image(systemName: "music.note")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white)
-                        }
-
-                    Text("OpenMusicEvent")
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-
-                    Spacer(minLength: 8)
-
-                    Text("now")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text(error.message.resource)
-                    .font(.subheadline)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .foregroundStyle(.primary)
-            .padding(12)
-            .frame(maxWidth: 420, alignment: .leading)
-            .background(
-                notificationSurface,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(notificationStroke, lineWidth: 1)
-            }
-            .shadow(color: notificationShadow, radius: 18, y: 8)
-        }
-        .buttonStyle(.plain)
-        .offset(
-            x: dragTranslation.width,
-            y: min(0, dragTranslation.height)
-        )
-        .opacity(notificationOpacity)
-        .gesture(dismissGesture)
-    }
-
-    private var dismissGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .updating($dragTranslation) { value, state, _ in
-                state = value.translation
-            }
-            .onEnded { value in
-                if shouldDismiss(value) {
-                    onDismiss()
-                }
-            }
-    }
-
-    private var notificationOpacity: Double {
-        let verticalProgress = min(max(-dragTranslation.height / 80, 0), 1)
-        let horizontalProgress = min(max(abs(dragTranslation.width) / 180, 0), 1)
-        return 1 - max(verticalProgress, horizontalProgress) * 0.6
-    }
-
-    private var notificationSurface: Color {
-        switch colorScheme {
-        case .dark:
-            Color(red: 0.18, green: 0.18, blue: 0.19).opacity(0.98)
-        case .light:
-            Color.white.opacity(0.98)
-        @unknown default:
-            Color.primary.opacity(0.92)
-        }
-    }
-
-    private var notificationStroke: Color {
-        switch colorScheme {
-        case .dark:
-            Color.white.opacity(0.12)
-        case .light:
-            Color.black.opacity(0.08)
-        @unknown default:
-            Color.primary.opacity(0.08)
-        }
-    }
-
-    private var notificationShadow: Color {
-        switch colorScheme {
-        case .dark:
-            Color.black.opacity(0.35)
-        case .light:
-            Color.black.opacity(0.16)
-        @unknown default:
-            Color.black.opacity(0.20)
-        }
-    }
-
-    private func shouldDismiss(_ value: DragGesture.Value) -> Bool {
-        value.predictedEndTranslation.height < -80
-            || abs(value.predictedEndTranslation.width) > 160
-    }
-}
-
-private extension View {
-    func globalNotificationOverlay(
-        store: StoreOf<ErrorNotifications>
-    ) -> some View {
-        overlay(alignment: .top) {
-            if let error = store.latestError {
-                GlobalNotificationView(error: error) {
-                    store.send(.latestErrorNotificationTapped)
-                } onDismiss: {
-                    store.send(.latestErrorNotificationDismissed)
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-            }
-        }
     }
 }

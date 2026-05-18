@@ -28,12 +28,6 @@ extension OME {
             OpenMusicEventAppRoot()
     }
 
-    public static func globalErrorWindowContent() -> some View {
-        OpenMusicEventGlobalErrorWindowView(
-            store: Self.store.spawn(\.errorNotifications)
-        )
-    }
-
     public var body: some View {
         OpenMusicEventAppRootView(store: Self.store)
             .task {

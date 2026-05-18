@@ -39,6 +39,7 @@ let package = Package(
         .package(url: "https://tangled.org/woody.fm/swift-dependencies-http-client", branch: "main"),
         .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),
         .package(url: "https://github.com/kateinoigakukun/swift-tar", branch: "main"),
+        .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
 
 
         .package(url: "https://source.woody.fm/tcatproto", branch: "main"),
@@ -57,6 +58,7 @@ let package = Package(
                 "SourceEditing",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),
                 .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ],
