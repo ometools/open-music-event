@@ -259,6 +259,21 @@ private struct SourceComparableImageAsset: Equatable, Sendable {
         self.thumbhash = image.thumbhash
         self.focalPoint = image.focalPoint
     }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.assetKey == rhs.assetKey
+            && SourceComparableImageSource.semanticallyEqual(
+                lhs.source,
+                rhs.source,
+                assetKey: lhs.assetKey
+            )
+            && lhs.role == rhs.role
+            && lhs.renderKind == rhs.renderKind
+            && lhs.appearance == rhs.appearance
+            && lhs.materializationPolicy == rhs.materializationPolicy
+            && lhs.thumbhash == rhs.thumbhash
+            && lhs.focalPoint == rhs.focalPoint
+    }
 }
 
 private enum SourceComparableImageSource: Equatable, Sendable {
@@ -276,6 +291,26 @@ private enum SourceComparableImageSource: Equatable, Sendable {
             )
         default:
             self = .source(source)
+        }
+    }
+
+    static func semanticallyEqual(
+        _ lhs: Self,
+        _ rhs: Self,
+        assetKey: String?
+    ) -> Bool {
+        if lhs == rhs {
+            return true
+        }
+
+        guard let assetKey else { return false }
+        switch (lhs, rhs) {
+        case let (.fileIdentity(identity), .source(.url(url))),
+             let (.source(.url(url)), .fileIdentity(identity)):
+            return !url.isFileURL && identity == assetKey
+
+        default:
+            return false
         }
     }
 }

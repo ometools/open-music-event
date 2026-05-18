@@ -515,6 +515,64 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func eventEditSummaryIgnoresMaterializedRemoteImageWhenAssetKeyMatches() async throws {
+        let remoteLogoURL = try #require(URL(string: "https://example.com/meadow-logo.png"))
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .url(remoteLogoURL),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source", ref: "main")
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        try await database.write { db in
+            var stage = try #require(
+                try OME.Stage
+                    .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
+                    .fetchOne(db)
+            )
+            var images = try #require(stage.images)
+            var image = try #require(images.first)
+            image.source = .url(
+                URL(filePath: "/tmp/materialized-\(try #require(image.assetKey)).png")
+            )
+            images[0] = image
+            stage.images = images
+            try OME.Stage.update(stage).execute(db)
+        }
+
+        let summary = try await eventEditSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 0)
+    }
+
+    @Test
     func eventEditSummaryCountsRemoteImageURLChanges() async throws {
         let baselinePhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let workingPhotoURL = try #require(URL(string: "https://example.com/artist-two.jpg"))
