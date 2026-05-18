@@ -28,6 +28,11 @@ public struct EventEditSummary: Equatable, Sendable {
     public var totalCount: Int {
         groups.reduce(0) { $0 + $1.totalCount }
     }
+
+    public var badgeCount: Int? {
+        guard case .available = availability, totalCount > 0 else { return nil }
+        return totalCount
+    }
 }
 
 public struct EventEditSummaryRequest: FetchKeyRequest {

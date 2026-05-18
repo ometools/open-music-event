@@ -100,6 +100,19 @@ struct SwiftUITabFeaturesTests {
         #expect(feature.metadata.labelTint != nil)
     }
 
+    @Test func `badge value is preserved in metadata`() {
+        let feature = TabFeature(
+            DemoTab.schedule,
+            title: "Schedule",
+            systemImage: "calendar",
+            badgeValue: 4
+        ) {
+            EmptyView()
+        }
+
+        #expect(feature.metadata.badgeValue == 4)
+    }
+
     @Test func `derived ID matches lossless string value`() {
         let feature = TabFeature(
             DemoTab.mainStage,
@@ -188,6 +201,34 @@ struct SwiftUITabFeaturesTests {
         #expect(resolved.overflowFeatures.map(\.id) == [id("schedule")])
         #expect(resolved.searchTab?.id == id("search"))
         #expect(resolved.showsMore)
+    }
+
+    @Test func `declared resolve sums overflow badge values`() {
+        let features = TabFeatures<DemoTab> {
+            TabFeature(.schedule, title: "Schedule", systemImage: "calendar", badgeValue: 2) {
+                EmptyView()
+            }
+
+            TabFeature(.search, role: .search) {
+                EmptyView()
+            }
+
+            TabFeature(.mainStage, title: "Main Stage", systemImage: "music.note", badgeValue: 3) {
+                EmptyView()
+            }
+
+            TabFeature(.about, title: "About", systemImage: "info.circle") {
+                EmptyView()
+            }
+        }
+        let resolved = features.resolve(
+            layout: .init(preferredIDs: [id("about")]),
+            policy: .init(maxVisibleTabs: 1)
+        )
+
+        #expect(resolved.visibleFeatures.map(\.id) == [id("about")])
+        #expect(resolved.overflowFeatures.map(\.id) == [id("schedule"), id("stage:main")])
+        #expect(resolved.overflowBadgeValue == 5)
     }
 
     @Test func `default policy infers search as fixed`() {

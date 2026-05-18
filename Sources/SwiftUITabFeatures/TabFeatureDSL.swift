@@ -93,6 +93,7 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
     public var title: String?
     public var systemImage: TabFeatureSymbolName?
     public var labelTint: Color?
+    public var badgeValue: Int?
     public var role: TabFeatureRole?
     public var navigation: TabFeatureNavigation?
 
@@ -101,6 +102,7 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         title: String? = nil,
         systemImage: TabFeatureSymbolName? = nil,
         labelTint: Color? = nil,
+        badgeValue: Int? = nil,
         role: TabFeatureRole? = nil,
         navigation: TabFeatureNavigation? = nil
     ) {
@@ -108,6 +110,7 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         self.title = title
         self.systemImage = systemImage
         self.labelTint = labelTint
+        self.badgeValue = badgeValue
         self.role = role
         self.navigation = navigation
     }
@@ -195,6 +198,13 @@ public struct ResolvedDeclaredTabFeatures<Value: TabFeatureValue>: Sendable {
     public var showsMore: Bool {
         !self.overflowFeatures.isEmpty
     }
+
+    public var overflowBadgeValue: Int? {
+        let value = self.overflowFeatures.reduce(0) {
+            $0 + ($1.badgeValue ?? 0)
+        }
+        return value > 0 ? value : nil
+    }
 }
 
 public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureContent {
@@ -202,6 +212,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
     public let title: String?
     public let systemImage: TabFeatureSymbolName?
     public let labelTint: Color?
+    public let badgeValue: Int?
     public let role: TabFeatureRole?
     public let navigation: TabFeatureNavigation?
     public let content: Content
@@ -211,6 +222,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         title: String,
         systemImage: String,
         labelTint: Color? = nil,
+        badgeValue: Int? = nil,
         navigation: TabFeatureNavigation? = nil,
         @ViewBuilder content: () -> Content
     ) {
@@ -218,6 +230,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         self.title = title
         self.systemImage = .init(systemImage)
         self.labelTint = labelTint
+        self.badgeValue = badgeValue
         self.role = nil
         self.navigation = navigation
         self.content = content()
@@ -227,6 +240,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         _ value: Value,
         role: TabFeatureRole? = nil,
         labelTint: Color? = nil,
+        badgeValue: Int? = nil,
         navigation: TabFeatureNavigation? = nil,
         @ViewBuilder content: () -> Content
     ) {
@@ -240,6 +254,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             self.systemImage = nil
         }
         self.labelTint = labelTint
+        self.badgeValue = badgeValue
         self.role = role
         self.navigation = navigation
         self.content = content()
@@ -255,6 +270,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             title: self.title,
             systemImage: self.systemImage,
             labelTint: self.labelTint,
+            badgeValue: self.badgeValue,
             role: self.role,
             navigation: self.navigation
         )
@@ -538,6 +554,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                     ) {
                         primaryFeatureDestination(for: feature)
                     }
+                    .badge(feature.badgeValue ?? 0)
                 }
             }
 
@@ -550,6 +567,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                         overflowFeatureBody: overflowFeatureBody(for:)
                     )
                 }
+                .badge(resolved.overflowBadgeValue ?? 0)
             }
 
             if let searchTab = resolved.searchTab {
@@ -669,7 +687,8 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
                         TabFeatureMoreRow(
                             title: feature.effectiveTitle,
                             systemImage: feature.effectiveSystemImage,
-                            labelTint: feature.labelTint
+                            labelTint: feature.labelTint,
+                            badgeValue: feature.badgeValue
                         )
                     }
                 }
@@ -724,6 +743,7 @@ struct TabFeatureMoreRow: View {
     let title: String
     let systemImage: TabFeatureSymbolName
     let labelTint: Color?
+    let badgeValue: Int?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -739,6 +759,15 @@ struct TabFeatureMoreRow: View {
 
             Text(title)
                 .foregroundStyle(.primary)
+
+            Spacer()
+
+            if let badgeValue, badgeValue > 0 {
+                Text(badgeValue, format: .number)
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

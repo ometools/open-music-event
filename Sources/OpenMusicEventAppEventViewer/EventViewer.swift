@@ -627,6 +627,7 @@ public struct EventViewerView: View {
                         title: EventViewer.EventFeature.edit.title,
                         systemImage: EventViewer.EventFeature.edit.systemImage,
                         labelTint: EventViewer.EventFeature.edit.labelTint,
+                        badgeValue: featureStore.changeCount,
                         navigation: .stack
                     ) {
                         EditEventView(store: featureStore)
@@ -735,7 +736,7 @@ public struct EventViewerView: View {
             }
 
             if let featureStore = store.spawn(\.editEvent) {
-                viewerTab(.edit) {
+                viewerTab(.edit, badgeValue: featureStore.changeCount) {
                     EditEventView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.edit)
@@ -822,7 +823,7 @@ public struct EventViewerView: View {
             }
 
             if let featureStore = store.spawn(\.editEvent) {
-                viewerTab(.edit) {
+                viewerTab(.edit, badgeValue: featureStore.changeCount) {
                     EditEventView(store: featureStore)
                 }
                 .tag(EventViewer.EventFeature.edit)
@@ -846,6 +847,7 @@ public struct EventViewerView: View {
 
     private func viewerTab<Content: View>(
         _ feature: EventViewer.EventFeature,
+        badgeValue: Int? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         NavigationStack {
@@ -863,6 +865,7 @@ public struct EventViewerView: View {
             .tabItem {
                 Label(feature.title, systemImage: feature.systemImage)
             }
+            .badge(badgeValue ?? 0)
     }
 }
 

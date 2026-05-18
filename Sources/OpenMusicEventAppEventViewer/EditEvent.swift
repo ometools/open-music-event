@@ -25,6 +25,10 @@ public struct EditEvent {
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
         @Fetch public var editSummary: EventEditSummary
+
+        public var changeCount: Int? {
+            editSummary.badgeCount
+        }
     }
 
     public enum Action {}

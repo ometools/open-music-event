@@ -285,6 +285,7 @@ struct SourceDatabaseInsertionTests {
         #expect(available.eventID == openedEventID)
         #expect(available.availability == .available)
         #expect(available.totalCount == 1)
+        #expect(available.badgeCount == 1)
         let stageGroup = try #require(
             available.groups.first { $0.id == OME.Stage.tableName }
         )
@@ -324,6 +325,7 @@ struct SourceDatabaseInsertionTests {
         #expect(withParticipantChange.eventID == openedEventID)
         #expect(withParticipantChange.availability == .available)
         #expect(withParticipantChange.totalCount == 2)
+        #expect(withParticipantChange.badgeCount == 2)
         let participantGroup = try #require(
             withParticipantChange.groups.first { $0.id == OME.Participant.tableName }
         )
@@ -401,6 +403,7 @@ struct SourceDatabaseInsertionTests {
 
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 1)
+        #expect(summary.badgeCount == 1)
         let stageGroup = try #require(
             summary.groups.first { $0.id == OME.Stage.tableName }
         )
@@ -512,6 +515,7 @@ struct SourceDatabaseInsertionTests {
 
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 0)
+        #expect(summary.badgeCount == nil)
     }
 
     @Test
@@ -570,6 +574,7 @@ struct SourceDatabaseInsertionTests {
 
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 0)
+        #expect(summary.badgeCount == nil)
     }
 
     @Test
@@ -627,6 +632,7 @@ struct SourceDatabaseInsertionTests {
 
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 1)
+        #expect(summary.badgeCount == 1)
         let participantGroup = try #require(
             summary.groups.first { $0.id == OME.Participant.tableName }
         )
