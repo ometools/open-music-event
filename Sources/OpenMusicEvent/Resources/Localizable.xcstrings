@@ -205,6 +205,15 @@
     "End Date" : {
 
     },
+    "Enter a Tangled repository, not a local source path." : {
+
+    },
+    "Enter a valid source ref." : {
+
+    },
+    "Enter a valid Tangled repository." : {
+
+    },
     "Error Handling" : {
 
     },
@@ -544,6 +553,9 @@
     "Source" : {
 
     },
+    "Source import output can only be used with Tangled repositories." : {
+
+    },
     "Start Date" : {
 
     },
@@ -579,10 +591,22 @@
         }
       }
     },
+    "Tangled did not return a source archive." : {
+
+    },
     "Test error." : {
 
     },
     "Testival 2026" : {
+
+    },
+    "The repository owner did not resolve to a valid organizer." : {
+
+    },
+    "The source organizer ID is not valid." : {
+
+    },
+    "The Tangled source archive was empty." : {
 
     },
     "This organizer has no events." : {
@@ -620,7 +644,19 @@
         }
       }
     },
+    "Unable to extract the Tangled source archive." : {
+
+    },
     "Unable to import source." : {
+
+    },
+    "Unable to prepare the downloaded source because a file already exists." : {
+
+    },
+    "Unable to resolve the repository owner." : {
+
+    },
+    "Unable to store the imported source because a file already exists." : {
 
     },
     "Upcoming Events" : {

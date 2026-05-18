@@ -278,6 +278,46 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func failedImportParsesInvalidRepositoryError() async throws {
+        let latestError = await reportedSourceImportError(
+            throwing: "Repository reference must be shaped like owner/repo."
+        )
+
+        #expect(latestError?.kind == .sourceImportInvalidRepository)
+        #expect(latestError?.message.fallback == "Enter a valid Tangled repository.")
+        #expect(latestError?.operation == .sourceImport)
+    }
+
+    @Test
+    func failedImportParsesTangledArchiveResponseError() async throws {
+        let latestError = await reportedSourceImportError(
+            throwing: "Tangled did not return an archive: error code: 520"
+        )
+
+        #expect(latestError?.kind == .sourceImportArchiveUnavailable)
+        #expect(latestError?.message.fallback == "Tangled did not return a source archive.")
+        #expect(latestError?.operation == .sourceImport)
+    }
+
+    @Test
+    func failedImportParsesArchiveDestinationExistsError() async throws {
+        let latestError = await reportedSourceImportError(
+            throwing: """
+            Failed to extract Tangled source archive: Error Domain=NSCocoaErrorDomain Code=516 \
+            "\"extract-0\" could not be moved to \"SourceRepositories\" because an item with the same name already exists." \
+            UserInfo={NSUnderlyingError=0x1 {Error Domain=NSPOSIXErrorDomain Code=17 "File exists"}}
+            """
+        )
+
+        #expect(latestError?.kind == .sourceImportArchiveDestinationExists)
+        #expect(
+            latestError?.message.fallback
+                == "Unable to prepare the downloaded source because a file already exists."
+        )
+        #expect(latestError?.operation == .sourceImport)
+    }
+
+    @Test
     func liveImportReplacesExistingStoredRepositoryAfterSuccessfulImport() async throws {
         let database = try makePreparedDatabase()
         let baselineDatabase = try defaultBaselineDatabase()
@@ -450,6 +490,34 @@ struct TangledSourceDownloadFeatureTests {
         }
     }
 
+    private func reportedSourceImportError(
+        throwing failureDescription: String
+    ) async -> HandledError? {
+        let store = withDependencies {
+            $0.context = .test
+            $0.exhaustivity = .off
+            $0.tangledSourceImport = TangledSourceImportClient { _ in
+                throw SourceImportFailure(description: failureDescription)
+            }
+        } operation: {
+            var initialState = SourceImportErrorHost.State()
+            initialState.sourceImport.state.repository = "https://tangled.org/woody.fm/shambhala-ome"
+            return TestStore(initialState: initialState) {
+                SourceImportErrorHost()
+            }
+        }
+
+        await withIssueReporters([]) {
+            await store.send(to: \.sourceImport, .importButtonTapped)?.value
+        }
+
+        #expect(store.state.sourceImport.state.isImporting == false)
+        #expect(store.state.sourceImport.state.importedSummary == nil)
+        #expect(store.state.sourceImport.state.errorMessage == nil)
+        #expect(store.isPresented == true)
+        return store.state.errorNotifications.state.latestError
+    }
+
     private func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test
@@ -618,6 +686,10 @@ private final class SourceRepositoryRemovalRecorder: @unchecked Sendable {
 }
 
 private struct ImportFailure: Error {}
+
+private struct SourceImportFailure: CustomStringConvertible, Error, Sendable {
+    var description: String
+}
 
 @Feature
 private struct SourceImportErrorHost {
