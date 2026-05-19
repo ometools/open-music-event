@@ -197,7 +197,7 @@ public func resolvedHandledError(
     )
 }
 
-public extension _FeatureStore {
+public extension FeatureStore {
     nonisolated(nonsending) func withErrorHandling<Output>(
         fallbackMessage: UserFacingText,
         operation errorOperation: ErrorOperation,

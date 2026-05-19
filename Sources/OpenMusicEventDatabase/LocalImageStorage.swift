@@ -345,6 +345,84 @@ public extension DependencyValues {
     }
 }
 
+public struct LocalImageDisplayCacheClient: Sendable {
+    public init(
+        resolve: @escaping @Sendable (
+            _ image: OME.ImageAsset,
+            _ context: LocalImageCacheContext
+        ) async throws -> OME.ImageAsset?
+    ) {
+        self.resolve = resolve
+    }
+
+    public var resolve: @Sendable (
+        _ image: OME.ImageAsset,
+        _ context: LocalImageCacheContext
+    ) async throws -> OME.ImageAsset?
+}
+
+public extension LocalImageDisplayCacheClient {
+    static var live: Self {
+        LocalImageDisplayCacheClient { image, context in
+            if let url = image.url,
+               url.isFileURL,
+               FileManager.default.fileExists(atPath: url.path) {
+                return image
+            }
+
+            @Dependency(\.defaultDatabase) var database
+            @Dependency(\.localImageFileStore) var localImageFileStore
+
+            let assetKey = LocalImageMaterializer.assetKey(
+                for: image,
+                organizerID: context.organizerID,
+                eventID: context.eventID,
+                parentKind: context.parentKind,
+                parentLocalID: context.parentLocalID
+            )
+            guard let blob = try await database.read({ db in
+                try LocalImageBlob
+                    .where { $0.assetKey.eq(assetKey) }
+                    .fetchOne(db)
+            }),
+                  blob.role == image.role,
+                  blob.renderKind == image.renderKind
+            else {
+                return nil
+            }
+
+            let localFileURL = try localImageFileStore.write(
+                blob.assetKey,
+                blob.data,
+                blob.mimeType
+            )
+            var cachedImage = image
+            cachedImage.assetKey = blob.assetKey
+            cachedImage.source = .url(localFileURL)
+            return cachedImage
+        }
+    }
+
+    static let noop = Self { _, _ in nil }
+}
+
+private enum LocalImageDisplayCacheKey: DependencyKey {
+    static var liveValue: LocalImageDisplayCacheClient {
+        .live
+    }
+
+    static var testValue: LocalImageDisplayCacheClient {
+        .noop
+    }
+}
+
+public extension DependencyValues {
+    var localImageDisplayCache: LocalImageDisplayCacheClient {
+        get { self[LocalImageDisplayCacheKey.self] }
+        set { self[LocalImageDisplayCacheKey.self] = newValue }
+    }
+}
+
 public struct LazyImageCacheClient: Sendable {
     public init(
         cache: @escaping @Sendable (

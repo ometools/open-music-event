@@ -9,9 +9,11 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     var contentMode: ContentMode?
     @ViewBuilder var placeholder: () -> Placeholder
     @Dependency(\.lazyImageCache) var lazyImageCache
+    @Dependency(\.localImageDisplayCache) var localImageDisplayCache
     @State var cachedAsset: OME.ImageAsset?
     @State var cachedTaskID: String?
     @State var failedTaskID: String?
+    @State var cacheMissTaskID: String?
 
     public init(
         asset: OME.ImageAsset?,
@@ -30,6 +32,11 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
             placeholder()
                 .task(id: cacheTaskID) {
                     await cacheLazyImageIfNeeded()
+                }
+        } else if shouldResolveDisplayCache {
+            placeholder()
+                .task(id: cacheTaskID) {
+                    await resolveCachedImageIfAvailable()
                 }
         } else if let url = displayAsset?.url {
             AsyncImage(url: url) { phase in
@@ -53,7 +60,15 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     }
 
     private var displayAsset: OME.ImageAsset? {
-        cachedTaskID == cacheTaskID ? cachedAsset ?? asset : asset
+        if cachedTaskID == cacheTaskID {
+            return cachedAsset ?? asset
+        }
+
+        if shouldResolveDisplayCache {
+            return nil
+        }
+
+        return asset
     }
 
     private var shouldShowCachePlaceholder: Bool {
@@ -62,6 +77,25 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
               asset.materializationPolicy == .lazy,
               cachedTaskID != cacheTaskID,
               failedTaskID != cacheTaskID else {
+            return false
+        }
+
+        if let url = asset.url,
+           url.isFileURL,
+           FileManager.default.fileExists(atPath: url.path) {
+            return false
+        }
+
+        return true
+    }
+
+    private var shouldResolveDisplayCache: Bool {
+        guard let asset,
+              cacheContext != nil,
+              asset.materializationPolicy == .prefetchOnOpen,
+              cachedTaskID != cacheTaskID,
+              failedTaskID != cacheTaskID,
+              cacheMissTaskID != cacheTaskID else {
             return false
         }
 
@@ -104,6 +138,27 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
             self.cachedAsset = cachedAsset
             self.cachedTaskID = cacheTaskID
             self.failedTaskID = nil
+        } catch {
+            self.failedTaskID = cacheTaskID
+        }
+    }
+
+    private func resolveCachedImageIfAvailable() async {
+        guard let asset,
+              let cacheContext,
+              shouldResolveDisplayCache else {
+            return
+        }
+
+        do {
+            if let cachedAsset = try await localImageDisplayCache.resolve(asset, cacheContext) {
+                self.cachedAsset = cachedAsset
+                self.cachedTaskID = cacheTaskID
+                self.failedTaskID = nil
+                self.cacheMissTaskID = nil
+            } else {
+                self.cacheMissTaskID = cacheTaskID
+            }
         } catch {
             self.failedTaskID = cacheTaskID
         }

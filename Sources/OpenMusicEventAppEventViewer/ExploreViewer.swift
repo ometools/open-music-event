@@ -105,10 +105,10 @@ public struct EventSearchView: View {
                 systemImage: "magnifyingglass",
                 description: "Search within this event to find participants and stages."
             )
-            .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).participantDetail) { detailStore in
+            .navigationDestination(item: $store.scope(\.destination, action: \.destination).participantDetail) { detailStore in
                 ParticipantDetailView(store: detailStore)
             }
-            .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).stageDetail) { detailStore in
+            .navigationDestination(item: $store.scope(\.destination, action: \.destination).stageDetail) { detailStore in
                 StageDetailView(store: detailStore)
             }
         }

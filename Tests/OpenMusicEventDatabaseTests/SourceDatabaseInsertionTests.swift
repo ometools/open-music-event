@@ -1635,6 +1635,74 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func displayCacheUsesCachedStageLogoWithoutMutatingStageSource() async throws {
+        let remoteLogoURL = try #require(URL(string: "https://example.com/meadow-logo.png"))
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .url(remoteLogoURL),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let insertedStage = try #require(await database.read { db in
+            try OME.Stage.fetchOne(db)
+        })
+        let originalLogo = try #require(insertedStage.images?.first)
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let remoteData = Data("remote-stage-logo".utf8)
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.eventImagePrefetch = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, _, _ in remoteData }
+        } operation: {
+            @Dependency(\.eventImagePrefetch) var eventImagePrefetch
+            try await eventImagePrefetch.prefetchAssetsOnOpen(openedEventID)
+        }
+
+        let cachedLogoURL = testLocalImageFileURL(
+            directory: cacheDirectoryURL,
+            assetKey: try #require(originalLogo.assetKey)
+        )
+        try FileManager.default.removeItem(at: cachedLogoURL)
+
+        let displayLogo = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.localImageDisplayCache = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+        } operation: {
+            @Dependency(\.localImageDisplayCache) var localImageDisplayCache
+            return try await localImageDisplayCache.resolve(
+                originalLogo,
+                LocalImageCacheContext(stageID: insertedStage.id)
+            )
+        }
+
+        let displayLogoURL = try #require(displayLogo?.url)
+        let stageAfterDisplayCache = try #require(await database.read { db in
+            try OME.Stage.fetchOne(db)
+        })
+
+        #expect(displayLogoURL == cachedLogoURL)
+        #expect(displayLogoURL.isFileURL)
+        #expect(FileManager.default.fileExists(atPath: cachedLogoURL.path))
+        expectNoDifference(try Data(contentsOf: cachedLogoURL), remoteData)
+        expectNoDifference(stageAfterDisplayCache, insertedStage)
+    }
+
+    @Test
     func cachesLazyRemoteParticipantImagesOnDemand() async throws {
         let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let source = try makeSourceRepository(

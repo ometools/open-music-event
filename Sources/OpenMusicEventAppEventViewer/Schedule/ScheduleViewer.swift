@@ -381,7 +381,7 @@ public struct ScheduleViewerView: View {
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).performanceDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
             PerformanceDetailView(store: detailStore)
         }
     }
