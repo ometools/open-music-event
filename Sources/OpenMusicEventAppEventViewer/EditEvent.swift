@@ -9,6 +9,11 @@ import SwiftUI
 public struct EditEvent {
     public init() {}
 
+    public enum ChangeView: Hashable, CaseIterable, Sendable {
+        case database
+        case source
+    }
+
     public struct State {
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
@@ -25,6 +30,7 @@ public struct EditEvent {
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
         @Fetch public var editSummary: EventEditSummary
+        public var selectedChangeView: ChangeView = .database
 
         public var changeCount: Int? {
             editSummary.badgeCount
@@ -39,55 +45,133 @@ public struct EditEvent {
 }
 
 public struct EditEventView: View {
-    let store: StoreOf<EditEvent>
+    @Bindable var store: StoreOf<EditEvent>
 
     public init(store: StoreOf<EditEvent>) {
         self.store = store
     }
 
     public var body: some View {
-        Group {
-            switch store.editSummary.availability {
-            case .available where store.editSummary.totalCount == 0:
-                ContentUnavailableView(
-                    "No Changes",
-                    systemImage: "checkmark.circle"
-                )
+        VStack(spacing: 0) {
+            Picker("Changes", selection: $store.selectedChangeView) {
+                ForEach(EditEvent.ChangeView.allCases, id: \.self) { changeView in
+                    Text(changeView.title).tag(changeView)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding([.horizontal, .top])
+            .padding(.bottom, 8)
 
-            case .available:
-                List {
-                    Section {
-                        HStack {
-                            Label("Changes", systemImage: "pencil.and.list.clipboard")
-                            Spacer()
-                            Text(store.editSummary.totalCount, format: .number)
-                                .font(.headline)
-                                .monospacedDigit()
-                        }
-                    }
+            Group {
+                switch store.selectedChangeView {
+                case .database:
+                    databaseChangesContent
+                case .source:
+                    sourceChangesContent
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .navigationTitle("Edit")
+    }
 
-                    ForEach(store.editSummary.groups.filter { !$0.records.isEmpty }) { group in
-                        SourceChangeGroupSections(group: group)
+    @ViewBuilder
+    private var databaseChangesContent: some View {
+        switch store.editSummary.availability {
+        case .available where store.editSummary.totalCount == 0:
+            ContentUnavailableView(
+                "No Changes",
+                systemImage: "checkmark.circle"
+            )
+
+        case .available:
+            List {
+                Section {
+                    HStack {
+                        Label("Database Changes", systemImage: "pencil.and.list.clipboard")
+                        Spacer()
+                        Text(store.editSummary.totalCount, format: .number)
+                            .font(.headline)
+                            .monospacedDigit()
                     }
                 }
 
-            case .missingBaseline:
-                ContentUnavailableView(
-                    "Baseline Missing",
-                    systemImage: "externaldrive.badge.questionmark"
-                )
-
-            case .notSourceBacked:
-                ContentUnavailableView(
-                    "Not Source Backed",
-                    systemImage: "doc.badge.ellipsis"
-                )
-
-            case let .unavailable(reason):
-                SourceChangeUnavailableView(reason: reason)
+                ForEach(store.editSummary.groups.filter { !$0.records.isEmpty }) { group in
+                    SourceChangeGroupSections(group: group)
+                }
             }
+
+        case .missingBaseline:
+            ContentUnavailableView(
+                "Baseline Missing",
+                systemImage: "externaldrive.badge.questionmark"
+            )
+
+        case .notSourceBacked:
+            ContentUnavailableView(
+                "Not Source Backed",
+                systemImage: "doc.badge.ellipsis"
+            )
+
+        case let .unavailable(reason):
+            SourceChangeUnavailableView(reason: reason)
         }
-        .navigationTitle("Edit")
+    }
+
+    @ViewBuilder
+    private var sourceChangesContent: some View {
+        switch store.editSummary.availability {
+        case .available where store.editSummary.totalCount == 0:
+            ContentUnavailableView(
+                "No Source Changes",
+                systemImage: "checkmark.circle"
+            )
+
+        case .available:
+            List {
+                Section {
+                    HStack {
+                        Label("Source Changes", systemImage: "doc.text")
+                        Spacer()
+                        Text(store.editSummary.totalCount, format: .number)
+                            .font(.headline)
+                            .monospacedDigit()
+                    }
+                }
+
+                Section {
+                    Label("Patch Preview", systemImage: "doc.text.magnifyingglass")
+                    Text("Not Generated")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+        case .missingBaseline:
+            ContentUnavailableView(
+                "Baseline Missing",
+                systemImage: "externaldrive.badge.questionmark"
+            )
+
+        case .notSourceBacked:
+            ContentUnavailableView(
+                "Not Source Backed",
+                systemImage: "doc.badge.ellipsis"
+            )
+
+        case let .unavailable(reason):
+            SourceChangeUnavailableView(reason: reason)
+        }
+    }
+}
+
+private extension EditEvent.ChangeView {
+    var title: String {
+        switch self {
+        case .database:
+            "Database"
+        case .source:
+            "Source"
+        }
     }
 }
 
