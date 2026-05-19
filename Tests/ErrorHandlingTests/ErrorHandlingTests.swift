@@ -119,7 +119,9 @@ struct ErrorHandlingTests {
     @Test
     func latestErrorNotificationTappedKeepsErrorForDetails() async {
         let error = handledError()
-        await TestExhaustivity.$current.withValue(.off) {
+        await withDependencies {
+            $0.exhaustivity = .off
+        } operation: {
             let store = TestStore(initialState: ErrorNotificationSelectionHost.State(error: error)) {
                 ErrorNotificationSelectionHost()
             }

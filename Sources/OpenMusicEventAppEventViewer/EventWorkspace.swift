@@ -26,6 +26,13 @@ public struct EventWorkspace {
         case proposing
     }
 
+    public enum TangledPullReviewStatus: Equatable, Sendable {
+        case failed(TangledPullReviewFailure)
+        case loaded([TangledPullReview])
+        case loading
+        case notLoaded
+    }
+
     public struct SourcePatchGenerationFailure: Equatable, Error, Sendable {
         public var message: String
 
@@ -43,6 +50,14 @@ public struct EventWorkspace {
     }
 
     public struct ResetEditsFailure: Equatable, Error, Sendable {
+        public var message: String
+
+        public init(_ error: any Error) {
+            self.message = String(describing: error)
+        }
+    }
+
+    public struct TangledPullReviewFailure: Equatable, Error, Sendable {
         public var message: String
 
         public init(_ error: any Error) {
@@ -79,6 +94,7 @@ public struct EventWorkspace {
         public var sourceProposalStatus: SourceProposalStatus = .idle
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
+        public var tangledPullReviewStatus: TangledPullReviewStatus = .notLoaded
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
 
         public var changeCount: Int? {
@@ -93,17 +109,20 @@ public struct EventWorkspace {
     public enum Action {
         case generateSourcePatchButtonTapped
         case proposeChangeButtonTapped
+        case refreshTangledPullReviewsButtonTapped
         case refreshSourceButtonTapped
         case resetEditsButtonTapped
         case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
         case sourceProposal(SourceProposalFlow.Action)
+        case tangledPullReviewsResponse(Result<[TangledPullReview], TangledPullReviewFailure>)
     }
 
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var sourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
+    @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     public var body: some Feature {
         Update { state, action in
             func generateSourcePatch(
@@ -129,9 +148,37 @@ public struct EventWorkspace {
                 }
             }
 
+            func refreshTangledPullReviews(
+                eventID: OMERecord.Event.ID,
+                state: inout State
+            ) {
+                guard state.sourceProvenance?.sourceKind == .tangled else {
+                    state.tangledPullReviewStatus = .notLoaded
+                    return
+                }
+
+                let tangledPullReviewClient = tangledPullReviewClient
+                state.tangledPullReviewStatus = .loading
+                store.addTask {
+                    do {
+                        let reviews = try await tangledPullReviewClient.list(
+                            OpenMusicEventTangledPullReviewRequest(eventID: eventID)
+                        )
+                        try store.send(.tangledPullReviewsResponse(.success(reviews)))
+                    } catch {
+                        try store.send(
+                            .tangledPullReviewsResponse(
+                                .failure(TangledPullReviewFailure(error))
+                            )
+                        )
+                    }
+                }
+            }
+
             switch action {
             case .generateSourcePatchButtonTapped:
                 generateSourcePatch(eventID: state.eventID, state: &state)
+                refreshTangledPullReviews(eventID: state.eventID, state: &state)
 
             case .refreshSourceButtonTapped:
                 guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
@@ -144,6 +191,9 @@ public struct EventWorkspace {
                 store.addTask {
                     try store.post(key: SourceDataRefreshRequested.self, value: request)
                 }
+
+            case .refreshTangledPullReviewsButtonTapped:
+                refreshTangledPullReviews(eventID: state.eventID, state: &state)
 
             case .resetEditsButtonTapped:
                 guard !state.isResettingEdits else { return }
@@ -219,6 +269,12 @@ public struct EventWorkspace {
 
             case .sourceProposal:
                 break
+
+            case let .tangledPullReviewsResponse(.success(reviews)):
+                state.tangledPullReviewStatus = .loaded(reviews)
+
+            case let .tangledPullReviewsResponse(.failure(failure)):
+                state.tangledPullReviewStatus = .failed(failure)
             }
         }
         .onMount { state in
@@ -253,6 +309,7 @@ public struct EventWorkspaceView: View {
                 currentEditsSections
                 sourceDiffSections
                 sourceProposalSection
+                tangledPullReviewsSection
                 ExistingProposalsSection(state: .loaded([]))
                 resetEditsSection
 
@@ -359,6 +416,59 @@ public struct EventWorkspaceView: View {
     }
 
     @ViewBuilder
+    private var tangledPullReviewsSection: some View {
+        if store.sourceProvenance?.sourceKind == .tangled {
+            Section("Tangled Reviews") {
+                switch store.tangledPullReviewStatus {
+                case let .failed(failure):
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Reviews could not be loaded", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text(failure.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                case let .loaded(reviews):
+                    if reviews.isEmpty {
+                        Label("No open reviews", systemImage: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(reviews) { review in
+                            NavigationLink {
+                                TangledPullReviewDetailView(review: review)
+                            } label: {
+                                TangledPullReviewRow(review: review)
+                            }
+                        }
+                    }
+
+                case .loading:
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Loading reviews")
+                    }
+
+                case .notLoaded:
+                    Text("Open reviews have not been loaded")
+                        .foregroundStyle(.secondary)
+                }
+
+                Button {
+                    store.send(.refreshTangledPullReviewsButtonTapped)
+                } label: {
+                    Label(
+                        store.tangledPullReviewStatus.refreshButtonTitle,
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                }
+                .disabled(store.tangledPullReviewStatus.isLoading)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var resetEditsSection: some View {
         if store.canResetEdits || store.isResettingEdits || store.resetEditsFailure != nil {
             Section {
@@ -387,6 +497,108 @@ public struct EventWorkspaceView: View {
                 }
             }
         }
+    }
+}
+
+struct TangledPullReviewRow: View {
+    let review: TangledPullReview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(review.title)
+                    .font(.headline)
+                Spacer()
+                Text(review.state.tangledPullReviewStateTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Text(review.author)
+                Text(review.createdAt)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+
+            if let body = review.body?.sourceReviewPreview, !body.isEmpty {
+                Text(body)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            HStack(spacing: 8) {
+                Label("\(review.patchBlobs.count)", systemImage: "doc.zipper")
+                Label("\(review.commentCount)", systemImage: "bubble.left")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct TangledPullReviewDetailView: View {
+    let review: TangledPullReview
+
+    var body: some View {
+        List {
+            Section("Summary") {
+                LabeledContent("State", value: review.state.tangledPullReviewStateTitle)
+                LabeledContent("Author", value: review.author)
+                LabeledContent("Created", value: review.createdAt)
+                LabeledContent("Target", value: review.targetRepositoryDID)
+                LabeledContent("Target branch", value: review.targetBranch)
+                if let sourceBranch = review.sourceBranch {
+                    LabeledContent("Source branch", value: sourceBranch)
+                }
+            }
+
+            if let body = review.body, !body.isEmpty {
+                Section("Description") {
+                    Text(body)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Section("Patch Blobs") {
+                if review.patchBlobs.isEmpty {
+                    Text("No patch blobs")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(review.patchBlobs) { patchBlob in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Round \(patchBlob.index)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(patchBlob.cid)
+                                .font(.caption)
+                                .monospaced()
+                                .textSelection(.enabled)
+                            Text(patchBlob.mimeType)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            if let size = patchBlob.size {
+                                Text("\(size) bytes")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+
+            Section("Raw Review") {
+                Text(review.rawReviewText)
+                    .font(.caption)
+                    .monospaced()
+                    .textSelection(.enabled)
+            }
+        }
+        .navigationTitle("Review")
     }
 }
 
@@ -1077,6 +1289,23 @@ public extension EventWorkspace.SourceProposalStatus {
     }
 }
 
+private extension EventWorkspace.TangledPullReviewStatus {
+    var isLoading: Bool {
+        self == .loading
+    }
+
+    var refreshButtonTitle: String {
+        switch self {
+        case .failed:
+            "Try Again"
+        case .loaded, .notLoaded:
+            "Refresh Reviews"
+        case .loading:
+            "Loading Reviews"
+        }
+    }
+}
+
 private extension SourcePatchFileChange.Kind {
     var systemImage: String {
         switch self {
@@ -1108,6 +1337,27 @@ private extension SourcePatchFileChange.Kind {
             "Deleted"
         case .modified:
             "Modified"
+        }
+    }
+}
+
+private extension String {
+    var sourceReviewPreview: String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 180 else { return trimmed }
+        return "\(String(trimmed.prefix(180)))..."
+    }
+
+    var tangledPullReviewStateTitle: String {
+        switch self {
+        case "open":
+            "Open"
+        case "closed":
+            "Closed"
+        case "merged":
+            "Merged"
+        default:
+            self
         }
     }
 }

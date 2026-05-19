@@ -669,6 +669,115 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         await store.dismount()
     }
 
+    @Test
+    func refreshTangledPullReviewsButtonLoadsReviewsForTangledSource() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/shambhala-ome",
+            ref: "main"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Test Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: timeZone,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    source: sourceProvenance,
+                    databaseFileName: "baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 0)
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceBaselineID: sourceBaselineID,
+                    sourceKind: sourceProvenance.kind,
+                    sourceReference: sourceProvenance.reference,
+                    ref: sourceProvenance.ref,
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "event-1"
+                )
+            }
+            .execute(db)
+        }
+        let review = TangledPullReview(
+            author: "did:plc:author123",
+            body: "Move one performance later.",
+            commentCount: 2,
+            createdAt: "2026-07-03T12:01:00Z",
+            patchBlobs: [
+                TangledPullReview.PatchBlob(
+                    cid: "bafkreipatch",
+                    createdAt: "2026-07-03T12:00:00Z",
+                    index: 1,
+                    mimeType: "application/gzip",
+                    size: 123
+                )
+            ],
+            sourceBranch: "ome/proposal-schedule",
+            state: "open",
+            targetBranch: "main",
+            targetRepositoryDID: "did:plc:targetrepo",
+            title: "Update Saturday schedule",
+            uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
+        )
+        let requests = Mutex([OpenMusicEventTangledPullReviewRequest]())
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient { request in
+                requests.withLock { $0.append(request) }
+                return [review]
+            }
+        } operation: {
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
+            }
+        }
+
+        let task = store.send(.refreshTangledPullReviewsButtonTapped) {
+            $0.tangledPullReviewStatus = .loading
+        }
+        await store.receive(
+            \.tangledPullReviewsResponse,
+            .equals(.success([review])),
+            timeout: .seconds(1)
+        ) {
+            $0.tangledPullReviewStatus = .loaded([review])
+        }
+        await task?.value
+
+        #expect(
+            requests.withLock { $0 } == [
+                OpenMusicEventTangledPullReviewRequest(eventID: eventID)
+            ]
+        )
+        await store.dismount()
+    }
+
     private func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test

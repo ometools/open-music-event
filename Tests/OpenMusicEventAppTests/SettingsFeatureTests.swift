@@ -37,7 +37,9 @@ struct SettingsFeatureTests {
 
     @Test
     func eventSettingsTestErrorButtonReportsGlobalError() async throws {
-        try await TestExhaustivity.$current.withValue(.off) {
+        try await withDependencies {
+            $0.exhaustivity = .off
+        } operation: {
             let database = try makePreparedDatabase()
             let store: TestStore<EventSettingsErrorHost> = withDependencies {
                 $0.defaultDatabase = database
@@ -94,7 +96,9 @@ struct SettingsFeatureTests {
 
     @Test
     func reportingLinkButtonEmitsReportingLinkEditorRequest() async throws {
-        try await TestExhaustivity.$current.withValue(.off) {
+        try await withDependencies {
+            $0.exhaustivity = .off
+        } operation: {
             let database = try makePreparedDatabase()
             let eventID = testEventID()
             let store: TestStore<EventSettings> = withDependencies {

@@ -34,6 +34,7 @@ let package = Package(
         .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
         .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
         .package(path: "/Users/woody/Developer/swift-packages/swift-composable-atmosphere", traits: ["TCA26"]),
+        .package(path: "/Users/woody/Developer/ometools/composable-atmosphere-tangled"),
         .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
         .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
         .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
@@ -52,7 +53,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged" /*"LazyInitializationByDefault"*/]),
-        .package(url: "https://github.com/pointfreeco/TCA26", branch: "main", traits: ["Dependencies"]),
+        .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
 
 
         .package(url: "https://github.com/14T/DateRangePicker", branch: "main"),
@@ -271,6 +272,8 @@ let package = Package(
                 .product(name: "Lexicon", package: "swift-composable-atmosphere"),
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
+                .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
                 .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ]
         ),
@@ -410,6 +413,7 @@ let package = Package(
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
                 .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ]
         ),

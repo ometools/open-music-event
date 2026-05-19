@@ -3,11 +3,11 @@ import ATProtoOAuth
 import Dependencies
 import Foundation
 import Gzip
-import HTTPClient
-import HTTPTypes
 import OpenMusicEventSourceClone
 import SourceEditing
 import SourceControlClient
+import TangledLexicon
+import TangledXRPC
 import XRPCClient
 
 public struct TangledSourcePatchPublisher: Sendable {
@@ -59,39 +59,36 @@ public struct TangledSourcePatchPublisher: Sendable {
         let patchData = Data(patchText.utf8)
         let patchBlob = try await uploadPatchBlob(patchData)
         let description = preparedPatch.request.description
-        let record = TangledRepoPullRecord(
-            body: description ?? "",
-            createdAt: createdAt,
-            patch: Self.legacyPatchText(patchText),
-            patchBlob: patchBlob,
-            pullID: Self.legacyPullID(createdAtDate),
+        guard let targetRepositoryDID = DID(targetRepository.repoDID) else {
+            throw TangledSourcePatchPublisherError
+                .repositoryRecordInvalidRepoDID(targetRepository.recordURI)
+        }
+        let record = TangledPullRecord(
+            target: TangledPullRecord.Target(
+                repo: targetRepositoryDID,
+                branch: targetBranch
+            ),
+            title: title,
+            body: description,
             rounds: [
-                TangledRepoPullRecord.Round(
-                    createdAt: createdAt,
-                    patchBlob: patchBlob
+                TangledPullRecord.Round(
+                    patchBlob: patchBlob,
+                    createdAt: createdAt
                 )
             ],
-            source: TangledRepoPullRecord.Source(
-                branch: sourceBranch.rawValue,
-                sha: commit.id.rawValue
+            source: TangledPullRecord.Source(
+                branch: sourceBranch.rawValue
             ),
-            target: TangledRepoPullRecord.Target(
-                branch: targetBranch,
-                repo: targetRepository.repoDID,
-                repoDID: targetRepository.repoDID
-            ),
-            title: title
+            createdAt: createdAt
         )
 
         @Dependency(\.getDefaultSession) var getDefaultSession
         @Dependency(XRPC.Client.self) var xrpcClient
         _ = try await xrpcClient.run(
-            TangledCreateRecordRequest(
-                input: TangledCreateRecordInput(
-                    repo: getDefaultSession().accountID.rawValue.description,
-                    collection: TangledRepoPullRecord.collection,
-                    record: record
-                ),
+            TangledRepositoryRequests.createRecord(
+                repo: getDefaultSession().accountID.rawValue.description,
+                collection: .pull,
+                record: record,
                 authorizationPolicy: .required(TangledOAuthRequirements.proposalAuthRequirement)
             )
         )
@@ -103,11 +100,11 @@ public struct TangledSourcePatchPublisher: Sendable {
 }
 
 public enum TangledSourcePatchPublisherError: Equatable, Error, Sendable {
-    case invalidUploadBlobURL(String)
     case missingRemote
     case missingRepositoryPDS(String)
     case missingGitRepository(URL)
     case repositoryRecordMissingKey(String)
+    case repositoryRecordInvalidRepoDID(String)
     case repositoryRecordMissingRepoDID(String)
     case repositoryRecordNotFound(owner: String, repository: String)
     case unsupportedRemoteKind(String)
@@ -255,33 +252,10 @@ private extension TangledSourcePatchPublisher {
     }
 
     func uploadPatchBlob(_ patchData: Data) async throws -> ATProto.Blob {
-        @Dependency(\.httpClient) var httpClient
-        @Dependency(\.jsonDecoder) var jsonDecoder
-        @Dependency(\.xrpcAuthorizationGate) var authorizationGate
-
-        let responseData = try await authorizationGate.run(
-            policy: .required(TangledOAuthRequirements.proposalAuthRequirement),
-            routing: XRPC.Routing()
-        ) {
-            @Dependency(\.pdsHost) var pdsHost
-            guard let url = URL(string: "https://\(pdsHost.rawValue)/xrpc/com.atproto.repo.uploadBlob")
-            else {
-                throw TangledSourcePatchPublisherError.invalidUploadBlobURL(pdsHost.rawValue)
-            }
-
-            var request = HTTPRequest(url: url)
-            request.method = .post
-
-            @Dependency(\.requestHeaders) var requestHeaders
-            request.headerFields = requestHeaders
-            request.headerFields[.contentType] = "text/x-patch"
-
-            return try await httpClient.run(request, try patchData.gzipped())
-        }
-
-        return try jsonDecoder.decode(
-            UploadBlobOutput.self,
-            from: responseData ?? Data()
+        @Dependency(XRPC.Client.self) var xrpcClient
+        return try await xrpcClient.tangledUploadPatchBlob(
+            try patchData.gzipped(),
+            authorizationPolicy: .required(TangledOAuthRequirements.proposalAuthRequirement)
         )
         .blob
     }
@@ -325,13 +299,6 @@ private extension TangledSourcePatchPublisher {
         return formatter.string(from: date)
     }
 
-    static func legacyPullID(_ date: Date) -> Int64 {
-        Int64((date.timeIntervalSince1970 * 1000).rounded())
-    }
-
-    static func legacyPatchText(_ patchText: String) -> String? {
-        patchText.utf8.count <= 256_000 ? patchText : nil
-    }
 }
 
 private struct TangledRepositoryOwnerResolution: Sendable {
@@ -373,10 +340,6 @@ private func resolvedOwner(
         did: account.id.rawValue,
         pdsHost: pdsHost
     )
-}
-
-private struct UploadBlobOutput: Decodable, Sendable {
-    var blob: ATProto.Blob
 }
 
 private extension TangledRepositoryReference {
