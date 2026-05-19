@@ -36,6 +36,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
+        .package(path: "../../../swift-packages/swift-frontmatter-parsing"),
         .package(path: "../../../swift-packages/swift-file-tree"),
         .package(url: "https://tangled.org/woody.fm/swift-dependencies-http-client", branch: "main"),
         .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),
@@ -159,8 +160,9 @@ let package = Package(
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSourceClone",
                 .product(name: "Dependencies", package: "swift-dependencies"),
-                .product(name: "Lexicon", package: "tcatproto"),
+                .product(name: "FrontmatterParsing", package: "swift-frontmatter-parsing"),
                 .product(name: "FileTree", package: "swift-file-tree"),
+                .product(name: "Lexicon", package: "tcatproto"),
                 "Yams",
             ]
         ),

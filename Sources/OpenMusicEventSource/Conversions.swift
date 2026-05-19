@@ -1,5 +1,6 @@
 import FileTree
 import Foundation
+import FrontmatterParsing
 import Yams
 
 struct YamlConversion<Value: Codable>: Conversion {
@@ -15,12 +16,15 @@ struct YamlConversion<Value: Codable>: Conversion {
     }
 }
 
-struct ParticipantMarkdownConversion: Conversion {
-    typealias Input = FileContent<Data>
-    typealias Output = FileContent<ParticipantDTO>
+public struct ParticipantMarkdownConversion: Conversion {
+    public typealias Input = FileContent<Data>
+    public typealias Output = FileContent<ParticipantDTO>
 
-    func apply(_ input: FileContent<Data>) throws -> FileContent<ParticipantDTO> {
-        let markdown = try MarkdownWithFrontMatter<ParticipantDTO>(data: input.data)
+    public init() {}
+
+    public func apply(_ input: FileContent<Data>) throws -> FileContent<ParticipantDTO> {
+        let markdown = try MarkdownWithFrontMatterConversion<ParticipantDTO>()
+            .apply(String(decoding: input.data, as: UTF8.self))
         guard var participant = markdown.frontMatter else {
             throw MissingFrontMatterError(fileName: input.fileName)
         }
@@ -32,46 +36,87 @@ struct ParticipantMarkdownConversion: Conversion {
         return try input.map { _ in participant }
     }
 
-    func unapply(_ output: FileContent<ParticipantDTO>) throws -> FileContent<Data> {
-        throw SourceWritingUnsupportedError()
+    public func unapply(_ output: FileContent<ParticipantDTO>) throws -> FileContent<Data> {
+        try output.map { participant in
+            try Self.markdownData(for: participant)
+        }
+    }
+
+    public func unapply(
+        _ output: FileContent<ParticipantDTO>,
+        in context: FileTreeWriteContext
+    ) -> Conversions.Result<FileContent<Data>> {
+        do {
+            let rootedContext = context.rooted(at: output)
+            return .value(
+                try output.map { participant in
+                    try Self.markdownData(for: participant, context: rootedContext)
+                }
+            )
+        } catch {
+            return .invalid(
+                diagnostics: .init(
+                    diagnostics: [
+                        Diagnostic(
+                            severity: .error,
+                            code: "open-music-event.participant-markdown.print.failed",
+                            message: String(describing: error),
+                            location: .init(path: output.path.rawValue)
+                        )
+                    ]
+                )
+            )
+        }
+    }
+
+    private static func markdownData(
+        for participant: ParticipantDTO,
+        context: FileTreeWriteContext? = nil
+    ) throws -> Data {
+        try Data(markdownString(for: participant, context: context).utf8)
+    }
+
+    private static func markdownString(
+        for participant: ParticipantDTO,
+        context: FileTreeWriteContext? = nil
+    ) throws -> String {
+        let conversion = MarkdownWithFrontMatterConversion<ParticipantDTO>()
+        let frontMatter = frontMatterParticipant(for: participant)
+
+        if let existing = try context?.rootText(),
+           let existingMarkdown = try? conversion.apply(existing),
+           existingMarkdown.frontMatter == frontMatter
+        {
+            return try conversion.unapply(
+                MarkdownWithFrontMatter(
+                    frontMatter: existingMarkdown.frontMatter,
+                    body: participant.bio
+                )
+            )
+        }
+
+        return try conversion.unapply(
+            MarkdownWithFrontMatter(
+                frontMatter: frontMatter,
+                body: participant.bio
+            )
+        )
+    }
+
+    private static func frontMatterParticipant(for participant: ParticipantDTO) -> ParticipantDTO {
+        var frontMatter = participant
+        frontMatter.bio = nil
+        return frontMatter
     }
 }
 
-struct MarkdownWithFrontMatter<FrontMatter: Decodable> {
-    var frontMatter: FrontMatter?
-    var body: String?
+public struct MissingFrontMatterError: Error, Equatable {
+    public var fileName: String
 
-    init(data: Data) throws {
-        let string = String(decoding: data, as: UTF8.self)
-        guard string.hasPrefix("---\n") || string.hasPrefix("---\r\n") else {
-            self.frontMatter = nil
-            self.body = string
-            return
-        }
-
-        let normalized = string.replacingOccurrences(of: "\r\n", with: "\n")
-        let content = normalized.dropFirst("---\n".count)
-        guard let closingRange = content.range(of: "\n---") else {
-            throw UnterminatedFrontMatterError()
-        }
-
-        let yaml = String(content[..<closingRange.lowerBound])
-        var remaining = content[closingRange.upperBound...]
-        if remaining.first == "\n" {
-            remaining.removeFirst()
-        }
-
-        self.frontMatter = try YAMLDecoder().decode(FrontMatter.self, from: Data(yaml.utf8))
-        self.body = String(remaining)
+    public init(fileName: String) {
+        self.fileName = fileName
     }
 }
-
-struct MissingFrontMatterError: Error, Equatable {
-    var fileName: String
-}
-
-struct UnterminatedFrontMatterError: Error, Equatable {}
-struct SourceWritingUnsupportedError: Error, Equatable {}
 
 private extension String {
     var nonEmptyMarkdownBody: String? {

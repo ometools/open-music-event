@@ -234,6 +234,98 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(photo.source, .url(URL(string: "https://example.com/artist-one.jpg")!))
     }
 
+    @Test
+    func participantMarkdownWriteEmitsFrontMatterAndBody() throws {
+        let participant = try participantFile(
+            name: "Artist One",
+            bio: "Artist One writes markdown."
+        )
+
+        let printed = try ParticipantMarkdownConversion().unapply(participant)
+        let text = String(decoding: printed.data, as: UTF8.self)
+
+        #expect(text.hasPrefix("---\n"))
+        #expect(text.contains("name: Artist One"))
+        #expect(text.contains("Artist One writes markdown."))
+        #expect(!text.contains("bio:"))
+
+        let roundTripped = try ParticipantMarkdownConversion().apply(printed)
+        expectNoDifference(roundTripped, participant)
+    }
+
+    @Test
+    func participantMarkdownFixtureRoundTripsThroughWriter() throws {
+        let participantURL = try fixtureURL("Organizer")
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "testival-2026", directoryHint: .isDirectory)
+            .appending(path: "participants", directoryHint: .isDirectory)
+            .appending(path: "artist-one.md")
+        let input = try FileContent(
+            fileName: "artist-one",
+            fileType: "md",
+            data: Data(contentsOf: participantURL)
+        )
+        let participant = try ParticipantMarkdownConversion().apply(input)
+
+        let printed = try ParticipantMarkdownConversion().unapply(participant)
+        let roundTripped = try ParticipantMarkdownConversion().apply(printed)
+
+        expectNoDifference(roundTripped, participant)
+        #expect(!String(decoding: printed.data, as: UTF8.self).contains("bio:"))
+    }
+
+    @Test
+    func participantMarkdownRewriteUpdatesBody() throws {
+        let directoryURL = try temporaryRepositoryURL()
+        try """
+        ---
+        name: Artist One
+        ---
+        Old biography.
+        """
+        .write(to: directoryURL.appending(path: "artist-one.md"), atomically: true, encoding: .utf8)
+
+        let tree = File.Many(withExtension: "md")
+            .map(ParticipantMarkdownConversion())
+        let participant = try participantFile(
+            name: "Artist One",
+            bio: "New biography."
+        )
+
+        _ = try tree.rewrite([participant], at: directoryURL)
+
+        let text = try String(contentsOf: directoryURL.appending(path: "artist-one.md"), encoding: .utf8)
+        #expect(text.contains("name: Artist One"))
+        #expect(text.contains("New biography."))
+        #expect(!text.contains("Old biography."))
+        #expect(!text.contains("bio:"))
+    }
+
+    @Test
+    func participantMarkdownRewriteWithMetadataChangeStaysReadable() throws {
+        let directoryURL = try temporaryRepositoryURL()
+        try """
+        ---
+        name: Old Artist
+        ---
+        Old biography.
+        """
+        .write(to: directoryURL.appending(path: "artist-one.md"), atomically: true, encoding: .utf8)
+
+        let tree = File.Many(withExtension: "md")
+            .map(ParticipantMarkdownConversion())
+        let participant = try participantFile(
+            name: "Artist One",
+            bio: "New biography."
+        )
+
+        _ = try tree.rewrite([participant], at: directoryURL)
+        let readResult = try tree.read(from: directoryURL)
+        let roundTripped = try #require(readResult.output.requiredValue.first)
+
+        expectNoDifference(roundTripped, participant)
+    }
+
     private func fixtureURL(_ name: String) throws -> URL {
         try #require(
             Bundle.module.url(
@@ -249,6 +341,20 @@ struct OpenMusicEventSourceTests {
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func participantFile(
+        name: String,
+        bio: String?
+    ) throws -> FileContent<ParticipantDTO> {
+        try FileContent(
+            fileName: "artist-one",
+            fileType: "md",
+            data: ParticipantDTO(
+                name: name,
+                bio: bio
+            )
+        )
     }
 
     private func writeImageFixtureRepository(at repositoryURL: URL) throws {
