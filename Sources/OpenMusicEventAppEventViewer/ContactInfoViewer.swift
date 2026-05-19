@@ -97,7 +97,7 @@ public struct ContactInfoViewerView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).editContactInfo) { editStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).editContactInfo) { editStore in
             NavigationStack {
                 EditContactInfoView(store: editStore)
             }

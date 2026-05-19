@@ -299,17 +299,17 @@ struct MyEventsView: View {
                 store.send(.didTapCreateEvent)
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).createEvent) { createEventStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
             NavigationStack {
                 CreateEventView(store: createEventStore)
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).sourceImport) { downloadStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).sourceImport) { downloadStore in
             NavigationStack {
                 TangledSourceDownloadView(store: downloadStore)
             }
         }
-        .navigationDestination(item: $store.scope(state: \.organizerDetail, action: \.organizerDetail)) { detailStore in
+        .navigationDestination(item: $store.scope(\.organizerDetail, action: \.organizerDetail)) { detailStore in
             OrganizerDetailView(store: detailStore)
         }
     }

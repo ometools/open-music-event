@@ -304,7 +304,7 @@ public struct PosterDetailView: View {
                 .disabled(store.poster == nil)
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).editPoster) { editStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).editPoster) { editStore in
             NavigationStack {
                 EditPosterView(store: editStore)
             }
@@ -544,7 +544,7 @@ public struct PostersViewerView: View {
                 }
             }
         }
-        .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).posterDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination, action: \.destination).posterDetail) { detailStore in
             PosterDetailView(store: detailStore)
         }
         .sheet(isPresented: $store.importImages.isPresented) {

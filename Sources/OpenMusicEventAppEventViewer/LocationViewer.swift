@@ -145,7 +145,7 @@ public struct LocationViewerView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).editLocation) { editStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).editLocation) { editStore in
             NavigationStack {
                 EditLocationView(store: editStore)
             }

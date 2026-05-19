@@ -139,12 +139,12 @@ public struct PeopleViewerView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).createParticipant) { createStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).createParticipant) { createStore in
             NavigationStack {
                 EditParticipantView(store: createStore)
             }
         }
-        .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).participantDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination, action: \.destination).participantDetail) { detailStore in
             ParticipantDetailView(store: detailStore)
         }
     }
@@ -316,7 +316,7 @@ public struct ParticipantDetailView: View {
                 .navigationTitle("Person")
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).editParticipant) { editStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).editParticipant) { editStore in
             NavigationStack {
                 EditParticipantView(store: editStore)
             }

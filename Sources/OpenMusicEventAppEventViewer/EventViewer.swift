@@ -467,7 +467,7 @@ public struct EventViewer {
                 break
             }
         }
-        .onEvent(NavigationRequested.self, consume: true) { request, state in
+        .onEvent(NavigationRequested.self) { request, state in
             guard case let .event(eventID, target) = request, eventID == state.eventID else { return }
             state.navigate(to: target)
         }

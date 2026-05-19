@@ -1220,7 +1220,7 @@ struct NavigationTests {
 
         @Bindable var editStore = try #require(
             $detailStore
-                .scope(state: \.destination, action: \.destination)
+                .scope(\.destination, action: \.destination)
                 .editParticipant
                 .wrappedValue
         )
@@ -1270,7 +1270,7 @@ struct NavigationTests {
         peopleStore.send(.participantButtonTapped(participantID))
         @Bindable var detailStore = try #require(
             $peopleStore
-                .scope(state: \.destination, action: \.destination)
+                .scope(\.destination, action: \.destination)
                 .participantDetail
                 .wrappedValue
         )
@@ -1295,7 +1295,7 @@ struct NavigationTests {
         detailStore.send(.editButtonTapped)
         @Bindable var editStore = try #require(
             $detailStore
-                .scope(state: \.destination, action: \.destination)
+                .scope(\.destination, action: \.destination)
                 .editParticipant
                 .wrappedValue
         )
@@ -1845,7 +1845,7 @@ private struct RootHarness {
     }
 
     var body: some Feature {
-        Scope(state: \.root, action: \.root) {
+        Scope(\.root, action: \.root) {
             OpenMusicEventAppRoot()
         }
     }
@@ -1863,7 +1863,7 @@ private struct MyEventsEventHarness {
     }
 
     var body: some Feature {
-        Scope(state: \.myEvents, action: \.myEvents) {
+        Scope(\.myEvents, action: \.myEvents) {
             MyEvents()
         }
         .onEvent(NavigationRequested.self) { request, state in
@@ -1892,7 +1892,7 @@ private struct EventViewerHarness {
     }
 
     var body: some Feature {
-        Scope(state: \.eventViewer, action: \.eventViewer) {
+        Scope(\.eventViewer, action: \.eventViewer) {
             EventViewer()
         }
         .onEvent(NavigationRequested.self) { request, state in

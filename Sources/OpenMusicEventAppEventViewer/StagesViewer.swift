@@ -180,12 +180,12 @@ public struct StagesViewerView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).createStage) { createStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).createStage) { createStore in
             NavigationStack {
                 EditStageView(store: createStore)
             }
         }
-        .navigationDestination(item: $store.scope(state: \.destination, action: \.destination).stageDetail) { detailStore in
+        .navigationDestination(item: $store.scope(\.destination, action: \.destination).stageDetail) { detailStore in
             StageDetailView(store: detailStore)
         }
     }
@@ -348,7 +348,7 @@ public struct StageDetailView: View {
                 .navigationTitle("Stage")
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).editStage) { editStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).editStage) { editStore in
             NavigationStack {
                 EditStageView(store: editStore)
             }

@@ -136,7 +136,7 @@ public struct EventInfoViewerView: View {
                 )
             }
         }
-        .sheet(item: $store.scope(state: \.destination, action: \.destination).editEventInfo) { editStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).editEventInfo) { editStore in
             NavigationStack {
                 EditEventInfoView(store: editStore)
             }
