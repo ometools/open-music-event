@@ -8,6 +8,7 @@ public extension SourceEditingSession {
     static func openMusicEvent(eventID: OME.Event.ID) throws -> Self? {
         @Dependency(\.defaultDatabase) var database
         @Dependency(\.defaultBaselineDatabase) var defaultBaselineDatabase
+        @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
         @Dependency(\.sourceEditingWorkingDatabasePath) var workingDatabasePath
 
         guard let workingDatabasePath else {
@@ -35,12 +36,16 @@ public extension SourceEditingSession {
 
         let baselineDirectoryURL = URL(fileURLWithPath: defaultBaselineDatabase.path)
             .deletingLastPathComponent()
-        return try Self(
+        let session = try Self(
             workingDatabasePath: workingDatabasePath,
             baselineDatabasePath: baselineDirectoryURL
                 .appendingPathComponent(baseline.databaseFileName)
                 .path,
             configuration: configuration
         )
+        try session.database.write { db in
+            try sourcePatchInvalidations.installTriggers(db)
+        }
+        return session
     }
 }

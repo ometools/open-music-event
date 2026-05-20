@@ -1,6 +1,7 @@
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceEditing
 
@@ -11,6 +12,7 @@ extension ExternalPlatform: SQLiteType {}
 extension DependencyValues {
     mutating func bootstrapDatabase() throws {
         @Dependency(\.context) var context
+        @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
 
         var configuration = Configuration()
         configuration.busyMode = .timeout(5)
@@ -56,6 +58,9 @@ extension DependencyValues {
         registerOpenMusicEventAppMigrations(into: &migrator)
 
         try migrator.migrate(database)
+        try database.write { db in
+            try sourcePatchInvalidations.installTriggers(db)
+        }
         defaultDatabase = database
     }
 }
