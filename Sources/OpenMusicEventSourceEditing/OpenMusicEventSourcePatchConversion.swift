@@ -10,7 +10,7 @@ public extension OpenMusicEventSourcePatchConversion {
         Self { sourceEvent, request in
             @Dependency(\.defaultDatabase) var database
 
-            let (event, participants) = try await database.read { db in
+            let (event, stages, participants) = try await database.read { db in
                 let event = try OME.Event
                     .where { $0.id.eq(request.eventID) }
                     .fetchOne(db)
@@ -18,17 +18,25 @@ public extension OpenMusicEventSourcePatchConversion {
                     throw OpenMusicEventSourcePatchConversionError.eventNotFound(request.eventID)
                 }
 
+                let stages = try OME.Stage
+                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
+                    .where { $0.id.eventID.eq(request.eventID.eventID) }
+                    .fetchAll(db)
+
                 let participants = try OME.Participant
                     .where { $0.id.organizerID.eq(request.eventID.organizerID) }
                     .where { $0.id.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
 
-                return (event, participants)
+                return (event, stages, participants)
             }
 
             var sourceEvent = sourceEvent
             sourceEvent.event = EventDTO(
                 event.sourceDraft(preservingSourceID: sourceEvent.event.id)
+            )
+            sourceEvent.stages = try sourceEvent.sourceStageFiles(
+                from: stages
             )
             sourceEvent.participants = try sourceEvent.sourceParticipantFiles(
                 from: participants
@@ -43,6 +51,54 @@ public enum OpenMusicEventSourcePatchConversionError: Equatable, Error, Sendable
 }
 
 private extension OpenMusicEventSourceEvent {
+    func sourceStageFiles(
+        from stages: [OME.Stage]
+    ) throws -> [FileContent<StageDTO>]? {
+        let stagesByID = Dictionary(
+            uniqueKeysWithValues: stages.map { ($0.id.stageID, $0) }
+        )
+        var consumedStageIDs: Set<OME.ID<OME.Stage>> = []
+        var files: [FileContent<StageDTO>] = []
+
+        for file in self.stages ?? [] {
+            let stageID = file.sourceStageID
+            guard let stage = stagesByID[stageID] else {
+                continue
+            }
+
+            consumedStageIDs.insert(stageID)
+            files.append(
+                try file.map { sourceStage in
+                    StageDTO(
+                        stage.sourceDraft(
+                            preservingSourceID: sourceStage.id
+                        )
+                    )
+                }
+            )
+        }
+
+        let additions = stages
+            .filter { !consumedStageIDs.contains($0.id.stageID) }
+            .sorted { lhs, rhs in
+                lhs.id.stageID.rawValue.rawValue < rhs.id.stageID.rawValue.rawValue
+            }
+
+        for stage in additions {
+            files.append(
+                try FileContent(
+                    fileName: stage.id.stageID.rawValue.rawValue,
+                    fileType: "yml",
+                    data: StageDTO(
+                        stage.sourceDraft(preservingSourceID: nil)
+                    )
+                )
+            )
+        }
+
+        return files.isEmpty ? nil : files
+    }
+
     func sourceParticipantFiles(
         from participants: [OME.Participant]
     ) throws -> [FileContent<ParticipantDTO>]? {
@@ -92,6 +148,12 @@ private extension OpenMusicEventSourceEvent {
     }
 }
 
+private extension FileContent where Component == StageDTO {
+    var sourceStageID: OME.ID<OME.Stage> {
+        data.id?.stageID ?? OME.ID<OME.Stage>(.init(fileName))
+    }
+}
+
 private extension FileContent where Component == ParticipantDTO {
     var sourceParticipantID: OME.ID<OME.Participant> {
         data.id?.participantID ?? OME.ID<OME.Participant>(.init(fileName))
@@ -116,6 +178,24 @@ private extension OME.Event {
             images: images,
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs
+        )
+    }
+}
+
+private extension OME.Stage {
+    func sourceDraft(
+        preservingSourceID id: OME.Stage.ID?
+    ) -> OME.Stage.Draft {
+        OME.Stage.Draft(
+            id: id,
+            name: name,
+            color: color,
+            category: category,
+            sortIndex: sortIndex,
+            images: images,
+            systemIconName: systemIconName,
+            iconShortCode: iconShortCode,
+            lineup: lineup
         )
     }
 }

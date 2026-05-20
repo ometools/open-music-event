@@ -269,6 +269,99 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(newText.contains("description: Updated from the database."))
     }
 
+    @Test
+    func liveConversionUpdatesStageYamlFromDatabase() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "events/test-event/event.yml",
+            contents: "name: Test Event\ntimeZone: GMT\n"
+        )
+        try fixture.writeFile(
+            "events/test-event/stages/meadow.yml",
+            contents: "name: Meadow\ncolor: 43758\n"
+        )
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("test-event")
+        let stageID = OME.Stage.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            stageID: localID("meadow")
+        )
+        let repositoryURL = fixture.repositoryURL
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Test Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: TimeZone(identifier: "GMT")!,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try OME.Stage.insert {
+                OME.Stage.Draft(
+                    id: stageID,
+                    name: "Main Stage",
+                    color: 0x00bbcc,
+                    sortIndex: 1
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .local,
+                    sourceReference: repositoryURL.path,
+                    ref: nil,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "test-event"
+                )
+            }
+            .execute(db)
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventSourcePatchRequest(eventID: eventID)
+            )
+        }
+
+        let change = try #require(patch.fileChanges.first)
+        #expect(patch.fileChanges.count == 1)
+        #expect(change.path == "events/test-event/stages/meadow.yml")
+        #expect(change.kind == .modified)
+        let newContents = try #require(change.newContents)
+        let newText = String(decoding: newContents, as: UTF8.self)
+        #expect(newText.contains("name: Main Stage"))
+        #expect(newText.contains("color: 48076"))
+        #expect(newText.contains("sortIndex: 1"))
+    }
+
     private func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test
