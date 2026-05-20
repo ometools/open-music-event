@@ -10,7 +10,7 @@ public extension OpenMusicEventSourcePatchConversion {
         Self { sourceEvent, request in
             @Dependency(\.defaultDatabase) var database
 
-            let (event, stages, participants) = try await database.read { db in
+            let (event, stages, participants, posters) = try await database.read { db in
                 let event = try OME.Event
                     .where { $0.id.eq(request.eventID) }
                     .fetchOne(db)
@@ -28,7 +28,12 @@ public extension OpenMusicEventSourcePatchConversion {
                     .where { $0.id.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
 
-                return (event, stages, participants)
+                let posters = try OME.Poster
+                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
+                    .where { $0.id.eventID.eq(request.eventID.eventID) }
+                    .fetchAll(db)
+
+                return (event, stages, participants, posters)
             }
 
             var sourceEvent = sourceEvent
@@ -40,6 +45,9 @@ public extension OpenMusicEventSourcePatchConversion {
             )
             sourceEvent.participants = try sourceEvent.sourceParticipantFiles(
                 from: participants
+            )
+            sourceEvent.posters = try sourceEvent.sourcePosterFiles(
+                from: posters
             )
             return sourceEvent
         }
@@ -99,6 +107,54 @@ private extension OpenMusicEventSourceEvent {
         return files.isEmpty ? nil : files
     }
 
+    func sourcePosterFiles(
+        from posters: [OME.Poster]
+    ) throws -> [FileContent<PosterDTO>]? {
+        let postersByID = Dictionary(
+            uniqueKeysWithValues: posters.map { ($0.id.posterID, $0) }
+        )
+        var consumedPosterIDs: Set<OME.ID<OME.Poster>> = []
+        var files: [FileContent<PosterDTO>] = []
+
+        for file in self.posters ?? [] {
+            let posterID = file.sourcePosterID
+            guard let poster = postersByID[posterID] else {
+                continue
+            }
+
+            consumedPosterIDs.insert(posterID)
+            files.append(
+                try file.map { sourcePoster in
+                    PosterDTO(
+                        poster.sourceDraft(
+                            preservingSourceID: sourcePoster.id
+                        )
+                    )
+                }
+            )
+        }
+
+        let additions = posters
+            .filter { !consumedPosterIDs.contains($0.id.posterID) }
+            .sorted { lhs, rhs in
+                lhs.id.posterID.rawValue.rawValue < rhs.id.posterID.rawValue.rawValue
+            }
+
+        for poster in additions {
+            files.append(
+                try FileContent(
+                    fileName: poster.id.posterID.rawValue.rawValue,
+                    fileType: "yml",
+                    data: PosterDTO(
+                        poster.sourceDraft(preservingSourceID: nil)
+                    )
+                )
+            )
+        }
+
+        return files.isEmpty ? nil : files
+    }
+
     func sourceParticipantFiles(
         from participants: [OME.Participant]
     ) throws -> [FileContent<ParticipantDTO>]? {
@@ -145,6 +201,12 @@ private extension OpenMusicEventSourceEvent {
         }
 
         return files.isEmpty ? nil : files
+    }
+}
+
+private extension FileContent where Component == PosterDTO {
+    var sourcePosterID: OME.ID<OME.Poster> {
+        data.id?.posterID ?? OME.ID<OME.Poster>(.init(fileName))
     }
 }
 
@@ -196,6 +258,18 @@ private extension OME.Stage {
             systemIconName: systemIconName,
             iconShortCode: iconShortCode,
             lineup: lineup
+        )
+    }
+}
+
+private extension OME.Poster {
+    func sourceDraft(
+        preservingSourceID id: OME.Poster.ID?
+    ) -> OME.Poster.Draft {
+        OME.Poster.Draft(
+            id: id,
+            title: title,
+            image: image
         )
     }
 }
