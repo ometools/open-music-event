@@ -14,6 +14,11 @@ public struct EditEvent {
         case source
     }
 
+    public enum SourcePatchStatus: Equatable, Sendable {
+        case needsGeneration(SourcePatchInvalidation)
+        case notGenerated
+    }
+
     public struct State {
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
@@ -31,16 +36,34 @@ public struct EditEvent {
         @DebugSnapshotIgnored
         @Fetch public var editSummary: EventEditSummary
         public var selectedChangeView: ChangeView = .database
+        public var sourcePatchStatus: SourcePatchStatus = .notGenerated
 
         public var changeCount: Int? {
             editSummary.badgeCount
         }
     }
 
-    public enum Action {}
+    public enum Action {
+        case sourcePatchInvalidationReceived(SourcePatchInvalidation)
+    }
 
+    @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     public var body: some Feature {
-        Update { _, _ in }
+        Update { state, action in
+            switch action {
+            case let .sourcePatchInvalidationReceived(invalidation):
+                state.sourcePatchStatus = .needsGeneration(invalidation)
+            }
+        }
+        .onMount { state in
+            let eventID = state.eventID
+            store.addTask {
+                for await invalidation in sourcePatchInvalidations.stream() {
+                    guard invalidation.eventID == eventID else { continue }
+                    try store.send(.sourcePatchInvalidationReceived(invalidation))
+                }
+            }
+        }
     }
 }
 
@@ -141,8 +164,7 @@ public struct EditEventView: View {
 
                 Section {
                     Label("Patch Preview", systemImage: "doc.text.magnifyingglass")
-                    Text("Not Generated")
-                        .foregroundStyle(.secondary)
+                    SourcePatchStatusView(status: store.sourcePatchStatus)
                 }
             }
 
@@ -160,6 +182,39 @@ public struct EditEventView: View {
 
         case let .unavailable(reason):
             SourceChangeUnavailableView(reason: reason)
+        }
+    }
+}
+
+struct SourcePatchStatusView: View {
+    let status: EditEvent.SourcePatchStatus
+
+    var body: some View {
+        switch status {
+        case let .needsGeneration(invalidation):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Needs Generation")
+                Text("\(invalidation.operation.title) \(invalidation.tableName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+        case .notGenerated:
+            Text("Not Generated")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private extension SourcePatchInvalidation.Operation {
+    var title: String {
+        switch self {
+        case .delete:
+            "Deleted"
+        case .insert:
+            "Inserted"
+        case .update:
+            "Updated"
         }
     }
 }
