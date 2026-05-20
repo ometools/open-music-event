@@ -10,20 +10,36 @@ public extension OpenMusicEventSourcePatchConversion {
         Self { sourceEvent, request in
             @Dependency(\.defaultDatabase) var database
 
-            let participants = try await database.read { db in
-                try OME.Participant
+            let (event, participants) = try await database.read { db in
+                let event = try OME.Event
+                    .where { $0.id.eq(request.eventID) }
+                    .fetchOne(db)
+                guard let event else {
+                    throw OpenMusicEventSourcePatchConversionError.eventNotFound(request.eventID)
+                }
+
+                let participants = try OME.Participant
                     .where { $0.id.organizerID.eq(request.eventID.organizerID) }
                     .where { $0.id.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
+
+                return (event, participants)
             }
 
             var sourceEvent = sourceEvent
+            sourceEvent.event = EventDTO(
+                event.sourceDraft(preservingSourceID: sourceEvent.event.id)
+            )
             sourceEvent.participants = try sourceEvent.sourceParticipantFiles(
                 from: participants
             )
             return sourceEvent
         }
     }
+}
+
+public enum OpenMusicEventSourcePatchConversionError: Equatable, Error, Sendable {
+    case eventNotFound(OME.Event.ID)
 }
 
 private extension OpenMusicEventSourceEvent {
@@ -79,6 +95,28 @@ private extension OpenMusicEventSourceEvent {
 private extension FileContent where Component == ParticipantDTO {
     var sourceParticipantID: OME.ID<OME.Participant> {
         data.id?.participantID ?? OME.ID<OME.Participant>(.init(fileName))
+    }
+}
+
+private extension OME.Event {
+    func sourceDraft(
+        preservingSourceID id: OME.Event.ID?
+    ) -> OME.Event.Draft {
+        OME.Event.Draft(
+            id: id,
+            name: name,
+            description: description,
+            startDate: startDate,
+            endDate: endDate,
+            status: status,
+            mode: mode,
+            locations: locations,
+            uris: uris,
+            timeZone: timeZone,
+            images: images,
+            contactNumbers: contactNumbers,
+            categoryConfigs: categoryConfigs
+        )
     }
 }
 
