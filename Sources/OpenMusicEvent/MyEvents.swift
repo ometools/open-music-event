@@ -12,6 +12,7 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceEditing
 import SQLiteData
 import SwiftUI
 

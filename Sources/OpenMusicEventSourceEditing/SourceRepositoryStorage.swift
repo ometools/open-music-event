@@ -3,24 +3,27 @@ import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 
-struct SourceRepositoryStorageClient: Sendable {
-    var store: @Sendable (URL, OMERecord.SourceDatabaseInsertion.SourceProvenance) throws -> URL
-    var remove: @Sendable (OMERecord.SourceDatabaseInsertion.SourceProvenance) throws -> Void
+public struct SourceRepositoryStorageClient: Sendable {
+    public var repositoryURL: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL
+    public var store: @Sendable (URL, OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL
+    public var remove: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> Void
 
-    init(
-        store: @escaping @Sendable (URL, OMERecord.SourceDatabaseInsertion.SourceProvenance) throws -> URL,
-        remove: @escaping @Sendable (OMERecord.SourceDatabaseInsertion.SourceProvenance) throws -> Void
+    public init(
+        repositoryURL: @escaping @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL = Self.repositoryURL,
+        store: @escaping @Sendable (URL, OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL,
+        remove: @escaping @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> Void
     ) {
+        self.repositoryURL = repositoryURL
         self.store = store
         self.remove = remove
     }
 }
 
-extension SourceRepositoryStorageClient {
+public extension SourceRepositoryStorageClient {
     static var live: Self {
         Self(
             store: { repositoryURL, provenance in
-                guard provenance.kind == .tangled else { return repositoryURL }
+                guard provenance.kind == .tangled else { return repositoryURL.standardizedFileURL }
                 let destinationURL = try storedRepositoryURL(for: provenance)
                 let sourceURL = repositoryURL.standardizedFileURL
                 let standardizedDestinationURL = destinationURL.standardizedFileURL
@@ -49,6 +52,17 @@ extension SourceRepositoryStorageClient {
         )
     }
 
+    static func repositoryURL(
+        for provenance: OME.SourceDatabaseInsertion.SourceProvenance
+    ) throws -> URL {
+        switch provenance.kind {
+        case .local:
+            URL(fileURLWithPath: provenance.reference).standardizedFileURL
+        case .tangled:
+            try storedRepositoryURL(for: provenance)
+        }
+    }
+
     static func temporaryDownloadURL(uuid: UUID) -> URL {
         FileManager.default.temporaryDirectory
             .appending(path: "ome-source-clone-\(uuid.uuidString)")
@@ -72,14 +86,14 @@ extension SourceRepositoryStorageClient {
     }
 
     static func storedRepositoryURL(
-        for provenance: OMERecord.SourceDatabaseInsertion.SourceProvenance
+        for provenance: OME.SourceDatabaseInsertion.SourceProvenance
     ) throws -> URL {
         try rootURL()
             .appendingPathComponent(directoryName(for: provenance), isDirectory: true)
     }
 
     static func directoryName(
-        for provenance: OMERecord.SourceDatabaseInsertion.SourceProvenance
+        for provenance: OME.SourceDatabaseInsertion.SourceProvenance
     ) -> String {
         let components = [
             provenance.kind.rawValue,
@@ -161,7 +175,7 @@ private enum SourceRepositoryStorageClientKey: DependencyKey {
     }
 }
 
-extension DependencyValues {
+public extension DependencyValues {
     var sourceRepositoryStorage: SourceRepositoryStorageClient {
         get { self[SourceRepositoryStorageClientKey.self] }
         set { self[SourceRepositoryStorageClientKey.self] = newValue }

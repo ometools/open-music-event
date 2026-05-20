@@ -390,6 +390,58 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func liveStorageResolvesLocalRepositoryURL() throws {
+        let expectedURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-local-source-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .standardizedFileURL
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .local,
+            reference: expectedURL.path(percentEncoded: false)
+        )
+
+        let resolvedURL = try SourceRepositoryStorageClient.live.repositoryURL(sourceProvenance)
+
+        #expect(resolvedURL == expectedURL)
+    }
+
+    @Test
+    func liveStorageResolvesTangledRepositoryURL() throws {
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:repository-url-test/repository",
+            ref: "HEAD"
+        )
+
+        let expectedURL = try SourceRepositoryStorageClient
+            .storedRepositoryURL(for: sourceProvenance)
+            .standardizedFileURL
+        let firstURL = try SourceRepositoryStorageClient.live.repositoryURL(sourceProvenance)
+        let secondURL = try SourceRepositoryStorageClient.live.repositoryURL(sourceProvenance)
+
+        #expect(firstURL == expectedURL)
+        #expect(secondURL == expectedURL)
+    }
+
+    @Test
+    func liveStorageResolvesEqualTangledProvenanceToEqualURLs() throws {
+        let firstProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:equal-provenance-test/repository",
+            ref: "main"
+        )
+        let secondProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:equal-provenance-test/repository",
+            ref: "main"
+        )
+
+        let firstURL = try SourceRepositoryStorageClient.live.repositoryURL(firstProvenance)
+        let secondURL = try SourceRepositoryStorageClient.live.repositoryURL(secondProvenance)
+
+        #expect(firstURL == secondURL)
+    }
+
+    @Test
     func liveStorageReplacesExistingStoredRepository() throws {
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,

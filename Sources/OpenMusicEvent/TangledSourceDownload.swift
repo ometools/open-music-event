@@ -5,6 +5,7 @@ import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventSource
+import OpenMusicEventSourceEditing
 import SwiftUI
 
 struct TangledSourceImportClient: Sendable {
