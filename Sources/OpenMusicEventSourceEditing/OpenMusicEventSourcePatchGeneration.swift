@@ -88,7 +88,7 @@ public extension DependencyValues {
 
 private enum OpenMusicEventSourcePatchConversionKey: DependencyKey {
     static var liveValue: OpenMusicEventSourcePatchConversion {
-        .identity
+        .live
     }
 
     static var testValue: OpenMusicEventSourcePatchConversion {
