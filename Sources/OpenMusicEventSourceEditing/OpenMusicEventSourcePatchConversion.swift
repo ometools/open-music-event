@@ -10,7 +10,15 @@ public extension OpenMusicEventSourcePatchConversion {
         Self { sourceEvent, request in
             @Dependency(\.defaultDatabase) var database
 
-            let (event, stages, participants, posters) = try await database.read { db in
+            let (
+                event,
+                stages,
+                participants,
+                posters,
+                schedules,
+                performances,
+                performanceParticipants
+            ) = try await database.read { db in
                 let event = try OME.Event
                     .where { $0.id.eq(request.eventID) }
                     .fetchOne(db)
@@ -33,7 +41,30 @@ public extension OpenMusicEventSourcePatchConversion {
                     .where { $0.id.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
 
-                return (event, stages, participants, posters)
+                let schedules = try OME.Schedule
+                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
+                    .where { $0.id.eventID.eq(request.eventID.eventID) }
+                    .fetchAll(db)
+
+                let performances = try OME.Performance
+                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
+                    .where { $0.id.eventID.eq(request.eventID.eventID) }
+                    .fetchAll(db)
+
+                let performanceParticipants = try OME.Performance.Participants
+                    .where { $0.organizerID.eq(request.eventID.organizerID) }
+                    .where { $0.eventID.eq(request.eventID.eventID) }
+                    .fetchAll(db)
+
+                return (
+                    event,
+                    stages,
+                    participants,
+                    posters,
+                    schedules,
+                    performances,
+                    performanceParticipants
+                )
             }
 
             var sourceEvent = sourceEvent
@@ -49,6 +80,12 @@ public extension OpenMusicEventSourcePatchConversion {
             sourceEvent.posters = try sourceEvent.sourcePosterFiles(
                 from: posters
             )
+            sourceEvent.schedules = try sourceEvent.sourceScheduleFiles(
+                from: schedules,
+                performances: performances,
+                performanceParticipants: performanceParticipants,
+                eventTimeZone: event.timeZone
+            )
             return sourceEvent
         }
     }
@@ -59,6 +96,91 @@ public enum OpenMusicEventSourcePatchConversionError: Equatable, Error, Sendable
 }
 
 private extension OpenMusicEventSourceEvent {
+    func sourceScheduleFiles(
+        from schedules: [OME.Schedule],
+        performances: [OME.Performance],
+        performanceParticipants: [OME.Performance.Participants],
+        eventTimeZone: TimeZone
+    ) throws -> [FileContent<ScheduleDTO>]? {
+        let schedulesByID = Dictionary(
+            uniqueKeysWithValues: schedules.map { ($0.id.scheduleID, $0) }
+        )
+        let performancesByScheduleID = Dictionary(
+            grouping: performances.compactMap { performance in
+                performance.scheduleID.map { ($0, performance) }
+            },
+            by: \.0
+        )
+        .mapValues { pairs in
+            pairs.map(\.1)
+        }
+        let participantsByPerformanceID = Dictionary(
+            grouping: performanceParticipants,
+            by: \.performanceID
+        )
+        var consumedScheduleIDs: Set<OME.ID<OME.Schedule>> = []
+        var files: [FileContent<ScheduleDTO>] = []
+
+        for file in self.schedules ?? [] {
+            let scheduleID = file.sourceScheduleID
+            guard let schedule = schedulesByID[scheduleID] else {
+                continue
+            }
+
+            consumedScheduleIDs.insert(scheduleID)
+            files.append(
+                try file.map { sourceSchedule in
+                    schedule.sourceDTO(
+                        preservingSourceID: sourceSchedule.id,
+                        preservingSourceEventID: sourceSchedule.eventID,
+                        performances: sourcePerformances(
+                            scheduleID: scheduleID,
+                            performances: performancesByScheduleID[scheduleID] ?? [],
+                            performanceParticipants: participantsByPerformanceID,
+                            sourceSchedule: sourceSchedule,
+                            eventTimeZone: eventTimeZone
+                        ),
+                        eventTimeZone: eventTimeZone
+                    )
+                }
+            )
+        }
+
+        let additions = schedules
+            .filter { !consumedScheduleIDs.contains($0.id.scheduleID) }
+            .sorted { lhs, rhs in
+                if lhs.date != rhs.date { return lhs.date.description < rhs.date.description }
+                if lhs.startsAt != rhs.startsAt {
+                    return (lhs.startsAt ?? .distantFuture) < (rhs.startsAt ?? .distantFuture)
+                }
+                return lhs.id.scheduleID.rawValue.rawValue < rhs.id.scheduleID.rawValue.rawValue
+            }
+
+        for schedule in additions {
+            let scheduleID = schedule.id.scheduleID
+            files.append(
+                try FileContent(
+                    fileName: scheduleID.rawValue.rawValue,
+                    fileType: "yml",
+                    data: schedule.sourceDTO(
+                        preservingSourceID: nil,
+                        preservingSourceEventID: nil,
+                        performances: sourcePerformances(
+                            scheduleID: scheduleID,
+                            performances: performancesByScheduleID[scheduleID] ?? [],
+                            performanceParticipants: participantsByPerformanceID,
+                            sourceSchedule: nil,
+                            eventTimeZone: eventTimeZone
+                        ),
+                        eventTimeZone: eventTimeZone
+                    )
+                )
+            )
+        }
+
+        return files.isEmpty ? nil : files
+    }
+
     func sourceStageFiles(
         from stages: [OME.Stage]
     ) throws -> [FileContent<StageDTO>]? {
@@ -204,6 +326,94 @@ private extension OpenMusicEventSourceEvent {
     }
 }
 
+private func sourcePerformances(
+    scheduleID: OME.ID<OME.Schedule>,
+    performances: [OME.Performance],
+    performanceParticipants: [OME.ID<OME.Performance>: [OME.Performance.Participants]],
+    sourceSchedule: ScheduleDTO?,
+    eventTimeZone: TimeZone
+) -> [String: [ScheduleDTO.Performance]] {
+    let sourcePerformances = sourceSchedule?.sourcePerformancesByID(
+        scheduleID: scheduleID
+    ) ?? [:]
+    let performancesByStageID = Dictionary(
+        grouping: performances,
+        by: \.stageID
+    )
+
+    return Dictionary(
+        uniqueKeysWithValues: performancesByStageID.keys.sorted {
+            $0.rawValue.rawValue < $1.rawValue.rawValue
+        }
+        .map { stageID in
+            let performances = performancesByStageID[stageID] ?? []
+            let sortedPerformances = performances.sorted { lhs, rhs in
+                if lhs.startTime != rhs.startTime { return lhs.startTime < rhs.startTime }
+                if lhs.endTime != rhs.endTime { return lhs.endTime < rhs.endTime }
+                return lhs.id.performanceID.rawValue.rawValue < rhs.id.performanceID.rawValue.rawValue
+            }
+            return (
+                stageID.rawValue.rawValue,
+                sortedPerformances.enumerated().map { offset, performance in
+                    let inferredID = OME.ID<OME.Performance>(
+                        .init("\(scheduleID.rawValue.rawValue)-\(stageID.rawValue.rawValue)-\(offset + 1)")
+                    )
+                    let sourcePerformance = sourcePerformances[performance.id.performanceID]
+                    let nextPerformance = sortedPerformances.indices.contains(offset + 1)
+                        ? sortedPerformances[offset + 1]
+                        : nil
+                    return performance.sourceDTO(
+                        inferredID: inferredID,
+                        preservingSource: sourcePerformance,
+                        nextPerformance: nextPerformance,
+                        participants: performanceParticipants[performance.id.performanceID] ?? [],
+                        eventTimeZone: eventTimeZone
+                    )
+                }
+            )
+        }
+    )
+}
+
+private struct SourcePerformance {
+    var id: OME.ID<OME.Performance>?
+    var hasExplicitEndTime: Bool
+    var participantIDs: [OME.ID<OME.Participant>]?
+    var participantNames: [String]?
+}
+
+private extension ScheduleDTO {
+    func sourcePerformancesByID(
+        scheduleID: OME.ID<OME.Schedule>
+    ) -> [OME.ID<OME.Performance>: SourcePerformance] {
+        Dictionary(
+            uniqueKeysWithValues: performances.flatMap { stageID, performances in
+                performances.enumerated().map { offset, performance in
+                    let performanceID = performance.id
+                        ?? OME.ID<OME.Performance>(
+                            .init("\(scheduleID.rawValue.rawValue)-\(stageID)-\(offset + 1)")
+                        )
+                    return (
+                        performanceID,
+                        SourcePerformance(
+                            id: performance.id,
+                            hasExplicitEndTime: performance.endTime != nil,
+                            participantIDs: performance.participantIDs,
+                            participantNames: performance.participantNames
+                        )
+                    )
+                }
+            }
+        )
+    }
+}
+
+private extension FileContent where Component == ScheduleDTO {
+    var sourceScheduleID: OME.ID<OME.Schedule> {
+        data.id ?? OME.ID<OME.Schedule>(.init(fileName))
+    }
+}
+
 private extension FileContent where Component == PosterDTO {
     var sourcePosterID: OME.ID<OME.Poster> {
         data.id?.posterID ?? OME.ID<OME.Poster>(.init(fileName))
@@ -241,6 +451,101 @@ private extension OME.Event {
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs
         )
+    }
+}
+
+private extension OME.Schedule {
+    func sourceDTO(
+        preservingSourceID id: OME.ID<OME.Schedule>?,
+        preservingSourceEventID eventID: OME.ID<OME.Event>?,
+        performances: [String: [ScheduleDTO.Performance]],
+        eventTimeZone: TimeZone
+    ) -> ScheduleDTO {
+        ScheduleDTO(
+            id: id,
+            eventID: eventID,
+            date: date,
+            startsAt: startsAt?.sourceLocalTime(in: eventTimeZone),
+            endsAt: endsAt?.sourceLocalTime(in: eventTimeZone),
+            customTitle: customTitle,
+            performances: performances
+        )
+    }
+}
+
+private extension OME.Performance {
+    func sourceDTO(
+        inferredID: OME.ID<OME.Performance>,
+        preservingSource source: SourcePerformance?,
+        nextPerformance: OME.Performance?,
+        participants: [OME.Performance.Participants],
+        eventTimeZone: TimeZone
+    ) -> ScheduleDTO.Performance {
+        let participantIDs = participants.compactMap(\.participantID)
+        let participantNames = participants.compactMap(\.anonymousName)
+        return ScheduleDTO.Performance(
+            id: source?.id ?? (id.performanceID == inferredID ? nil : id.performanceID),
+            title: title,
+            description: description,
+            startTime: startTime.sourceLocalTime(in: eventTimeZone),
+            endTime: sourceEndTime(
+                preservingSource: source,
+                nextPerformance: nextPerformance,
+                eventTimeZone: eventTimeZone
+            ),
+            participantIDs: participantIDs.sourceOrdered(
+                preserving: source?.participantIDs,
+                by: { $0.rawValue.rawValue }
+            ),
+            participantNames: participantNames.sourceOrdered(
+                preserving: source?.participantNames,
+                by: { $0 }
+            ),
+            recordings: recordings.isEmpty ? nil : recordings
+        )
+    }
+
+    func sourceEndTime(
+        preservingSource source: SourcePerformance?,
+        nextPerformance: OME.Performance?,
+        eventTimeZone: TimeZone
+    ) -> String? {
+        if source?.hasExplicitEndTime == false,
+           nextPerformance?.startTime == endTime {
+            return nil
+        }
+        return endTime.sourceLocalTime(in: eventTimeZone)
+    }
+}
+
+private extension Array {
+    func sourceOrdered<Key: Hashable & Comparable>(
+        preserving source: [Element]?,
+        by key: (Element) -> Key
+    ) -> [Element]? {
+        guard !isEmpty else { return nil }
+        if let source,
+           source.count == count,
+           Set(source.map(key)) == Set(map(key)) {
+            return source
+        }
+        return sorted { key($0) < key($1) }
+    }
+}
+
+private extension Date {
+    func sourceLocalTime(in timeZone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let components = calendar.dateComponents([.hour, .minute, .second], from: self)
+        if let second = components.second, second != 0 {
+            return "\(Self.twoDigits(components.hour ?? 0)):\(Self.twoDigits(components.minute ?? 0)):\(Self.twoDigits(second))"
+        }
+        return "\(Self.twoDigits(components.hour ?? 0)):\(Self.twoDigits(components.minute ?? 0))"
+    }
+
+    private static func twoDigits(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
     }
 }
 
