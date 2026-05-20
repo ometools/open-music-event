@@ -204,6 +204,32 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
+    func writesOrganizerRepository() throws {
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let repositoryResult = try tree.read(from: fixtureURL("Organizer"))
+        let repository = try repositoryResult.output.requiredValue
+        let outputURL = try temporaryRepositoryURL()
+
+        _ = try tree.write(repository, to: outputURL)
+        let writtenResult = try tree.read(from: outputURL)
+        let writtenRepository = try writtenResult.output.requiredValue
+
+        expectNoDifference(writtenRepository, repository)
+
+        let participantText = try String(
+            contentsOf: outputURL
+                .appending(path: "events", directoryHint: .isDirectory)
+                .appending(path: "testival-2026", directoryHint: .isDirectory)
+                .appending(path: "participants", directoryHint: .isDirectory)
+                .appending(path: "artist-one.md"),
+            encoding: .utf8
+        )
+        #expect(participantText.hasPrefix("---\n"))
+        #expect(participantText.contains("Artist One writes sturdy test fixtures."))
+        #expect(!participantText.contains("bio:"))
+    }
+
+    @Test
     func readsSourceImageAssetsFromRepositoryFiles() throws {
         let repositoryURL = try temporaryRepositoryURL()
         try writeImageFixtureRepository(at: repositoryURL)

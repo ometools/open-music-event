@@ -1,10 +1,10 @@
 import FileTree
 import Foundation
 
-public struct OpenMusicEventSourceRepositoryFileTree: FileTreeReader {
+public struct OpenMusicEventSourceRepositoryFileTree: FileTreeWriter {
     public init() {}
 
-    public var body: some FileTreeReader<OpenMusicEventSourceRepository> {
+    public var body: some FileTreeWriter<OpenMusicEventSourceRepository> {
         Directory("events") {
             Directory.Many {
                 OpenMusicEventSourceEventFileTree()
@@ -14,10 +14,10 @@ public struct OpenMusicEventSourceRepositoryFileTree: FileTreeReader {
     }
 }
 
-public struct OpenMusicEventSourceEventFileTree: FileTreeReader {
+public struct OpenMusicEventSourceEventFileTree: FileTreeWriter {
     public init() {}
 
-    public var body: some FileTreeReader<OpenMusicEventSourceEvent> {
+    public var body: some FileTreeWriter<OpenMusicEventSourceEvent> {
         FileTree {
             File("event", "yml")
                 .convert(YamlConversion<EventDTO>())
