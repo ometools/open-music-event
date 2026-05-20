@@ -4,6 +4,8 @@ import SwiftUI
 import Dependencies
 import SQLiteData
 import ComposableArchitecture2
+import OpenMusicEventSourceEditing
+import SourceEditing
 
 /// A logger for the OpenMusicEvent module.
 let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEvent")
@@ -12,6 +14,7 @@ extension OME {
 
     public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
         try dependencies.bootstrapDatabase()
+        dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
     }
 
 }

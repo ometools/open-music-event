@@ -110,6 +110,66 @@ struct SourcePatchGeneratorTests {
         )
         expectNoDifference(rootContents, ["repository"])
     }
+
+    @Test
+    func liveGeneratorCanReadExistingSourceBeforeUpdating() async throws {
+        let fixture = try SourcePatchGeneratorFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile("events/test/event.yml", contents: "name: Old\n")
+        let repositoryURL = fixture.repositoryURL
+        let rootURL = fixture.rootURL
+
+        let patch = try await withDependencies {
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: rootURL
+            )
+        } operation: {
+            let generator = SourcePatchGenerator<TestPatchRequest>.live(
+                resolveLocation: { _ in
+                    SourcePatchLocation(
+                        repositoryURL: repositoryURL,
+                        relativePath: "events/test"
+                    )
+                },
+                read: { sourceURL in
+                    try String(
+                        contentsOf: sourceURL.appending(path: "event.yml"),
+                        encoding: .utf8
+                    )
+                },
+                update: { existing, request in
+                    existing.replacingOccurrences(
+                        of: "Old",
+                        with: request.name
+                    )
+                },
+                rewrite: { updated, workingURL in
+                    try updated.write(
+                        to: workingURL.appending(path: "event.yml"),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                }
+            )
+
+            return try await generator.generate(TestPatchRequest(name: "New"))
+        }
+
+        expectNoDifference(
+            patch,
+            SourcePatch(
+                fileChanges: [
+                    SourcePatchFileChange(
+                        path: "events/test/event.yml",
+                        kind: .modified,
+                        oldContents: data("name: Old\n"),
+                        newContents: data("name: New\n")
+                    )
+                ]
+            )
+        )
+    }
 }
 
 private struct TestPatchRequest: Equatable, Sendable {
