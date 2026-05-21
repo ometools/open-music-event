@@ -71,14 +71,25 @@ public extension OpenMusicEventSourcePatchConversion {
             sourceEvent.event = EventDTO(
                 event.sourceDraft(preservingSourceID: sourceEvent.event.id)
             )
+            .preservingSourceImageReferences(
+                from: sourceEvent.event,
+                context: SourceImageReferenceContext(
+                    eventID: request.eventID,
+                    parentKind: .event,
+                    parentLocalID: request.eventID.eventID.rawValue.rawValue
+                )
+            )
             sourceEvent.stages = try sourceEvent.sourceStageFiles(
-                from: stages
+                from: stages,
+                eventID: request.eventID
             )
             sourceEvent.participants = try sourceEvent.sourceParticipantFiles(
-                from: participants
+                from: participants,
+                eventID: request.eventID
             )
             sourceEvent.posters = try sourceEvent.sourcePosterFiles(
-                from: posters
+                from: posters,
+                eventID: request.eventID
             )
             sourceEvent.schedules = try sourceEvent.sourceScheduleFiles(
                 from: schedules,
@@ -182,7 +193,8 @@ private extension OpenMusicEventSourceEvent {
     }
 
     func sourceStageFiles(
-        from stages: [OME.Stage]
+        from stages: [OME.Stage],
+        eventID: OME.Event.ID
     ) throws -> [FileContent<StageDTO>]? {
         let stagesByID = Dictionary(
             uniqueKeysWithValues: stages.map { ($0.id.stageID, $0) }
@@ -202,6 +214,14 @@ private extension OpenMusicEventSourceEvent {
                     StageDTO(
                         stage.sourceDraft(
                             preservingSourceID: sourceStage.id
+                        )
+                    )
+                    .preservingSourceImageReferences(
+                        from: sourceStage,
+                        context: SourceImageReferenceContext(
+                            eventID: eventID,
+                            parentKind: .stage,
+                            parentLocalID: stageID.rawValue.rawValue
                         )
                     )
                 }
@@ -230,7 +250,8 @@ private extension OpenMusicEventSourceEvent {
     }
 
     func sourcePosterFiles(
-        from posters: [OME.Poster]
+        from posters: [OME.Poster],
+        eventID: OME.Event.ID
     ) throws -> [FileContent<PosterDTO>]? {
         let postersByID = Dictionary(
             uniqueKeysWithValues: posters.map { ($0.id.posterID, $0) }
@@ -250,6 +271,14 @@ private extension OpenMusicEventSourceEvent {
                     PosterDTO(
                         poster.sourceDraft(
                             preservingSourceID: sourcePoster.id
+                        )
+                    )
+                    .preservingSourceImageReference(
+                        from: sourcePoster,
+                        context: SourceImageReferenceContext(
+                            eventID: eventID,
+                            parentKind: .poster,
+                            parentLocalID: posterID.rawValue.rawValue
                         )
                     )
                 }
@@ -278,7 +307,8 @@ private extension OpenMusicEventSourceEvent {
     }
 
     func sourceParticipantFiles(
-        from participants: [OME.Participant]
+        from participants: [OME.Participant],
+        eventID: OME.Event.ID
     ) throws -> [FileContent<ParticipantDTO>]? {
         let participantsByID = Dictionary(
             uniqueKeysWithValues: participants.map { ($0.id.participantID, $0) }
@@ -298,6 +328,14 @@ private extension OpenMusicEventSourceEvent {
                     ParticipantDTO(
                         participant.sourceDraft(
                             preservingSourceID: sourceParticipant.id
+                        )
+                    )
+                    .preservingSourceImageReferences(
+                        from: sourceParticipant,
+                        context: SourceImageReferenceContext(
+                            eventID: eventID,
+                            parentKind: .participant,
+                            parentLocalID: participantID.rawValue.rawValue
                         )
                     )
                 }
@@ -323,6 +361,172 @@ private extension OpenMusicEventSourceEvent {
         }
 
         return files.isEmpty ? nil : files
+    }
+}
+
+private enum SourceImageParentKind: String, Sendable {
+    case event
+    case stage
+    case participant
+    case poster
+}
+
+private struct SourceImageReferenceContext: Sendable {
+    var eventID: OME.Event.ID
+    var parentKind: SourceImageParentKind
+    var parentLocalID: String
+
+    func assetKey(for sourceImage: SourceImageAsset) -> String {
+        // Mirrors source insertion's inferred key for source file image assets.
+        sourceImage.assetKey
+        ?? [
+            eventID.organizerID.description,
+            eventID.eventID.rawValue.rawValue,
+            parentKind.rawValue,
+            parentLocalID,
+            sourceImage.role.rawValue,
+            sourceImage.appearance?.rawValue ?? "default",
+        ]
+        .joined(separator: "|")
+    }
+}
+
+private extension EventDTO {
+    func preservingSourceImageReferences(
+        from source: EventDTO,
+        context: SourceImageReferenceContext
+    ) -> Self {
+        var dto = self
+        dto.images = images?.preservingSourceImageReferences(
+            from: source.images,
+            context: context
+        )
+        return dto
+    }
+}
+
+private extension StageDTO {
+    func preservingSourceImageReferences(
+        from source: StageDTO,
+        context: SourceImageReferenceContext
+    ) -> Self {
+        var dto = self
+        dto.images = images?.preservingSourceImageReferences(
+            from: source.images,
+            context: context
+        )
+        return dto
+    }
+}
+
+private extension ParticipantDTO {
+    func preservingSourceImageReferences(
+        from source: ParticipantDTO,
+        context: SourceImageReferenceContext
+    ) -> Self {
+        var dto = self
+        dto.images = images?.preservingSourceImageReferences(
+            from: source.images,
+            context: context
+        )
+        return dto
+    }
+}
+
+private extension PosterDTO {
+    func preservingSourceImageReference(
+        from source: PosterDTO,
+        context: SourceImageReferenceContext
+    ) -> Self {
+        var dto = self
+        if dto.image.canPreserveSourceImageReference(
+            from: source.image,
+            context: context
+        ) {
+            dto.image = dto.image.preservingSourceImageReference(
+                from: source.image
+            )
+        }
+        return dto
+    }
+}
+
+private extension Array where Element == SourceImageAsset {
+    func preservingSourceImageReferences(
+        from source: [SourceImageAsset]?,
+        context: SourceImageReferenceContext
+    ) -> [SourceImageAsset] {
+        guard var source else { return self }
+        return map { image in
+            guard let sourceIndex = source.firstIndex(where: {
+                image.canPreserveSourceImageReference(
+                    from: $0,
+                    context: context
+                )
+            }) else {
+                return image
+            }
+
+            let sourceImage = source.remove(at: sourceIndex)
+            return image.preservingSourceImageReference(from: sourceImage)
+        }
+    }
+}
+
+private extension SourceImageAsset {
+    func preservingSourceImageReference(
+        from sourceImage: SourceImageAsset
+    ) -> Self {
+        var image = self
+        image.assetKey = sourceImage.assetKey
+        image.source = sourceImage.source
+        return image
+    }
+
+    func canPreserveSourceImageReference(
+        from sourceImage: SourceImageAsset,
+        context: SourceImageReferenceContext
+    ) -> Bool {
+        guard role == sourceImage.role,
+              appearance == sourceImage.appearance
+        else { return false }
+
+        if let assetKey,
+           assetKey == context.assetKey(for: sourceImage) {
+            return true
+        }
+
+        return source.isEquivalentSourceImageReference(to: sourceImage.source)
+    }
+}
+
+private extension SourceImageRef {
+    func isEquivalentSourceImageReference(to other: SourceImageRef) -> Bool {
+        switch (self, other) {
+        case let (.file(lhs), .file(rhs)):
+            return lhs.normalizedSourcePath == rhs.normalizedSourcePath
+
+        case let (.url(lhs), .url(rhs)):
+            if lhs.isFileURL && rhs.isFileURL {
+                return lhs.standardizedFileURL == rhs.standardizedFileURL
+            }
+            return lhs.absoluteString == rhs.absoluteString
+
+        case let (.file(path), .url(url)),
+             let (.url(url), .file(path)):
+            return url.isFileURL
+                && url.standardizedFileURL.path.hasSuffix(path.normalizedSourcePath)
+        }
+    }
+}
+
+private extension String {
+    var normalizedSourcePath: String {
+        var path = self
+        while path.hasPrefix("./") {
+            path.removeFirst(2)
+        }
+        return path
     }
 }
 
