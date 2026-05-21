@@ -18,6 +18,16 @@ public enum OpenMusicEventSourcePatchGenerationError: Equatable, Error, Sendable
     case notSourceBacked(OME.Event.ID)
 }
 
+public struct OpenMusicEventSourcePatchLocationResolver: Sendable {
+    public var resolve: @Sendable (OpenMusicEventSourcePatchRequest) async throws -> SourcePatchLocation
+
+    public init(
+        resolve: @escaping @Sendable (OpenMusicEventSourcePatchRequest) async throws -> SourcePatchLocation
+    ) {
+        self.resolve = resolve
+    }
+}
+
 public struct OpenMusicEventSourcePatchConversion: Sendable {
     public var update: @Sendable (
         OpenMusicEventSourceEvent,
@@ -40,26 +50,35 @@ public extension OpenMusicEventSourcePatchConversion {
     }
 }
 
+public extension OpenMusicEventSourcePatchLocationResolver {
+    static var openMusicEvent: Self {
+        Self { request in
+            @Dependency(\.defaultDatabase) var database
+            @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
+
+            let provenance = try await database.read { db in
+                let provenance = try EventSourceProvenanceRecord
+                    .where { $0.id.eq(request.eventID) }
+                    .fetchOne(db)
+                guard let provenance else {
+                    throw OpenMusicEventSourcePatchGenerationError.notSourceBacked(request.eventID)
+                }
+                return provenance
+            }
+            return SourcePatchLocation(
+                repositoryURL: try sourceRepositoryStorage.repositoryURL(provenance.sourceProvenance),
+                relativePath: "events/\(provenance.sourceEventDirectory)"
+            )
+        }
+    }
+}
+
 public extension SourcePatchGenerator where Request == OpenMusicEventSourcePatchRequest {
     static var openMusicEvent: Self {
         .live(
             resolveLocation: { request in
-                @Dependency(\.defaultDatabase) var database
-                @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
-
-                let provenance = try await database.read { db in
-                    let provenance = try EventSourceProvenanceRecord
-                        .where { $0.id.eq(request.eventID) }
-                        .fetchOne(db)
-                    guard let provenance else {
-                        throw OpenMusicEventSourcePatchGenerationError.notSourceBacked(request.eventID)
-                    }
-                    return provenance
-                }
-                return SourcePatchLocation(
-                    repositoryURL: try sourceRepositoryStorage.repositoryURL(provenance.sourceProvenance),
-                    relativePath: "events/\(provenance.sourceEventDirectory)"
-                )
+                @Dependency(\.openMusicEventSourcePatchLocationResolver) var resolver
+                return try await resolver.resolve(request)
             },
             read: { sourceURL in
                 try OpenMusicEventSourceEventFileTree()
@@ -80,9 +99,24 @@ public extension SourcePatchGenerator where Request == OpenMusicEventSourcePatch
 }
 
 public extension DependencyValues {
+    var openMusicEventSourcePatchLocationResolver: OpenMusicEventSourcePatchLocationResolver {
+        get { self[OpenMusicEventSourcePatchLocationResolverKey.self] }
+        set { self[OpenMusicEventSourcePatchLocationResolverKey.self] = newValue }
+    }
+
     var openMusicEventSourcePatchConversion: OpenMusicEventSourcePatchConversion {
         get { self[OpenMusicEventSourcePatchConversionKey.self] }
         set { self[OpenMusicEventSourcePatchConversionKey.self] = newValue }
+    }
+}
+
+private enum OpenMusicEventSourcePatchLocationResolverKey: DependencyKey {
+    static var liveValue: OpenMusicEventSourcePatchLocationResolver {
+        .openMusicEvent
+    }
+
+    static var testValue: OpenMusicEventSourcePatchLocationResolver {
+        .openMusicEvent
     }
 }
 

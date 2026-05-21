@@ -23,7 +23,23 @@ public struct EditEvent {
         case notGenerated
     }
 
+    public enum SourceProposalStatus: Equatable, Sendable {
+        case composing
+        case created(SourcePatchPublication)
+        case failed(SourceProposalFailure)
+        case idle
+        case proposing
+    }
+
     public struct SourcePatchGenerationFailure: Equatable, Error, Sendable {
+        public var message: String
+
+        public init(_ error: any Error) {
+            self.message = String(describing: error)
+        }
+    }
+
+    public struct SourceProposalFailure: Equatable, Error, Sendable {
         public var message: String
 
         public init(_ error: any Error) {
@@ -49,6 +65,9 @@ public struct EditEvent {
         @Fetch public var editSummary: EventEditSummary
         public var selectedChangeView: ChangeView = .database
         public var sourcePatchStatus: SourcePatchStatus = .notGenerated
+        public var sourceProposalDescription = ""
+        public var sourceProposalStatus: SourceProposalStatus = .idle
+        public var isSourceProposalComposerPresented = false
 
         public var changeCount: Int? {
             editSummary.badgeCount
@@ -56,13 +75,20 @@ public struct EditEvent {
     }
 
     public enum Action {
+        case createProposalButtonTapped
         case generateSourcePatchButtonTapped
+        case proposalComposerDismissed
+        case proposeChangeButtonTapped
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
+        case sourceProposalDescriptionChanged(String)
+        case sourceProposalResponse(Result<SourcePatchPublication, SourceProposalFailure>)
     }
 
+    @Dependency(\.openMusicEventSourcePatchLocationResolver) var sourcePatchLocationResolver
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var sourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
+    @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
     public var body: some Feature {
         Update { state, action in
             func generateSourcePatch(
@@ -87,9 +113,67 @@ public struct EditEvent {
                 }
             }
 
+            func createSourceProposal(
+                eventID: OMERecord.Event.ID,
+                patch: SourcePatch,
+                state: inout State
+            ) {
+                let sourcePatchLocationResolver = sourcePatchLocationResolver
+                let sourcePatchPublisher = sourcePatchPublisher
+                state.sourceProposalStatus = .proposing
+                store.addTask {
+                    do {
+                        let location = try await sourcePatchLocationResolver.resolve(
+                            OpenMusicEventSourcePatchRequest(eventID: eventID)
+                        )
+                        let publication = try await sourcePatchPublisher.publish(
+                            SourcePatchPublishRequest(
+                                location: location,
+                                patch: patch
+                            )
+                        )
+                        try store.send(.sourceProposalResponse(.success(publication)))
+                    } catch {
+                        try store.send(
+                            .sourceProposalResponse(
+                                .failure(SourceProposalFailure(error))
+                            )
+                        )
+                    }
+                }
+            }
+
             switch action {
+            case .createProposalButtonTapped:
+                guard case let .generated(patch) = state.sourcePatchStatus,
+                      !patch.isEmpty
+                else { return }
+                createSourceProposal(
+                    eventID: state.eventID,
+                    patch: patch,
+                    state: &state
+                )
+
             case .generateSourcePatchButtonTapped:
                 generateSourcePatch(eventID: state.eventID, state: &state)
+
+            case .proposalComposerDismissed:
+                state.isSourceProposalComposerPresented = false
+                switch state.sourceProposalStatus {
+                case .composing, .failed:
+                    state.sourceProposalStatus = .idle
+                case .created, .idle, .proposing:
+                    break
+                }
+
+            case .proposeChangeButtonTapped:
+                guard case let .generated(patch) = state.sourcePatchStatus else {
+                    generateSourcePatch(eventID: state.eventID, state: &state)
+                    return
+                }
+                guard !patch.isEmpty else { return }
+                state.isSourceProposalComposerPresented = true
+                state.sourceProposalStatus = .composing
 
             case let .sourcePatchGenerationResponse(.success(patch)):
                 state.sourcePatchStatus = .generated(patch)
@@ -99,8 +183,18 @@ public struct EditEvent {
 
             case let .sourcePatchInvalidationReceived(invalidation):
                 state.sourcePatchStatus = .needsGeneration(invalidation)
+                state.sourceProposalStatus = .idle
                 guard state.selectedChangeView == .source else { return }
                 generateSourcePatch(eventID: state.eventID, state: &state)
+
+            case let .sourceProposalDescriptionChanged(description):
+                state.sourceProposalDescription = description
+
+            case let .sourceProposalResponse(.success(publication)):
+                state.sourceProposalStatus = .created(publication)
+
+            case let .sourceProposalResponse(.failure(failure)):
+                state.sourceProposalStatus = .failed(failure)
             }
         }
         .onChange(of: store.selectedChangeView) { state in
@@ -150,6 +244,9 @@ public struct EditEventView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Edit")
+        .sheet(isPresented: $store.isSourceProposalComposerPresented) {
+            SourceProposalComposerView(store: store)
+        }
     }
 
     @ViewBuilder
@@ -202,7 +299,7 @@ public struct EditEventView: View {
             List {
                 Section {
                     HStack {
-                        Label("Source Patch", systemImage: "doc.text")
+                        Label("Proposal", systemImage: "doc.text")
                         if let fileChangeCount = store.sourcePatchStatus.fileChangeCount {
                             Spacer()
                             Text(fileChangeCount, format: .number)
@@ -213,31 +310,37 @@ public struct EditEventView: View {
                 }
 
                 Section {
-                    Label("Patch Preview", systemImage: "doc.text.magnifyingglass")
                     SourcePatchStatusView(status: store.sourcePatchStatus)
 
-                    Button {
-                        store.send(.generateSourcePatchButtonTapped)
-                    } label: {
-                        Label(
-                            store.sourcePatchStatus.generationButtonTitle,
-                            systemImage: "arrow.triangle.2.circlepath"
-                        )
+                    if case let .generated(patch) = store.sourcePatchStatus {
+                        if patch.isEmpty {
+                            Label("No changes to propose", systemImage: "checkmark.circle")
+                        } else {
+                            Button {
+                                store.send(.proposeChangeButtonTapped)
+                            } label: {
+                                Label("Propose Change", systemImage: "paperplane")
+                            }
+                            .disabled(store.sourceProposalStatus.isProposing)
+                        }
+                    } else {
+                        Button {
+                            store.send(.generateSourcePatchButtonTapped)
+                        } label: {
+                            Label(
+                                store.sourcePatchStatus.reviewButtonTitle,
+                                systemImage: "arrow.triangle.2.circlepath"
+                            )
+                        }
+                        .disabled(store.sourcePatchStatus.isGenerating)
                     }
-                    .disabled(store.sourcePatchStatus.isGenerating)
+
+                    SourceProposalStatusView(status: store.sourceProposalStatus)
                 }
 
                 if case let .generated(patch) = store.sourcePatchStatus {
-                    if patch.isEmpty {
-                        Section {
-                            Label("No File Changes", systemImage: "checkmark.circle")
-                        }
-                    } else {
-                        Section("Files") {
-                            ForEach(patch.fileChanges) { change in
-                                SourcePatchFileChangeRow(change: change)
-                            }
-                        }
+                    if !patch.isEmpty {
+                        SourceProposalSummarySections(summary: store.editSummary)
                     }
                 }
             }
@@ -267,7 +370,7 @@ struct SourcePatchStatusView: View {
         switch status {
         case let .failed(failure):
             VStack(alignment: .leading, spacing: 4) {
-                Text("Generation Failed")
+                Text("Changes could not be checked")
                 Text(failure.message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -276,7 +379,7 @@ struct SourcePatchStatusView: View {
 
         case let .generated(patch):
             HStack {
-                Text("Generated")
+                Text(patch.isEmpty ? "No changes to propose" : "Ready to propose")
                 Spacer()
                 Text(patch.fileChanges.count, format: .number)
                     .font(.headline)
@@ -286,20 +389,129 @@ struct SourcePatchStatusView: View {
         case .generating:
             HStack(spacing: 8) {
                 ProgressView()
-                Text("Generating")
+                Text("Checking changes")
             }
 
         case let .needsGeneration(invalidation):
             VStack(alignment: .leading, spacing: 4) {
-                Text("Needs Generation")
+                Text("Changes need review")
                 Text("\(invalidation.operation.title) \(invalidation.tableName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
         case .notGenerated:
-            Text("Not Generated")
+            Text("Review changes before creating a proposal")
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct SourceProposalStatusView: View {
+    let status: EditEvent.SourceProposalStatus
+
+    var body: some View {
+        switch status {
+        case .composing, .idle:
+            EmptyView()
+
+        case let .created(publication):
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Proposal Created", systemImage: "checkmark.circle")
+                    .foregroundStyle(.green)
+                if let sourceChangeURL = publication.sourceChangeURL {
+                    Link("Open Proposal", destination: sourceChangeURL)
+                }
+            }
+
+        case let .failed(failure):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Proposal couldn't be created", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                DisclosureGroup("Details") {
+                    Text(failure.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+        case .proposing:
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Creating proposal")
+            }
+        }
+    }
+}
+
+struct SourceProposalComposerView: View {
+    @Bindable var store: StoreOf<EditEvent>
+
+    var body: some View {
+        NavigationStack {
+            List {
+
+                Section("Description") {
+                    TextField(
+                        "Description",
+                        text: $store.sourceProposalDescription,
+                        axis: .vertical
+                    )
+                    .lineLimit(4...8)
+                    .onChange(of: store.sourceProposalDescription) { _, description in
+                        store.send(.sourceProposalDescriptionChanged(description))
+                    }
+                }
+
+                SourceProposalStatusView(status: store.sourceProposalStatus)
+                SourceProposalSummarySections(summary: store.editSummary)
+
+                if case let .generated(patch) = store.sourcePatchStatus {
+                    Section {
+                        DisclosureGroup("Advanced") {
+                            ForEach(patch.fileChanges) { change in
+                                SourcePatchFileChangeRow(change: change)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Propose Change")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        store.send(.proposalComposerDismissed)
+                    }
+                    .disabled(store.sourceProposalStatus.isProposing)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create Proposal") {
+                        store.send(.createProposalButtonTapped)
+                    }
+                    .disabled(!store.canCreateSourceProposal)
+                }
+            }
+        }
+        .onDisappear {
+            store.send(.proposalComposerDismissed)
+        }
+    }
+}
+
+struct SourceProposalSummarySections: View {
+    let summary: EventEditSummary
+
+    var body: some View {
+        if summary.groups.contains(where: { !$0.records.isEmpty }) {
+            ForEach(summary.groups.filter { !$0.records.isEmpty }) { group in
+                SourceChangeGroupSections(group: group)
+            }
+        } else {
+            Section {
+                Label("No edit summary available", systemImage: "doc.text.magnifyingglass")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
@@ -367,15 +579,27 @@ private extension SourcePatchInvalidation.Operation {
     }
 }
 
+private extension EditEvent.State {
+    var canCreateSourceProposal: Bool {
+        guard case let .generated(patch) = sourcePatchStatus,
+              !patch.isEmpty,
+              sourceProposalStatus.canCreateProposal
+        else { return false }
+        return true
+    }
+}
+
 private extension EditEvent.SourcePatchStatus {
-    var generationButtonTitle: String {
+    var reviewButtonTitle: String {
         switch self {
-        case .generated:
-            "Regenerate Patch"
+        case .failed:
+            "Try Again"
         case .generating:
-            "Generating Patch"
+            "Checking Changes"
+        case .generated:
+            "Review Changes"
         default:
-            "Generate Patch"
+            "Review Changes"
         }
     }
 
@@ -389,13 +613,28 @@ private extension EditEvent.SourcePatchStatus {
     }
 }
 
+private extension EditEvent.SourceProposalStatus {
+    var canCreateProposal: Bool {
+        switch self {
+        case .composing, .failed, .idle:
+            true
+        case .created, .proposing:
+            false
+        }
+    }
+
+    var isProposing: Bool {
+        self == .proposing
+    }
+}
+
 private extension EditEvent.ChangeView {
     var title: String {
         switch self {
         case .database:
-            "Database"
+            "Edits"
         case .source:
-            "Source"
+            "Proposal"
         }
     }
 }
