@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Foundation
 import GRDB
 import OpenMusicEventSourceEditing
+import SourceEditing
 import SQLiteData
 import SwiftUI
 
@@ -15,8 +16,19 @@ public struct EditEvent {
     }
 
     public enum SourcePatchStatus: Equatable, Sendable {
+        case failed(SourcePatchGenerationFailure)
+        case generated(SourcePatch)
+        case generating
         case needsGeneration(SourcePatchInvalidation)
         case notGenerated
+    }
+
+    public struct SourcePatchGenerationFailure: Equatable, Error, Sendable {
+        public var message: String
+
+        public init(_ error: any Error) {
+            self.message = String(describing: error)
+        }
     }
 
     public struct State {
@@ -44,15 +56,57 @@ public struct EditEvent {
     }
 
     public enum Action {
+        case generateSourcePatchButtonTapped
+        case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
     }
 
+    @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var sourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     public var body: some Feature {
         Update { state, action in
+            func generateSourcePatch(
+                eventID: OMERecord.Event.ID,
+                state: inout State
+            ) {
+                let sourcePatchGenerator = sourcePatchGenerator
+                state.sourcePatchStatus = .generating
+                store.addTask {
+                    do {
+                        let patch = try await sourcePatchGenerator.generate(
+                            OpenMusicEventSourcePatchRequest(eventID: eventID)
+                        )
+                        try store.send(.sourcePatchGenerationResponse(.success(patch)))
+                    } catch {
+                        try store.send(
+                            .sourcePatchGenerationResponse(
+                                .failure(SourcePatchGenerationFailure(error))
+                            )
+                        )
+                    }
+                }
+            }
+
             switch action {
+            case .generateSourcePatchButtonTapped:
+                generateSourcePatch(eventID: state.eventID, state: &state)
+
+            case let .sourcePatchGenerationResponse(.success(patch)):
+                state.sourcePatchStatus = .generated(patch)
+
+            case let .sourcePatchGenerationResponse(.failure(failure)):
+                state.sourcePatchStatus = .failed(failure)
+
             case let .sourcePatchInvalidationReceived(invalidation):
                 state.sourcePatchStatus = .needsGeneration(invalidation)
+                guard state.selectedChangeView == .source else { return }
+                generateSourcePatch(eventID: state.eventID, state: &state)
+            }
+        }
+        .onChange(of: store.selectedChangeView) { state in
+            guard state.selectedChangeView == .source else { return }
+            store.addTask {
+                try store.send(.generateSourcePatchButtonTapped)
             }
         }
         .onMount { state in
@@ -144,27 +198,47 @@ public struct EditEventView: View {
     @ViewBuilder
     private var sourceChangesContent: some View {
         switch store.editSummary.availability {
-        case .available where store.editSummary.totalCount == 0:
-            ContentUnavailableView(
-                "No Source Changes",
-                systemImage: "checkmark.circle"
-            )
-
         case .available:
             List {
                 Section {
                     HStack {
-                        Label("Source Changes", systemImage: "doc.text")
-                        Spacer()
-                        Text(store.editSummary.totalCount, format: .number)
-                            .font(.headline)
-                            .monospacedDigit()
+                        Label("Source Patch", systemImage: "doc.text")
+                        if let fileChangeCount = store.sourcePatchStatus.fileChangeCount {
+                            Spacer()
+                            Text(fileChangeCount, format: .number)
+                                .font(.headline)
+                                .monospacedDigit()
+                        }
                     }
                 }
 
                 Section {
                     Label("Patch Preview", systemImage: "doc.text.magnifyingglass")
                     SourcePatchStatusView(status: store.sourcePatchStatus)
+
+                    Button {
+                        store.send(.generateSourcePatchButtonTapped)
+                    } label: {
+                        Label(
+                            store.sourcePatchStatus.generationButtonTitle,
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
+                    }
+                    .disabled(store.sourcePatchStatus.isGenerating)
+                }
+
+                if case let .generated(patch) = store.sourcePatchStatus {
+                    if patch.isEmpty {
+                        Section {
+                            Label("No File Changes", systemImage: "checkmark.circle")
+                        }
+                    } else {
+                        Section("Files") {
+                            ForEach(patch.fileChanges) { change in
+                                SourcePatchFileChangeRow(change: change)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -191,6 +265,30 @@ struct SourcePatchStatusView: View {
 
     var body: some View {
         switch status {
+        case let .failed(failure):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Generation Failed")
+                Text(failure.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+        case let .generated(patch):
+            HStack {
+                Text("Generated")
+                Spacer()
+                Text(patch.fileChanges.count, format: .number)
+                    .font(.headline)
+                    .monospacedDigit()
+            }
+
+        case .generating:
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Generating")
+            }
+
         case let .needsGeneration(invalidation):
             VStack(alignment: .leading, spacing: 4) {
                 Text("Needs Generation")
@@ -202,6 +300,56 @@ struct SourcePatchStatusView: View {
         case .notGenerated:
             Text("Not Generated")
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct SourcePatchFileChangeRow: View {
+    let change: SourcePatchFileChange
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(change.kind.title, systemImage: change.kind.systemImage)
+                .font(.caption)
+                .foregroundStyle(change.kind.tint)
+
+            Text(change.path)
+                .font(.caption)
+                .monospaced()
+                .textSelection(.enabled)
+
+            if let oldContents = change.oldContents {
+                SourcePatchFileContentsPreview(
+                    title: "Old",
+                    data: oldContents
+                )
+            }
+
+            if let newContents = change.newContents {
+                SourcePatchFileContentsPreview(
+                    title: "New",
+                    data: newContents
+                )
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct SourcePatchFileContentsPreview: View {
+    let title: String
+    let data: Data
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(data.sourcePatchPreview)
+                .font(.caption)
+                .monospaced()
+                .lineLimit(12)
+                .textSelection(.enabled)
         }
     }
 }
@@ -219,6 +367,28 @@ private extension SourcePatchInvalidation.Operation {
     }
 }
 
+private extension EditEvent.SourcePatchStatus {
+    var generationButtonTitle: String {
+        switch self {
+        case .generated:
+            "Regenerate Patch"
+        case .generating:
+            "Generating Patch"
+        default:
+            "Generate Patch"
+        }
+    }
+
+    var isGenerating: Bool {
+        self == .generating
+    }
+
+    var fileChangeCount: Int? {
+        guard case let .generated(patch) = self else { return nil }
+        return patch.fileChanges.count
+    }
+}
+
 private extension EditEvent.ChangeView {
     var title: String {
         switch self {
@@ -227,6 +397,52 @@ private extension EditEvent.ChangeView {
         case .source:
             "Source"
         }
+    }
+}
+
+private extension SourcePatchFileChange.Kind {
+    var systemImage: String {
+        switch self {
+        case .added:
+            "plus.circle"
+        case .deleted:
+            "minus.circle"
+        case .modified:
+            "pencil.circle"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .added:
+            .green
+        case .deleted:
+            .red
+        case .modified:
+            .orange
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .added:
+            "Added"
+        case .deleted:
+            "Deleted"
+        case .modified:
+            "Modified"
+        }
+    }
+}
+
+private extension Data {
+    var sourcePatchPreview: String {
+        guard let text = String(data: self, encoding: .utf8) else {
+            return "<binary \(count) bytes>"
+        }
+        guard !text.isEmpty else { return "<empty>" }
+        guard text.count > 1_200 else { return text }
+        return "\(String(text.prefix(1_200)))\n..."
     }
 }
 
