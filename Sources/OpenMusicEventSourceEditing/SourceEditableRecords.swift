@@ -164,6 +164,7 @@ private struct SourceComparableEvent: Equatable, Sendable {
     var images: [SourceComparableImageAsset]?
     var contactNumbers: [OME.Event.ContactNumber]?
     var categoryConfigs: OME.Event.CategoryConfigs?
+    var policies: OME.Event.Policies?
 
     init(_ event: OME.Event) {
         self.id = event.id
@@ -179,6 +180,7 @@ private struct SourceComparableEvent: Equatable, Sendable {
         self.images = sourceComparableImages(event.images)
         self.contactNumbers = event.contactNumbers
         self.categoryConfigs = event.categoryConfigs
+        self.policies = event.policies
     }
 }
 

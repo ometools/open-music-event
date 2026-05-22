@@ -148,6 +148,49 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func actorOnlyPerformancesCreatePerformanceParticipantRowsWithoutParticipants() throws {
+        let actor = try #require(OME.Participant.Actor("ARTIST.BSKY.SOCIAL"))
+        var source = try makeSourceRepository(
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("actor-set"),
+                        title: "Actor Set",
+                        startTime: "18:00",
+                        endTime: "19:00",
+                        participantActors: [actor]
+                    )
+                ]
+            ]
+        )
+        source.events[0].components.participants = nil
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        expectNoDifference(insertion.participants, [])
+        expectNoDifference(
+            insertion.performanceParticipants,
+            [
+                OME.Performance.Participants.Draft(
+                    organizerID: organizerID,
+                    eventID: id("testival-2026"),
+                    performanceID: id("actor-set"),
+                    participantID: nil,
+                    anonymousName: nil,
+                    participantActor: OME.Participant.Actor("artist.bsky.social")
+                )
+            ]
+        )
+    }
+
+    @Test
     func sourceEditingListsSourceRecordTypes() {
         expectNoDifference(
             OME.sourceRecordTableTypes.map(ObjectIdentifier.init),

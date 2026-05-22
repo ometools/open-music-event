@@ -230,6 +230,103 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
+    func participantProfilePoliciesAndActorsRoundTrip() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "actor-event", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: eventURL.appending(path: "stages", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: eventURL.appending(path: "schedules", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+
+        try """
+        name: Actor Event
+        timeZone: America/Denver
+        policies:
+          participants:
+            profile:
+              type: actorProfiles
+              providers:
+                - app.bsky.actor.profile
+                - social.example.profile
+        """
+        .write(to: eventURL.appending(path: "event.yml"), atomically: true, encoding: .utf8)
+
+        try """
+        name: Main
+        color: "0x00aaee"
+        """
+        .write(
+            to: eventURL
+                .appending(path: "stages", directoryHint: .isDirectory)
+                .appending(path: "main.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try """
+        date: 2026-08-01
+        performances:
+          main:
+            - title: Actor Set
+              startTime: "18:00"
+              endTime: "19:00"
+              participantActors:
+                - WOODY.FM
+                - did:plc:actor123
+        """
+        .write(
+            to: eventURL
+                .appending(path: "schedules", directoryHint: .isDirectory)
+                .appending(path: "saturday.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let repository = try tree.read(from: repositoryURL).output.requiredValue
+        let event = try #require(repository.events.first?.components)
+
+        expectNoDifference(
+            event.event.policies,
+            OME.Event.Policies(
+                participants: .init(
+                    profile: .known(
+                        .actorProfiles(
+                            .init(
+                                providers: [
+                                    .known(.bskyActorProfile),
+                                    .unknown(.string("social.example.profile")),
+                                ]
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        let performance = try #require(event.schedules?.first?.data.performances["main"]?.first)
+        expectNoDifference(
+            performance.participantActors?.map(\.description),
+            [
+                "woody.fm",
+                "did:plc:actor123",
+            ]
+        )
+
+        let outputURL = try temporaryRepositoryURL()
+        _ = try tree.write(repository, to: outputURL)
+        let roundTripped = try tree.read(from: outputURL).output.requiredValue
+
+        expectNoDifference(roundTripped, repository)
+    }
+
+    @Test
     func readsSourceImageAssetsFromRepositoryFiles() throws {
         let repositoryURL = try temporaryRepositoryURL()
         try writeImageFixtureRepository(at: repositoryURL)

@@ -18,7 +18,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
         timeZone: TimeZone,
         images: [SourceImageAsset]?,
         contactNumbers: [OMERecord.Event.ContactNumber]?,
-        categoryConfigs: OMERecord.Event.CategoryConfigs?
+        categoryConfigs: OMERecord.Event.CategoryConfigs?,
+        policies: OMERecord.Event.Policies? = nil
     ) {
         self.id = id
         self.name = name
@@ -33,6 +34,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         self.images = images
         self.contactNumbers = contactNumbers
         self.categoryConfigs = categoryConfigs
+        self.policies = policies
     }
 
     public init(
@@ -50,7 +52,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
         iconImageURL: URL?,
         siteMapImageURL: URL?,
         contactNumbers: [OMERecord.Event.ContactNumber]?,
-        categoryConfigs: OMERecord.Event.CategoryConfigs?
+        categoryConfigs: OMERecord.Event.CategoryConfigs?,
+        policies: OMERecord.Event.Policies? = nil
     ) {
         self.init(
             id: id,
@@ -69,7 +72,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
                 siteMapURL: siteMapImageURL
             ),
             contactNumbers: contactNumbers,
-            categoryConfigs: categoryConfigs
+            categoryConfigs: categoryConfigs,
+            policies: policies
         )
     }
 
@@ -87,7 +91,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             timeZone: draft.timeZone,
             images: draft.images?.map(SourceImageAsset.init),
             contactNumbers: draft.contactNumbers,
-            categoryConfigs: draft.categoryConfigs
+            categoryConfigs: draft.categoryConfigs,
+            policies: draft.policies
         )
     }
 
@@ -104,6 +109,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
     public var images: [SourceImageAsset]?
     public var contactNumbers: [OMERecord.Event.ContactNumber]?
     public var categoryConfigs: OMERecord.Event.CategoryConfigs?
+    public var policies: OMERecord.Event.Policies?
 
     public var recordDraft: OMERecord.Event.Draft {
         OMERecord.Event.Draft(
@@ -119,7 +125,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             timeZone: timeZone,
             images: images?.map(\.recordValue),
             contactNumbers: contactNumbers,
-            categoryConfigs: categoryConfigs
+            categoryConfigs: categoryConfigs,
+            policies: policies
         )
     }
 
@@ -152,6 +159,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         case siteMapImageURL
         case contactNumbers
         case categoryConfigs
+        case policies
     }
 
     public init(from decoder: any Decoder) throws {
@@ -176,7 +184,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             timeZone: try container.decode(SourceTimeZone.self, forKey: .timeZone).wrappedValue,
             images: images,
             contactNumbers: try container.decodeIfPresent([OMERecord.Event.ContactNumber].self, forKey: .contactNumbers),
-            categoryConfigs: try container.decodeIfPresent(OMERecord.Event.CategoryConfigs.self, forKey: .categoryConfigs)
+            categoryConfigs: try container.decodeIfPresent(OMERecord.Event.CategoryConfigs.self, forKey: .categoryConfigs),
+            policies: try container.decodeIfPresent(OMERecord.Event.Policies.self, forKey: .policies)
         )
     }
 
@@ -195,6 +204,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         try container.encodeIfPresent(images, forKey: .images)
         try container.encodeIfPresent(contactNumbers, forKey: .contactNumbers)
         try container.encodeIfPresent(categoryConfigs, forKey: .categoryConfigs)
+        try container.encodeIfPresent(policies, forKey: .policies)
     }
 
     private static func legacyImages(

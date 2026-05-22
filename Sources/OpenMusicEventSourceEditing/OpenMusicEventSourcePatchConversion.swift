@@ -584,6 +584,7 @@ private struct SourcePerformance {
     var hasExplicitEndTime: Bool
     var participantIDs: [OME.ID<OME.Participant>]?
     var participantNames: [String]?
+    var participantActors: [OME.Participant.Actor]?
 }
 
 private extension ScheduleDTO {
@@ -603,7 +604,8 @@ private extension ScheduleDTO {
                             id: performance.id,
                             hasExplicitEndTime: performance.endTime != nil,
                             participantIDs: performance.participantIDs,
-                            participantNames: performance.participantNames
+                            participantNames: performance.participantNames,
+                            participantActors: performance.participantActors
                         )
                     )
                 }
@@ -653,7 +655,8 @@ private extension OME.Event {
             timeZone: timeZone,
             images: images,
             contactNumbers: contactNumbers,
-            categoryConfigs: categoryConfigs
+            categoryConfigs: categoryConfigs,
+            policies: policies
         )
     }
 }
@@ -687,6 +690,7 @@ private extension OME.Performance {
     ) -> ScheduleDTO.Performance {
         let participantIDs = participants.compactMap(\.participantID)
         let participantNames = participants.compactMap(\.anonymousName)
+        let participantActors = participants.compactMap(\.participantActor)
         return ScheduleDTO.Performance(
             id: source?.id ?? (id.performanceID == inferredID ? nil : id.performanceID),
             title: title,
@@ -704,6 +708,10 @@ private extension OME.Performance {
             participantNames: participantNames.sourceOrdered(
                 preserving: source?.participantNames,
                 by: { $0 }
+            ),
+            participantActors: participantActors.sourceOrdered(
+                preserving: source?.participantActors,
+                by: { $0.description }
             ),
             recordings: recordings.isEmpty ? nil : recordings
         )

@@ -124,6 +124,9 @@ extension OpenMusicEvent {
 
         @Column(as: CategoryConfigs.JSONRepresentation?.self)
         public var categoryConfigs: CategoryConfigs?
+
+        @Column(as: Policies.JSONRepresentation?.self)
+        public var policies: Policies?
     }
 }
 
@@ -358,13 +361,15 @@ extension OpenMusicEvent.Performance {
             eventID: OME.ID<OME.Event>,
             performanceID: OME.ID<OME.Performance>,
             participantID: OME.ID<OME.Participant>? = nil,
-            anonymousName: String? = nil
+            anonymousName: String? = nil,
+            participantActor: OME.Participant.Actor? = nil
         ) {
             self.organizerID = organizerID
             self.eventID = eventID
             self.performanceID = performanceID
             self.participantID = participantID
             self.anonymousName = anonymousName
+            self.participantActor = participantActor
         }
 
         public var organizerID: OME.Organizer.ID
@@ -372,6 +377,7 @@ extension OpenMusicEvent.Performance {
         public var performanceID: OME.ID<OME.Performance>
         public var participantID: OME.ID<OME.Participant>?
         public var anonymousName: String?
+        public var participantActor: OME.Participant.Actor?
     }
 }
 

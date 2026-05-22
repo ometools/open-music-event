@@ -396,7 +396,8 @@ public extension OME {
                                 eventID: eventID,
                                 performanceID: performanceID,
                                 participantID: $0,
-                                anonymousName: nil
+                                anonymousName: nil,
+                                participantActor: nil
                             )
                         }
                     )
@@ -407,7 +408,20 @@ public extension OME {
                                 eventID: eventID,
                                 performanceID: performanceID,
                                 participantID: nil,
-                                anonymousName: $0
+                                anonymousName: $0,
+                                participantActor: nil
+                            )
+                        }
+                    )
+                    performanceParticipants.append(
+                        contentsOf: (sourcePerformance.participantActors ?? []).map {
+                            OME.Performance.Participants.Draft(
+                                organizerID: organizerID,
+                                eventID: eventID,
+                                performanceID: performanceID,
+                                participantID: nil,
+                                anonymousName: nil,
+                                participantActor: $0
                             )
                         }
                     )

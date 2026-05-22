@@ -195,6 +195,20 @@ public extension OME {
                     .execute(db)
             }
 
+            migrator.registerMigration("Add OpenMusicEvent participant actor policies") { db in
+                try #sql("""
+                    ALTER TABLE "events"
+                    ADD COLUMN "policies" TEXT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    ALTER TABLE "performanceParticipants"
+                    ADD COLUMN "participantActor" TEXT
+                    """)
+                    .execute(db)
+            }
+
             OME.SourceEditingMigrations.register(into: &migrator)
 
             migrator.registerMigration("Create OpenMusicEvent local image blob schema") { db in
