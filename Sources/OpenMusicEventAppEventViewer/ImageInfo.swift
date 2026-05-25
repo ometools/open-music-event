@@ -132,6 +132,36 @@ public extension ImageInfo {
             )
         }
 
+        public static var stageHero: Self {
+            Self(
+                allowedRoles: [.hero],
+                allowedRenderKinds: [.fullImage],
+                allowsAppearance: true,
+                allowsMaterializationPolicy: false,
+                allowedMaterializationPolicies: [.prefetchOnOpen]
+            )
+        }
+
+        public static var stageLogo: Self {
+            Self(
+                allowedRoles: [.logo],
+                allowedRenderKinds: [.transparent],
+                allowsAppearance: true,
+                allowsMaterializationPolicy: false,
+                allowedMaterializationPolicies: [.prefetchOnOpen]
+            )
+        }
+
+        public static var stagePoster: Self {
+            Self(
+                allowedRoles: [.poster],
+                allowedRenderKinds: [.fullImage],
+                allowsAppearance: true,
+                allowsMaterializationPolicy: false,
+                allowedMaterializationPolicies: [.lazy]
+            )
+        }
+
         func materializationPolicyOptions(
             including policy: OMERecord.ImageAsset.MaterializationPolicy
         ) -> [OMERecord.ImageAsset.MaterializationPolicy] {

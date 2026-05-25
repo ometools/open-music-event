@@ -102,6 +102,33 @@ extension OpenMusicEvent.ImageAsset {
 }
 
 public extension OpenMusicEvent.ImageAsset {
+    static func stageHero(url: URL) -> Self {
+        Self(
+            source: .url(url),
+            role: .hero,
+            renderKind: .fullImage,
+            materializationPolicy: .prefetchOnOpen
+        )
+    }
+
+    static func stageLogo(url: URL) -> Self {
+        Self(
+            source: .url(url),
+            role: .logo,
+            renderKind: .transparent,
+            materializationPolicy: .prefetchOnOpen
+        )
+    }
+
+    static func stagePoster(url: URL) -> Self {
+        Self(
+            source: .url(url),
+            role: .poster,
+            renderKind: .fullImage,
+            materializationPolicy: .lazy
+        )
+    }
+
     var url: URL? {
         if case let .url(url) = source {
             return url
@@ -319,30 +346,9 @@ public extension OpenMusicEvent.Stage.Draft {
         posterURL: URL?
     ) -> [OME.ImageAsset]? {
         let images = [
-            logoURL.map {
-                OME.ImageAsset(
-                    source: .url($0),
-                    role: .logo,
-                    renderKind: .transparent,
-                    materializationPolicy: .prefetchOnOpen
-                )
-            },
-            heroURL.map {
-                OME.ImageAsset(
-                    source: .url($0),
-                    role: .hero,
-                    renderKind: .fullImage,
-                    materializationPolicy: .prefetchOnOpen
-                )
-            },
-            posterURL.map {
-                OME.ImageAsset(
-                    source: .url($0),
-                    role: .poster,
-                    renderKind: .fullImage,
-                    materializationPolicy: .lazy
-                )
-            },
+            logoURL.map(OME.ImageAsset.stageLogo),
+            heroURL.map(OME.ImageAsset.stageHero),
+            posterURL.map(OME.ImageAsset.stagePoster),
         ].compactMap { $0 }
 
         return images.isEmpty ? nil : images

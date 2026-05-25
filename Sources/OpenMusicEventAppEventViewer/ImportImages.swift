@@ -22,7 +22,7 @@ import UniformTypeIdentifiers
 @Feature
 public struct ImportImages {
     public init(
-        onSave: @escaping @Sendable ([ImportedImage]) async throws -> Void
+        onSave: @escaping ([ImportedImage]) async throws -> Void
     ) {
         self.onSave = onSave
     }
@@ -80,7 +80,7 @@ public struct ImportImages {
         case saveButtonTapped
     }
 
-    let onSave: @Sendable ([ImportedImage]) async throws -> Void
+    let onSave: ([ImportedImage]) async throws -> Void
 
     public var body: some Feature {
         Update { state, action in
@@ -199,6 +199,39 @@ public extension ImportImages {
                 renderKind: .fullImage,
                 materializationPolicy: .lazy,
                 imageInfoConfiguration: .posters
+            )
+        }
+
+        public static var stageHero: Self {
+            Self(
+                cardinality: .single,
+                title: "Choose Stage Hero",
+                role: .hero,
+                renderKind: .fullImage,
+                materializationPolicy: .prefetchOnOpen,
+                imageInfoConfiguration: .stageHero
+            )
+        }
+
+        public static var stageLogo: Self {
+            Self(
+                cardinality: .single,
+                title: "Choose Stage Logo",
+                role: .logo,
+                renderKind: .transparent,
+                materializationPolicy: .prefetchOnOpen,
+                imageInfoConfiguration: .stageLogo
+            )
+        }
+
+        public static var stagePoster: Self {
+            Self(
+                cardinality: .multiple,
+                title: "Choose Stage Posters",
+                role: .poster,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy,
+                imageInfoConfiguration: .stagePoster
             )
         }
 

@@ -25,16 +25,20 @@ public struct LocalImageBlob: Equatable, Sendable, Identifiable {
         eventID: OME.ID<OME.Event>,
         parentKind: ParentKind,
         parentLocalID: String,
-        role: OME.ImageAsset.Role
+        role: OME.ImageAsset.Role,
+        discriminator: String? = nil
     ) -> String {
-        [
+        var components = [
             organizerID.description,
             eventID.rawValue.rawValue,
             parentKind.rawValue,
             parentLocalID,
             role.rawValue,
         ]
-        .joined(separator: "|")
+        if let discriminator, !discriminator.isEmpty {
+            components.append(discriminator)
+        }
+        return components.joined(separator: "|")
     }
 
     public enum ParentKind: String, Codable, Sendable, Equatable, CaseIterable, SQLiteType {
@@ -163,6 +167,7 @@ public extension DependencyValues {
 
 public struct LocalImageImportRequest: Equatable, Sendable {
     public init(
+        assetKeyDiscriminator: String? = nil,
         data: Data,
         mimeType: String,
         sourceURL: URL? = nil,
@@ -173,6 +178,7 @@ public struct LocalImageImportRequest: Equatable, Sendable {
         thumbhash: String? = nil,
         focalPoint: OME.ImageAsset.FocalPoint? = nil
     ) {
+        self.assetKeyDiscriminator = assetKeyDiscriminator
         self.data = data
         self.mimeType = mimeType
         self.sourceURL = sourceURL
@@ -184,6 +190,7 @@ public struct LocalImageImportRequest: Equatable, Sendable {
         self.focalPoint = focalPoint
     }
 
+    public var assetKeyDiscriminator: String?
     public var data: Data
     public var mimeType: String
     public var sourceURL: URL?
@@ -217,7 +224,8 @@ public func materializeImportedLocalImage(
         eventID: context.eventID,
         parentKind: context.parentKind,
         parentLocalID: context.parentLocalID,
-        role: request.role
+        role: request.role,
+        discriminator: request.assetKeyDiscriminator
     )
     let fileURL = try localImageFileStore.write(
         assetKey,

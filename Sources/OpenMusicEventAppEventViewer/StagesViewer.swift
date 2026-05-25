@@ -1,6 +1,12 @@
+import ComposableForms
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+#if !SKIP && canImport(AppKit)
+import AppKit
+#elseif !SKIP && canImport(UIKit)
+import UIKit
+#endif
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
@@ -360,6 +366,28 @@ public struct StageDetailView: View {
 public struct EditStage {
     public init() {}
 
+    public struct FormValue: Equatable {
+        var category = ""
+        var color: OMEColor = 0x336699
+        var iconShortCode = ""
+        var name = ""
+        var sortIndex = ""
+        var systemIconName = ""
+
+        init() {}
+
+        init(draft: OMERecord.Stage.Draft) {
+            category = draft.category?.rawValue ?? ""
+            color = draft.color
+            iconShortCode = draft.iconShortCode ?? ""
+            name = draft.name
+            sortIndex = draft.sortIndex.map(String.init) ?? ""
+            systemIconName = draft.systemIconName ?? ""
+        }
+    }
+
+    public typealias FormFeature = ComposableForms.Form<FormValue>
+
     public struct State {
         public enum Mode: Equatable {
             case create
@@ -378,8 +406,12 @@ public struct EditStage {
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
             self.mode = .create
-            self.draft = Self.emptyDraft(stageID: nil, eventID: eventID)
-            self.colorHex = Self.formatHexColor(draft.color)
+            let draft = Self.emptyDraft(stageID: nil, eventID: eventID)
+            self.draft = draft
+            self.form = FormFeature.State(value: FormValue(draft: draft))
+            self.heroImagePicker = ImageAssetPicker.State(configuration: .stageHero, assets: draft.images)
+            self.logoImagePicker = ImageAssetPicker.State(configuration: .stageLogo, assets: draft.images)
+            self.posterImagePicker = ImageAssetPicker.State(configuration: .stagePoster, assets: draft.images)
             self.hasLoadedDraft = true
         }
 
@@ -389,45 +421,93 @@ public struct EditStage {
         ) {
             self.eventID = eventID
             self.mode = .edit(stageID)
-            self.draft = Self.emptyDraft(stageID: stageID, eventID: eventID)
+            let draft = Self.emptyDraft(stageID: stageID, eventID: eventID)
+            self.draft = draft
+            self.form = FormFeature.State(value: FormValue(draft: draft))
+            let cacheContext = LocalImageCacheContext(
+                stageID: OMERecord.Stage.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    stageID: stageID
+                )
+            )
+            self.heroImagePicker = ImageAssetPicker.State(
+                configuration: .stageHero,
+                assets: draft.images,
+                cacheContext: cacheContext
+            )
+            self.logoImagePicker = ImageAssetPicker.State(
+                configuration: .stageLogo,
+                assets: draft.images,
+                cacheContext: cacheContext
+            )
+            self.posterImagePicker = ImageAssetPicker.State(
+                configuration: .stagePoster,
+                assets: draft.images,
+                cacheContext: cacheContext
+            )
         }
 
         public let eventID: OMERecord.Event.ID
         public let mode: Mode
 
-        var colorHex = ""
-        var draft: OMERecord.Stage.Draft
+        var draft: OMERecord.Stage.Draft {
+            didSet {
+                form.value = FormValue(draft: draft)
+                resetImagePickers()
+            }
+        }
         var errorMessage: String?
+        var form: FormFeature.State
         var hasLoadedDraft = false
-        var heroImageURL = ""
+        var heroImagePicker: ImageAssetPicker.State
         var isSaving = false
-        var logoURL = ""
-        var sortIndex = ""
+        var logoImagePicker: ImageAssetPicker.State
+        var posterImagePicker: ImageAssetPicker.State
 
         var category: String {
-            get { draft.category?.rawValue ?? "" }
+            get { form.value.category }
+            set { form.value.category = newValue }
+        }
+
+        var color: OMEColor {
+            get { form.value.color }
+            set { form.value.color = newValue }
+        }
+
+        var colorHex: String {
+            get { Self.formatHexColor(color) }
             set {
-                let value = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                draft.category = value.nilIfEmpty.map { OMERecord.Stage.Category($0) }
+                guard let color = Self.parseHexColor(
+                    newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                ) else { return }
+                self.color = color
             }
+        }
+
+        var heroImageURL: String {
+            get { heroImagePicker.firstURLString }
+            set { heroImagePicker.replaceURLString(newValue) }
         }
 
         var iconShortCode: String {
-            get { draft.iconShortCode ?? "" }
-            set {
-                draft.iconShortCode = newValue
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .nilIfEmpty
-            }
+            get { form.value.iconShortCode }
+            set { form.value.iconShortCode = newValue }
+        }
+
+        var logoURL: String {
+            get { logoImagePicker.firstURLString }
+            set { logoImagePicker.replaceURLString(newValue) }
+        }
+
+        var sortIndex: String {
+            get { form.value.sortIndex }
+            set { form.value.sortIndex = newValue }
         }
 
         var systemIconName: String {
-            get { draft.systemIconName ?? "" }
-            set {
-                draft.systemIconName = newValue
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .nilIfEmpty
-            }
+            get { form.value.systemIconName }
+            set { form.value.systemIconName = newValue }
         }
 
         public var stageID: OMERecord.ID<OMERecord.Stage>? {
@@ -435,7 +515,7 @@ public struct EditStage {
         }
 
         var canSubmit: Bool {
-            hasLoadedDraft && !isSaving && validationMessage == nil
+            hasLoadedDraft && !isSaving && form.canSubmit
         }
 
         var navigationTitle: String {
@@ -458,16 +538,21 @@ public struct EditStage {
 
         func preparedDraft(
             stageID: OMERecord.ID<OMERecord.Stage>
-        ) -> OMERecord.Stage.Draft? {
-            guard let color = parsedColor else { return nil }
-
+        ) throws -> (draft: OMERecord.Stage.Draft, blobs: [LocalImageBlob]) {
             var draft = draft
-            draft.id = stageRecordID(stageID: stageID)
+            let stageRecordID = stageRecordID(stageID: stageID)
+            let preparedImages = try preparedImages(
+                context: .init(stageID: stageRecordID)
+            )
+            draft.id = stageRecordID
             draft.name = trimmedName
+            draft.category = trimmedCategory.nilIfEmpty.map { OMERecord.Stage.Category($0) }
             draft.color = color
+            draft.iconShortCode = trimmedIconShortCode.nilIfEmpty
             draft.sortIndex = parsedSortIndex
-            draft.images = preparedImages.isEmpty ? nil : preparedImages
-            return draft
+            draft.systemIconName = trimmedSystemIconName.nilIfEmpty
+            draft.images = preparedImages.images.isEmpty ? nil : preparedImages.images
+            return (draft, preparedImages.blobs)
         }
 
         var validationMessage: String? {
@@ -477,20 +562,8 @@ public struct EditStage {
                 return "Enter a name."
             }
 
-            if parsedColor == nil {
-                return "Enter a valid hex color."
-            }
-
             if !trimmedSortIndex.isEmpty, parsedSortIndex == nil {
                 return "Enter a valid sort index."
-            }
-
-            if !trimmedLogoURL.isEmpty, URL(string: trimmedLogoURL) == nil {
-                return "Enter a valid logo URL."
-            }
-
-            if !trimmedHeroImageURL.isEmpty, URL(string: trimmedHeroImageURL) == nil {
-                return "Enter a valid hero image URL."
             }
 
             return nil
@@ -527,73 +600,74 @@ public struct EditStage {
             )
         }
 
-        private var parsedColor: OMEColor? {
-            Self.parseHexColor(trimmedColorHex)
+        mutating func resetImagePickers() {
+            let cacheContext = imageCacheContext
+            heroImagePicker = ImageAssetPicker.State(
+                configuration: .stageHero,
+                assets: draft.images,
+                cacheContext: cacheContext
+            )
+            logoImagePicker = ImageAssetPicker.State(
+                configuration: .stageLogo,
+                assets: draft.images,
+                cacheContext: cacheContext
+            )
+            posterImagePicker = ImageAssetPicker.State(
+                configuration: .stagePoster,
+                assets: draft.images,
+                cacheContext: cacheContext
+            )
+        }
+
+        private var imageCacheContext: LocalImageCacheContext? {
+            if let id = draft.id {
+                return LocalImageCacheContext(stageID: id)
+            }
+            if let stageID = mode.stageID {
+                return LocalImageCacheContext(stageID: stageRecordID(stageID: stageID))
+            }
+            return nil
         }
 
         private var parsedSortIndex: Int? {
             trimmedSortIndex.isEmpty ? nil : Int(trimmedSortIndex)
         }
 
-        private var preparedImages: [OMERecord.ImageAsset] {
+        private func preparedImages(
+            context: LocalImageCacheContext
+        ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
             var images = (draft.images ?? []).filter {
-                $0.role != .logo && $0.role != .hero
+                $0.role != .logo && $0.role != .hero && $0.role != .poster
+            }
+            var blobs: [LocalImageBlob] = []
+
+            for picker in [logoImagePicker, heroImagePicker, posterImagePicker] {
+                let preparedImages = try picker.materializedImages(context: context)
+                images.append(contentsOf: preparedImages.images)
+                blobs.append(contentsOf: preparedImages.blobs)
             }
 
-            images.append(contentsOf: preservedNonURLImages(role: .logo, replacementURL: trimmedLogoURL))
-            images.append(contentsOf: preservedNonURLImages(role: .hero, replacementURL: trimmedHeroImageURL))
-
-            if let logoURL = trimmedLogoURL.nilIfEmpty.flatMap(URL.init(string:)) {
-                images.append(
-                    OMERecord.ImageAsset(
-                        source: .url(logoURL),
-                        role: .logo,
-                        renderKind: .transparent,
-                        materializationPolicy: .prefetchOnOpen
-                    )
-                )
-            }
-
-            if let heroImageURL = trimmedHeroImageURL.nilIfEmpty.flatMap(URL.init(string:)) {
-                images.append(
-                    OMERecord.ImageAsset(
-                        source: .url(heroImageURL),
-                        role: .hero,
-                        renderKind: .fullImage,
-                        materializationPolicy: .prefetchOnOpen
-                    )
-                )
-            }
-
-            return images
+            return (images, blobs)
         }
 
-        private var trimmedColorHex: String {
-            colorHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        private var trimmedCategory: String {
+            category.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        private var trimmedHeroImageURL: String {
-            heroImageURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        private var trimmedLogoURL: String {
-            logoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        private var trimmedIconShortCode: String {
+            iconShortCode.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         private var trimmedName: String {
-            draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            form.value.name.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         private var trimmedSortIndex: String {
             sortIndex.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        private func preservedNonURLImages(
-            role: OMERecord.ImageAsset.Role,
-            replacementURL: String
-        ) -> [OMERecord.ImageAsset] {
-            guard replacementURL.isEmpty else { return [] }
-            return (draft.images ?? []).filter { $0.role == role && $0.url == nil }
+        private var trimmedSystemIconName: String {
+            systemIconName.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         private static func emptyDraft(
@@ -623,7 +697,7 @@ public struct EditStage {
             OMERecord.ID<OMERecord.Stage>(.init(string))
         }
 
-        private static func parseHexColor(_ string: String) -> OMEColor? {
+        fileprivate static func parseHexColor(_ string: String) -> OMEColor? {
             var value = string
 
             if value.hasPrefix("#") {
@@ -657,18 +731,81 @@ public struct EditStage {
 
     public enum Action {
         case cancelButtonTapped
+        case form(FormFeature.Action)
+        case formSubmitted(FormValue)
+        case heroImagePicker(ImageAssetPicker.Action)
+        case logoImagePicker(ImageAssetPicker.Action)
+        case posterImagePicker(ImageAssetPicker.Action)
         case saveButtonTapped
     }
 
     @Dependency(\.defaultDatabase) var database
 
     public var body: some Feature {
+        Scope(\.form, action: \.form) {
+            FormFeature()
+                .onSubmit { value in
+                    try store.send(.formSubmitted(value))
+                }
+        }
+        Scope(\.heroImagePicker, action: \.heroImagePicker) {
+            ImageAssetPicker()
+        }
+        Scope(\.logoImagePicker, action: \.logoImagePicker) {
+            ImageAssetPicker()
+        }
+        Scope(\.posterImagePicker, action: \.posterImagePicker) {
+            ImageAssetPicker()
+        }
         Update { state, action in
             switch action {
             case .cancelButtonTapped:
                 store.addTask {
                     try store.dismiss()
                 }
+
+            case .form:
+                break
+
+            case .formSubmitted:
+                guard !state.isSaving else { return }
+                guard state.hasLoadedDraft else {
+                    state.errorMessage = "This event stage could not be loaded."
+                    return
+                }
+
+                state.errorMessage = nil
+                state.isSaving = true
+                let draftState = state
+
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            let stageID = try draftState.stageID(in: db)
+                            let preparedDraft = try draftState.preparedDraft(stageID: stageID)
+                            try OMERecord.Stage.upsert {
+                                preparedDraft.draft
+                            }
+                            .execute(db)
+                            if !preparedDraft.blobs.isEmpty {
+                                try LocalImageBlob.insert { preparedDraft.blobs }.execute(db)
+                            }
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                            $0.isSaving = false
+                        }
+                        try store.dismiss()
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to save event stage."
+                            $0.isSaving = false
+                        }
+                    }
+                }
+
+            case .heroImagePicker, .logoImagePicker, .posterImagePicker:
+                break
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -677,39 +814,9 @@ public struct EditStage {
                     return
                 }
 
-                guard let validationMessage = state.validationMessage else {
-                    state.errorMessage = nil
-                    state.isSaving = true
-                    let draftState = state
-
-                    store.addTask {
-                        do {
-                            try database.write { db in
-                                let stageID = try draftState.stageID(in: db)
-                                guard let draft = draftState.preparedDraft(stageID: stageID) else {
-                                    throw EditStageSaveError()
-                                }
-                                try OMERecord.Stage.upsert {
-                                    draft
-                                }
-                                .execute(db)
-                            }
-                            try store.modify {
-                                $0.errorMessage = nil
-                                $0.isSaving = false
-                            }
-                            try store.dismiss()
-                        } catch {
-                            try store.modify {
-                                $0.errorMessage = "Unable to save event stage."
-                                $0.isSaving = false
-                            }
-                        }
-                    }
-                    return
+                store.addTask {
+                    try store.send(.form(.submittedForm))
                 }
-
-                state.errorMessage = validationMessage
             }
         }
         .onMount { state in
@@ -729,10 +836,7 @@ public struct EditStage {
                     .fetchOne(db)
                 }) {
                     state.draft = stage.editDraft
-                    state.sortIndex = state.draft.sortIndex.map(String.init) ?? ""
-                    state.colorHex = Self.State.formatHexColor(state.draft.color)
-                    state.logoURL = state.draft.iconImageURL?.absoluteString ?? ""
-                    state.heroImageURL = state.draft.imageURL?.absoluteString ?? ""
+                    state.form = FormFeature.State(value: FormValue(draft: state.draft))
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
@@ -745,10 +849,35 @@ public struct EditStage {
     }
 }
 
-private struct EditStageSaveError: Error {}
+private enum EditStageFormFieldID {
+    static var name: AnyHashable { AnyHashable(\EditStage.FormValue.name) }
+    static var sortIndex: AnyHashable { AnyHashable(\EditStage.FormValue.sortIndex) }
+}
+
+private extension EditStage.FormFeature {
+    init() {
+        self.init {
+            Self.Field(\.name) {
+                Validation(error: "Enter a name.") {
+                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+            }
+
+            Self.Field(\.sortIndex) {
+                Validation(error: "Enter a valid sort index.") { value in
+                    let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return value.isEmpty || Int(value) != nil
+                }
+            }
+
+            Self.Field(\.color)
+        }
+    }
+}
 
 public struct EditStageView: View {
     @Bindable var store: StoreOf<EditStage>
+    @FocusState var focusedField: AnyHashable?
 
     public init(store: StoreOf<EditStage>) {
         self.store = store
@@ -757,57 +886,7 @@ public struct EditStageView: View {
     public var body: some View {
         Group {
             if store.hasLoadedDraft {
-                Form {
-                    Section("Event Stage") {
-                        TextField("Name", text: $store.draft.name)
-                        TextField("Category", text: $store.category)
-                        TextField("Sort Index", text: $store.sortIndex)
-                            #if os(iOS)
-                            .keyboardType(.numbersAndPunctuation)
-                            #endif
-                        TextField("Color Hex", text: $store.colorHex)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.characters)
-                            .autocorrectionDisabled()
-                            #endif
-                    }
-
-                    Section("Icon") {
-                        TextField("SF Symbol", text: $store.systemIconName)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            #endif
-                        TextField("Short Code", text: $store.iconShortCode)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.characters)
-                            .autocorrectionDisabled()
-                            #endif
-                    }
-
-                    Section("Images") {
-                        TextField("Logo URL", text: $store.logoURL)
-                            #if os(iOS)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            #endif
-                        TextField("Hero Image URL", text: $store.heroImageURL)
-                            #if os(iOS)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            #endif
-                    }
-
-                    if let errorMessage = store.errorMessage {
-                        Section {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
+                loadedForm
             } else {
                 ViewerPlaceholderView(
                     title: store.navigationTitle,
@@ -817,6 +896,16 @@ public struct EditStageView: View {
             }
         }
         .disabled(store.isSaving)
+        .onChange(of: focusedField) { _, focusedField in
+            if store.form.focusedField != focusedField {
+                $store.form.focusedField.wrappedValue = focusedField
+            }
+        }
+        .onChange(of: store.form.focusedField) { _, focusedField in
+            if self.focusedField != focusedField {
+                self.focusedField = focusedField
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -835,6 +924,104 @@ public struct EditStageView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
+    }
+
+    private var loadedForm: some View {
+        SwiftUI.Form {
+            eventStageSection
+            iconSection
+            imageSection
+            errorSection
+        }
+    }
+
+    private var eventStageSection: some View {
+        Section("Event Stage") {
+            nameField
+
+            TextField("Category", text: $store.form.value.category)
+
+            sortIndexField
+            colorField
+        }
+    }
+
+    private var iconSection: some View {
+        Section("Icon") {
+            TextField("SF Symbol", text: $store.form.value.systemIconName)
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
+            TextField("Short Code", text: $store.form.value.iconShortCode)
+                #if os(iOS)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                #endif
+        }
+    }
+
+    private var imageSection: some View {
+        Group {
+            ImageAssetPickerSection(
+                store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
+            )
+            ImageAssetPickerSection(
+                store: store.scope(\.heroImagePicker, action: \.heroImagePicker)
+            )
+            ImageAssetPickerSection(
+                store: store.scope(\.posterImagePicker, action: \.posterImagePicker)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var errorSection: some View {
+        if let errorMessage = store.errorMessage {
+            Section {
+                Text(verbatim: errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var nameField: some View {
+        VStack(alignment: .leading) {
+            TextField("Name", text: $store.form.value.name)
+                .focused($focusedField, equals: EditStageFormFieldID.name)
+                .onSubmit {
+                    store.send(.form(.fieldSubmitted(EditStageFormFieldID.name)))
+                }
+            validationStatus(for: EditStageFormFieldID.name)
+        }
+    }
+
+    private var sortIndexField: some View {
+        VStack(alignment: .leading) {
+            TextField("Sort Index", text: $store.form.value.sortIndex)
+                .focused($focusedField, equals: EditStageFormFieldID.sortIndex)
+                .onSubmit {
+                    store.send(.form(.fieldSubmitted(EditStageFormFieldID.sortIndex)))
+                }
+            #if os(iOS)
+                .keyboardType(.numbersAndPunctuation)
+            #endif
+            validationStatus(for: EditStageFormFieldID.sortIndex)
+        }
+    }
+
+    private var colorField: some View {
+        ColorPicker(
+            "Stage Color",
+            selection: $store.form.value.color.editStageColor,
+            supportsOpacity: false
+        )
+    }
+
+    @ViewBuilder
+    private func validationStatus(for field: AnyHashable) -> some View {
+        FormFieldValidationStatus(validation: store.form.validation[field])
     }
 }
 
@@ -967,5 +1154,48 @@ private extension String {
 private extension EditStage.State {
     static func formatHexColor(_ color: OMEColor) -> String {
         String(format: "#%06X", color.rawValue & 0xFFFFFF)
+    }
+}
+
+private extension OMEColor {
+    var editStageColor: Color {
+        get { swiftUIColor }
+        set {
+            guard let color = OMEColor(newValue) else { return }
+            self = color
+        }
+    }
+
+    init?(_ color: Color) {
+        #if !SKIP && canImport(UIKit)
+        let resolvedColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard resolvedColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+        self.init(red: red, green: green, blue: blue)
+        #elseif !SKIP && canImport(AppKit)
+        guard let resolvedColor = NSColor(color).usingColorSpace(.sRGB) else {
+            return nil
+        }
+        self.init(
+            red: resolvedColor.redComponent,
+            green: resolvedColor.greenComponent,
+            blue: resolvedColor.blueComponent
+        )
+        #else
+        return nil
+        #endif
+    }
+
+    init(red: CGFloat, green: CGFloat, blue: CGFloat) {
+        self.init(
+            (Int((red * 255).rounded()) << 16)
+                | (Int((green * 255).rounded()) << 8)
+                | Int((blue * 255).rounded())
+        )
     }
 }
