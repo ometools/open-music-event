@@ -132,6 +132,26 @@ public extension ImageInfo {
             )
         }
 
+        public static var participantLogo: Self {
+            Self(
+                allowedRoles: [.logo],
+                allowedRenderKinds: [.transparent],
+                allowsAppearance: true,
+                allowsMaterializationPolicy: false,
+                allowedMaterializationPolicies: [.lazy]
+            )
+        }
+
+        public static var participantPhoto: Self {
+            Self(
+                allowedRoles: [.photo],
+                allowedRenderKinds: [.fullImage],
+                allowsAppearance: true,
+                allowsMaterializationPolicy: false,
+                allowedMaterializationPolicies: [.lazy]
+            )
+        }
+
         public static var stageHero: Self {
             Self(
                 allowedRoles: [.hero],

@@ -86,10 +86,17 @@ public struct ImageAssetPicker {
         public func materializedImages(
             context: LocalImageCacheContext
         ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
+            try Self.materializedImages(images, context: context)
+        }
+
+        static func materializedImages(
+            _ imageValues: [ImageValue],
+            context: LocalImageCacheContext
+        ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
             var assets: [OMERecord.ImageAsset] = []
             var blobs: [LocalImageBlob] = []
 
-            for image in images {
+            for image in imageValues {
                 if let importedImage = image.importedImage {
                     var request = importedImage.localImageImportRequest
                     request.assetKeyDiscriminator = image.assetKeyDiscriminator

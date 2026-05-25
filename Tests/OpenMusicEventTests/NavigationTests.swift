@@ -1373,6 +1373,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
             $0.exhaustivity = .off
         } operation: {
@@ -1418,7 +1419,9 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
+            $0.exhaustivity = .off
         } operation: {
             var state = EditStage.State(stageID: stageID, eventID: eventID)
             state.hasLoadedDraft = true
@@ -1506,7 +1509,9 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
+            $0.exhaustivity = .off
         } operation: {
             var state = EditStage.State(eventID: eventID)
             state.draft.name = " New Meadow "

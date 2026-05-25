@@ -202,6 +202,28 @@ public extension ImportImages {
             )
         }
 
+        public static var participantLogo: Self {
+            Self(
+                cardinality: .single,
+                title: "Choose Person Logo",
+                role: .logo,
+                renderKind: .transparent,
+                materializationPolicy: .lazy,
+                imageInfoConfiguration: .participantLogo
+            )
+        }
+
+        public static var participantPhoto: Self {
+            Self(
+                cardinality: .single,
+                title: "Choose Person Photo",
+                role: .photo,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy,
+                imageInfoConfiguration: .participantPhoto
+            )
+        }
+
         public static var stageHero: Self {
             Self(
                 cardinality: .single,

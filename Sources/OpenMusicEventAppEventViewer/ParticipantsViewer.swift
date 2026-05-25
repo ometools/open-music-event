@@ -346,7 +346,9 @@ public struct EditParticipant {
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
             self.hasLoadedDraft = true
+            self.logoImagePicker = ImageAssetPicker.State(configuration: .participantLogo, assets: nil)
             self.mode = .create
+            self.photoImagePicker = ImageAssetPicker.State(configuration: .participantPhoto, assets: nil)
         }
 
         public init(
@@ -354,7 +356,24 @@ public struct EditParticipant {
             eventID: OMERecord.Event.ID
         ) {
             self.eventID = eventID
+            let cacheContext = LocalImageCacheContext(
+                participantID: OMERecord.Participant.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    participantID: participantID
+                )
+            )
+            self.logoImagePicker = ImageAssetPicker.State(
+                configuration: .participantLogo,
+                assets: nil,
+                cacheContext: cacheContext
+            )
             self.mode = .edit(participantID)
+            self.photoImagePicker = ImageAssetPicker.State(
+                configuration: .participantPhoto,
+                assets: nil,
+                cacheContext: cacheContext
+            )
         }
 
         public let eventID: OMERecord.Event.ID
@@ -363,12 +382,23 @@ public struct EditParticipant {
         @DebugSnapshotTracked var bio: String = ""
         @DebugSnapshotTracked var errorMessage: String?
         @DebugSnapshotTracked var hasLoadedDraft: Bool = false
-        @DebugSnapshotTracked var imageURL: String = ""
         @DebugSnapshotTracked var isSaving: Bool = false
         @DebugSnapshotTracked var kind: String = ""
         var links: [EditableParticipantLink] = []
-        @DebugSnapshotTracked var logoURL: String = ""
+        var logoImagePicker: ImageAssetPicker.State
         @DebugSnapshotTracked var name: String = ""
+        var originalImages: [OMERecord.ImageAsset] = []
+        var photoImagePicker: ImageAssetPicker.State
+
+        var imageURL: String {
+            get { photoImagePicker.firstURLString }
+            set { photoImagePicker.replaceURLString(newValue) }
+        }
+
+        var logoURL: String {
+            get { logoImagePicker.firstURLString }
+            set { logoImagePicker.replaceURLString(newValue) }
+        }
 
         var canSubmit: Bool {
             hasLoadedDraft && !isSaving && validationMessage == nil
@@ -395,21 +425,27 @@ public struct EditParticipant {
         fileprivate struct SaveRequest: Sendable {
             let bio: String?
             let eventID: OMERecord.Event.ID
-            let images: [OMERecord.ImageAsset]?
             let kind: OMERecord.Participant.Kind?
             let links: [ExternalPlatform.Link]?
+            let logoImages: [ImageAssetPicker.ImageValue]
             let mode: Mode
             let name: String
+            let photoImages: [ImageAssetPicker.ImageValue]
+            let preservedImages: [OMERecord.ImageAsset]
 
             init(state: State) {
                 self.bio = state.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 self.eventID = state.eventID
-                self.images = state.preparedImages.isEmpty ? nil : state.preparedImages
                 self.kind = state.kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                     .map { OMERecord.Participant.Kind($0) }
                 self.links = state.preparedLinks.nilIfEmpty
+                self.logoImages = state.logoImagePicker.images
                 self.mode = state.mode
                 self.name = state.trimmedName
+                self.photoImages = state.photoImagePicker.images
+                self.preservedImages = state.originalImages.filter {
+                    $0.role != .photo && $0.role != .logo
+                }
             }
 
             func participantID(in db: Database) throws -> OMERecord.ID<OMERecord.Participant> {
@@ -445,46 +481,44 @@ public struct EditParticipant {
 
             func preparedDraft(
                 participantID: OMERecord.ID<OMERecord.Participant>
-            ) -> OMERecord.Participant.Draft {
-                OMERecord.Participant.Draft(
-                    id: participantRecordID(participantID: participantID),
-                    name: name,
-                    bio: bio,
-                    images: images,
-                    kind: kind,
-                    links: links
+            ) throws -> (draft: OMERecord.Participant.Draft, blobs: [LocalImageBlob]) {
+                let participantRecordID = participantRecordID(participantID: participantID)
+                let preparedImages = try preparedImages(
+                    context: .init(participantID: participantRecordID)
+                )
+                return (
+                    OMERecord.Participant.Draft(
+                        id: participantRecordID,
+                        name: name,
+                        bio: bio,
+                        images: preparedImages.images.isEmpty ? nil : preparedImages.images,
+                        kind: kind,
+                        links: links
+                    ),
+                    preparedImages.blobs
+                )
+            }
+
+            private func preparedImages(
+                context: LocalImageCacheContext
+            ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
+                let photos = try ImageAssetPicker.State.materializedImages(
+                    photoImages,
+                    context: context
+                )
+                let logos = try ImageAssetPicker.State.materializedImages(
+                    logoImages,
+                    context: context
+                )
+                return (
+                    preservedImages + photos.images + logos.images,
+                    photos.blobs + logos.blobs
                 )
             }
         }
 
         var preparedLinks: [ExternalPlatform.Link] {
             links.compactMap(\.preparedLink)
-        }
-
-        var preparedImages: [OMERecord.ImageAsset] {
-            [
-                trimmedImageURL.nilIfEmpty
-                    .flatMap(URL.init(string:))
-                    .map {
-                        OMERecord.ImageAsset(
-                            source: .url($0),
-                            role: .photo,
-                            renderKind: .fullImage,
-                            materializationPolicy: .lazy
-                        )
-                    },
-                trimmedLogoURL.nilIfEmpty
-                    .flatMap(URL.init(string:))
-                    .map {
-                        OMERecord.ImageAsset(
-                            source: .url($0),
-                            role: .logo,
-                            renderKind: .transparent,
-                            materializationPolicy: .lazy
-                        )
-                    },
-            ]
-            .compactMap { $0 }
         }
 
         var validationMessage: String? {
@@ -494,23 +528,34 @@ public struct EditParticipant {
                 return "Enter a name."
             }
 
-            if !trimmedImageURL.isEmpty, URL(string: trimmedImageURL) == nil {
-                return "Enter a valid image URL."
-            }
-
-            if !trimmedLogoURL.isEmpty, URL(string: trimmedLogoURL) == nil {
-                return "Enter a valid logo URL."
-            }
-
             return links.compactMap(\.validationMessage).first
         }
 
-        private var trimmedImageURL: String {
-            imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        mutating func resetImagePickers() {
+            let cacheContext = imageCacheContext
+            logoImagePicker = ImageAssetPicker.State(
+                configuration: .participantLogo,
+                assets: originalImages,
+                cacheContext: cacheContext
+            )
+            photoImagePicker = ImageAssetPicker.State(
+                configuration: .participantPhoto,
+                assets: originalImages,
+                cacheContext: cacheContext
+            )
         }
 
-        private var trimmedLogoURL: String {
-            logoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        private var imageCacheContext: LocalImageCacheContext? {
+            if let participantID = mode.participantID {
+                return LocalImageCacheContext(
+                    participantID: OMERecord.Participant.ID(
+                        organizerID: eventID.organizerID,
+                        eventID: eventID.eventID,
+                        participantID: participantID
+                    )
+                )
+            }
+            return nil
         }
 
         private var trimmedName: String {
@@ -538,6 +583,8 @@ public struct EditParticipant {
     public enum Action {
         case addLinkButtonTapped
         case cancelButtonTapped
+        case logoImagePicker(ImageAssetPicker.Action)
+        case photoImagePicker(ImageAssetPicker.Action)
         case removeLinkButtonTapped(UUID)
         case saveButtonTapped
         case saveFailed(String)
@@ -548,6 +595,12 @@ public struct EditParticipant {
 
     public var body: some Feature {
         let _ = Self._logChanges()
+        Scope(\.logoImagePicker, action: \.logoImagePicker) {
+            ImageAssetPicker()
+        }
+        Scope(\.photoImagePicker, action: \.photoImagePicker) {
+            ImageAssetPicker()
+        }
         Update { state, action in
             switch action {
             case .addLinkButtonTapped:
@@ -557,6 +610,9 @@ public struct EditParticipant {
                 store.addTask {
                     try store.dismiss()
                 }
+
+            case .logoImagePicker, .photoImagePicker:
+                break
 
             case let .removeLinkButtonTapped(id):
                 state.links.removeAll { $0.id == id }
@@ -577,11 +633,14 @@ public struct EditParticipant {
                         do {
                             try await database.write { db in
                                 let participantID = try saveRequest.participantID(in: db)
-                                let draft = saveRequest.preparedDraft(participantID: participantID)
+                                let preparedDraft = try saveRequest.preparedDraft(participantID: participantID)
                                 try OMERecord.Participant.upsert {
-                                    draft
+                                    preparedDraft.draft
                                 }
                                 .execute(db)
+                                if !preparedDraft.blobs.isEmpty {
+                                    try LocalImageBlob.insert { preparedDraft.blobs }.execute(db)
+                                }
                             }
                             try store.send(.saveSucceeded)
                         } catch {
@@ -626,8 +685,8 @@ public struct EditParticipant {
                 }) {
                     state.name = participant.name
                     state.bio = participant.bio ?? ""
-                    state.imageURL = participant.images?.imageAsset(role: .photo)?.url?.absoluteString ?? ""
-                    state.logoURL = participant.images?.imageAsset(role: .logo)?.url?.absoluteString ?? ""
+                    state.originalImages = participant.images ?? []
+                    state.resetImagePickers()
                     state.kind = participant.kind?.rawValue ?? ""
                     state.links = (participant.links ?? []).map(EditableParticipantLink.init)
                     state.hasLoadedDraft = true
@@ -663,20 +722,13 @@ public struct EditParticipantView: View {
                             .lineLimit(4...8)
                     }
 
-                    Section("Images") {
-                        TextField("Image URL", text: $store.imageURL)
-                            #if os(iOS)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            #endif
-                        TextField("Logo URL", text: $store.logoURL)
-                            #if os(iOS)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            #endif
-                    }
+                    ImageAssetPickerSection(
+                        store: store.scope(\.photoImagePicker, action: \.photoImagePicker)
+                    )
+
+                    ImageAssetPickerSection(
+                        store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
+                    )
 
                     ForEach($store.links) { $link in
                         Section("Link") {
