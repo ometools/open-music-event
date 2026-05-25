@@ -39,14 +39,15 @@ let package = Package(
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
         .package(path: "../../../swift-packages/swift-frontmatter-parsing"),
         .package(path: "../../../swift-packages/swift-file-tree"),
-        .package(url: "https://tangled.org/woody.fm/swift-dependencies-http-client", branch: "main"),
+        .package(name: "swift-dependencies-http-client", path: "../../../swift-packages/swift-dependencies-http-client"),
+        .package(name: "swift-tagged-types-macro", path: "../../../swift-packages/swift-tagged-types-macro"),
+        .package(name: "swift-urlqueryitem-coder", path: "../../../swift-packages/3rd-party/swift-urlqueryitem-coder"),
         .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),
         .package(url: "https://github.com/kateinoigakukun/swift-tar", branch: "main"),
         .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
 
 
-        .package(url: "https://source.woody.fm/tcatproto", branch: "main"),
-//        .package(path: "~/Developer/composable-atmosphere/tcatproto")
+        .package(name: "tcatproto", path: "../../../composable-atmosphere/tcatproto"),
     ],
     targets: [
         .target(
