@@ -158,6 +158,11 @@ public struct OpenMusicEventAppRoot {
                 try store.send(.handleNavigationRequest(request))
             }
         }
+        .onEvent(OpenMusicEventAuthorizationPresentationRequested.self) { request, _ in
+            store.addTask {
+                try store.send(.authentication(.authorizationPresentationRequested(request)))
+            }
+        }
         .onEvent(ErrorReported.self) { error, state in
             state.errorNotifications.state.report(error)
             store.addTask {

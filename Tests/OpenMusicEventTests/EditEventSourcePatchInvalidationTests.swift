@@ -1,6 +1,8 @@
+import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SourceEditing
@@ -109,6 +111,7 @@ struct EditEventSourcePatchInvalidationTests {
             ]
         )
         let store = withDependencies {
+            $0.context = .test
             $0.defaultDatabase = database
         } operation: {
             var state = EditEvent.State(eventID: eventID)
@@ -119,9 +122,10 @@ struct EditEventSourcePatchInvalidationTests {
         }
 
         store.send(.proposeChangeButtonTapped) {
-            $0.isSourceProposalComposerPresented = true
             $0.sourceProposalStatus = .composing
         }
+        #expect(store.state.sourceProposal?.eventID == eventID)
+        #expect(store.state.sourceProposal?.patch == patch)
 
         await store.dismount()
     }
@@ -130,11 +134,27 @@ struct EditEventSourcePatchInvalidationTests {
     func sourceProposalDescriptionCanBeUpdated() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
         let store = withDependencies {
+            $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: EditEvent.State(eventID: eventID)) {
-                EditEvent()
+            TestStore(
+                initialState: SourceProposalFlow.State(
+                    eventID: eventID,
+                    patch: patch
+                )
+            ) {
+                SourceProposalFlow()
             }
         }
 
@@ -168,6 +188,7 @@ struct EditEventSourcePatchInvalidationTests {
         let publication = SourcePatchPublication(sourceChangeURL: sourceChangeURL)
 
         let store = withDependencies {
+            $0.context = .test
             $0.defaultDatabase = database
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { request in
                 #expect(request == OpenMusicEventSourcePatchRequest(eventID: eventID))
@@ -184,13 +205,10 @@ struct EditEventSourcePatchInvalidationTests {
                 return publication
             }
         } operation: {
-            var state = EditEvent.State(eventID: eventID)
-            state.isSourceProposalComposerPresented = true
-            state.sourcePatchStatus = .generated(patch)
+            var state = SourceProposalFlow.State(eventID: eventID, patch: patch)
             state.sourceProposalDescription = "Updated the event name."
-            state.sourceProposalStatus = .composing
             return TestStore(initialState: state) {
-                EditEvent()
+                SourceProposalFlow()
             }
         }
 
@@ -205,6 +223,7 @@ struct EditEventSourcePatchInvalidationTests {
             $0.sourceProposalStatus = .created(publication)
         }
         await task?.value
+        #expect(store.state.sourceProposalStatus == .created(publication))
 
         await store.dismount()
     }
@@ -229,6 +248,7 @@ struct EditEventSourcePatchInvalidationTests {
         )
 
         let store = withDependencies {
+            $0.context = .test
             $0.defaultDatabase = database
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
                 location
@@ -237,12 +257,9 @@ struct EditEventSourcePatchInvalidationTests {
                 throw SourceProposalTestError.failed
             }
         } operation: {
-            var state = EditEvent.State(eventID: eventID)
-            state.isSourceProposalComposerPresented = true
-            state.sourcePatchStatus = .generated(patch)
-            state.sourceProposalStatus = .composing
+            let state = SourceProposalFlow.State(eventID: eventID, patch: patch)
             return TestStore(initialState: state) {
-                EditEvent()
+                SourceProposalFlow()
             }
         }
         let failure = EditEvent.SourceProposalFailure(SourceProposalTestError.failed)
@@ -258,6 +275,7 @@ struct EditEventSourcePatchInvalidationTests {
             $0.sourceProposalStatus = .failed(failure)
         }
         await task?.value
+        #expect(store.state.sourceProposalStatus == .failed(failure))
 
         let retryTask = store.send(.createProposalButtonTapped) {
             $0.sourceProposalStatus = .proposing
@@ -270,8 +288,60 @@ struct EditEventSourcePatchInvalidationTests {
             $0.sourceProposalStatus = .failed(failure)
         }
         await retryTask?.value
+        #expect(store.state.sourceProposalStatus == .failed(failure))
 
         await store.dismount()
+    }
+
+    @Test
+    func sourceProposalPublishResumesAfterEmbeddedAuthSuccess() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let location = SourcePatchLocation(
+            repositoryURL: URL(fileURLWithPath: "/tmp/source-repository"),
+            relativePath: "events/event-1"
+        )
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
+        let publication = SourcePatchPublication(
+            sourceChangeURL: URL(string: "https://source.woody.fm/events/event-1/proposals/1")
+        )
+        let requirement = OpenMusicEventOAuth.proposalAuthRequirement
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
+                location
+            }
+            $0.sourcePatchPublisher = SourcePatchPublisher { _ in
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
+                try await authorizationBroker.authorize(requirement)
+                return publication
+            }
+        } operation: {
+            Store(initialState: SourceProposalFlow.State(eventID: eventID, patch: patch)) {
+                SourceProposalFlow()
+            }
+        }
+
+        store.send(.createProposalButtonTapped)
+        await waitUntil { store.authorization != nil }
+        #expect(store.authorization?.requirement == requirement)
+
+        store.send(
+            .authorization(.delegate(.succeeded(OAuth.Session.placeholder.accountID)))
+        )
+        await waitUntil { store.sourceProposalStatus == .created(publication) }
+        #expect(store.authorization == nil)
     }
 
     @Test
@@ -466,4 +536,16 @@ private func testEventID(_ string: String) -> OME.Event.ID {
 
 private enum SourceProposalTestError: Equatable, Error {
     case failed
+}
+
+@MainActor
+private func waitUntil(
+    _ condition: @escaping @MainActor () -> Bool,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async {
+    for _ in 0..<100 {
+        if condition() { return }
+        await Task.yield()
+    }
+    Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
 }

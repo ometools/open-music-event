@@ -31,6 +31,24 @@ struct AuthenticationCoordinatorTests {
     }
 
     @Test
+    func routedAuthorizationRequestPresentsAuthorizationFlow() {
+        OpenMusicEventOAuth.resetStoredSession()
+        let requirement = OAuth.AuthRequirement(
+            permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
+        )
+        let request = AuthorizationPresentationRequest(requirement: requirement)
+        let store = Store(initialState: AuthenticationCoordinator.State()) {
+            AuthenticationCoordinator()
+        }
+
+        store.send(.authorizationPresentationRequested(request))
+
+        #expect(store.authorization?.requirement == requirement)
+        #expect(store.authorization?.loginHint == "")
+        #expect(store.routedAuthorizationRequest?.id == request.id)
+    }
+
+    @Test
     func successStoresSelectedSessionAndCompletesRequest() async {
         OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
@@ -62,6 +80,48 @@ struct AuthenticationCoordinatorTests {
     }
 
     @Test
+    func routedSuccessStoresSelectedSessionAndCompletesResponder() async throws {
+        OpenMusicEventOAuth.resetStoredSession()
+        let recorder = AuthorizationRequestRecorder()
+        let request = AuthorizationPresentationRequest(
+            requirement: OAuth.AuthRequirement(
+                permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
+            )
+        )
+        var state = AuthenticationCoordinator.State()
+        state.routedAuthorizationRequest = request
+        state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+            for: request,
+            session: state.session,
+            sessionStore: state.sessionStore
+        )
+        state.$sessionStore.withLock {
+            $0.upsert(.placeholder)
+        }
+        let store = withDependencies {
+            $0.openMusicEventAuthorizationRequests = .recording(recorder)
+        } operation: {
+            Store(initialState: state) {
+                AuthenticationCoordinator()
+            }
+        }
+        let waiter = Task {
+            try await request.responder.wait()
+        }
+
+        let task = store.send(
+            .authorization(.delegate(.succeeded(OAuth.Session.placeholder.accountID)))
+        )
+        await task?.value
+        try await waiter.value
+
+        #expect(store.authorization == nil)
+        #expect(store.routedAuthorizationRequest == nil)
+        #expect(store.session == .placeholder)
+        #expect(await recorder.events == [])
+    }
+
+    @Test
     func cancelClearsAuthorizationAndCancelsRequest() async {
         OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
@@ -87,6 +147,44 @@ struct AuthenticationCoordinatorTests {
     }
 
     @Test
+    func routedCancelClearsAuthorizationAndCancelsResponder() async {
+        OpenMusicEventOAuth.resetStoredSession()
+        let recorder = AuthorizationRequestRecorder()
+        let request = AuthorizationPresentationRequest(
+            requirement: OAuth.AuthRequirement(
+                permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
+            )
+        )
+        var state = AuthenticationCoordinator.State()
+        state.routedAuthorizationRequest = request
+        state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+            for: request,
+            session: state.session,
+            sessionStore: state.sessionStore
+        )
+        let store = withDependencies {
+            $0.openMusicEventAuthorizationRequests = .recording(recorder)
+        } operation: {
+            Store(initialState: state) {
+                AuthenticationCoordinator()
+            }
+        }
+        let waiter = Task {
+            try await request.responder.wait()
+        }
+
+        let task = store.send(.authorization(.delegate(.cancelled)))
+        await task?.value
+        await #expect(throws: CancellationError.self) {
+            try await waiter.value
+        }
+
+        #expect(store.authorization == nil)
+        #expect(store.routedAuthorizationRequest == nil)
+        #expect(await recorder.events == [])
+    }
+
+    @Test
     func failureClearsAuthorizationAndFailsRequest() async {
         OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
@@ -109,6 +207,45 @@ struct AuthenticationCoordinatorTests {
 
         #expect(store.authorization == nil)
         #expect(await recorder.events == [.fail(failure)])
+    }
+
+    @Test
+    func routedFailureClearsAuthorizationAndFailsResponder() async {
+        OpenMusicEventOAuth.resetStoredSession()
+        let recorder = AuthorizationRequestRecorder()
+        let requirement = OAuth.AuthRequirement(
+            permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
+        )
+        let failure = OAuth.AuthorizationRequired.signIn(requirement)
+        let request = AuthorizationPresentationRequest(requirement: requirement)
+        var state = AuthenticationCoordinator.State()
+        state.routedAuthorizationRequest = request
+        state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+            for: request,
+            session: state.session,
+            sessionStore: state.sessionStore
+        )
+        let store = withDependencies {
+            $0.openMusicEventAuthorizationRequests = .recording(recorder)
+        } operation: {
+            Store(initialState: state) {
+                AuthenticationCoordinator()
+            }
+        }
+        let waiter = Task {
+            try await request.responder.wait()
+        }
+
+        let task = store.send(.authorization(.delegate(.failed(failure))))
+        await task?.value
+        let error = await #expect(throws: OAuth.AuthorizationRequired.self) {
+            try await waiter.value
+        }
+
+        #expect(error == failure)
+        #expect(store.authorization == nil)
+        #expect(store.routedAuthorizationRequest == nil)
+        #expect(await recorder.events == [])
     }
 
     @Test

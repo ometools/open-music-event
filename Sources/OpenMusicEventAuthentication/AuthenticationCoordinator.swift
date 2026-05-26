@@ -22,11 +22,14 @@ public struct AuthenticationCoordinator {
         @Shared public var authFailureMessage: ErrorMessage?
         @Shared public var session: OAuth.Session?
         @Shared public var sessionStore: OAuth.SessionStore
+        @DebugSnapshotIgnored
+        public var routedAuthorizationRequest: AuthorizationPresentationRequest?
     }
 
     @CasePathable
     public enum Action {
         case authorization(AuthorizationFlow.Action)
+        case authorizationPresentationRequested(AuthorizationPresentationRequest)
         case authorizationRequestChanged(AuthorizationRequestCenter.Request?)
         case handleOpenURL(URL)
         case resetAuthentication
@@ -42,33 +45,62 @@ public struct AuthenticationCoordinator {
                 state.$session.withLock {
                     $0 = state.sessionStore.selectedSession
                 }
+                let routedRequest = state.routedAuthorizationRequest
+                state.routedAuthorizationRequest = nil
                 state.authorization = nil
                 store.addTask {
-                    await authorizationRequests.succeed()
+                    if let routedRequest {
+                        await routedRequest.responder.succeed()
+                    } else {
+                        await authorizationRequests.succeed()
+                    }
                 }
 
             case .authorization(.delegate(.cancelled)):
+                let routedRequest = state.routedAuthorizationRequest
+                state.routedAuthorizationRequest = nil
                 state.authorization = nil
                 store.addTask {
-                    await authorizationRequests.cancel()
+                    if let routedRequest {
+                        await routedRequest.responder.cancel()
+                    } else {
+                        await authorizationRequests.cancel()
+                    }
                 }
 
             case .authorization(.delegate(.failed(let error))):
+                let routedRequest = state.routedAuthorizationRequest
+                state.routedAuthorizationRequest = nil
                 state.authorization = nil
                 store.addTask {
-                    await authorizationRequests.fail(error)
+                    if let routedRequest {
+                        await routedRequest.responder.fail(error)
+                    } else {
+                        await authorizationRequests.fail(error)
+                    }
                 }
 
             case .authorization:
                 break
 
+            case .authorizationPresentationRequested(let request):
+                state.routedAuthorizationRequest = request
+                state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+                    for: request,
+                    session: state.session,
+                    sessionStore: state.sessionStore
+                )
+
             case .authorizationRequestChanged(.some(let request)):
-                state.authorization = AuthorizationFlow.State(
-                    requirement: request.requirement,
-                    loginHint: loginHint(for: request.requirement, state: state)
+                state.routedAuthorizationRequest = nil
+                state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+                    for: AuthorizationPresentationRequest(requirement: request.requirement),
+                    session: state.session,
+                    sessionStore: state.sessionStore
                 )
 
             case .authorizationRequestChanged(nil):
+                state.routedAuthorizationRequest = nil
                 state.authorization = nil
 
             case .handleOpenURL(let url):
@@ -82,11 +114,17 @@ public struct AuthenticationCoordinator {
 
             case .resetAuthentication:
                 state.authorization = nil
+                let routedRequest = state.routedAuthorizationRequest
+                state.routedAuthorizationRequest = nil
                 state.$session.withLock { $0 = nil }
                 state.$sessionStore.withLock { $0 = OAuth.SessionStore() }
                 state.$authFailureMessage.withLock { $0 = nil }
                 store.addTask {
-                    await authorizationRequests.cancel()
+                    if let routedRequest {
+                        await routedRequest.responder.cancel()
+                    } else {
+                        await authorizationRequests.cancel()
+                    }
                 }
             }
         }
@@ -121,21 +159,6 @@ public struct AuthenticationCoordinator {
             AuthorizationFlow(sessionStore: store.$sessionStore)
         }
     }
-
-    private func loginHint(
-        for requirement: OAuth.AuthRequirement,
-        state: State
-    ) -> String {
-        switch requirement.account {
-        case .anySignedInAccount:
-            state.sessionStore.selectedSession?.accountID.rawValue.description
-                ?? state.session?.accountID.rawValue.description
-                ?? ""
-
-        case .did(let did):
-            did.description
-        }
-    }
 }
 
 public struct AuthenticationCoordinatorView<Content: View>: View {
@@ -159,6 +182,18 @@ public struct AuthenticationCoordinatorView<Content: View>: View {
 }
 
 public struct AuthorizationFlowSheetView: View {
+    @Bindable var store: StoreOf<AuthorizationFlow>
+
+    public init(store: StoreOf<AuthorizationFlow>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        OpenMusicEventAuthorizationFlowView(store: store)
+    }
+}
+
+public struct OpenMusicEventAuthorizationFlowView: View {
     @Bindable var store: StoreOf<AuthorizationFlow>
 
     public init(store: StoreOf<AuthorizationFlow>) {
