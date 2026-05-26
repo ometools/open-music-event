@@ -22,7 +22,7 @@ public enum OpenMusicEventOAuth {
         string: "https://openmusicevent.app/.well-known/oauth-client-metadata.json"
     )!
 
-    public static let redirectURL = URL(string: "openmusicevent:/oauth/callback")!
+    public static let redirectURL = URL(string: "app.openmusicevent:/oauth/callback")!
 
     public static let tangledPullCreatePermission = OAuth.Permission(
         "repo:sh.tangled.repo.pull?action=create"
@@ -35,6 +35,10 @@ public enum OpenMusicEventOAuth {
             tangledPullCreatePermission,
             patchBlobPermission,
         ]
+    )
+
+    public static let baseAuthRequirement = OAuth.AuthRequirement(
+        permissions: [.atproto]
     )
 
     public static let appConfiguration = OAuth.AppConfiguration(

@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import ErrorHandling
+import OpenMusicEventAuthentication
 import SwiftUI
 
 @Feature
@@ -8,6 +9,8 @@ public struct Settings {
 
     public struct State: Equatable {
         public init() {}
+
+        public var account = Spawn(Account.State())
     }
 
     public enum Action {
@@ -28,6 +31,9 @@ public struct Settings {
                 }
             }
         }
+        .spawn(\.account) {
+            Account()
+        }
     }
 }
 
@@ -40,6 +46,8 @@ public struct SettingsFeatureView: View {
 
     public var body: some View {
         Form {
+            AccountView(store: store.spawn(\.account))
+
             Section("Error Handling") {
                 Button {
                     store.send(.testErrorButtonTapped)
