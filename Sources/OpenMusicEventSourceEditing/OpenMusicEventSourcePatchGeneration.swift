@@ -134,13 +134,3 @@ private enum OpenMusicEventSourcePatchConversionKey: DependencyKey {
         .identity
     }
 }
-
-private extension EventSourceProvenanceRecord {
-    var sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance {
-        OME.SourceDatabaseInsertion.SourceProvenance(
-            kind: sourceKind,
-            reference: sourceReference,
-            ref: ref
-        )
-    }
-}

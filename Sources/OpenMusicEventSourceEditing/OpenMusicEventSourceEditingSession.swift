@@ -8,6 +8,7 @@ public extension SourceEditingSession {
     static func openMusicEvent(eventID: OME.Event.ID) throws -> Self? {
         @Dependency(\.defaultDatabase) var database
         @Dependency(\.defaultBaselineDatabase) var defaultBaselineDatabase
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
         @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
         @Dependency(\.sourceEditingWorkingDatabasePath) var workingDatabasePath
 
@@ -15,18 +16,29 @@ public extension SourceEditingSession {
             return nil
         }
 
-        let baseline: SourceBaselineRecord? = try database.read { db in
-            let provenance = try EventSourceProvenanceRecord
+        let sourceContext: (
+            provenance: EventSourceProvenanceRecord,
+            baseline: SourceBaselineRecord
+        )? = try database.read { db -> (
+            provenance: EventSourceProvenanceRecord,
+            baseline: SourceBaselineRecord
+        )? in
+            let fetchedProvenance = try EventSourceProvenanceRecord
                 .where { $0.id.eq(eventID) }
                 .fetchOne(db)
-            guard let sourceBaselineID = provenance?.sourceBaselineID else {
+            guard let provenance = fetchedProvenance,
+                  let sourceBaselineID = provenance.sourceBaselineID
+            else {
                 return nil
             }
-            return try SourceBaselineRecord
-                .where { $0.id.eq(sourceBaselineID) }
-                .fetchOne(db)
+            guard let baseline = try SourceBaselineRecord.where({
+                $0.id.eq(sourceBaselineID)
+            }).fetchOne(db) else {
+                return nil
+            }
+            return (provenance, baseline)
         }
-        guard let baseline else {
+        guard let sourceContext else {
             return nil
         }
 
@@ -34,13 +46,22 @@ public extension SourceEditingSession {
         configuration.busyMode = .timeout(5)
         configuration.foreignKeysEnabled = true
 
-        let baselineDirectoryURL = URL(fileURLWithPath: defaultBaselineDatabase.path)
-            .deletingLastPathComponent()
+        let baselineDatabasePath: String
+        if let sourceLocalDatabase = try sourceReferenceDatabase.existing(sourceContext.provenance.sourceProvenance) {
+            baselineDatabasePath = sourceLocalDatabase.path
+        } else {
+            let fallbackURL = URL(fileURLWithPath: defaultBaselineDatabase.path)
+                .deletingLastPathComponent()
+                .appendingPathComponent(sourceContext.baseline.databaseFileName)
+            guard FileManager.default.fileExists(atPath: fallbackURL.path) else {
+                return nil
+            }
+            baselineDatabasePath = fallbackURL.path
+        }
+
         let session = try Self(
             workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: baselineDirectoryURL
-                .appendingPathComponent(baseline.databaseFileName)
-                .path,
+            baselineDatabasePath: baselineDatabasePath,
             configuration: configuration
         )
         try session.database.write { db in

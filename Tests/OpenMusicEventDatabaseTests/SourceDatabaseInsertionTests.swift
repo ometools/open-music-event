@@ -470,6 +470,57 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func sourceEditingSessionPrefersSourceLocalReferenceDatabase() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let repositoryURL = directoryURL.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: repositoryURL, withIntermediateDirectories: true)
+        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .local,
+            reference: repositoryURL.path
+        )
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
+        let database = try makeCoreDatabase(path: workingDatabasePath)
+        let appBaselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appendingPathComponent("app-baseline.sqlite").path
+        )
+        let sourceReferenceDatabase = try SourceReferenceDatabaseClient.live
+            .prepareForImport(sourceProvenance)
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = sourceReferenceDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let session = try withDependencies {
+            $0.defaultDatabase = database
+            $0.defaultBaselineDatabase = appBaselineDatabase
+            $0.sourceEditingWorkingDatabasePath = workingDatabasePath
+        } operation: {
+            try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
+        }
+
+        #expect(session.baselineDatabasePath == sourceReferenceDatabase.path)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: repositoryURL.appending(path: ".ome/reference.sqlite").path()
+            )
+        )
+    }
+
+    @Test
     func eventEditSummaryIgnoresImageFileURLBaseChangesWhenAssetKeyMatches() async throws {
         let repositoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: repositoryURL) }

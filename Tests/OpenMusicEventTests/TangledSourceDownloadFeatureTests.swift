@@ -357,6 +357,10 @@ struct TangledSourceDownloadFeatureTests {
                 try writeMinimalSourceRepository(at: outputURL)
             }
             $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
+                repositoryURL: { provenance in
+                    #expect(provenance == sourceProvenance)
+                    return targetURL
+                },
                 store: { repositoryURL, provenance in
                     #expect(repositoryURL == expectedTemporaryURL)
                     #expect(provenance == sourceProvenance)
@@ -387,6 +391,30 @@ struct TangledSourceDownloadFeatureTests {
         #expect(removedProvenances.isEmpty)
         #expect(FileManager.default.fileExists(atPath: targetURL.appending(path: "events").path()))
         #expect(!FileManager.default.fileExists(atPath: targetURL.appending(path: "old.txt").path()))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: targetURL.appending(path: ".ome/reference.sqlite").path()
+            )
+        )
+
+        let gitignore = try String(
+            contentsOf: targetURL.appending(path: ".gitignore"),
+            encoding: .utf8
+        )
+        #expect(gitignore.split(separator: "\n").contains(".ome/reference.sqlite"))
+
+        let sourceReferenceDatabase = try defaultBaselineDatabase(
+            path: targetURL.appending(path: ".ome/reference.sqlite").path()
+        )
+        let sourceReferenceBaselineCount = try sourceReferenceDatabase.read { db in
+            try SourceBaselineRecord.fetchCount(db)
+        }
+        let appBaselineCount = (try? baselineDatabase.read { db in
+            try SourceBaselineRecord.fetchCount(db)
+        }) ?? 0
+
+        #expect(sourceReferenceBaselineCount == 1)
+        #expect(appBaselineCount == 0)
     }
 
     @Test
