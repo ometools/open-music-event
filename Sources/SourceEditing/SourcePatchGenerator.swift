@@ -18,15 +18,34 @@ public struct SourcePatchSource<SourceValue: Sendable>: Sendable {
 }
 
 public struct SourcePatchLocation: Equatable, Sendable {
+    public struct Remote: Equatable, Sendable {
+        public var kind: String
+        public var reference: String
+        public var ref: String?
+
+        public init(
+            kind: String,
+            reference: String,
+            ref: String? = nil
+        ) {
+            self.kind = kind
+            self.reference = reference
+            self.ref = ref
+        }
+    }
+
     public var repositoryURL: URL
     public var relativePath: String?
+    public var remote: Remote?
 
     public init(
         repositoryURL: URL,
-        relativePath: String? = nil
+        relativePath: String? = nil,
+        remote: Remote? = nil
     ) {
         self.repositoryURL = repositoryURL
         self.relativePath = relativePath
+        self.remote = remote
     }
 }
 

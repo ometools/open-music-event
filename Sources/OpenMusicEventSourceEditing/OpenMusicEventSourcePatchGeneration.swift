@@ -67,7 +67,12 @@ public extension OpenMusicEventSourcePatchLocationResolver {
             }
             return SourcePatchLocation(
                 repositoryURL: try sourceRepositoryStorage.repositoryURL(provenance.sourceProvenance),
-                relativePath: "events/\(provenance.sourceEventDirectory)"
+                relativePath: "events/\(provenance.sourceEventDirectory)",
+                remote: SourcePatchLocation.Remote(
+                    kind: provenance.sourceKind.rawValue,
+                    reference: provenance.sourceReference,
+                    ref: provenance.ref
+                )
             )
         }
     }

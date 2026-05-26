@@ -125,8 +125,37 @@ public struct TangledRepositoryReference: Equatable, Sendable {
             let components = trimmedValue
                 .split(separator: "/", omittingEmptySubsequences: true)
                 .map(String.init)
-            try self.init(host: "tangled.org", port: nil, pathComponents: components)
+            if components.count == 3 {
+                let hostComponents = components[0].split(
+                    separator: ":",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                )
+                guard let host = hostComponents.first, !host.isEmpty else {
+                    throw ValidationError("Repository reference is missing a host.")
+                }
+                let port: Int?
+                if hostComponents.count == 2 {
+                    port = try Self.port(String(hostComponents[1]))
+                } else {
+                    port = nil
+                }
+                try self.init(
+                    host: String(host),
+                    port: port,
+                    pathComponents: Array(components.dropFirst())
+                )
+            } else {
+                try self.init(host: "tangled.org", port: nil, pathComponents: components)
+            }
         }
+    }
+
+    private static func port(_ rawValue: String) throws -> Int {
+        guard let port = Int(rawValue), port > 0 else {
+            throw ValidationError("Repository reference host port is invalid.")
+        }
+        return port
     }
 
     private init(host: String, port: Int?, pathComponents: [String]) throws {

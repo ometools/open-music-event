@@ -176,6 +176,7 @@ struct EditEventSourcePatchInvalidationTests {
             $0.sourcePatchPublisher = SourcePatchPublisher { request in
                 #expect(
                     request == SourcePatchPublishRequest(
+                        description: "Updated the event name.",
                         location: location,
                         patch: patch
                     )

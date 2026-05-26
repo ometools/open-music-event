@@ -120,6 +120,7 @@ public struct EditEvent {
             ) {
                 let sourcePatchLocationResolver = sourcePatchLocationResolver
                 let sourcePatchPublisher = sourcePatchPublisher
+                let description = state.sourceProposalDescription.sourceProposalDescriptionValue
                 state.sourceProposalStatus = .proposing
                 store.addTask {
                     do {
@@ -128,6 +129,7 @@ public struct EditEvent {
                         )
                         let publication = try await sourcePatchPublisher.publish(
                             SourcePatchPublishRequest(
+                                description: description,
                                 location: location,
                                 patch: patch
                             )
@@ -682,6 +684,13 @@ private extension Data {
         guard !text.isEmpty else { return "<empty>" }
         guard text.count > 1_200 else { return text }
         return "\(String(text.prefix(1_200)))\n..."
+    }
+}
+
+private extension String {
+    var sourceProposalDescriptionValue: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

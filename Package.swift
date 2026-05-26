@@ -40,7 +40,9 @@ let package = Package(
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
         .package(path: "../../../swift-packages/swift-frontmatter-parsing"),
         .package(path: "../../../swift-packages/swift-file-tree"),
+        .package(name: "swift-parsing", path: "../swift-parsing-tca26"),
         .package(name: "swift-dependencies-http-client", path: "../../../swift-packages/swift-dependencies-http-client"),
+        .package(url: "https://github.com/apple/swift-http-types", from: "1.4.0"),
         .package(name: "swift-tagged-types-macro", path: "../../../swift-packages/swift-tagged-types-macro"),
         .package(name: "swift-urlqueryitem-coder", path: "../../../swift-packages/3rd-party/swift-urlqueryitem-coder"),
         .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),
@@ -134,6 +136,7 @@ let package = Package(
                 .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "Parsing", package: "swift-parsing"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),
@@ -165,12 +168,19 @@ let package = Package(
             dependencies: [
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
+                "OpenMusicEventSourceClone",
                 "SourceEditing",
+                .product(name: "ATProto", package: "tcatproto"),
+                .product(name: "ATProtoOAuth", package: "tcatproto"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "FileTree", package: "swift-file-tree"),
+                .product(name: "Gzip", package: "gzipswift"),
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "Lexicon", package: "tcatproto"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "XRPCClient", package: "tcatproto"),
             ]
         ),
         .target(

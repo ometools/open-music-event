@@ -17,6 +17,7 @@ extension OME {
         try dependencies.bootstrapDatabase()
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
+        dependencies.sourcePatchPublisher = .openMusicEventTangled
     }
 
 }

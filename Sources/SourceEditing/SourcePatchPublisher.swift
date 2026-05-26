@@ -2,13 +2,16 @@ import Dependencies
 import Foundation
 
 public struct SourcePatchPublishRequest: Equatable, Sendable {
+    public var description: String?
     public var location: SourcePatchLocation
     public var patch: SourcePatch
 
     public init(
+        description: String? = nil,
         location: SourcePatchLocation,
         patch: SourcePatch
     ) {
+        self.description = description
         self.location = location
         self.patch = patch
     }
