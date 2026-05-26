@@ -71,12 +71,22 @@ public struct SourceProposalFlow {
             ) {
                 let sourcePatchLocationResolver = sourcePatchLocationResolver
                 let sourcePatchPublisher = sourcePatchPublisher
-                let authorizationEventPoster = SourceProposalAuthorizationEventPoster { request in
-                    let task = try store.post(
-                        key: OpenMusicEventAuthorizationPresentationRequested.self,
-                        value: request
-                    )
-                    await task?.value
+                let authorizationPresenter = SourceProposalAuthorizationPresenter { request in
+                    await Task.yield()
+                    var didPresent = false
+                    try store.modify { state in
+                        guard state.sourceProposalStatus == .proposing else { return }
+                        didPresent = true
+                        state.authorizationPresentationRequest = request
+                        state.authorization = OpenMusicEventOAuth.authorizationFlowState(
+                            for: request,
+                            session: state.session,
+                            sessionStore: state.sessionStore
+                        )
+                    }
+                    if !didPresent {
+                        await request.responder.cancel()
+                    }
                 }
                 store.addTask {
                     do {
@@ -85,7 +95,7 @@ public struct SourceProposalFlow {
                         )
                         let publication = try await withDependencies {
                             $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
-                                try await authorizationEventPoster.authorize(requirement)
+                                try await authorizationPresenter.authorize(requirement)
                             }
                         } operation: {
                             try await sourcePatchPublisher.publish(
@@ -192,16 +202,6 @@ public struct SourceProposalFlow {
                 $0.upsert(session)
             }
         }
-        .onEvent(OpenMusicEventAuthorizationPresentationRequested.self) { request, state in
-            guard state.sourceProposalStatus == .proposing else { return .continue }
-            state.authorizationPresentationRequest = request
-            state.authorization = OpenMusicEventOAuth.authorizationFlowState(
-                for: request,
-                session: state.session,
-                sessionStore: state.sessionStore
-            )
-            return .stop
-        }
         .ifLet(\.authorization, action: \.authorization) {
             AuthorizationFlow(sessionStore: store.$sessionStore)
         }
@@ -221,16 +221,16 @@ private extension String {
     }
 }
 
-private final class SourceProposalAuthorizationEventPoster: @unchecked Sendable {
-    private let post: (AuthorizationPresentationRequest) async throws -> Void
+private final class SourceProposalAuthorizationPresenter: @unchecked Sendable {
+    private let present: (AuthorizationPresentationRequest) async throws -> Void
 
-    init(post: @escaping (AuthorizationPresentationRequest) async throws -> Void) {
-        self.post = post
+    init(present: @escaping (AuthorizationPresentationRequest) async throws -> Void) {
+        self.present = present
     }
 
     func authorize(_ requirement: OAuth.AuthRequirement) async throws {
         let request = AuthorizationPresentationRequest(requirement: requirement)
-        try await post(request)
+        try await present(request)
         try await request.responder.wait()
     }
 }

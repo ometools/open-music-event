@@ -280,8 +280,11 @@ let package = Package(
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "XRPCClient", package: "tcatproto"),
             ]
         ),
         .testTarget(
