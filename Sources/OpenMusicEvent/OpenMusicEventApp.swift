@@ -4,6 +4,7 @@ import SwiftUI
 import Dependencies
 import SQLiteData
 import ComposableArchitecture2
+import OpenMusicEventAuthentication
 import OpenMusicEventSourceEditing
 import SourceEditing
 
@@ -14,6 +15,7 @@ extension OME {
 
     public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
         try dependencies.bootstrapDatabase()
+        OpenMusicEventOAuth.prepareDependencies(&dependencies)
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
     }
 

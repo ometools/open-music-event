@@ -10,6 +10,7 @@ let package = Package(
         .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
+        .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
         .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
         .library(name: "OpenMusicEventImages", targets: ["OpenMusicEventImages"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
@@ -55,6 +56,7 @@ let package = Package(
             dependencies: [
                 "ErrorHandling",
                 "OpenMusicEventAppEventViewer",
+                "OpenMusicEventAuthentication",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventImages",
                 "OpenMusicEventLexicon",
@@ -70,6 +72,18 @@ let package = Package(
             ],
             resources: [.process("Resources")],
             plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "OpenMusicEventAuthentication",
+            dependencies: [
+                .product(name: "ATProtoOAuth", package: "tcatproto"),
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
+                .product(name: "TCATProtoAuthentication", package: "tcatproto"),
+                .product(name: "XRPCClient", package: "tcatproto"),
+            ],
+            resources: [.process("Resources")]
         ),
         .target(
             name: "OpenMusicEventAppEventViewer",
@@ -234,10 +248,20 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "OpenMusicEventAuthenticationTests",
+            dependencies: [
+                "OpenMusicEventAuthentication",
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+                .product(name: "TCATProtoAuthentication", package: "tcatproto"),
+            ]
+        ),
+        .testTarget(
             name: "OpenMusicEventTests",
             dependencies: [
                 "ErrorHandling",
                 "OpenMusicEvent",
+                "OpenMusicEventAuthentication",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSourceEditing",
                 .product(name: "ATProto", package: "tcatproto"),

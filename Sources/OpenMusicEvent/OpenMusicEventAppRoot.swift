@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import OpenMusicEventAppEventViewer
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
@@ -13,6 +14,7 @@ public struct OpenMusicEventAppRoot {
     public struct State {
         public init() {}
 
+        public var authentication = AuthenticationCoordinator.State()
         public var browser = Spawn(OpenMusicEventBrowser.State())
         public var errorNotifications = Spawn(ErrorNotifications.State())
         public var eventViewer: Spawn<EventViewer>?
@@ -26,6 +28,7 @@ public struct OpenMusicEventAppRoot {
     }
 
     public enum Action {
+        case authentication(AuthenticationCoordinator.Action)
         case eventViewerDismissed
         case handleNavigationRequest(NavigationRequest)
         case openRoute(AppRoute)
@@ -41,25 +44,53 @@ public struct OpenMusicEventAppRoot {
     public var body: some Feature {
         let _ = Self._logChanges()
 
-        Update { state, action in
-            switch action {
-            case .eventViewerDismissed:
-                state.eventViewer = nil
-                try? database.write { db in
-                    try AppState.update {
-                        $0.organizerID = #bind(nil as OMERecord.Organizer.ID?)
-                        $0.eventID = #bind(nil as OMERecord.ID<OMERecord.Event>?)
-                    }
-                    .execute(db)
-                }
+        Features {
+            Update { state, action in
+                switch action {
+                case .authentication:
+                    break
 
-            case .handleNavigationRequest(let request):
-                switch request {
-                case let .event(eventID, target):
-                    store.withDependencies {
-                        state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                case .eventViewerDismissed:
+                    state.eventViewer = nil
+                    try? database.write { db in
+                        try AppState.update {
+                            $0.organizerID = #bind(nil as OMERecord.Organizer.ID?)
+                            $0.eventID = #bind(nil as OMERecord.ID<OMERecord.Event>?)
+                        }
+                        .execute(db)
                     }
-                    if state.selectedEventID != eventID {
+
+                case .handleNavigationRequest(let request):
+                    switch request {
+                    case let .event(eventID, target):
+                        store.withDependencies {
+                            state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                        }
+                        if state.selectedEventID != eventID {
+                            try? database.write { db in
+                                try AppState.update {
+                                    $0.organizerID = #bind(eventID.organizerID)
+                                    $0.eventID = #bind(eventID.eventID)
+                                }
+                                .execute(db)
+                            }
+                        }
+                        store.addTask {
+                            do {
+                                try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
+                            } catch {
+                            }
+                        }
+
+                    case .externalURL:
+                        break
+                    }
+
+                case .openRoute(let route):
+                    if case let .event(eventID, target) = route.navigationRequest {
+                        store.withDependencies {
+                            state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                        }
                         try? database.write { db in
                             try AppState.update {
                                 $0.organizerID = #bind(eventID.organizerID)
@@ -67,54 +98,42 @@ public struct OpenMusicEventAppRoot {
                             }
                             .execute(db)
                         }
+                        store.addTask {
+                            do {
+                                try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
+                            } catch {
+                            }
+                        }
                     }
+
+                case .openURL(let url):
+                    if OpenMusicEventOAuth.isCallbackURL(url) {
+                        store.addTask {
+                            try store.send(.authentication(.handleOpenURL(url)))
+                        }
+                        return
+                    }
+
+                    guard let route = AppRoute(url: url) else { return }
                     store.addTask {
-                        do {
-                            try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
-                        } catch {
-                        }
+                        try store.send(.openRoute(route))
                     }
 
-                case .externalURL:
-                    break
-                }
-
-            case .openRoute(let route):
-                if case let .event(eventID, target) = route.navigationRequest {
-                    store.withDependencies {
-                        state.eventViewer = Spawn(.route(eventID: eventID, target: target))
-                    }
-                    try? database.write { db in
-                        try AppState.update {
-                            $0.organizerID = #bind(eventID.organizerID)
-                            $0.eventID = #bind(eventID.eventID)
-                        }
-                            .execute(db)
-                    }
+                case .task:
                     store.addTask {
-                        do {
-                            try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
-                        } catch {
+                        let selections = await errorNotificationPresentation.selections()
+                        for await error in selections {
+                            try store.post(
+                                key: ErrorNotificationSelected.self,
+                                value: error
+                            )
                         }
                     }
                 }
+            }
 
-            case .openURL(let url):
-                guard let route = AppRoute(url: url) else { return }
-                store.addTask {
-                    try store.send(.openRoute(route))
-                }
-
-            case .task:
-                store.addTask {
-                    let selections = await errorNotificationPresentation.selections()
-                    for await error in selections {
-                        try store.post(
-                            key: ErrorNotificationSelected.self,
-                            value: error
-                        )
-                    }
-                }
+            Scope(\.authentication, action: \.authentication) {
+                AuthenticationCoordinator()
             }
         }
         .onChange(of: store.selectedEventID, initial: true) { _, newValue, state in
@@ -159,6 +178,7 @@ public struct OpenMusicEventAppRoot {
         }
         .ifLet(\.eventViewer) {
             EventViewer()
+                .openMusicEventAuthenticatedSession()
         }
     }
 }
@@ -182,7 +202,11 @@ public struct OpenMusicEventAppRootView: View {
 
     @ViewBuilder
     private var content: some View {
-        browserView
+        AuthenticationCoordinatorView(
+            store: store.scope(\.authentication, action: \.authentication)
+        ) {
+            browserView
+        }
     }
 
     @ViewBuilder
