@@ -6,6 +6,7 @@ import Foundation
 import Gzip
 import HTTPClient
 import HTTPTypes
+import SourceControlClient
 import Testing
 
 @testable import OpenMusicEventSourceClone
@@ -115,6 +116,43 @@ struct TangledSourceCloneTests {
             try repository.archiveURL(ref: ref).absoluteString,
             expectedURLString
         )
+    }
+
+    @Test
+    func buildsSourceControlCloneRequestForResolvedRepoDID() throws {
+        let repository = try TangledRepositoryReference(
+            parsing: "https://tangled.org/woody.fm/wicked-woods-ome"
+        )
+        let destinationURL = URL(fileURLWithPath: "/tmp/wicked-woods-ome")
+        let request = repository.sourceControlCloneRequest(
+            repoDID: "did:plc:targetrepo",
+            destinationURL: destinationURL,
+            ref: "main"
+        )
+
+        #expect(request.remote.name == RemoteName(rawValue: "origin"))
+        #expect(request.remote.url == RemoteURL(rawValue: "git@tangled.org:did:plc:targetrepo"))
+        #expect(request.destinationURL == destinationURL.standardizedFileURL)
+        #expect(request.checkout == RefName(rawValue: "main"))
+        #expect(request.credentials == nil)
+    }
+
+    @Test
+    func buildsSourceControlCloneRequestForCustomHostPort() throws {
+        let repository = TangledRepositoryReference(
+            host: "source.example",
+            port: 2222,
+            owner: "woody.fm",
+            repository: "wicked-woods-ome"
+        )
+        let request = repository.sourceControlCloneRequest(
+            repoDID: "did:plc:targetrepo",
+            destinationURL: URL(fileURLWithPath: "/tmp/wicked-woods-ome"),
+            ref: "refs/heads/release"
+        )
+
+        #expect(request.remote.url == RemoteURL(rawValue: "ssh://git@source.example:2222/did:plc:targetrepo"))
+        #expect(request.checkout == RefName(rawValue: "refs/heads/release"))
     }
 
     @Test

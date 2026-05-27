@@ -131,6 +131,8 @@ public struct OpenMusicEventSourceValidator: Sendable {
             return (repositoryURL, nil)
 
         case let .tangled(repository):
+            @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+
             let outputURL: URL
             let cleanupURL: URL?
             if let requestOutputURL = request.outputURL {
@@ -142,14 +144,14 @@ public struct OpenMusicEventSourceValidator: Sendable {
                 cleanupURL = outputURL
             }
 
-            try TangledSourceArchiveExtractor.validateOutputDoesNotExist(outputURL)
             do {
-                try await TangledSourceCloner(
-                    repository: repository,
-                    ref: request.resolvedRef,
-                    outputURL: outputURL
+                _ = try await tangledSourceCheckout.checkout(
+                    TangledSourceCheckoutRequest(
+                        repository: repository,
+                        ref: request.resolvedRef,
+                        outputURL: outputURL
+                    )
                 )
-                .clone()
             } catch {
                 if let cleanupURL {
                     try? FileManager.default.removeItem(at: cleanupURL)

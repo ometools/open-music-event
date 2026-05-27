@@ -48,6 +48,7 @@ let package = Package(
         .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),
         .package(url: "https://github.com/kateinoigakukun/swift-tar", branch: "main"),
         .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
+        .package(name: "swift-dependencies-source-control-client", path: "../../../swift-packages/swift-dependencies-source-control-client"),
 
 
         .package(name: "tcatproto", path: "../../../composable-atmosphere/tcatproto"),
@@ -206,6 +207,7 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Gzip", package: "gzipswift"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "Tar", package: "swift-tar"),
             ]
         ),
