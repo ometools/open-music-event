@@ -11,7 +11,7 @@
     "refresh_token"
   ],
   "redirect_uris": [
-    "openmusicevent:/oauth/callback"
+    "app.openmusicevent:/oauth/callback"
   ],
   "token_endpoint_auth_method": "none",
   "dpop_bound_access_tokens": true

@@ -202,45 +202,57 @@ public struct OpenMusicEventAuthorizationFlowView: View {
 
     public var body: some View {
         NavigationStack {
-            Form {
-                TextField("Handle", text: $store.loginHint)
-                    #if !os(macOS)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
+            OpenMusicEventAuthorizationFormView(store: store)
+        }
+    }
+}
 
-                if let error = store.error {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(error.message)
-                            .font(.headline)
-                        if let subtitle = error.subtitle {
-                            Text(subtitle)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
+public struct OpenMusicEventAuthorizationFormView: View {
+    @Bindable var store: StoreOf<AuthorizationFlow>
+
+    public init(store: StoreOf<AuthorizationFlow>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Form {
+            TextField("Handle", text: $store.loginHint)
+                #if !os(macOS)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
+
+            if let error = store.error {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(error.message)
+                        .font(.headline)
+                    if let subtitle = error.subtitle {
+                        Text(subtitle)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
-
-                Button {
-                    store.send(.submit)
-                } label: {
-                    HStack {
-                        Spacer()
-                        if store.isLoading {
-                            ProgressView()
-                        } else {
-                            Text("Continue")
-                        }
-                        Spacer()
-                    }
-                }
-                .disabled(store.isLoading)
             }
-            .navigationTitle("Sign in")
-            .toolbar {
-                Button("Cancel") {
-                    store.send(.cancel)
+
+            Button {
+                store.send(.submit)
+            } label: {
+                HStack {
+                    Spacer()
+                    if store.isLoading {
+                        ProgressView()
+                    } else {
+                        Text("Continue")
+                    }
+                    Spacer()
                 }
+            }
+            .disabled(store.isLoading)
+        }
+        .navigationTitle("Sign in")
+        .toolbar {
+            Button("Cancel") {
+                store.send(.cancel)
             }
         }
     }

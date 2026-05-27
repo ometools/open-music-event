@@ -37,6 +37,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         let sourceBranch = Self.proposalBranchName()
         let commit = try await pushBranch(
             preparedPatch,
+            repository: repository,
             branchName: sourceBranch
         )
         let createdAtDate = Self.now()
@@ -80,7 +81,7 @@ public struct TangledSourcePatchPublisher: Sendable {
             TangledCreateRecordRequest(
                 input: TangledCreateRecordInput(
                     repo: getDefaultSession().accountID.rawValue.description,
-                    collection: "sh.tangled.repo.pull",
+                    collection: TangledRepoPullRecord.collection,
                     record: record
                 ),
                 authorizationPolicy: .required(TangledOAuthRequirements.proposalAuthRequirement)
@@ -194,6 +195,7 @@ private extension TangledSourcePatchPublisher {
 
     func pushBranch(
         _ preparedPatch: PreparedSourcePatch,
+        repository repositoryReference: TangledRepositoryReference,
         branchName: BranchName
     ) async throws -> Commit {
         @Dependency(\.sourceControl) var sourceControl
@@ -233,7 +235,9 @@ private extension TangledSourcePatchPublisher {
                 repository: repository,
                 localBranch: branch.name,
                 remoteBranch: branch.name,
-                credentials: try await tangledSSHCredentials.credentials()
+                credentials: repositoryReference.sourceControlCredentials(
+                    try await tangledSSHCredentials.credentials()
+                )
             )
         )
         return commit

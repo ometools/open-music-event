@@ -1,4 +1,5 @@
 import ATProtoOAuth
+import Dependencies
 import DependenciesTestSupport
 import Foundation
 import Testing
@@ -15,7 +16,7 @@ struct OpenMusicEventOAuthTests {
         )
         #expect(
             OpenMusicEventOAuth.appConfiguration.redirectURI.rawValue
-                == URL(string: "openmusicevent:/oauth/callback")!
+                == URL(string: "app.openmusicevent:/oauth/callback")!
         )
         #expect(OpenMusicEventOAuth.appManifest.appName == "Open Music Event")
     }
@@ -55,12 +56,12 @@ struct OpenMusicEventOAuthTests {
     func callbackURLMatchesConfiguredRedirect() {
         #expect(
             OpenMusicEventOAuth.isCallbackURL(
-                URL(string: "openmusicevent:/oauth/callback?code=abc&state=def")!
+                URL(string: "app.openmusicevent:/oauth/callback?code=abc&state=def")!
             )
         )
         #expect(
             !OpenMusicEventOAuth.isCallbackURL(
-                URL(string: "openmusicevent:/organizers/demo/events/event")!
+                URL(string: "app.openmusicevent:/organizers/demo/events/event")!
             )
         )
     }

@@ -94,7 +94,7 @@ public extension TangledRepositoryReference {
             remote: sourceControlRemote(repoDID: repoDID),
             destinationURL: destinationURL,
             checkout: sourceControlCheckoutRef(ref),
-            credentials: credentials
+            credentials: sourceControlCredentials(credentials)
         )
     }
 
@@ -104,7 +104,7 @@ public extension TangledRepositoryReference {
     ) -> FetchRequest {
         FetchRequest(
             repository: repository,
-            credentials: credentials
+            credentials: sourceControlCredentials(credentials)
         )
     }
 
@@ -193,6 +193,27 @@ public extension TangledRepositoryReference {
             did: account.id.rawValue,
             pdsHost: pdsHost
         )
+    }
+}
+
+public extension TangledRepositoryReference {
+    // Verified with: ssh-keyscan -T 10 -t ed25519 tangled.org
+    static let tangledOrgEd25519HostKeySHA256 = HostKeySHA256(
+        rawValue: "SHA256:fLyp6ivr5HqmGI8yJiPYstTiJa2AXF/RAa9kF/ur1xo"
+    )
+
+    var sourceControlHostKeyPolicy: HostKeyPolicy {
+        guard host.caseInsensitiveCompare("tangled.org") == .orderedSame, port == nil else {
+            return .defaultValidation
+        }
+        return .pinnedSHA256(Self.tangledOrgEd25519HostKeySHA256)
+    }
+
+    func sourceControlCredentials(_ credentials: Credentials?) -> Credentials? {
+        guard var credentials else { return nil }
+        guard credentials.hostKeyPolicy == .defaultValidation else { return credentials }
+        credentials.hostKeyPolicy = sourceControlHostKeyPolicy
+        return credentials
     }
 }
 

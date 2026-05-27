@@ -1,12 +1,9 @@
-import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAuthentication
 import OpenMusicEventSourceEditing
-import Sharing
 import SourceEditing
-import TCATProtoAuthentication
 
 @Feature
 public struct SourceProposalFlow {
@@ -26,27 +23,21 @@ public struct SourceProposalFlow {
                     availability: .notSourceBacked,
                     groups: []
                 )
-            self._session = OpenMusicEventOAuth.session
-            self._sessionStore = OpenMusicEventOAuth.sessionStore
         }
 
         public var id: OMERecord.Event.ID { eventID }
 
         public let eventID: OMERecord.Event.ID
         public let patch: SourcePatch
-        public var authorization: AuthorizationFlow.State?
-        @DebugSnapshotIgnored
-        public var authorizationPresentationRequest: AuthorizationPresentationRequest?
+        public var authorization = OpenMusicEventAuthorizationPresentation.State()
         public var editSummary: EventEditSummary
-        @Shared public var session: OAuth.Session?
-        @Shared public var sessionStore: OAuth.SessionStore
         public var sourceProposalDescription = ""
         public var sourceProposalStatus: EditEvent.SourceProposalStatus = .composing
     }
 
     @CasePathable
     public enum Action {
-        case authorization(AuthorizationFlow.Action)
+        case authorization(OpenMusicEventAuthorizationPresentation.Action)
         case createProposalButtonTapped
         case delegate(Delegate)
         case dismissButtonTapped
@@ -63,147 +54,94 @@ public struct SourceProposalFlow {
     @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
 
     public var body: some Feature {
-        Update { state, action in
-            func createSourceProposal(
-                eventID: OMERecord.Event.ID,
-                patch: SourcePatch,
-                description: String?
-            ) {
-                let sourcePatchLocationResolver = sourcePatchLocationResolver
-                let sourcePatchPublisher = sourcePatchPublisher
-                let authorizationPresenter = SourceProposalAuthorizationPresenter { request in
-                    await Task.yield()
-                    var didPresent = false
-                    try store.modify { state in
-                        guard state.sourceProposalStatus == .proposing else { return }
-                        didPresent = true
-                        state.authorizationPresentationRequest = request
-                        state.authorization = OpenMusicEventOAuth.authorizationFlowState(
-                            for: request,
-                            session: state.session,
-                            sessionStore: state.sessionStore
-                        )
+        Features {
+            Scope(\.authorization, action: \.authorization) {
+                OpenMusicEventAuthorizationPresentation()
+            }
+
+            Update { state, action in
+                func createSourceProposal(
+                    eventID: OMERecord.Event.ID,
+                    patch: SourcePatch,
+                    description: String?
+                ) {
+                    let sourcePatchLocationResolver = sourcePatchLocationResolver
+                    let sourcePatchPublisher = sourcePatchPublisher
+                    let authorizationPresenter = OpenMusicEventAuthorizationPresenter { request in
+                        await Task.yield()
+                        try store.send(.authorization(.present(request)))
                     }
-                    if !didPresent {
-                        await request.responder.cancel()
-                    }
-                }
-                store.addTask {
-                    do {
-                        let location = try await sourcePatchLocationResolver.resolve(
-                            OpenMusicEventSourcePatchRequest(eventID: eventID)
-                        )
-                        let publication = try await withDependencies {
-                            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
-                                try await authorizationPresenter.authorize(requirement)
+                    store.addTask {
+                        do {
+                            let location = try await sourcePatchLocationResolver.resolve(
+                                OpenMusicEventSourcePatchRequest(eventID: eventID)
+                            )
+                            let publication = try await withOpenMusicEventAuthorization(
+                                presenter: authorizationPresenter
+                            ) {
+                                try await sourcePatchPublisher.publish(
+                                    SourcePatchPublishRequest(
+                                        description: description,
+                                        location: location,
+                                        patch: patch
+                                    )
+                                )
                             }
-                        } operation: {
-                            try await sourcePatchPublisher.publish(
-                                SourcePatchPublishRequest(
-                                    description: description,
-                                    location: location,
-                                    patch: patch
+                            await Task.yield()
+                            try store.send(.sourceProposalResponse(.success(publication)))
+                        } catch is CancellationError {
+                            await Task.yield()
+                            try store.send(.sourceProposalCancelled)
+                        } catch {
+                            await Task.yield()
+                            try store.send(
+                                .sourceProposalResponse(
+                                    .failure(EditEvent.SourceProposalFailure(error))
                                 )
                             )
                         }
-                        try store.send(.sourceProposalResponse(.success(publication)))
-                    } catch is CancellationError {
-                        try store.send(.sourceProposalCancelled)
-                    } catch {
-                        try store.send(
-                            .sourceProposalResponse(
-                                .failure(EditEvent.SourceProposalFailure(error))
-                            )
-                        )
                     }
                 }
-            }
 
-            switch action {
-            case .authorization(.delegate(.succeeded)):
-                state.$session.withLock {
-                    $0 = state.sessionStore.selectedSession
-                }
-                let routedRequest = state.authorizationPresentationRequest
-                state.authorizationPresentationRequest = nil
-                state.authorization = nil
-                store.addTask {
-                    await routedRequest?.responder.succeed()
-                }
+                switch action {
+                case .authorization:
+                    break
 
-            case .authorization(.delegate(.cancelled)):
-                let routedRequest = state.authorizationPresentationRequest
-                state.authorizationPresentationRequest = nil
-                state.authorization = nil
-                state.sourceProposalStatus = .composing
-                store.addTask {
-                    await routedRequest?.responder.cancel()
-                }
+                case .createProposalButtonTapped:
+                    guard !state.patch.isEmpty,
+                          state.sourceProposalStatus.canCreateProposal
+                    else { return }
+                    let description = state.sourceProposalDescription.sourceProposalDescriptionValue
+                    state.sourceProposalStatus = .proposing
+                    createSourceProposal(
+                        eventID: state.eventID,
+                        patch: state.patch,
+                        description: description
+                    )
 
-            case .authorization(.delegate(.failed(let error))):
-                let routedRequest = state.authorizationPresentationRequest
-                state.authorizationPresentationRequest = nil
-                state.authorization = nil
-                store.addTask {
-                    await routedRequest?.responder.fail(error)
-                }
+                case .delegate:
+                    break
 
-            case .authorization:
-                break
+                case .dismissButtonTapped:
+                    store.addTask {
+                        try store.send(.delegate(.dismissed))
+                    }
 
-            case .createProposalButtonTapped:
-                guard !state.patch.isEmpty,
-                      state.sourceProposalStatus.canCreateProposal
-                else { return }
-                let description = state.sourceProposalDescription.sourceProposalDescriptionValue
-                state.sourceProposalStatus = .proposing
-                createSourceProposal(
-                    eventID: state.eventID,
-                    patch: state.patch,
-                    description: description
-                )
+                case .sourceProposalCancelled:
+                    state.sourceProposalStatus = .composing
 
-            case .delegate:
-                break
+                case let .sourceProposalDescriptionChanged(description):
+                    state.sourceProposalDescription = description
 
-            case .dismissButtonTapped:
-                store.addTask {
-                    try store.send(.delegate(.dismissed))
-                }
+                case let .sourceProposalResponse(.success(publication)):
+                    let status = EditEvent.SourceProposalStatus.created(publication)
+                    state.sourceProposalStatus = status
 
-            case .sourceProposalCancelled:
-                state.sourceProposalStatus = .composing
-
-            case let .sourceProposalDescriptionChanged(description):
-                state.sourceProposalDescription = description
-
-            case let .sourceProposalResponse(.success(publication)):
-                let status = EditEvent.SourceProposalStatus.created(publication)
-                state.sourceProposalStatus = status
-
-            case let .sourceProposalResponse(.failure(failure)):
-                let status = EditEvent.SourceProposalStatus.failed(failure)
-                state.sourceProposalStatus = status
-            }
-        }
-        .onMount { state in
-            if let session = state.session, state.sessionStore.selectedSession == nil {
-                state.$sessionStore.withLock {
-                    $0.upsert(session)
+                case let .sourceProposalResponse(.failure(failure)):
+                    let status = EditEvent.SourceProposalStatus.failed(failure)
+                    state.sourceProposalStatus = status
                 }
             }
-            state.$session.withLock {
-                $0 = state.sessionStore.selectedSession
-            }
-        }
-        .onChange(of: store.session) { _, session, state in
-            guard let session else { return }
-            state.$sessionStore.withLock {
-                $0.upsert(session)
-            }
-        }
-        .ifLet(\.authorization, action: \.authorization) {
-            AuthorizationFlow(sessionStore: store.$sessionStore)
         }
     }
 }
@@ -218,19 +156,5 @@ private extension String {
     var sourceProposalDescriptionValue: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-private final class SourceProposalAuthorizationPresenter: @unchecked Sendable {
-    private let present: (AuthorizationPresentationRequest) async throws -> Void
-
-    init(present: @escaping (AuthorizationPresentationRequest) async throws -> Void) {
-        self.present = present
-    }
-
-    func authorize(_ requirement: OAuth.AuthRequirement) async throws {
-        let request = AuthorizationPresentationRequest(requirement: requirement)
-        try await present(request)
-        try await request.responder.wait()
     }
 }

@@ -90,6 +90,8 @@ public struct TangledRepositoryTarget: Equatable, Sendable {
 }
 
 public struct TangledRepoPullRecord: Encodable, Sendable {
+    public static let collection = "sh.tangled.repo.pull"
+
     public struct Round: Encodable, Sendable {
         public var createdAt: String
         public var patchBlob: ATProto.Blob
@@ -185,7 +187,7 @@ public struct TangledRepoPullRecord: Encodable, Sendable {
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("sh.tangled.repo.pull", forKey: .type)
+        try container.encode(Self.collection, forKey: .type)
         try container.encodeIfPresent(body, forKey: .body)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(patch, forKey: .patch)
@@ -197,6 +199,58 @@ public struct TangledRepoPullRecord: Encodable, Sendable {
         try container.encode(target.branch, forKey: .targetBranch)
         try container.encode(target.repo, forKey: .targetRepo)
         try container.encode(title, forKey: .title)
+    }
+}
+
+public struct TangledGetRecordRequest<RecordValue: Decodable & Sendable>: XRPC.Request, Sendable {
+    public static var nsid: ATProto.NSID { ATProto.NSID("com.atproto.repo.getRecord") }
+    public static var type: XRPC.RequestType { .query }
+
+    public typealias Input = Never
+    public typealias Output = TangledListedRecord<RecordValue>
+    public typealias Parameters = Never
+
+    public var repo: String
+    public var collection: String
+    public var rkey: String
+    public var cid: String?
+    public var pdsHost: ATProto.PDSHost?
+    public var authorizationPolicy: XRPC.AuthorizationPolicy
+
+    public init(
+        repo: String,
+        collection: String,
+        rkey: String,
+        cid: String? = nil,
+        pdsHost: ATProto.PDSHost? = nil,
+        authorizationPolicy: XRPC.AuthorizationPolicy = .none
+    ) {
+        self.repo = repo
+        self.collection = collection
+        self.rkey = rkey
+        self.cid = cid
+        self.pdsHost = pdsHost
+        self.authorizationPolicy = authorizationPolicy
+    }
+
+    public var routing: XRPC.Routing {
+        guard let pdsHost else { return XRPC.Routing() }
+        return XRPC.Routing(
+            unauthenticated: .host(pdsHost),
+            authenticated: .host(pdsHost)
+        )
+    }
+
+    public var queryItems: [URLQueryItem] {
+        var items = [
+            URLQueryItem(name: "repo", value: repo),
+            URLQueryItem(name: "collection", value: collection),
+            URLQueryItem(name: "rkey", value: rkey),
+        ]
+        if let cid {
+            items.append(URLQueryItem(name: "cid", value: cid))
+        }
+        return items
     }
 }
 

@@ -60,7 +60,7 @@ struct TangledSSHCredentialsClientTests {
                 publicKey: keyPair.publicKey,
                 privateKey: keyPair.privateKey,
                 name: "Open Music Event",
-                createdAt: "2026-05-27T00:26:40Z",
+                createdAt: "2026-05-26T12:53:20Z",
                 recordURI: "at://did:plc:placeholder/sh.tangled.publicKey/3key",
                 recordCID: "bafyreikey"
             )

@@ -1,18 +1,22 @@
-import ComposableArchitecture2
 import ATProto
+import ATProtoOAuth
+import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import ErrorHandling
 import Foundation
 import HTTPClient
+import HTTPTypes
 import IssueReporting
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SQLiteData
 import Testing
+import XRPCClient
 
 @testable import OpenMusicEvent
 
@@ -274,6 +278,112 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func importResumesAfterEmbeddedAuthSuccess() async throws {
+        let eventID = importedEventID()
+        let result = try validationResult(eventID: eventID)
+        let requirement = OpenMusicEventOAuth.tangledPublicKeyAuthRequirement
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.exhaustivity = .off
+            $0.tangledSourceImport = TangledSourceImportClient { _ in
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
+                try await authorizationBroker.authorize(requirement)
+                return result
+            }
+        } operation: {
+            var initialState = TangledSourceDownload.State()
+            initialState.repository = "https://tangled.org/woody.fm/shambhala-ome"
+            return TestStore(initialState: initialState) {
+                TangledSourceDownload()
+            }
+        }
+
+        let task = store.send(.importButtonTapped) {
+            $0.isImporting = true
+        }
+        await waitUntil { store.state.authorization.flow != nil }
+        #expect(store.state.authorization.flow?.requirement == requirement)
+
+        store.send(
+            .authorization(.delegate(.succeeded(OAuth.Session.placeholder.accountID)))
+        )
+        await task?.value
+
+        #expect(store.state.importedSummary == result.summary)
+        #expect(store.state.authorization.flow == nil)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+    }
+
+    @Test
+    func importRequiredXRPCUsesEmbeddedAuthSession() async throws {
+        OpenMusicEventOAuth.resetStoredSession()
+        var session = OAuth.Session.placeholder
+        session.scope = OAuth.Scope(
+            rawValue: [
+                "atproto",
+                OpenMusicEventOAuth.tangledPublicKeyCreatePermission.rawValue,
+            ].joined(separator: " ")
+        )
+        let eventID = importedEventID()
+        let result = try validationResult(eventID: eventID)
+        let requirement = OpenMusicEventOAuth.tangledPublicKeyAuthRequirement
+        let recorder = ImportAuthorizationRecorder()
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 1_700_000_000))
+            $0.exhaustivity = .off
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            $0.p256Sign = { _, _ in Data(repeating: 0xAB, count: 64) }
+            $0.uuid = .constant(UUID(uuidString: "12345678-1234-1234-1234-123456789abc")!)
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.xrpcAuthorizationGate = .defaultSessionAuthorization
+            $0.dataForURL = { request, _ in
+                await recorder.record(request)
+                return (Data(#"{"ok":true}"#.utf8), HTTPResponse(status: .ok))
+            }
+            $0.tangledSourceImport = TangledSourceImportClient { _ in
+                @Dependency(XRPC.Client.self) var xrpcClient
+                let response = try await xrpcClient.run(
+                    EmbeddedAuthorizationProbeRequest(requirement: requirement)
+                )
+                #expect(response.ok)
+                return result
+            }
+        } operation: {
+            var initialState = TangledSourceDownload.State()
+            initialState.repository = "https://tangled.org/woody.fm/shambhala-ome"
+            return TestStore(initialState: initialState) {
+                TangledSourceDownload()
+            }
+        }
+
+        let task = store.send(.importButtonTapped) {
+            $0.isImporting = true
+        }
+        await waitUntil { store.state.authorization.flow != nil }
+        store.modify {
+            $0.authorization.$sessionStore.withLock {
+                $0.upsert(session)
+            }
+        }
+        store.send(
+            .authorization(.delegate(.succeeded(session.accountID)))
+        )
+        await task?.value
+
+        #expect(store.state.importedSummary == result.summary)
+        #expect(store.state.authorization.flow == nil)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+        #expect(await recorder.requestCount == 1)
+        #expect(await recorder.lastAuthorizationHeader == "DPoP \(session.accessToken.rawValue)")
+    }
+
+    @Test
     func emptyRefDefaultsToHEAD() async throws {
         let recorder = ImportRecorder()
 
@@ -367,6 +477,28 @@ struct TangledSourceDownloadFeatureTests {
             latestError?.message.fallback
                 == "Unable to prepare the downloaded source because a file already exists."
         )
+        #expect(latestError?.operation == .sourceImport)
+    }
+
+    @Test
+    func failedImportParsesSSHSessionError() async throws {
+        let latestError = await reportedSourceImportError(
+            throwing: #"operationFailed("failed to start SSH session: Unable to exchange encryption keys")"#
+        )
+
+        #expect(latestError?.kind == .sourceImportSSHSessionFailed)
+        #expect(latestError?.message.fallback == "Unable to connect to Tangled over SSH.")
+        #expect(latestError?.operation == .sourceImport)
+    }
+
+    @Test
+    func failedImportParsesSSHHostKeyError() async throws {
+        let latestError = await reportedSourceImportError(
+            throwing: #"operationFailed("invalid or unknown remote ssh hostkey")"#
+        )
+
+        #expect(latestError?.kind == .sourceImportSSHHostKeyFailed)
+        #expect(latestError?.message.fallback == "Unable to verify Tangled's SSH host key.")
         #expect(latestError?.operation == .sourceImport)
     }
 
@@ -843,6 +975,35 @@ private actor ImportRecorder {
     }
 }
 
+private actor ImportAuthorizationRecorder {
+    private(set) var requestCount = 0
+    private(set) var lastAuthorizationHeader: String?
+
+    func record(_ request: HTTPRequest) {
+        requestCount += 1
+        lastAuthorizationHeader = request.headerFields[.authorization]
+    }
+}
+
+private struct EmbeddedAuthorizationProbeOutput: Decodable {
+    var ok: Bool
+}
+
+private struct EmbeddedAuthorizationProbeRequest: XRPC.Request {
+    static let nsid = ATProto.NSID("app.openmusicevent.authProbe")
+    static let type = XRPC.RequestType.query
+
+    typealias Input = Never
+    typealias Output = EmbeddedAuthorizationProbeOutput
+    typealias Parameters = Never
+
+    var requirement: OAuth.AuthRequirement
+
+    var authorizationPolicy: XRPC.AuthorizationPolicy {
+        .required(requirement)
+    }
+}
+
 private final class SourceRepositoryRemovalRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var _values: [OMERecord.SourceDatabaseInsertion.SourceProvenance] = []
@@ -929,6 +1090,18 @@ private func tangledSourceProvenance(
         reference: "tangled.org/woody.fm/\(repositoryName)",
         ref: ref
     )
+}
+
+@MainActor
+private func waitUntil(
+    _ condition: @escaping @MainActor () -> Bool,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async {
+    for _ in 0..<100 {
+        if condition() { return }
+        await Task.yield()
+    }
+    Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
 }
 
 private func localID<Record>(_ string: String) -> OMERecord.ID<Record> {

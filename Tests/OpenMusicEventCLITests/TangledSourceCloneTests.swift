@@ -78,6 +78,24 @@ struct TangledSourceCloneTests {
                 repository: "shambhala-ome"
             )
         ),
+        (
+            "tangled.org/woody.fm/shambhala-ome",
+            TangledRepositoryReference(
+                host: "tangled.org",
+                port: nil,
+                owner: "woody.fm",
+                repository: "shambhala-ome"
+            )
+        ),
+        (
+            "tangled.org/did:plc:wshs7t2adsemcrrd4snkeqli/core",
+            TangledRepositoryReference(
+                host: "tangled.org",
+                port: nil,
+                owner: "did:plc:wshs7t2adsemcrrd4snkeqli",
+                repository: "core"
+            )
+        ),
     ])
     func parsesRepositoryReferences(
         rawValue: String,
@@ -86,6 +104,20 @@ struct TangledSourceCloneTests {
         expectNoDifference(
             try TangledRepositoryReference(parsing: rawValue),
             expectedReference
+        )
+    }
+
+    @Test
+    func normalizedReferenceRoundTripsThroughParser() throws {
+        let reference = TangledRepositoryReference(
+            host: "tangled.org",
+            owner: "woody.fm",
+            repository: "wicked-woods-ome"
+        )
+
+        expectNoDifference(
+            try TangledRepositoryReference(parsing: reference.normalizedReference),
+            reference
         )
     }
 
@@ -150,11 +182,13 @@ struct TangledSourceCloneTests {
         let request = repository.sourceControlCloneRequest(
             repoDID: "did:plc:targetrepo",
             destinationURL: URL(fileURLWithPath: "/tmp/wicked-woods-ome"),
-            ref: "refs/heads/release"
+            ref: "refs/heads/release",
+            credentials: .sshAgent()
         )
 
         #expect(request.remote.url == RemoteURL(rawValue: "ssh://git@source.example:2222/did:plc:targetrepo"))
         #expect(request.checkout == RefName(rawValue: "release"))
+        #expect(request.credentials == Credentials.sshAgent())
     }
 
     @Test
@@ -179,6 +213,11 @@ struct TangledSourceCloneTests {
             .appending(path: "ome-git-checkout-\(UUID().uuidString)")
             .standardizedFileURL
         defer { try? FileManager.default.removeItem(at: outputURL) }
+        let repository = TangledRepositoryReference(
+            host: "tangled.org",
+            owner: "woody.fm",
+            repository: "wicked-woods-ome"
+        )
         let credentials = Credentials(
             ssh: SSHCredentials(
                 publicKey: "ssh-ed25519 public-key Open Music Event",
@@ -257,11 +296,7 @@ struct TangledSourceCloneTests {
         } operation: {
             try await TangledSourceCheckoutClient.git.checkout(
                 TangledSourceCheckoutRequest(
-                    repository: TangledRepositoryReference(
-                        host: "tangled.org",
-                        owner: "woody.fm",
-                        repository: "wicked-woods-ome"
-                    ),
+                    repository: repository,
                     ref: "refs/heads/main",
                     outputURL: outputURL
                 )
@@ -273,7 +308,7 @@ struct TangledSourceCloneTests {
         #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(request.checkout == "main")
         #expect(request.destinationURL == outputURL)
-        #expect(request.credentials == credentials)
+        #expect(request.credentials == repository.sourceControlCredentials(credentials))
     }
 
     @Test
@@ -284,6 +319,11 @@ struct TangledSourceCloneTests {
             .appending(path: "ome-git-checkout-ssh-agent-\(UUID().uuidString)")
             .standardizedFileURL
         defer { try? FileManager.default.removeItem(at: outputURL) }
+        let repository = TangledRepositoryReference(
+            host: "tangled.org",
+            owner: "woody.fm",
+            repository: "wicked-woods-ome"
+        )
         let credentials = Credentials.sshAgent()
         let cloneRequests = Mutex([CloneRequest]())
 
@@ -354,11 +394,7 @@ struct TangledSourceCloneTests {
         } operation: {
             try await TangledSourceCheckoutClient.git(credentials: credentials).checkout(
                 TangledSourceCheckoutRequest(
-                    repository: TangledRepositoryReference(
-                        host: "tangled.org",
-                        owner: "woody.fm",
-                        repository: "wicked-woods-ome"
-                    ),
+                    repository: repository,
                     ref: "refs/heads/main",
                     outputURL: outputURL
                 )
@@ -367,7 +403,7 @@ struct TangledSourceCloneTests {
 
         let request = try #require(cloneRequests.withLock { $0.first })
         #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
-        #expect(request.credentials == credentials)
+        #expect(request.credentials == repository.sourceControlCredentials(credentials))
     }
 
     @Test
@@ -480,7 +516,7 @@ struct TangledSourceCloneTests {
         "ssh://tangled.org/tangled.org/core",
         "file:///tmp/core",
         "tangled.org",
-        "tangled.org/core/extra",
+        "tangled.org/core/extra/more",
     ])
     func rejectsInvalidRepositoryReferences(rawValue: String) {
         do {

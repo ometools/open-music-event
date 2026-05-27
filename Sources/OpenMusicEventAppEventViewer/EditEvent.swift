@@ -425,53 +425,50 @@ struct SourceProposalComposerView: View {
     @Bindable var store: StoreOf<SourceProposalFlow>
 
     var body: some View {
-        Group {
-            if let authorizationStore = store.scope(\.authorization, action: \.authorization) {
-                OpenMusicEventAuthorizationFlowView(store: authorizationStore)
-            } else {
-                NavigationStack {
-                    List {
+        NavigationStack {
+            List {
 
-                        Section("Description") {
-                            TextField(
-                                "Description",
-                                text: $store.sourceProposalDescription,
-                                axis: .vertical
-                            )
-                            .lineLimit(4...8)
-                            .onChange(of: store.sourceProposalDescription) { _, description in
-                                store.send(.sourceProposalDescriptionChanged(description))
-                            }
-                        }
-
-                        SourceProposalStatusView(status: store.sourceProposalStatus)
-                        SourceProposalSummarySections(summary: store.editSummary)
-
-                        Section {
-                            DisclosureGroup("Advanced") {
-                                ForEach(store.patch.fileChanges) { change in
-                                    SourcePatchFileChangeRow(change: change)
-                                }
-                            }
-                        }
+                Section("Description") {
+                    TextField(
+                        "Description",
+                        text: $store.sourceProposalDescription,
+                        axis: .vertical
+                    )
+                    .lineLimit(4...8)
+                    .onChange(of: store.sourceProposalDescription) { _, description in
+                        store.send(.sourceProposalDescriptionChanged(description))
                     }
-                    .navigationTitle("Propose Change")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") {
-                                store.send(.dismissButtonTapped)
-                            }
-                            .disabled(store.sourceProposalStatus.isProposing)
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Create Proposal") {
-                                store.send(.createProposalButtonTapped)
-                            }
-                            .disabled(!store.canCreateSourceProposal)
+                }
+
+                SourceProposalStatusView(status: store.sourceProposalStatus)
+                SourceProposalSummarySections(summary: store.editSummary)
+
+                Section {
+                    DisclosureGroup("Advanced") {
+                        ForEach(store.patch.fileChanges) { change in
+                            SourcePatchFileChangeRow(change: change)
                         }
                     }
                 }
             }
+            .navigationTitle("Propose Change")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        store.send(.dismissButtonTapped)
+                    }
+                    .disabled(store.sourceProposalStatus.isProposing)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create Proposal") {
+                        store.send(.createProposalButtonTapped)
+                    }
+                    .disabled(!store.canCreateSourceProposal)
+                }
+            }
+            .openMusicEventAuthorizationDestination(
+                store: store.scope(\.authorization, action: \.authorization)
+            )
         }
     }
 }

@@ -11,10 +11,14 @@ public struct Account {
     public init() {}
 
     public struct State: Equatable {
-        public init() {
-            self._authFailureMessage = OpenMusicEventOAuth.authFailureMessage
-            self._session = OpenMusicEventOAuth.session
-            self._sessionStore = OpenMusicEventOAuth.sessionStore
+        public init(
+            authFailureMessage: Shared<ErrorMessage?> = OpenMusicEventOAuth.authFailureMessage,
+            session: Shared<OAuth.Session?> = OpenMusicEventOAuth.session,
+            sessionStore: Shared<OAuth.SessionStore> = OpenMusicEventOAuth.sessionStore
+        ) {
+            self._authFailureMessage = authFailureMessage
+            self._session = session
+            self._sessionStore = sessionStore
         }
 
         public var errorMessage: String?

@@ -1,4 +1,5 @@
 import ATProto
+import ATProtoOAuth
 import Dependencies
 import DependenciesTestSupport
 import Foundation
@@ -16,7 +17,81 @@ import XRPCClient
 
 struct TangledSourcePatchPublisherTests {
     @Test
-    func publishUploadsFormatPatchAndCompatibilityRecord() async throws {
+    func smallPullRecordIncludesInlinePatchCompatibilityField() throws {
+        let record = TangledRepoPullRecord(
+            body: "Body",
+            createdAt: "2026-05-28T00:00:00Z",
+            patch: "diff --git a/event.yml b/event.yml\n",
+            patchBlob: ATProto.Blob(
+                ref: "bafkreipatch",
+                mimeType: "application/gzip",
+                size: 123
+            ),
+            pullID: 1_779_800_000_000,
+            rounds: [
+                TangledRepoPullRecord.Round(
+                    createdAt: "2026-05-28T00:00:00Z",
+                    patchBlob: ATProto.Blob(
+                        ref: "bafkreipatch",
+                        mimeType: "application/gzip",
+                        size: 123
+                    )
+                )
+            ],
+            source: TangledRepoPullRecord.Source(
+                branch: "ome/proposal-test",
+                sha: "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+            ),
+            target: TangledRepoPullRecord.Target(
+                branch: "main",
+                repo: "at://did:plc:owner123/sh.tangled.repo/3repo",
+                repoDID: "did:plc:targetrepo"
+            ),
+            title: "Update event source"
+        )
+
+        let json = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(record))
+                as? [String: Any]
+        )
+
+        #expect(json["$type"] as? String == TangledRepoPullRecord.collection)
+        #expect(json["patch"] as? String == "diff --git a/event.yml b/event.yml\n")
+        #expect(json["patchBlob"] != nil)
+        let rounds = try #require(json["rounds"] as? [[String: Any]])
+        #expect(rounds.first?["patchBlob"] != nil)
+    }
+
+    @Test
+    func getRecordRequestBuildsPDSReadbackQuery() throws {
+        let request = TangledGetRecordRequest<TangledRepositoryRecord>(
+            repo: "did:plc:publisher",
+            collection: TangledRepoPullRecord.collection,
+            rkey: "3pull",
+            cid: "bafyreipull",
+            pdsHost: "publisher.pds.example"
+        )
+
+        #expect(
+            request.queryItems
+                == [
+                    URLQueryItem(name: "repo", value: "did:plc:publisher"),
+                    URLQueryItem(name: "collection", value: TangledRepoPullRecord.collection),
+                    URLQueryItem(name: "rkey", value: "3pull"),
+                    URLQueryItem(name: "cid", value: "bafyreipull"),
+                ]
+        )
+        #expect(
+            request.routing
+                == XRPC.Routing(
+                    unauthenticated: .host("publisher.pds.example"),
+                    authenticated: .host("publisher.pds.example")
+                )
+        )
+    }
+
+    @Test
+    func publishUploadsLargePatchBlobWithoutInlinePatch() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let requestRecorder = HTTPRequestRecorder()
         let repositoryURL = FileManager.default.temporaryDirectory
@@ -53,6 +128,8 @@ struct TangledSourcePatchPublisherTests {
         let stageRequests = Mutex([StageRequest]())
         let commitRequests = Mutex([CommitRequest]())
         let pushRequests = Mutex([PushRequest]())
+        let largeEventContents = "name: New\n"
+            + String(repeating: "description: A long proposal patch line.\n", count: 8_000)
 
         let publication = try await withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 1_779_800_000)
@@ -156,7 +233,7 @@ struct TangledSourcePatchPublisherTests {
                             repositoryURL: repositoryURL,
                             remote: SourcePatchLocation.Remote(
                                 kind: "tangled",
-                                reference: "woody.fm/wicked-woods-ome",
+                                reference: "tangled.org/woody.fm/wicked-woods-ome",
                                 ref: "main"
                             )
                         ),
@@ -166,7 +243,7 @@ struct TangledSourcePatchPublisherTests {
                                     path: "events/2025/event.yml",
                                     kind: .modified,
                                     oldContents: Data("name: Old\n".utf8),
-                                    newContents: Data("name: New\n".utf8)
+                                    newContents: Data(largeEventContents.utf8)
                                 )
                             ]
                         )
@@ -183,7 +260,7 @@ struct TangledSourcePatchPublisherTests {
         }
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
-        #expect(openRequests.withLock { $0 } == [repositoryURL.standardizedFileURL])
+        #expect(openRequests.withLock { $0.map(\.standardizedFileURL) } == [repositoryURL.standardizedFileURL])
         let createBranchRequest = try #require(createBranchRequests.withLock { $0.first })
         #expect(createBranchRequest.name == branchName)
         #expect(createBranchRequest.startPoint == "HEAD")
@@ -197,7 +274,10 @@ struct TangledSourcePatchPublisherTests {
         let pushRequest = try #require(pushRequests.withLock { $0.first })
         #expect(pushRequest.localBranch == branchName)
         #expect(pushRequest.remoteBranch == branchName)
-        #expect(pushRequest.credentials == credentials)
+        let repositoryReference = try TangledRepositoryReference(
+            parsing: "tangled.org/woody.fm/wicked-woods-ome"
+        )
+        #expect(pushRequest.credentials == repositoryReference.sourceControlCredentials(credentials))
 
         let requests = await requestRecorder.requests
         let uploadRequest = try #require(
@@ -205,6 +285,7 @@ struct TangledSourcePatchPublisherTests {
         )
         let uploadBody = try #require(uploadRequest.body)
         let uploadedPatch = String(decoding: try uploadBody.gunzipped(), as: UTF8.self)
+        #expect(uploadedPatch.utf8.count > 256_000)
         #expect(uploadedPatch.hasPrefix("From \(sourceSHA) Mon Sep 17 00:00:00 2001\n"))
         #expect(uploadedPatch.contains("Subject: [PATCH] Update event source\n"))
         #expect(uploadedPatch.contains("diff --git a/events/2025/event.yml b/events/2025/event.yml\n"))
@@ -212,14 +293,22 @@ struct TangledSourcePatchPublisherTests {
         let createRecordRequest = try #require(
             requests.first { $0.url?.path.hasSuffix("/com.atproto.repo.createRecord") == true }
         )
+        let uploadRequestIndex = try #require(
+            requests.firstIndex { $0.url?.path.hasSuffix("/com.atproto.repo.uploadBlob") == true }
+        )
+        let createRecordRequestIndex = try #require(
+            requests.firstIndex { $0.url?.path.hasSuffix("/com.atproto.repo.createRecord") == true }
+        )
+        #expect(uploadRequestIndex < createRecordRequestIndex)
         let createRecordBody = try #require(createRecordRequest.body)
+        #expect(createRecordBody.count < 32_000)
         let createRecordJSON = try #require(
             JSONSerialization.jsonObject(with: createRecordBody)
                 as? [String: Any]
         )
         let record = try #require(createRecordJSON["record"] as? [String: Any])
         #expect(record["$type"] as? String == "sh.tangled.repo.pull")
-        #expect(record["patch"] as? String == uploadedPatch)
+        #expect(record["patch"] == nil)
         #expect(record["targetBranch"] as? String == "main")
         #expect(record["targetRepo"] as? String == "at://did:plc:owner123/sh.tangled.repo/3repo")
         #expect(record["pullId"] as? Int == 1_779_800_000_000)
@@ -237,6 +326,103 @@ struct TangledSourcePatchPublisherTests {
         let rounds = try #require(record["rounds"] as? [[String: Any]])
         #expect(rounds.count == 1)
         #expect(rounds.first?["patchBlob"] != nil)
+    }
+
+    @Test
+    func livePDSReadbackCreatesProposalRecordWhenConfigured() async throws {
+        guard let configuration = try LiveTangledPDSReadbackConfiguration.loadFromEnvironment()
+        else { return }
+
+        let createdAtDate = Date()
+        let createdAt = ISO8601DateFormatter().string(from: createdAtDate)
+        let uniqueID = UUID().uuidString.lowercased()
+        let sourceBranch = configuration.sourceBranch ?? "ome/live-pds-readback-\(uniqueID)"
+        let sourceSHA = configuration.sourceSHA
+            ?? "0000000000000000000000000000000000000000"
+        let patchText = """
+        From \(sourceSHA) Mon Sep 17 00:00:00 2001
+        From: Open Music Event <noreply@openmusicevent.app>
+        Date: Thu, 28 May 2026 00:00:00 +0000
+        Subject: [PATCH] Live PDS readback smoke test
+
+        ---
+
+        diff --git a/ome-live-readback.txt b/ome-live-readback.txt
+        new file mode 100644
+        index 0000000..1111111
+        --- /dev/null
+        +++ b/ome-live-readback.txt
+        @@ -0,0 +1 @@
+        +\(uniqueID)
+        -- 
+        Open Music Event
+
+        """
+        let patchData = Data(patchText.utf8)
+
+        let patchBlob = try await configuration.withLiveDependencies {
+            try await uploadLivePatchBlob(patchData)
+        }
+        let record = TangledRepoPullRecord(
+            body: "Live PDS readback smoke test from Open Music Event.",
+            createdAt: createdAt,
+            patch: patchText,
+            patchBlob: patchBlob,
+            pullID: Int64((createdAtDate.timeIntervalSince1970 * 1000).rounded()),
+            rounds: [
+                TangledRepoPullRecord.Round(
+                    createdAt: createdAt,
+                    patchBlob: patchBlob
+                )
+            ],
+            source: TangledRepoPullRecord.Source(
+                branch: sourceBranch,
+                sha: sourceSHA
+            ),
+            target: TangledRepoPullRecord.Target(
+                branch: configuration.targetBranch,
+                repo: configuration.targetRepoURI.description,
+                repoDID: configuration.targetRepoDID
+            ),
+            title: "Live PDS readback smoke test"
+        )
+
+        let created = try await configuration.withLiveDependencies {
+            @Dependency(XRPC.Client.self) var xrpcClient
+            return try await xrpcClient.run(
+                TangledCreateRecordRequest(
+                    input: TangledCreateRecordInput(
+                        repo: configuration.session.accountID.rawValue.description,
+                        collection: TangledRepoPullRecord.collection,
+                        record: record
+                    ),
+                    authorizationPolicy: .required(TangledOAuthRequirements.proposalAuthRequirement)
+                )
+            )
+        }
+
+        let rkey = try #require(created.uri.rkey?.rawValue)
+        let readback = try await configuration.withLiveDependencies {
+            @Dependency(XRPC.Client.self) var xrpcClient
+            return try await xrpcClient.run(
+                TangledGetRecordRequest<TangledPullReadbackRecord>(
+                    repo: configuration.session.accountID.rawValue.description,
+                    collection: TangledRepoPullRecord.collection,
+                    rkey: rkey,
+                    pdsHost: configuration.session.pdsHost
+                )
+            )
+        }
+
+        #expect(readback.uri == created.uri)
+        #expect(readback.value.type == TangledRepoPullRecord.collection)
+        #expect(readback.value.title == "Live PDS readback smoke test")
+        #expect(readback.value.patch == patchText)
+        #expect(readback.value.patchBlob.ref == patchBlob.ref)
+        #expect(readback.value.target.repo == configuration.targetRepoURI.description)
+        #expect(readback.value.target.repoDID == configuration.targetRepoDID)
+        #expect(readback.value.source?.branch == sourceBranch)
+        #expect(readback.value.source?.sha == sourceSHA)
     }
 
     @Test
@@ -457,6 +643,148 @@ private actor HTTPRequestRecorder {
 
 private enum TestAccountClientFailure: Error {
     case unexpectedResolution
+}
+
+private struct LiveTangledPDSReadbackConfiguration {
+    var session: OAuth.Session
+    var targetRepoURI: ATProto.URI
+    var targetRepoDID: String
+    var targetBranch: String
+    var sourceBranch: String?
+    var sourceSHA: String?
+
+    static func loadFromEnvironment() throws -> Self? {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["OME_LIVE_TANGLED_PROPOSAL_READBACK"] == "1" else {
+            return nil
+        }
+
+        let sessionValue = try requiredEnvironmentValue(
+            "OME_LIVE_TANGLED_OAUTH_SESSION_JSON_BASE64",
+            environment: environment
+        )
+        let sessionData = Data(base64Encoded: sessionValue) ?? Data(sessionValue.utf8)
+        let session = try JSONDecoder().decode(OAuth.Session.self, from: sessionData)
+
+        let targetRepoURIValue = try requiredEnvironmentValue(
+            "OME_LIVE_TANGLED_TARGET_REPO_URI",
+            environment: environment
+        )
+        guard let targetRepoURI = ATProto.URI(targetRepoURIValue) else {
+            throw LiveTangledPDSReadbackConfigurationError.invalidURI(targetRepoURIValue)
+        }
+
+        return Self(
+            session: session,
+            targetRepoURI: targetRepoURI,
+            targetRepoDID: try requiredEnvironmentValue(
+                "OME_LIVE_TANGLED_TARGET_REPO_DID",
+                environment: environment
+            ),
+            targetBranch: environment["OME_LIVE_TANGLED_TARGET_BRANCH"] ?? "main",
+            sourceBranch: environment["OME_LIVE_TANGLED_SOURCE_BRANCH"],
+            sourceSHA: environment["OME_LIVE_TANGLED_SOURCE_SHA"]
+        )
+    }
+
+    func withLiveDependencies<Value>(
+        operation: @escaping () async throws -> Value
+    ) async throws -> Value {
+        try await withDependencies {
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .liveValue
+            $0.pdsHost = session.pdsHost
+            $0.getDefaultSession = { session }
+            $0.getOptionalDefaultSession = { session }
+        } operation: {
+            try await session.withAuthentication(operation: operation)
+        }
+    }
+
+    private static func requiredEnvironmentValue(
+        _ name: String,
+        environment: [String: String]
+    ) throws -> String {
+        guard let value = environment[name], !value.isEmpty else {
+            throw LiveTangledPDSReadbackConfigurationError.missingEnvironmentValue(name)
+        }
+        return value
+    }
+}
+
+private enum LiveTangledPDSReadbackConfigurationError: CustomStringConvertible, Error {
+    case missingEnvironmentValue(String)
+    case invalidURI(String)
+
+    var description: String {
+        switch self {
+        case .missingEnvironmentValue(let name):
+            "\(name) is required when OME_LIVE_TANGLED_PROPOSAL_READBACK=1"
+        case .invalidURI(let value):
+            "\(value) is not a valid AT URI"
+        }
+    }
+}
+
+private struct TangledPullReadbackRecord: Decodable, Sendable {
+    struct Target: Decodable, Sendable {
+        var branch: String
+        var repo: String
+        var repoDID: String?
+
+        enum CodingKeys: String, CodingKey {
+            case branch
+            case repo
+            case repoDID = "repoDid"
+        }
+    }
+
+    struct Source: Decodable, Sendable {
+        var branch: String
+        var sha: String?
+    }
+
+    var type: String
+    var title: String
+    var patch: String?
+    var patchBlob: ATProto.Blob
+    var target: Target
+    var source: Source?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "$type"
+        case title
+        case patch
+        case patchBlob
+        case target
+        case source
+    }
+}
+
+private struct LiveUploadBlobOutput: Decodable, Sendable {
+    var blob: ATProto.Blob
+}
+
+private func uploadLivePatchBlob(_ patchData: Data) async throws -> ATProto.Blob {
+    @Dependency(\.httpClient) var httpClient
+    @Dependency(\.pdsHost) var pdsHost
+
+    guard let url = URL(string: "https://\(pdsHost.rawValue)/xrpc/com.atproto.repo.uploadBlob")
+    else {
+        throw TangledSourcePatchPublisherError.invalidUploadBlobURL(pdsHost.rawValue)
+    }
+
+    var request = HTTPRequest(url: url)
+    request.method = .post
+
+    @Dependency(\.requestHeaders) var requestHeaders
+    request.headerFields = requestHeaders
+    request.headerFields[.contentType] = "text/x-patch"
+
+    let responseData = try await httpClient.run(request, try patchData.gzipped())
+    return try JSONDecoder()
+        .decode(LiveUploadBlobOutput.self, from: responseData ?? Data())
+        .blob
 }
 
 private extension Atmosphere.Account.Client {

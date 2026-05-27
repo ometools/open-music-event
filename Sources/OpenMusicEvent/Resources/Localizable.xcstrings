@@ -654,6 +654,12 @@
         }
       }
     },
+    "Unable to connect to Tangled over SSH." : {
+
+    },
+    "Unable to verify Tangled's SSH host key." : {
+
+    },
     "Unable to extract the Tangled source archive." : {
 
     },

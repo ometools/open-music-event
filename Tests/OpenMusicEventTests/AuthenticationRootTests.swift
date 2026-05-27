@@ -21,7 +21,7 @@ struct AuthenticationRootTests {
         }
 
         let task = store.send(
-            .openURL(URL(string: "openmusicevent:/oauth/callback?code=abc&state=def")!)
+            .openURL(URL(string: "app.openmusicevent:/oauth/callback?code=abc&state=def")!)
         )
         await task?.value
 
@@ -32,7 +32,7 @@ struct AuthenticationRootTests {
     func nonOAuthURLIsNotTreatedAsAuthenticationCallback() {
         #expect(
             !OpenMusicEventOAuth.isCallbackURL(
-                URL(string: "openmusicevent:/organizers/demo/events/event")!
+                URL(string: "app.openmusicevent:/organizers/demo/events/event")!
             )
         )
     }

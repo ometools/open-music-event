@@ -51,6 +51,14 @@ extension UserFacingText {
         "Unable to resolve the repository owner.",
         fallback: "Unable to resolve the repository owner."
     )
+    static let sourceImportSSHSessionFailed = Self(
+        "Unable to connect to Tangled over SSH.",
+        fallback: "Unable to connect to Tangled over SSH."
+    )
+    static let sourceImportSSHHostKeyFailed = Self(
+        "Unable to verify Tangled's SSH host key.",
+        fallback: "Unable to verify Tangled's SSH host key."
+    )
     static let sourceImportStorageDestinationExists = Self(
         "Unable to store the imported source because a file already exists.",
         fallback: "Unable to store the imported source because a file already exists."
@@ -80,6 +88,8 @@ extension ErrorKind {
     static let sourceImportLocalSourceUnsupported = Self("source.import.local-source")
     static let sourceImportOutputUnsupported = Self("source.import.output-unsupported")
     static let sourceImportOwnerResolutionFailed = Self("source.import.owner-resolution-failed")
+    static let sourceImportSSHHostKeyFailed = Self("source.import.ssh.host-key-failed")
+    static let sourceImportSSHSessionFailed = Self("source.import.ssh.session-failed")
     static let sourceImportStorageDestinationExists = Self("source.import.storage.destination-exists")
 }
 
@@ -145,6 +155,24 @@ enum SourceImportError {
                 "Ref cannot be empty",
                 message: .sourceImportInvalidRef,
                 kind: .sourceImportInvalidRef
+            ),
+            contains(
+                anyOf: [
+                    "invalid or unknown remote ssh hostkey",
+                    "remote SSH host key did not match",
+                    "remote did not provide an SSH host key",
+                    "SSH host key did not include a SHA-256 fingerprint",
+                ],
+                message: .sourceImportSSHHostKeyFailed,
+                kind: .sourceImportSSHHostKeyFailed
+            ),
+            contains(
+                anyOf: [
+                    "failed to start SSH session",
+                    "Unable to exchange encryption keys",
+                ],
+                message: .sourceImportSSHSessionFailed,
+                kind: .sourceImportSSHSessionFailed
             ),
             contains(
                 anyOf: [

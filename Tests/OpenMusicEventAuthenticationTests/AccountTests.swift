@@ -1,5 +1,7 @@
 import ATProtoOAuth
 import ComposableArchitecture2
+import Sharing
+import TCATProtoAuthentication
 import Testing
 
 @testable import OpenMusicEventAuthentication
@@ -9,12 +11,11 @@ import Testing
 struct AccountTests {
     @Test
     func loginButtonRequestsBaseAuthorization() async {
-        OpenMusicEventOAuth.resetStoredSession()
         let recorder = AccountAuthorizationRecorder()
         let store = withDependencies {
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
         } operation: {
-            Store(initialState: Account.State()) {
+            Store(initialState: Account.State.localTestState()) {
                 Account()
             }
         }
@@ -29,9 +30,8 @@ struct AccountTests {
 
     @Test
     func logoutClearsStoredSessionAndCancelsRequests() async {
-        OpenMusicEventOAuth.resetStoredSession()
         let recorder = AccountAuthorizationRecorder()
-        let state = Account.State()
+        let state = Account.State.localTestState()
         state.$session.withLock { $0 = .placeholder }
         state.$sessionStore.withLock { $0.upsert(.placeholder) }
         let store = withDependencies {
@@ -48,6 +48,16 @@ struct AccountTests {
         #expect(store.session == nil)
         #expect(store.sessionStore.selectedSession == nil)
         #expect(await recorder.didCancel)
+    }
+}
+
+private extension Account.State {
+    static func localTestState() -> Self {
+        Self(
+            authFailureMessage: Shared<ErrorMessage?>(value: nil),
+            session: Shared<OAuth.Session?>(value: nil),
+            sessionStore: Shared<OAuth.SessionStore>(value: OAuth.SessionStore())
+        )
     }
 }
 

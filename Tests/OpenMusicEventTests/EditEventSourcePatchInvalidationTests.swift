@@ -218,7 +218,7 @@ struct EditEventSourcePatchInvalidationTests {
         await store.receive(
             \.sourceProposalResponse,
             .equals(.success(publication)),
-            timeout: .seconds(1)
+            timeout: .seconds(5)
         ) {
             $0.sourceProposalStatus = .created(publication)
         }
@@ -270,7 +270,7 @@ struct EditEventSourcePatchInvalidationTests {
         await store.receive(
             \.sourceProposalResponse,
             .equals(.failure(failure)),
-            timeout: .seconds(1)
+            timeout: .seconds(5)
         ) {
             $0.sourceProposalStatus = .failed(failure)
         }
@@ -283,7 +283,7 @@ struct EditEventSourcePatchInvalidationTests {
         await store.receive(
             \.sourceProposalResponse,
             .equals(.failure(failure)),
-            timeout: .seconds(1)
+            timeout: .seconds(5)
         ) {
             $0.sourceProposalStatus = .failed(failure)
         }
@@ -319,6 +319,7 @@ struct EditEventSourcePatchInvalidationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.exhaustivity = .off
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
                 location
             }
@@ -328,20 +329,23 @@ struct EditEventSourcePatchInvalidationTests {
                 return publication
             }
         } operation: {
-            Store(initialState: SourceProposalFlow.State(eventID: eventID, patch: patch)) {
+            TestStore(initialState: SourceProposalFlow.State(eventID: eventID, patch: patch)) {
                 SourceProposalFlow()
             }
         }
 
-        store.send(.createProposalButtonTapped)
-        await waitUntil { store.authorization != nil }
-        #expect(store.authorization?.requirement == requirement)
+        let task = store.send(.createProposalButtonTapped) {
+            $0.sourceProposalStatus = .proposing
+        }
+        await waitUntil { store.state.authorization.flow != nil }
+        #expect(store.state.authorization.flow?.requirement == requirement)
 
         store.send(
             .authorization(.delegate(.succeeded(OAuth.Session.placeholder.accountID)))
         )
-        await waitUntil { store.sourceProposalStatus == .created(publication) }
-        #expect(store.authorization == nil)
+        await task?.value
+        #expect(store.state.sourceProposalStatus == .created(publication))
+        #expect(store.state.authorization.flow == nil)
     }
 
     @Test

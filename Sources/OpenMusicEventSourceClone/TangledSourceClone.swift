@@ -135,9 +135,6 @@ public struct TangledRepositoryReference: Equatable, Sendable {
                     throw ValidationError("Repository reference is missing a host.")
                 }
                 let host = String(hostSubstring)
-                guard hostComponents.count == 2 || host.lowercased() != "tangled.org" else {
-                    throw ValidationError("Repository reference must be shaped like owner/repo.")
-                }
                 let port: Int?
                 if hostComponents.count == 2 {
                     port = try Self.port(String(hostComponents[1]))
