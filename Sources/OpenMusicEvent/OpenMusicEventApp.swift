@@ -5,7 +5,10 @@ import Dependencies
 import SQLiteData
 import ComposableArchitecture2
 import OpenMusicEventAuthentication
+import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+import SourceControlClient
+import SourceControlClientGit
 import SourceEditing
 
 /// A logger for the OpenMusicEvent module.
@@ -16,6 +19,8 @@ extension OME {
     public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
         try dependencies.bootstrapDatabase()
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
+        dependencies.sourceControl = LibGit2SourceControlClient.live
+        dependencies.tangledSourceCheckout = .git
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
         dependencies.sourcePatchPublisher = .openMusicEventTangled
     }

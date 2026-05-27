@@ -64,6 +64,7 @@ let package = Package(
                 "OpenMusicEventImages",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
+                "OpenMusicEventSourceClone",
                 "OpenMusicEventSourceEditing",
                 "OpenMusicEventTimeZones",
                 "SourceEditing",
@@ -71,6 +72,8 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),
                 .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
+                .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
+                .product(name: "SourceControlClientGit", package: "swift-dependencies-source-control-client"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ],
             resources: [.process("Resources")],
@@ -209,6 +212,7 @@ let package = Package(
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "Tar", package: "swift-tar"),
+                .product(name: "XRPCClient", package: "tcatproto"),
             ]
         ),
         .target(
