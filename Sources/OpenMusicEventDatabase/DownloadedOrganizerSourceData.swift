@@ -7,13 +7,65 @@ import SQLiteData
 
 public extension OME {
     struct DeletedOrganizerSourceData: Equatable, Sendable {
+        public var eventIDs: [Event.ID]
         public var sourceProvenances: [SourceDatabaseInsertion.SourceProvenance]
 
         public init(
+            eventIDs: [Event.ID] = [],
             sourceProvenances: [SourceDatabaseInsertion.SourceProvenance]
         ) {
+            self.eventIDs = eventIDs
             self.sourceProvenances = sourceProvenances
         }
+    }
+
+    static func deleteDownloadedSourceData(
+        for sourceBaselineID: SourceBaselineRecord.ID,
+        in db: Database
+    ) throws -> DeletedOrganizerSourceData {
+        let provenanceRecords = try EventSourceProvenanceRecord
+            .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+            .fetchAll(db)
+        let eventIDs = provenanceRecords.map(\.id).uniqued()
+        let sourceProvenances = provenanceRecords.sourceProvenances()
+
+        guard !eventIDs.isEmpty || !sourceProvenances.isEmpty else {
+            return DeletedOrganizerSourceData(sourceProvenances: [])
+        }
+
+        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(baselineDatabase.database)
+
+        try baselineDatabase.write { baselineDB in
+            try EventSourceProvenanceRecord
+                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                .delete()
+                .execute(baselineDB)
+            try SourceBaselineRecord
+                .where { $0.id.eq(sourceBaselineID) }
+                .delete()
+                .execute(baselineDB)
+            try deleteOrganizersWithNoRemainingSourceLinks(
+                eventIDs.map(\.organizerID),
+                in: baselineDB
+            )
+        }
+
+        try SourceBaselineRecord
+            .where { $0.id.eq(sourceBaselineID) }
+            .delete()
+            .execute(db)
+        try EventSourceProvenanceRecord
+            .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+            .delete()
+            .execute(db)
+
+        return DeletedOrganizerSourceData(
+            eventIDs: eventIDs,
+            sourceProvenances: sourceProvenances
+        )
     }
 
     static func deleteDownloadedOrganizerSourceData(
@@ -23,16 +75,7 @@ public extension OME {
         let provenanceRecords = try EventSourceProvenanceRecord
             .where { $0.id.organizerID.eq(organizerID) }
             .fetchAll(db)
-        let sourceProvenances = provenanceRecords
-            .map(\.sourceProvenance)
-            .uniqued { provenance in
-                [
-                    provenance.kind.rawValue,
-                    provenance.reference,
-                    provenance.ref ?? "",
-                ]
-                .joined(separator: "\u{1F}")
-            }
+        let sourceProvenances = provenanceRecords.sourceProvenances()
         let sourceBaselineIDs = provenanceRecords
             .compactMap(\.sourceBaselineID)
             .uniqued()
@@ -75,7 +118,27 @@ public extension OME {
             .delete()
             .execute(db)
 
-        return DeletedOrganizerSourceData(sourceProvenances: sourceProvenances)
+        return DeletedOrganizerSourceData(
+            eventIDs: provenanceRecords.map(\.id).uniqued(),
+            sourceProvenances: sourceProvenances
+        )
+    }
+}
+
+private func deleteOrganizersWithNoRemainingSourceLinks(
+    _ organizerIDs: [OME.Organizer.ID],
+    in db: Database
+) throws {
+    for organizerID in organizerIDs.uniqued() {
+        let remainingSourceLinkCount = try EventSourceProvenanceRecord
+            .where { $0.id.organizerID.eq(organizerID) }
+            .fetchCount(db)
+        if remainingSourceLinkCount == 0 {
+            try OME.Organizer
+                .where { $0.id.eq(organizerID) }
+                .delete()
+                .execute(db)
+        }
     }
 }
 
@@ -86,6 +149,20 @@ private extension EventSourceProvenanceRecord {
             reference: sourceReference,
             ref: ref
         )
+    }
+}
+
+private extension Sequence where Element == EventSourceProvenanceRecord {
+    func sourceProvenances() -> [OME.SourceDatabaseInsertion.SourceProvenance] {
+        map(\.sourceProvenance)
+            .uniqued { provenance in
+                [
+                    provenance.kind.rawValue,
+                    provenance.reference,
+                    provenance.ref ?? "",
+                ]
+                .joined(separator: "\u{1F}")
+            }
     }
 }
 

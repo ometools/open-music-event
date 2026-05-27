@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import ATProto
+import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import ErrorHandling
@@ -39,60 +40,113 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func myEventsFetchesDownloadedOrganizers() async throws {
+    func myEventsFetchesDownloadedSources() async throws {
         let database = try makePreparedDatabase()
-        let eventID = importedEventID()
-        try await insertImportedEvent(eventID, into: database)
+        let firstEventID = importedEventID("wicked-woods-2026")
+        let secondEventID = importedEventID("atmosphere-conf-2026")
+        let firstSourceProvenance = tangledSourceProvenance(
+            "wicked-woods-ome",
+            ref: "HEAD"
+        )
+        let secondSourceProvenance = tangledSourceProvenance(
+            "atmosphere-conf-ome",
+            ref: "HEAD"
+        )
+        try await insertDownloadedSource(
+            eventID: firstEventID,
+            sourceProvenance: firstSourceProvenance,
+            into: database
+        )
+        try await insertDownloadedSource(
+            eventID: secondEventID,
+            sourceProvenance: secondSourceProvenance,
+            into: database
+        )
 
-        let organizers = try await database.read { db in
-            try MyEvents.organizersQuery.fetchAll(db)
+        let downloadedSources = try await database.read { db in
+            try MyEvents.downloadedSourcesQuery.fetchAll(db)
         }
         let events = try await database.read { db in
             try MyEvents.query.fetchAll(db)
         }
 
-        #expect(organizers.map(\.id) == [eventID.organizerID])
+        expectNoDifference(
+            downloadedSources.map(\.id),
+            [
+                SourceBaselineRecord.ID(source: secondSourceProvenance),
+                SourceBaselineRecord.ID(source: firstSourceProvenance),
+            ]
+        )
+        expectNoDifference(
+            downloadedSources.map(\.organizer.id),
+            [firstEventID.organizerID, firstEventID.organizerID]
+        )
+        expectNoDifference(downloadedSources.map(\.eventCount), [1, 1])
         #expect(events.isEmpty)
     }
 
     @Test
-    func myEventsDeletesDownloadedOrganizer() async throws {
+    func sourceDetailFetchesEventsForOneDownloadedSource() async throws {
         let database = try makePreparedDatabase()
-        let eventID = importedEventID()
-        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
-            kind: .tangled,
-            reference: "tangled.org/woody.fm/imported-source",
-            ref: "main"
+        let firstEventID = importedEventID("wicked-woods-2026")
+        let secondEventID = importedEventID("atmosphere-conf-2026")
+        let firstSourceProvenance = tangledSourceProvenance("wicked-woods-ome")
+        let secondSourceProvenance = tangledSourceProvenance("atmosphere-conf-ome")
+        try await insertDownloadedSource(
+            eventID: firstEventID,
+            sourceProvenance: firstSourceProvenance,
+            into: database
         )
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        try await insertDownloadedSource(
+            eventID: secondEventID,
+            sourceProvenance: secondSourceProvenance,
+            into: database
+        )
+
+        let events = try await database.read { db in
+            try SourceDetail
+                .eventsQuery(
+                    sourceBaselineID: SourceBaselineRecord.ID(source: secondSourceProvenance)
+                )
+                .fetchAll(db)
+        }
+
+        expectNoDifference(events.map(\.id), [secondEventID])
+    }
+
+    @Test
+    func myEventsDeletesDownloadedSource() async throws {
+        let database = try makePreparedDatabase()
+        let firstEventID = importedEventID("wicked-woods-2026")
+        let secondEventID = importedEventID("atmosphere-conf-2026")
+        let firstSourceProvenance = tangledSourceProvenance(
+            "wicked-woods-ome",
+            ref: "HEAD"
+        )
+        let secondSourceProvenance = tangledSourceProvenance(
+            "atmosphere-conf-ome",
+            ref: "HEAD"
+        )
+        let firstSourceBaselineID = SourceBaselineRecord.ID(source: firstSourceProvenance)
+        let secondSourceBaselineID = SourceBaselineRecord.ID(source: secondSourceProvenance)
         let sourceRepositoryRemovals = SourceRepositoryRemovalRecorder()
 
-        try await insertImportedEvent(eventID, into: database)
-        try await insertImportedEventData(eventID, into: database)
+        try await insertDownloadedSource(
+            eventID: firstEventID,
+            sourceProvenance: firstSourceProvenance,
+            into: database
+        )
+        try await insertImportedEventData(firstEventID, into: database)
+        try await insertDownloadedSource(
+            eventID: secondEventID,
+            sourceProvenance: secondSourceProvenance,
+            into: database
+        )
+        try await insertImportedEventData(secondEventID, into: database)
         try await database.write { db in
-            try SourceBaselineRecord.insert {
-                SourceBaselineRecord(
-                    source: sourceProvenance,
-                    databaseFileName: "baseline.sqlite",
-                    importedAt: Date(timeIntervalSince1970: 0)
-                )
-            }
-            .execute(db)
-            try EventSourceProvenanceRecord.insert {
-                EventSourceProvenanceRecord(
-                    id: eventID,
-                    sourceBaselineID: sourceBaselineID,
-                    sourceKind: sourceProvenance.kind,
-                    sourceReference: sourceProvenance.reference,
-                    ref: sourceProvenance.ref,
-                    eventIDOrigin: .inferred,
-                    sourceEventDirectory: eventID.eventID.rawValue.rawValue
-                )
-            }
-            .execute(db)
             try AppState.update {
-                $0.organizerID = #bind(eventID.organizerID)
-                $0.eventID = #bind(eventID.eventID)
+                $0.organizerID = #bind(firstEventID.organizerID)
+                $0.eventID = #bind(firstEventID.eventID)
             }
             .execute(db)
         }
@@ -107,76 +161,76 @@ struct TangledSourceDownloadFeatureTests {
             )
         } operation: {
             var initialState = MyEvents.State()
-            initialState.organizerDetail = OrganizerDetail.State(
-                organizerID: eventID.organizerID
+            initialState.sourceDetail = SourceDetail.State(
+                sourceBaselineID: firstSourceBaselineID
             )
             return TestStore(initialState: initialState) {
                 MyEvents()
             }
         }
 
-        await store.send(.deleteOrganizers([eventID.organizerID]))?.value
+        await store.send(.deleteDownloadedSources([firstSourceBaselineID]))?.value
 
-        let organizerCount = try await database.read { db in
-            try OMERecord.Organizer.fetchCount(db)
-        }
-        let eventCount = try await database.read { db in
-            try OMERecord.Event.fetchCount(db)
-        }
-        let eventOrganizerCount = try await database.read { db in
-            try OMERecord.EventOrganizer.fetchCount(db)
-        }
-        let stageCount = try await database.read { db in
-            try OMERecord.Stage.fetchCount(db)
-        }
-        let scheduleCount = try await database.read { db in
-            try OMERecord.Schedule.fetchCount(db)
-        }
-        let participantCount = try await database.read { db in
-            try OMERecord.Participant.fetchCount(db)
-        }
-        let channelCount = try await database.read { db in
-            try OMERecord.Channel.fetchCount(db)
-        }
-        let posterCount = try await database.read { db in
-            try OMERecord.Poster.fetchCount(db)
-        }
-        let performanceCount = try await database.read { db in
-            try OMERecord.Performance.fetchCount(db)
-        }
-        let performanceParticipantCount = try await database.read { db in
-            try OMERecord.Performance.Participants.fetchCount(db)
-        }
-        let sourceBaselineCount = try await database.read { db in
-            try SourceBaselineRecord.fetchCount(db)
-        }
-        let sourceProvenanceCount = try await database.read { db in
-            try EventSourceProvenanceRecord.fetchCount(db)
-        }
         let organizers = try await database.read { db in
-            try MyEvents.organizersQuery.fetchAll(db)
+            try OMERecord.Organizer.fetchAll(db)
+        }
+        let events = try await database.read { db in
+            try OMERecord.Event.fetchAll(db)
+        }
+        let eventOrganizers = try await database.read { db in
+            try OMERecord.EventOrganizer.fetchAll(db)
+        }
+        let stages = try await database.read { db in
+            try OMERecord.Stage.fetchAll(db)
+        }
+        let schedules = try await database.read { db in
+            try OMERecord.Schedule.fetchAll(db)
+        }
+        let participants = try await database.read { db in
+            try OMERecord.Participant.fetchAll(db)
+        }
+        let channels = try await database.read { db in
+            try OMERecord.Channel.fetchAll(db)
+        }
+        let posters = try await database.read { db in
+            try OMERecord.Poster.fetchAll(db)
+        }
+        let performances = try await database.read { db in
+            try OMERecord.Performance.fetchAll(db)
+        }
+        let performanceParticipants = try await database.read { db in
+            try OMERecord.Performance.Participants.fetchAll(db)
+        }
+        let sourceBaselines = try await database.read { db in
+            try SourceBaselineRecord.fetchAll(db)
+        }
+        let sourceProvenances = try await database.read { db in
+            try EventSourceProvenanceRecord.fetchAll(db)
+        }
+        let downloadedSources = try await database.read { db in
+            try MyEvents.downloadedSourcesQuery.fetchAll(db)
         }
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
         }
 
         #expect(store.state.errorMessage == nil)
-        #expect(store.state.organizerDetail == nil)
-        #expect(organizerCount == 0)
-        #expect(eventCount == 0)
-        #expect(eventOrganizerCount == 0)
-        #expect(stageCount == 0)
-        #expect(scheduleCount == 0)
-        #expect(participantCount == 0)
-        #expect(channelCount == 0)
-        #expect(posterCount == 0)
-        #expect(performanceCount == 0)
-        #expect(performanceParticipantCount == 0)
-        #expect(sourceBaselineCount == 0)
-        #expect(sourceProvenanceCount == 0)
-        #expect(organizers.isEmpty)
+        #expect(store.state.sourceDetail == nil)
+        expectNoDifference(organizers.map(\.id), [secondEventID.organizerID])
+        expectNoDifference(events.map(\.id), [secondEventID])
+        expectNoDifference(eventOrganizers.map(\.id.eventID), [secondEventID.eventID])
+        expectNoDifference(stages.map(\.id.eventID), [secondEventID.eventID])
+        expectNoDifference(schedules.map(\.id.eventID), [secondEventID.eventID])
+        expectNoDifference(participants.map(\.id.eventID), [secondEventID.eventID])
+        expectNoDifference(channels.map(\.id.eventID), [secondEventID.eventID])
+        expectNoDifference(posters.map(\.id.eventID), [secondEventID.eventID])
+        expectNoDifference(performances.map(\.id.eventID), [secondEventID.eventID])
+        expectNoDifference(performanceParticipants.map(\.eventID), [secondEventID.eventID])
+        expectNoDifference(sourceBaselines.map(\.id), [secondSourceBaselineID])
+        expectNoDifference(sourceProvenances.map(\.id), [secondEventID])
+        expectNoDifference(downloadedSources.map(\.id), [secondSourceBaselineID])
         #expect(appState?.selectedEventID == nil)
-        #expect(sourceRepositoryRemovals.values == [sourceProvenance])
+        expectNoDifference(sourceRepositoryRemovals.values, [firstSourceProvenance])
     }
 
     @Test
@@ -712,17 +766,20 @@ private func insertImportedEventData(
 
 private func insertImportedEvent(
     _ eventID: OMERecord.Event.ID,
+    name: String = "Imported Event",
     into database: any DatabaseWriter
 ) async throws {
     try await database.write { db in
         try OMERecord.Organizer.insert {
             OMERecord.Organizer.Draft(id: eventID.organizerID)
+        } onConflict: {
+            $0.id
         }
         .execute(db)
         try OMERecord.Event.insert {
             CreateEvent.makeEventDraft(
                 id: eventID,
-                name: "Imported Event",
+                name: name,
                 startDate: nil,
                 endDate: nil
             )
@@ -735,6 +792,43 @@ private func insertImportedEvent(
                     eventID: eventID.eventID,
                     eventOrganizerID: eventID.organizerID
                 )
+            )
+        }
+        .execute(db)
+    }
+}
+
+private func insertDownloadedSource(
+    eventID: OMERecord.Event.ID,
+    sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance,
+    into database: any DatabaseWriter
+) async throws {
+    try await insertImportedEvent(
+        eventID,
+        name: eventID.eventID.rawValue.rawValue,
+        into: database
+    )
+    let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+    try await database.write { db in
+        try SourceBaselineRecord.insert {
+            SourceBaselineRecord(
+                source: sourceProvenance,
+                databaseFileName: "baseline.sqlite",
+                importedAt: Date(timeIntervalSince1970: 0)
+            )
+        } onConflict: {
+            $0.id
+        }
+        .execute(db)
+        try EventSourceProvenanceRecord.insert {
+            EventSourceProvenanceRecord(
+                id: eventID,
+                sourceBaselineID: sourceBaselineID,
+                sourceKind: sourceProvenance.kind,
+                sourceReference: sourceProvenance.reference,
+                ref: sourceProvenance.ref,
+                eventIDOrigin: .inferred,
+                sourceEventDirectory: eventID.eventID.rawValue.rawValue
             )
         }
         .execute(db)
@@ -818,11 +912,22 @@ private func validationResult(
     )
 }
 
-private func importedEventID() -> OMERecord.Event.ID {
+private func importedEventID(_ eventID: String = "imported-event") -> OMERecord.Event.ID {
     let organizerID = OMERecord.Organizer.ID("did:plc:imported")!
     return OMERecord.Event.ID(
         organizerID: organizerID,
-        eventID: OMERecord.ID<OMERecord.Event>(.init("imported-event"))
+        eventID: OMERecord.ID<OMERecord.Event>(.init(eventID))
+    )
+}
+
+private func tangledSourceProvenance(
+    _ repositoryName: String,
+    ref: String? = nil
+) -> OMERecord.SourceDatabaseInsertion.SourceProvenance {
+    OMERecord.SourceDatabaseInsertion.SourceProvenance(
+        kind: .tangled,
+        reference: "tangled.org/woody.fm/\(repositoryName)",
+        ref: ref
     )
 }
 

@@ -22,24 +22,27 @@ public struct MyEvents {
         var destination: Destination.State?
         var errorMessage: String?
         var organizerDetail: OrganizerDetail.State?
+        var sourceDetail: SourceDetail.State?
 
         @DebugSnapshotIgnored
         @FetchAll(MyEvents.query)
         var events
 
         @DebugSnapshotIgnored
-        @FetchAll(MyEvents.organizersQuery)
-        var organizers
+        @FetchAll(MyEvents.downloadedSourcesQuery)
+        var downloadedSources
     }
 
     public enum Action {
         case didTapCreateEvent
+        case didTapDownloadedSource(SourceBaselineRecord.ID)
         case didTapEvent(OMERecord.Event)
         case didTapImportSource
         case didTapOrganizer(OMERecord.Organizer.ID)
-        case deleteOrganizers([OMERecord.Organizer.ID])
+        case deleteDownloadedSources([SourceBaselineRecord.ID])
         case destination(Destination.Action)
         case organizerDetail(OrganizerDetail.Action)
+        case sourceDetail(SourceDetail.Action)
     }
 
     static let query = OMERecord.Event.where { event in
@@ -51,11 +54,20 @@ public struct MyEvents {
 
     }
 
-    static let organizersQuery = OMERecord.Organizer.where { organizer in
-        OMERecord.EventOrganizer
-            .where { $0.id.eventOrganizerID.eq(organizer.id) }
-            .exists()
-    }
+    static let downloadedSourcesQuery = SourceBaselineRecord
+        .group(by: \.id)
+        .join(EventSourceProvenanceRecord.all) { $1.sourceBaselineID.eq($0.id) }
+        .join(OMERecord.Organizer.all) { $1.id.organizerID.eq($2.id) }
+        .order { source, _, _ in
+            (source.sourceReference.asc(), source.ref.asc(), source.id.asc())
+        }
+        .select {
+            DownloadedSourceRow.Columns(
+                sourceBaseline: $0,
+                organizer: $2,
+                eventCount: $1.sourceEventDirectory.count()
+            )
+        }
 
     @Feature
     public enum Destination {
@@ -70,13 +82,13 @@ public struct MyEvents {
         let _ = Self._logChanges()
         Update { state, action in
             switch action {
-            case .deleteOrganizers(let organizerIDs):
+            case .deleteDownloadedSources(let sourceBaselineIDs):
                 store.addTask {
                     do {
                         let sourceProvenances = try database.write { db in
                             var sourceProvenances: [OMERecord.SourceDatabaseInsertion.SourceProvenance] = []
-                            for organizerID in organizerIDs {
-                                let sourceData = try deleteDownloadedOrganizer(organizerID, in: db)
+                            for sourceBaselineID in sourceBaselineIDs {
+                                let sourceData = try deleteDownloadedSource(sourceBaselineID, in: db)
                                 sourceProvenances.append(contentsOf: sourceData.sourceProvenances)
                             }
                             return sourceProvenances
@@ -86,14 +98,14 @@ public struct MyEvents {
                         }
                         try store.modify {
                             $0.errorMessage = nil
-                            if let organizerDetail = $0.organizerDetail,
-                               organizerIDs.contains(organizerDetail.organizerID) {
-                                $0.organizerDetail = nil
+                            if let sourceDetail = $0.sourceDetail,
+                               sourceBaselineIDs.contains(sourceDetail.sourceBaselineID) {
+                                $0.sourceDetail = nil
                             }
                         }
                     } catch {
                         try store.modify {
-                            $0.errorMessage = "Unable to delete organizer."
+                            $0.errorMessage = "Unable to delete source."
                         }
                     }
                 }
@@ -112,6 +124,11 @@ public struct MyEvents {
                     )
                 }
 
+            case .didTapDownloadedSource(let sourceBaselineID):
+                store.withDependencies {
+                    state.sourceDetail = .init(sourceBaselineID: sourceBaselineID)
+                }
+
             case .didTapOrganizer(let organizerID):
                 store.withDependencies {
                     state.organizerDetail = .init(organizerID: organizerID)
@@ -122,6 +139,9 @@ public struct MyEvents {
 
             case .organizerDetail:
                 return
+
+            case .sourceDetail:
+                return
             }
         }
         .ifLet(\.destination, action: \.destination) {
@@ -130,25 +150,49 @@ public struct MyEvents {
         .ifLet(\.organizerDetail, action: \.organizerDetail) {
             OrganizerDetail()
         }
-        .onEvent(SourceImportCompleted.self) { organizerID, state in
+        .ifLet(\.sourceDetail, action: \.sourceDetail) {
+            SourceDetail()
+        }
+        .onEvent(SourceImportCompleted.self) { importedSource, state in
             state.destination = nil
             store.withDependencies {
-                state.organizerDetail = .init(organizerID: organizerID)
+                if let sourceBaselineID = importedSource.sourceBaselineID {
+                    state.sourceDetail = .init(sourceBaselineID: sourceBaselineID)
+                } else {
+                    state.organizerDetail = .init(organizerID: importedSource.organizerID)
+                }
             }
         }
     }
 }
 
-private func deleteDownloadedOrganizer(
-    _ organizerID: OMERecord.Organizer.ID,
+@Selection
+public struct DownloadedSourceRow: Equatable, Identifiable, Sendable {
+    public var sourceBaseline: SourceBaselineRecord
+    public var organizer: OMERecord.Organizer
+    public var eventCount: Int
+
+    public var id: SourceBaselineRecord.ID {
+        sourceBaseline.id
+    }
+
+    public var refTitle: String {
+        sourceBaseline.ref ?? "default ref"
+    }
+}
+
+private func deleteDownloadedSource(
+    _ sourceBaselineID: SourceBaselineRecord.ID,
     in db: Database
 ) throws -> OMERecord.DeletedOrganizerSourceData {
-    let sourceData = try OMERecord.deleteDownloadedOrganizerSourceData(
-        for: organizerID,
+    let sourceData = try OMERecord.deleteDownloadedSourceData(
+        for: sourceBaselineID,
         in: db
     )
+    let eventIDs = sourceData.eventIDs
     let appState = try AppState.find(1).fetchOne(db)
-    if appState?.organizerID == organizerID {
+    if let selectedEventID = appState?.selectedEventID,
+       eventIDs.contains(selectedEventID) {
         try AppState.update {
             $0.organizerID = #bind(nil as OMERecord.Organizer.ID?)
             $0.eventID = #bind(nil as OMERecord.ID<OMERecord.Event>?)
@@ -156,97 +200,135 @@ private func deleteDownloadedOrganizer(
         .execute(db)
     }
 
-    try OrganizerPreferences
-        .where { $0.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-
-    try deleteOrganizerOwnedRecords(organizerID, in: db)
-
-    try OMERecord.Organizer
-        .where { $0.id.eq(organizerID) }
-        .delete()
-        .execute(db)
-
-    try EventViewerState
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try ScheduleViewerState
-        .where { $0.id.eventID.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try ParticipantPreferences
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try PerformancePreferences
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try ChannelPreferences
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try PosterPreferences
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try LocalImageBlob
-        .where { $0.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
+    try deleteEventOwnedRecords(eventIDs, in: db)
+    try deleteUnreferencedOrganizers(eventIDs.map(\.organizerID), in: db)
     return sourceData
 }
 
-private func deleteOrganizerOwnedRecords(
-    _ organizerID: OMERecord.Organizer.ID,
+private func deleteEventOwnedRecords(
+    _ eventIDs: [OMERecord.Event.ID],
     in db: Database
 ) throws {
-    try OMERecord.Performance.Participants
-        .where { $0.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.Performance
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.Poster
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.Channel
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.Participant.Claim
-        .where { $0.participantID.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.Participant
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.Schedule
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.Stage
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.EventOrganizer
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.EventOrganizer
-        .where { $0.id.eventOrganizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
-    try OMERecord.Event
-        .where { $0.id.organizerID.eq(organizerID) }
-        .delete()
-        .execute(db)
+    for eventID in eventIDs.uniqued() {
+        try OMERecord.Performance.Participants
+            .where { $0.organizerID.eq(eventID.organizerID) }
+            .where { $0.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.Performance
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.Poster
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.Channel
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.Participant.Claim
+            .where { $0.participantID.organizerID.eq(eventID.organizerID) }
+            .where { $0.participantID.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.Participant
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.Schedule
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.Stage
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.EventOrganizer
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try OMERecord.Event
+            .where { $0.id.eq(eventID) }
+            .delete()
+            .execute(db)
+
+        try EventViewerState
+            .where { $0.id.eq(eventID) }
+            .delete()
+            .execute(db)
+        try ScheduleViewerState
+            .where { $0.id.eventID.eq(eventID) }
+            .delete()
+            .execute(db)
+        try ParticipantPreferences
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try PerformancePreferences
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try ChannelPreferences
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try PosterPreferences
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+        try LocalImageBlob
+            .where { $0.organizerID.eq(eventID.organizerID) }
+            .where { $0.eventID.eq(eventID.eventID) }
+            .delete()
+            .execute(db)
+    }
+}
+
+private func deleteUnreferencedOrganizers(
+    _ organizerIDs: [OMERecord.Organizer.ID],
+    in db: Database
+) throws {
+    for organizerID in organizerIDs.uniqued() {
+        let eventOrganizerCount = try OMERecord.EventOrganizer
+            .where { $0.id.eventOrganizerID.eq(organizerID) }
+            .fetchCount(db)
+        let ownedEventCount = try OMERecord.Event
+            .where { $0.id.organizerID.eq(organizerID) }
+            .fetchCount(db)
+        if eventOrganizerCount == 0 && ownedEventCount == 0 {
+            try OrganizerPreferences
+                .where { $0.organizerID.eq(organizerID) }
+                .delete()
+                .execute(db)
+            try OMERecord.Organizer
+                .where { $0.id.eq(organizerID) }
+                .delete()
+                .execute(db)
+        }
+    }
+}
+
+private extension Sequence where Element: Hashable {
+    func uniqued() -> [Element] {
+        var seen: Set<Element> = []
+        var result: [Element] = []
+        for element in self where seen.insert(element).inserted {
+            result.append(element)
+        }
+        return result
+    }
 }
 
 struct MyEventsView: View {
@@ -262,17 +344,17 @@ struct MyEventsView: View {
                 }
             }
 
-            if !store.organizers.isEmpty {
-                Section("Organizers") {
-                    ForEach(store.organizers) { organizer in
+            if !store.downloadedSources.isEmpty {
+                Section("Downloaded Sources") {
+                    ForEach(store.downloadedSources) { downloadedSource in
                         Button {
-                            store.send(.didTapOrganizer(organizer.id))
+                            store.send(.didTapDownloadedSource(downloadedSource.id))
                         } label: {
-                            OrganizerRowView(organizer: organizer)
+                            DownloadedSourceRowView(downloadedSource: downloadedSource)
                         }
                     }
                     .onDelete { offsets in
-                        deleteOrganizers(at: offsets)
+                        deleteDownloadedSources(at: offsets)
                     }
                 }
             }
@@ -313,15 +395,18 @@ struct MyEventsView: View {
         .navigationDestination(item: $store.scope(\.organizerDetail, action: \.organizerDetail)) { detailStore in
             OrganizerDetailView(store: detailStore)
         }
+        .navigationDestination(item: $store.scope(\.sourceDetail, action: \.sourceDetail)) { detailStore in
+            SourceDetailView(store: detailStore)
+        }
     }
 
-    func deleteOrganizers(at offsets: IndexSet) {
-        let organizerIDs = offsets.compactMap { offset in
-            store.organizers.indices.contains(offset)
-                ? store.organizers[offset].id
+    func deleteDownloadedSources(at offsets: IndexSet) {
+        let sourceBaselineIDs = offsets.compactMap { offset in
+            store.downloadedSources.indices.contains(offset)
+                ? store.downloadedSources[offset].id
                 : nil
         }
-        store.send(.deleteOrganizers(organizerIDs))
+        store.send(.deleteDownloadedSources(sourceBaselineIDs))
     }
 }
 
@@ -347,6 +432,33 @@ struct OrganizerRowView: View {
 
             Text(organizer.id.description)
                 .lineLimit(1)
+
+            Spacer()
+        }
+        .foregroundStyle(.primary)
+    }
+}
+
+struct DownloadedSourceRowView: View {
+    var downloadedSource: DownloadedSourceRow
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "folder")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .frame(width: 60, height: 60)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(downloadedSource.sourceBaseline.sourceReference)
+                    .lineLimit(1)
+                Text(
+                    "\(downloadedSource.refTitle) - \(downloadedSource.organizer.id.description)"
+                )
+                    .lineLimit(1)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
         }

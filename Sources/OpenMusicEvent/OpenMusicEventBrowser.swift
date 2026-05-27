@@ -3,6 +3,7 @@ import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventImages
+import OpenMusicEventSourceEditing
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -552,6 +553,162 @@ public struct OrganizerDetailView: View {
 
     private var organizerTitle: String {
         (store.organizer?.id ?? store.organizerID).description
+    }
+
+    @ViewBuilder
+    private func eventRows(_ events: [OMERecord.Event]) -> some View {
+        ForEach(events) { event in
+            Button {
+                store.send(.eventButtonTapped(event.id))
+            } label: {
+                EventRowView(event: event)
+            }
+        }
+    }
+}
+
+@Feature
+public struct SourceDetail {
+    public init() {}
+
+    public struct State: Identifiable {
+        public init(sourceBaselineID: SourceBaselineRecord.ID) {
+            self.sourceBaselineID = sourceBaselineID
+            _sourceBaseline = FetchOne(
+                SourceDetail.sourceBaselineQuery(sourceBaselineID: sourceBaselineID)
+            )
+            _organizer = FetchOne(
+                SourceDetail.organizerQuery(sourceBaselineID: sourceBaselineID)
+            )
+            _events = FetchAll(
+                SourceDetail.eventsQuery(sourceBaselineID: sourceBaselineID)
+            )
+        }
+
+        @DebugSnapshotIgnored
+        @FetchAll
+        public var events: [OMERecord.Event]
+
+        @DebugSnapshotIgnored
+        @FetchOne
+        public var organizer: OMERecord.Organizer?
+
+        @DebugSnapshotIgnored
+        @FetchOne
+        public var sourceBaseline: SourceBaselineRecord?
+
+        public let sourceBaselineID: SourceBaselineRecord.ID
+
+        public var id: SourceBaselineRecord.ID { sourceBaselineID }
+    }
+
+    public enum Action {
+        case eventButtonTapped(OMERecord.Event.ID)
+        case task
+    }
+
+    static func sourceBaselineQuery(
+        sourceBaselineID: SourceBaselineRecord.ID
+    ) -> some SelectStatementOf<SourceBaselineRecord> {
+        SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
+    }
+
+    static func organizerQuery(
+        sourceBaselineID: SourceBaselineRecord.ID
+    ) -> some SelectStatementOf<OMERecord.Organizer> {
+        OMERecord.Organizer.where { organizer in
+            EventSourceProvenanceRecord
+                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                .where { $0.id.organizerID.eq(organizer.id) }
+                .exists()
+        }
+    }
+
+    static func eventsQuery(
+        sourceBaselineID: SourceBaselineRecord.ID
+    ) -> some SelectStatementOf<OMERecord.Event> {
+        OMERecord.Event.where { event in
+            EventSourceProvenanceRecord
+                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                .where { $0.id.organizerID.eq(event.id.organizerID) }
+                .where { $0.id.eventID.eq(event.id.eventID) }
+                .exists()
+        }
+    }
+
+    public var body: some Feature {
+        Update { _, action in
+            switch action {
+            case .eventButtonTapped(let eventID):
+                store.addTask {
+                    try store.post(
+                        key: NavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
+                }
+
+            case .task:
+                break
+            }
+        }
+    }
+}
+
+public struct SourceDetailView: View {
+    @Bindable var store: StoreOf<SourceDetail>
+    @Dependency(\.date.now) var now
+
+    public init(store: StoreOf<SourceDetail>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        HeroImageList(title: Text(sourceTitle)) {
+            HeroImage(
+                title: Text(sourceTitle),
+                asset: nil,
+                cacheContext: nil
+            ) {
+                Image(systemName: "folder")
+                    .font(.system(size: 82, weight: .semibold))
+            }
+        } content: {
+            if !sections.currentEvents.isEmpty {
+                Section("Happening Now") {
+                    eventRows(sections.currentEvents)
+                }
+            }
+
+            if !sections.upcomingEvents.isEmpty {
+                Section("Upcoming Events") {
+                    eventRows(sections.upcomingEvents)
+                }
+            }
+
+            if !sections.previousEvents.isEmpty {
+                Section("Previous Events") {
+                    eventRows(sections.previousEvents)
+                }
+            }
+
+            if sections.isEmpty {
+                EmptyBrowserState(
+                    title: "No Events",
+                    systemImage: "calendar.badge.exclamationmark",
+                    message: "This source has no events."
+                )
+            }
+        }
+    }
+
+    private var sections: OrganizerDetail.EventSections {
+        OrganizerDetail.EventSections(events: store.events, now: now)
+    }
+
+    private var sourceTitle: String {
+        store.sourceBaseline?.sourceReference
+        ?? store.organizer?.id.description
+        ?? store.sourceBaselineID.rawValue
     }
 
     @ViewBuilder

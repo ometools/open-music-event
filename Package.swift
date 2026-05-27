@@ -281,6 +281,7 @@ let package = Package(
                 "OpenMusicEventSourceEditing",
                 .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),

@@ -14,7 +14,20 @@ struct TangledSourceImportClient: Sendable {
 
 public struct SourceImportCompleted: FeatureEventKey {
     public init() {}
-    public typealias Value = OMERecord.Organizer.ID
+    public typealias Value = ImportedSource
+}
+
+public struct ImportedSource: Equatable, Sendable {
+    public var organizerID: OMERecord.Organizer.ID
+    public var sourceBaselineID: SourceBaselineRecord.ID?
+
+    public init(
+        organizerID: OMERecord.Organizer.ID,
+        sourceBaselineID: SourceBaselineRecord.ID?
+    ) {
+        self.organizerID = organizerID
+        self.sourceBaselineID = sourceBaselineID
+    }
 }
 
 extension TangledSourceImportClient {
@@ -147,7 +160,11 @@ public struct TangledSourceDownload {
                     }
                     try store.post(
                         key: SourceImportCompleted.self,
-                        value: result.organizerID
+                        value: ImportedSource(
+                            organizerID: result.organizerID,
+                            sourceBaselineID: (try? request.tangledSourceProvenance())
+                                .map(SourceBaselineRecord.ID.init(source:))
+                        )
                     )
                     try store.dismiss()
                 }

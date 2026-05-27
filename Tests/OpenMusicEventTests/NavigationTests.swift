@@ -4,6 +4,8 @@ import Dependencies
 import DebugSnapshots
 import Foundation
 import Observation
+import OpenMusicEventSource
+import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
 import SwiftUI
@@ -267,8 +269,40 @@ struct NavigationTests {
     }
 
     @Test
-    func myEventsOrganizerTapPresentsOrganizerDetail() throws {
+    func myEventsDownloadedSourceTapPresentsSourceDetail() throws {
         let database = try makePreparedDatabase()
+        let eventID = eventID("downloaded-event")
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/wicked-woods-ome",
+            ref: "HEAD"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        try database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Downloaded Event")
+            try Self.insertEventOrganizer(db, eventID: eventID, organizerID: testOrganizerID)
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    source: sourceProvenance,
+                    databaseFileName: "baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 0)
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceBaselineID: sourceBaselineID,
+                    sourceKind: sourceProvenance.kind,
+                    sourceReference: sourceProvenance.reference,
+                    ref: sourceProvenance.ref,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "downloaded-event"
+                )
+            }
+            .execute(db)
+        }
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
@@ -283,9 +317,9 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            store.send(.myEvents(.didTapOrganizer(testOrganizerID)))
+            store.send(.myEvents(.didTapDownloadedSource(sourceBaselineID)))
         }
-        #expect(store.state.myEvents.organizerDetail?.organizerID == testOrganizerID)
+        #expect(store.state.myEvents.sourceDetail?.sourceBaselineID == sourceBaselineID)
     }
 
     @Test
