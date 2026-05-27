@@ -179,6 +179,12 @@ struct TangledSourceCloneTests {
             .appending(path: "ome-git-checkout-\(UUID().uuidString)")
             .standardizedFileURL
         defer { try? FileManager.default.removeItem(at: outputURL) }
+        let credentials = Credentials(
+            ssh: SSHCredentials(
+                publicKey: "ssh-ed25519 public-key Open Music Event",
+                privateKey: "private-key"
+            )
+        )
         let cloneRequests = Mutex([CloneRequest]())
 
         let checkout = try await withDependencies {
@@ -245,6 +251,9 @@ struct TangledSourceCloneTests {
                 commit: { _ in Commit(id: "commit-id") },
                 push: { _ in }
             )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                credentials
+            }
         } operation: {
             try await TangledSourceCheckoutClient.git.checkout(
                 TangledSourceCheckoutRequest(
@@ -264,7 +273,101 @@ struct TangledSourceCloneTests {
         #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(request.checkout == "main")
         #expect(request.destinationURL == outputURL)
-        #expect(request.credentials == .sshAgent())
+        #expect(request.credentials == credentials)
+    }
+
+    @Test
+    func explicitGitCheckoutCanUseSSHAgentCredentials() async throws {
+        let ownerDID = try #require(DID("did:plc:owner123"))
+        let ownerHandle = Atmosphere.Account.Handle("woody.fm")
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-git-checkout-ssh-agent-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        let credentials = Credentials.sshAgent()
+        let cloneRequests = Mutex([CloneRequest]())
+
+        _ = try await withDependencies {
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    expectNoDifference(handle, ownerHandle)
+                    return (
+                        Atmosphere.Account(id: .init(ownerDID), handle: handle),
+                        try didDocument(
+                            did: ownerDID,
+                            handle: handle,
+                            pdsHost: "owner.pds.example"
+                        )
+                    )
+                },
+                resolveDID: { did in
+                    Issue.record("Did not expect DID resolution: \(did)")
+                    return (
+                        Atmosphere.Account(id: .init(ownerDID), handle: ownerHandle),
+                        try didDocument(
+                            did: ownerDID,
+                            handle: ownerHandle,
+                            pdsHost: "owner.pds.example"
+                        )
+                    )
+                }
+            )
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, _ in
+                expectNoDifference(request.url?.host, "owner.pds.example")
+                expectNoDifference(request.url?.path, "/xrpc/com.atproto.repo.listRecords")
+                return Data(
+                    """
+                    {
+                      "records": [
+                        {
+                          "uri": "at://did:plc:owner123/sh.tangled.repo/3repo",
+                          "cid": "bafyreifakerepo",
+                          "value": {
+                            "$type": "sh.tangled.repo",
+                            "name": "wicked-woods-ome",
+                            "repoDid": "did:plc:targetrepo",
+                            "knot": "tangled.org",
+                            "createdAt": "2026-05-26T17:30:42Z"
+                          }
+                        }
+                      ]
+                    }
+                    """
+                    .utf8
+                )
+            }
+            $0.sourceControl = SourceControlClient(
+                clone: { request in
+                    cloneRequests.withLock { $0.append(request) }
+                    return Repository(url: request.destinationURL)
+                },
+                open: { Repository(url: $0) },
+                fetch: { _ in },
+                checkout: { _ in },
+                createBranch: { request in Branch(name: request.name) },
+                status: { _ in [] },
+                stage: { _ in },
+                commit: { _ in Commit(id: "commit-id") },
+                push: { _ in }
+            )
+        } operation: {
+            try await TangledSourceCheckoutClient.git(credentials: credentials).checkout(
+                TangledSourceCheckoutRequest(
+                    repository: TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: "woody.fm",
+                        repository: "wicked-woods-ome"
+                    ),
+                    ref: "refs/heads/main",
+                    outputURL: outputURL
+                )
+            )
+        }
+
+        let request = try #require(cloneRequests.withLock { $0.first })
+        #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
+        #expect(request.credentials == credentials)
     }
 
     @Test

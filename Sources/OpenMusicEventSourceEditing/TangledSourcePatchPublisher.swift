@@ -7,6 +7,7 @@ import HTTPClient
 import HTTPTypes
 import OpenMusicEventSourceClone
 import SourceEditing
+import SourceControlClient
 import XRPCClient
 
 public struct TangledSourcePatchPublisher: Sendable {
@@ -28,10 +29,16 @@ public struct TangledSourcePatchPublisher: Sendable {
         guard remote.kind == "tangled" else {
             throw TangledSourcePatchPublisherError.unsupportedRemoteKind(remote.kind)
         }
+        try Self.requireGitRepository(preparedPatch.workingTree.workingRepositoryURL)
 
         let repository = try TangledRepositoryReference(parsing: remote.reference)
         let targetRepository = try await targetRepository(repository)
         let targetBranch = Self.targetBranch(remote.ref)
+        let sourceBranch = Self.proposalBranchName()
+        let commit = try await pushBranch(
+            preparedPatch,
+            branchName: sourceBranch
+        )
         let createdAtDate = Self.now()
         let createdAt = Self.iso8601String(createdAtDate)
         let patchText = try Self.formatPatchText(
@@ -56,8 +63,8 @@ public struct TangledSourcePatchPublisher: Sendable {
                 )
             ],
             source: TangledRepoPullRecord.Source(
-                branch: targetBranch,
-                sha: Self.gitHEADSHA(in: preparedPatch.workingTree.originalRepositoryURL)
+                branch: sourceBranch.rawValue,
+                sha: commit.id.rawValue
             ),
             target: TangledRepoPullRecord.Target(
                 branch: targetBranch,
@@ -70,12 +77,13 @@ public struct TangledSourcePatchPublisher: Sendable {
         @Dependency(\.getDefaultSession) var getDefaultSession
         @Dependency(XRPC.Client.self) var xrpcClient
         _ = try await xrpcClient.run(
-            CreateRecordRequest(
-                input: CreateRecordInput(
+            TangledCreateRecordRequest(
+                input: TangledCreateRecordInput(
                     repo: getDefaultSession().accountID.rawValue.description,
                     collection: "sh.tangled.repo.pull",
                     record: record
-                )
+                ),
+                authorizationPolicy: .required(TangledOAuthRequirements.proposalAuthRequirement)
             )
         )
 
@@ -89,6 +97,7 @@ public enum TangledSourcePatchPublisherError: Equatable, Error, Sendable {
     case invalidUploadBlobURL(String)
     case missingRemote
     case missingRepositoryPDS(String)
+    case missingGitRepository(URL)
     case repositoryRecordMissingKey(String)
     case repositoryRecordMissingRepoDID(String)
     case repositoryRecordNotFound(owner: String, repository: String)
@@ -120,9 +129,9 @@ extension TangledSourcePatchPublisher {
 
         repeat {
             let output = try await xrpcClient.run(
-                ListRecordsRequest<TangledRepositoryRecord>(
+                TangledListRecordsRequest<TangledRepositoryRecord>(
                     repo: owner.did.description,
-                    collection: "sh.tangled.repo",
+                    collection: TangledRepositoryRecord.collection,
                     cursor: cursor,
                     pdsHost: owner.pdsHost
                 )
@@ -153,13 +162,6 @@ extension TangledSourcePatchPublisher {
 }
 
 private extension TangledSourcePatchPublisher {
-    static let proposalAuthRequirement = OAuth.AuthRequirement(
-        permissions: [
-            OAuth.Permission("blob:text/x-patch"),
-            OAuth.Permission("repo:sh.tangled.repo.pull?action=create"),
-        ]
-    )
-
     static func now() -> Date {
         @Dependency(\.date.now) var now
         return now
@@ -178,13 +180,72 @@ private extension TangledSourcePatchPublisher {
         return trimmedRef
     }
 
+    static func proposalBranchName() -> BranchName {
+        @Dependency(\.uuid) var uuid
+        return BranchName(rawValue: "ome/proposal-\(uuid().uuidString.lowercased())")
+    }
+
+    static func requireGitRepository(_ repositoryURL: URL) throws {
+        let dotGitURL = repositoryURL.appending(path: ".git")
+        guard FileManager.default.fileExists(atPath: dotGitURL.path) else {
+            throw TangledSourcePatchPublisherError.missingGitRepository(repositoryURL)
+        }
+    }
+
+    func pushBranch(
+        _ preparedPatch: PreparedSourcePatch,
+        branchName: BranchName
+    ) async throws -> Commit {
+        @Dependency(\.sourceControl) var sourceControl
+        @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
+
+        let repository = try await sourceControl.open(
+            preparedPatch.workingTree.workingRepositoryURL
+        )
+        let branch = try await sourceControl.createBranch(
+            CreateBranchRequest(
+                repository: repository,
+                name: branchName,
+                startPoint: "HEAD",
+                checkout: true
+            )
+        )
+        try await sourceControl.stage(
+            StageRequest(
+                repository: repository,
+                paths: preparedPatch.request.patch.fileChanges.map {
+                    RepositoryPath(rawValue: $0.path)
+                }
+            )
+        )
+        let commit = try await sourceControl.commit(
+            CommitRequest(
+                repository: repository,
+                message: CommitMessage(rawValue: defaultTitle),
+                author: Author(
+                    name: PersonName(rawValue: "Open Music Event"),
+                    email: EmailAddress(rawValue: "noreply@openmusicevent.app")
+                )
+            )
+        )
+        try await sourceControl.push(
+            PushRequest(
+                repository: repository,
+                localBranch: branch.name,
+                remoteBranch: branch.name,
+                credentials: try await tangledSSHCredentials.credentials()
+            )
+        )
+        return commit
+    }
+
     func uploadPatchBlob(_ patchData: Data) async throws -> ATProto.Blob {
         @Dependency(\.httpClient) var httpClient
         @Dependency(\.jsonDecoder) var jsonDecoder
         @Dependency(\.xrpcAuthorizationGate) var authorizationGate
 
         let responseData = try await authorizationGate.run(
-            policy: .required(Self.proposalAuthRequirement),
+            policy: .required(TangledOAuthRequirements.proposalAuthRequirement),
             routing: XRPC.Routing()
         ) {
             @Dependency(\.pdsHost) var pdsHost
@@ -329,11 +390,6 @@ private struct TangledRepositoryOwnerResolution: Sendable {
     var pdsHost: ATProto.PDSHost
 }
 
-struct TangledRepositoryTarget: Equatable, Sendable {
-    var recordURI: String
-    var repoDID: String
-}
-
 private func resolvedOwner(
     for repository: TangledRepositoryReference
 ) async throws -> TangledRepositoryOwnerResolution {
@@ -370,162 +426,8 @@ private func resolvedOwner(
     )
 }
 
-private struct ListRecordsRequest<RecordValue: Decodable & Sendable>: XRPC.Request, Sendable {
-    static var nsid: ATProto.NSID { ATProto.NSID("com.atproto.repo.listRecords") }
-    static var type: XRPC.RequestType { .query }
-
-    typealias Input = Never
-    typealias Output = ListRecordsOutput<RecordValue>
-    typealias Parameters = Never
-
-    var repo: String
-    var collection: String
-    var cursor: String?
-    var pdsHost: ATProto.PDSHost
-
-    var routing: XRPC.Routing {
-        XRPC.Routing(
-            unauthenticated: .host(pdsHost),
-            authenticated: .host(pdsHost)
-        )
-    }
-
-    var queryItems: [URLQueryItem] {
-        var items = [
-            URLQueryItem(name: "repo", value: repo),
-            URLQueryItem(name: "collection", value: collection),
-            URLQueryItem(name: "limit", value: "100"),
-        ]
-        if let cursor {
-            items.append(URLQueryItem(name: "cursor", value: cursor))
-        }
-        return items
-    }
-}
-
-private struct ListRecordsOutput<RecordValue: Decodable & Sendable>: Decodable, Sendable {
-    var cursor: String?
-    var records: [ListedRecord<RecordValue>]
-}
-
-private struct ListedRecord<RecordValue: Decodable & Sendable>: Decodable, Sendable {
-    var uri: ATProto.URI
-    var value: RecordValue
-}
-
-private struct TangledRepositoryRecord: Decodable, Sendable {
-    var name: String?
-    var repo: String?
-    var repoDid: String?
-
-    func matches(_ reference: TangledRepositoryReference) -> Bool {
-        (name ?? repo) == reference.repository
-    }
-}
-
-private struct CreateRecordInput<Record: Encodable & Sendable>: Encodable, Sendable {
-    var repo: String
-    var collection: String
-    var record: Record
-}
-
-private struct CreateRecordOutput: Decodable, Sendable {
-    var uri: ATProto.URI
-    var cid: ATProto.CID
-}
-
-private struct CreateRecordRequest<Record: Encodable & Sendable>: XRPC.Request, Sendable {
-    static var nsid: ATProto.NSID { ATProto.NSID("com.atproto.repo.createRecord") }
-    static var type: XRPC.RequestType { .procedure }
-    static var authorizationPolicy: XRPC.AuthorizationPolicy {
-        .required(TangledSourcePatchPublisher.proposalAuthRequirement)
-    }
-
-    typealias Input = CreateRecordInput<Record>
-    typealias Output = CreateRecordOutput
-    typealias Parameters = Never
-
-    var input: Input
-}
-
 private struct UploadBlobOutput: Decodable, Sendable {
     var blob: ATProto.Blob
-}
-
-private struct TangledRepoPullRecord: Encodable, Sendable {
-    struct Round: Encodable, Sendable {
-        var createdAt: String
-        var patchBlob: ATProto.Blob
-    }
-
-    struct Target: Encodable, Sendable {
-        var branch: String
-        var repo: String
-        var repoDID: String
-
-        enum CodingKeys: String, CodingKey {
-            case branch
-            case repo
-            case repoDID = "repoDid"
-        }
-    }
-
-    struct Source: Encodable, Sendable {
-        var branch: String
-        var sha: String?
-
-        func encode(to encoder: any Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(branch, forKey: .branch)
-            try container.encodeIfPresent(sha, forKey: .sha)
-        }
-
-        enum CodingKeys: String, CodingKey {
-            case branch
-            case sha
-        }
-    }
-
-    var body: String?
-    var createdAt: String
-    var patch: String?
-    var patchBlob: ATProto.Blob
-    var pullID: Int64
-    var rounds: [Round]
-    var source: Source?
-    var target: Target
-    var title: String
-
-    enum CodingKeys: String, CodingKey {
-        case type = "$type"
-        case body
-        case createdAt
-        case patch
-        case patchBlob
-        case pullID = "pullId"
-        case rounds
-        case source
-        case target
-        case targetBranch
-        case targetRepo
-        case title
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("sh.tangled.repo.pull", forKey: .type)
-        try container.encodeIfPresent(body, forKey: .body)
-        try container.encode(createdAt, forKey: .createdAt)
-        try container.encodeIfPresent(patch, forKey: .patch)
-        try container.encode(patchBlob, forKey: .patchBlob)
-        try container.encode(pullID, forKey: .pullID)
-        try container.encode(rounds, forKey: .rounds)
-        try container.encodeIfPresent(source, forKey: .source)
-        try container.encode(target, forKey: .target)
-        try container.encode(target.branch, forKey: .targetBranch)
-        try container.encode(target.repo, forKey: .targetRepo)
-        try container.encode(title, forKey: .title)
-    }
 }
 
 private extension TangledRepositoryReference {

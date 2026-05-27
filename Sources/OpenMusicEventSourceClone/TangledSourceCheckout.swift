@@ -53,7 +53,11 @@ public extension TangledSourceCheckoutClient {
     }
 
     static var git: Self {
-        git(credentials: .sshAgent())
+        Self { request in
+            @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
+            return try await git(credentials: tangledSSHCredentials.credentials())
+                .checkout(request)
+        }
     }
 
     static func git(credentials: Credentials?) -> Self {
@@ -129,9 +133,9 @@ public extension TangledRepositoryReference {
 
         repeat {
             let output = try await xrpcClient.run(
-                ListRecordsRequest<TangledRepositoryRecord>(
+                TangledListRecordsRequest<TangledRepositoryRecord>(
                     repo: owner.did.description,
-                    collection: "sh.tangled.repo",
+                    collection: TangledRepositoryRecord.collection,
                     cursor: cursor,
                     pdsHost: owner.pdsHost
                 )
@@ -201,59 +205,6 @@ public enum TangledSourceCheckoutError: Equatable, Error, Sendable {
 private struct TangledRepositoryOwnerResolution: Sendable {
     var did: DID
     var pdsHost: ATProto.PDSHost
-}
-
-private struct ListRecordsRequest<RecordValue: Decodable & Sendable>: XRPC.Request, Sendable {
-    static var nsid: ATProto.NSID { ATProto.NSID("com.atproto.repo.listRecords") }
-    static var type: XRPC.RequestType { .query }
-
-    typealias Input = Never
-    typealias Output = ListRecordsOutput<RecordValue>
-    typealias Parameters = Never
-
-    var repo: String
-    var collection: String
-    var cursor: String?
-    var pdsHost: ATProto.PDSHost
-
-    var routing: XRPC.Routing {
-        XRPC.Routing(
-            unauthenticated: .host(pdsHost),
-            authenticated: .host(pdsHost)
-        )
-    }
-
-    var queryItems: [URLQueryItem] {
-        var items = [
-            URLQueryItem(name: "repo", value: repo),
-            URLQueryItem(name: "collection", value: collection),
-            URLQueryItem(name: "limit", value: "100"),
-        ]
-        if let cursor {
-            items.append(URLQueryItem(name: "cursor", value: cursor))
-        }
-        return items
-    }
-}
-
-private struct ListRecordsOutput<RecordValue: Decodable & Sendable>: Decodable, Sendable {
-    var cursor: String?
-    var records: [ListedRecord<RecordValue>]
-}
-
-private struct ListedRecord<RecordValue: Decodable & Sendable>: Decodable, Sendable {
-    var uri: ATProto.URI
-    var value: RecordValue
-}
-
-private struct TangledRepositoryRecord: Decodable, Sendable {
-    var name: String?
-    var repo: String?
-    var repoDid: String?
-
-    func matches(_ reference: TangledRepositoryReference) -> Bool {
-        (name ?? repo) == reference.repository
-    }
 }
 
 public extension DependencyValues {

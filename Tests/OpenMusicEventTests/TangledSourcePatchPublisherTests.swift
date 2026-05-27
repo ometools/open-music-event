@@ -7,6 +7,8 @@ import HTTPClient
 import HTTPTypes
 import OpenMusicEventSourceClone
 import SourceEditing
+import SourceControlClient
+import Synchronization
 import Testing
 import XRPCClient
 
@@ -36,9 +38,27 @@ struct TangledSourcePatchPublisherTests {
             atomically: true,
             encoding: .utf8
         )
+        let branchName = BranchName(
+            rawValue: "ome/proposal-00000000-0000-0000-0000-000000000042"
+        )
+        let commitID = CommitID(rawValue: "fedcbafedcbafedcbafedcbafedcbafedcbafedc")
+        let credentials = Credentials(
+            ssh: SSHCredentials(
+                publicKey: "ssh-ed25519 public-key Open Music Event",
+                privateKey: "private-key"
+            )
+        )
+        let openRequests = Mutex([URL]())
+        let createBranchRequests = Mutex([CreateBranchRequest]())
+        let stageRequests = Mutex([StageRequest]())
+        let commitRequests = Mutex([CommitRequest]())
+        let pushRequests = Mutex([PushRequest]())
 
         let publication = try await withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 1_779_800_000)
+            $0.uuid = .constant(
+                try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000042"))
+            )
             $0[Atmosphere.Account.Client.self] = .testClient(
                 did: ownerDID,
                 handle: "woody.fm",
@@ -101,6 +121,33 @@ struct TangledSourcePatchPublisherTests {
                     throw TestAccountClientFailure.unexpectedResolution
                 }
             }
+            $0.sourceControl = SourceControlClient(
+                clone: { request in Repository(url: request.destinationURL) },
+                open: { url in
+                    openRequests.withLock { $0.append(url) }
+                    return Repository(url: url)
+                },
+                fetch: { _ in },
+                checkout: { _ in },
+                createBranch: { request in
+                    createBranchRequests.withLock { $0.append(request) }
+                    return Branch(name: request.name)
+                },
+                status: { _ in [] },
+                stage: { request in
+                    stageRequests.withLock { $0.append(request) }
+                },
+                commit: { request in
+                    commitRequests.withLock { $0.append(request) }
+                    return Commit(id: commitID)
+                },
+                push: { request in
+                    pushRequests.withLock { $0.append(request) }
+                }
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                credentials
+            }
         } operation: {
             try await TangledSourcePatchPublisher().publish(
                 PreparedSourcePatch(
@@ -136,6 +183,21 @@ struct TangledSourcePatchPublisherTests {
         }
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
+        #expect(openRequests.withLock { $0 } == [repositoryURL.standardizedFileURL])
+        let createBranchRequest = try #require(createBranchRequests.withLock { $0.first })
+        #expect(createBranchRequest.name == branchName)
+        #expect(createBranchRequest.startPoint == "HEAD")
+        #expect(createBranchRequest.checkout)
+        let stageRequest = try #require(stageRequests.withLock { $0.first })
+        #expect(stageRequest.paths == ["events/2025/event.yml"])
+        let commitRequest = try #require(commitRequests.withLock { $0.first })
+        #expect(commitRequest.message == "Update event source")
+        #expect(commitRequest.author.name == "Open Music Event")
+        #expect(commitRequest.author.email == "noreply@openmusicevent.app")
+        let pushRequest = try #require(pushRequests.withLock { $0.first })
+        #expect(pushRequest.localBranch == branchName)
+        #expect(pushRequest.remoteBranch == branchName)
+        #expect(pushRequest.credentials == credentials)
 
         let requests = await requestRecorder.requests
         let uploadRequest = try #require(
@@ -169,8 +231,8 @@ struct TangledSourcePatchPublisherTests {
         #expect(target["repoDid"] as? String == "did:plc:targetrepo")
 
         let source = try #require(record["source"] as? [String: Any])
-        #expect(source["branch"] as? String == "main")
-        #expect(source["sha"] as? String == sourceSHA)
+        #expect(source["branch"] as? String == branchName.rawValue)
+        #expect(source["sha"] as? String == commitID.rawValue)
 
         let rounds = try #require(record["rounds"] as? [[String: Any]])
         #expect(rounds.count == 1)
@@ -247,6 +309,13 @@ struct TangledSourcePatchPublisherTests {
     func publishingFailsBeforeUploadingWhenRepoRecordCannotBeResolved() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let requestRecorder = HTTPRequestRecorder()
+        let repositoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "TangledSourcePatchPublisherMissingRepo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: repositoryURL.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
 
         let error = await #expect(throws: TangledSourcePatchPublisherError.self) {
             try await withDependencies {
@@ -291,11 +360,11 @@ struct TangledSourcePatchPublisherTests {
                             )
                         ),
                         workingTree: SourceWorkingTree(
-                            originalRepositoryURL: URL(fileURLWithPath: "/tmp/source"),
-                            originalURL: URL(fileURLWithPath: "/tmp/source"),
+                            originalRepositoryURL: repositoryURL,
+                            originalURL: repositoryURL,
                             relativePath: nil,
-                            workingRepositoryURL: URL(fileURLWithPath: "/tmp/working"),
-                            workingURL: URL(fileURLWithPath: "/tmp/working")
+                            workingRepositoryURL: repositoryURL,
+                            workingURL: repositoryURL
                         )
                     )
                 )
@@ -309,6 +378,67 @@ struct TangledSourcePatchPublisherTests {
             )
         )
         #expect(await requestRecorder.requests.count == 1)
+    }
+
+    @Test
+    func publishingFailsBeforeNetworkWritesForNonGitWorkingTree() async throws {
+        let requestRecorder = HTTPRequestRecorder()
+        let repositoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "TangledSourcePatchPublisherNonGit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: repositoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
+
+        let error = await #expect(throws: TangledSourcePatchPublisherError.self) {
+            try await withDependencies {
+                $0.httpClient = HTTPClient { request, body in
+                    await requestRecorder.record(request, body)
+                    return Data()
+                }
+                $0.sourceControl = SourceControlClient(
+                    clone: { request in Repository(url: request.destinationURL) },
+                    open: { url in
+                        Issue.record("Unexpected source-control open: \(url)")
+                        return Repository(url: url)
+                    },
+                    fetch: { _ in },
+                    checkout: { _ in },
+                    createBranch: { _ in Branch(name: "unexpected") },
+                    status: { _ in [] },
+                    stage: { _ in },
+                    commit: { _ in Commit(id: "unexpected") },
+                    push: { _ in }
+                )
+            } operation: {
+                try await TangledSourcePatchPublisher().publish(
+                    PreparedSourcePatch(
+                        request: SourcePatchPublishRequest(
+                            location: SourcePatchLocation(
+                                repositoryURL: repositoryURL,
+                                remote: SourcePatchLocation.Remote(
+                                    kind: "tangled",
+                                    reference: "woody.fm/wicked-woods-ome",
+                                    ref: "main"
+                                )
+                            ),
+                            patch: SourcePatch(fileChanges: [])
+                        ),
+                        workingTree: SourceWorkingTree(
+                            originalRepositoryURL: repositoryURL,
+                            originalURL: repositoryURL,
+                            relativePath: nil,
+                            workingRepositoryURL: repositoryURL,
+                            workingURL: repositoryURL
+                        )
+                    )
+                )
+            }
+        }
+
+        #expect(error == .missingGitRepository(repositoryURL))
+        #expect(await requestRecorder.requests.isEmpty)
     }
 }
 

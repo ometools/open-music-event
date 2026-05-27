@@ -32,6 +32,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
+        .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
@@ -82,6 +83,7 @@ let package = Package(
         .target(
             name: "OpenMusicEventAuthentication",
             dependencies: [
+                "OpenMusicEventSourceClone",
                 .product(name: "ATProtoOAuth", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
@@ -186,6 +188,7 @@ let package = Package(
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "Lexicon", package: "tcatproto"),
+                .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
                 .product(name: "XRPCClient", package: "tcatproto"),
             ]
@@ -207,9 +210,12 @@ let package = Package(
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "ATProto", package: "tcatproto"),
+                .product(name: "ATProtoOAuth", package: "tcatproto"),
+                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Gzip", package: "gzipswift"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "Tar", package: "swift-tar"),
                 .product(name: "XRPCClient", package: "tcatproto"),
@@ -254,7 +260,12 @@ let package = Package(
             name: "OpenMusicEventCLITests",
             dependencies: [
                 "OpenMusicEventSourceClone",
+                .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
+                .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
+                .product(name: "XRPCClient", package: "tcatproto"),
             ]
         ),
         .testTarget(
@@ -290,6 +301,7 @@ let package = Package(
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+                .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
                 .product(name: "XRPCClient", package: "tcatproto"),
             ]

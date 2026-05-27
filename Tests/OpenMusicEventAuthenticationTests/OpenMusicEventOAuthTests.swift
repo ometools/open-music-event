@@ -26,6 +26,7 @@ struct OpenMusicEventOAuthTests {
         )
 
         #expect(permissions.contains("atproto"))
+        #expect(permissions.contains("repo:sh.tangled.publicKey?action=create"))
         #expect(permissions.contains("repo:sh.tangled.repo.pull?action=create"))
         #expect(permissions.contains("blob:text/x-patch"))
     }

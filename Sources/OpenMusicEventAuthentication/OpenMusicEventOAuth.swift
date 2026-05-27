@@ -1,6 +1,7 @@
 import ATProtoOAuth
 import Dependencies
 import Foundation
+import OpenMusicEventSourceClone
 import Sharing
 import TCATProtoAuthentication
 import XRPCClient
@@ -28,7 +29,13 @@ public enum OpenMusicEventOAuth {
         "repo:sh.tangled.repo.pull?action=create"
     )
 
+    public static let tangledPublicKeyCreatePermission =
+        TangledOAuthRequirements.publicKeyCreatePermission
+
     public static let patchBlobPermission = OAuth.Permission("blob:text/x-patch")
+
+    public static let tangledPublicKeyAuthRequirement =
+        TangledOAuthRequirements.publicKeyAuthRequirement
 
     public static let proposalAuthRequirement = OAuth.AuthRequirement(
         permissions: [
@@ -51,7 +58,10 @@ public enum OpenMusicEventOAuth {
         appName: "Open Music Event",
         redirectURIs: [appConfiguration.redirectURI],
         basePermissions: OAuth.GrantedPermissions([.atproto]),
-        registeredRequirements: [proposalAuthRequirement]
+        registeredRequirements: [
+            tangledPublicKeyAuthRequirement,
+            proposalAuthRequirement,
+        ]
     )
 
     public static var authFailureMessage: Shared<ErrorMessage?> {
