@@ -348,14 +348,23 @@ public struct TangledSourceArchiveExtractor: Sendable {
             throw ValidationError("Downloaded archive did not contain any files.")
         }
 
+        let eventsURL = extractionURL.appending(path: "events")
         let sourceRoot: URL
-        if contents.count == 1, try contents[0].resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+        if directoryExists(at: eventsURL) {
+            sourceRoot = extractionURL
+        } else if contents.count == 1, try contents[0].resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
             sourceRoot = contents[0]
         } else {
             sourceRoot = extractionURL
         }
 
         try fileManager.moveItem(at: sourceRoot, to: outputURL)
+    }
+
+    private func directoryExists(at url: URL) -> Bool {
+        var isDirectory = ObjCBool(false)
+        return FileManager.default.fileExists(atPath: url.path(), isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     private func candidateTarPayloads(from archiveData: Data) throws -> [Data] {

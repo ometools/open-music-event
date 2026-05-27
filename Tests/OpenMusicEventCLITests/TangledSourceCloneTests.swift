@@ -387,6 +387,34 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func archiveExtractorKeepsEventsDirectoryAtSourceRoot() throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-cli-source-extract-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+
+        // Gzipped tar containing events/minimal-event/event.yml.
+        let fixture = try #require(Data(base64Encoded: """
+        H4sIAMVeFmoAA+2X0U7CMBSG0UtuvfKuL+A469p1M+ECjJElRCcSE7lroEaSdSNjCDyH7+HL+EJWQM0IbiHZMGH9bpqla85pz/6/Zz5fdAQfibghXkWYTGslAACMUrQa7fWo+B4BsAnIpBgoocwCisAklLIaWpSRzDazacJjlco8ikbLjPfmL0IEGfPpTaGCsywNC5BMxlI0TcZch4JLXANsVQnLAVKnDHW9dqt31fEer40FT5LYGEbS4JNJIIxJHKlvhodD0Wzde63b9t3sZuD3B4FXJy56UIu6T1mLTk5r5Oz9/O3juVf/73OoKmvVN0qNkaf/r4e0/rFtK/3TUrPaUHH9b+rv/1wDchyOJQ8uVhPFxMj1f2Bb9WeWhbX/HwLs7vR/h1CHavs/fjb6T6m+6Ntgf/+nxCLa/w/Bzvr76Z8CYymzdp6LOg+bkD36f2xiov3/IPzR/7sUsO3oC+Do2an/QlT/S57+wbS2+z/MlP6hmPDZVFz/IZfiEvXFNNES1Gg0mirxCWrAhOAAGAAA
+        """))
+
+        try TangledSourceArchiveExtractor().extract(fixture, to: outputURL)
+
+        expectNoDifference(
+            try String(
+                contentsOf: outputURL
+                    .appending(path: "events")
+                    .appending(path: "minimal-event")
+                    .appending(path: "event.yml"),
+                encoding: .utf8
+            ),
+            "name: Test\n"
+        )
+        #expect(!FileManager.default.fileExists(atPath: outputURL.appending(path: "minimal-event").path()))
+    }
+
+    @Test
     func archiveExtractorExtractsPlainTarAndFlattensTopLevelDirectory() throws {
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-cli-source-extract-\(UUID().uuidString)")
