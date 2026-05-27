@@ -1,10 +1,11 @@
 import ATProtoOAuth
+import DependenciesTestSupport
 import Foundation
 import Testing
 
 @testable import OpenMusicEventAuthentication
 
-@Suite("OpenMusicEvent OAuth configuration")
+@Suite("OpenMusicEvent OAuth configuration", .serialized)
 struct OpenMusicEventOAuthTests {
     @Test
     func manifestUsesOpenMusicEventClientMetadata() {
@@ -62,5 +63,32 @@ struct OpenMusicEventOAuthTests {
                 URL(string: "openmusicevent:/organizers/demo/events/event")!
             )
         )
+    }
+
+    @Test
+    func storedAuthenticationReloadsFromKeychainStorage() async throws {
+        let storage = InMemoryKeychainStorage()
+        let keychainStorage = KeychainStorageClient.inMemory(storage)
+        try await withDependencies {
+            $0.keychainStorage = keychainStorage
+        } operation: {
+            OpenMusicEventOAuth.resetStoredSession()
+            var sessionStore = OAuth.SessionStore()
+            sessionStore.upsert(.placeholder)
+
+            try keychainStorage.setData(
+                JSONEncoder().encode(OAuth.Session.placeholder),
+                OpenMusicEventOAuth.sessionKeychainItem
+            )
+            try keychainStorage.setData(
+                JSONEncoder().encode(sessionStore),
+                OpenMusicEventOAuth.sessionStoreKeychainItem
+            )
+
+            try await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
+
+            #expect(OpenMusicEventOAuth.session.wrappedValue == .placeholder)
+            #expect(OpenMusicEventOAuth.sessionStore.wrappedValue == sessionStore)
+        }
     }
 }

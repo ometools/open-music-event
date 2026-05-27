@@ -63,10 +63,12 @@ extension OME {
 
     /* SKIP @bridge */public func onLaunch() {
         logger.debug("onLaunch")
+        enforceStoredAuthenticationFreshness()
     }
 
     /* SKIP @bridge */public func onResume() {
         logger.debug("onResume")
+        enforceStoredAuthenticationFreshness()
     }
 
     /* SKIP @bridge */public func onPause() {
@@ -83,5 +85,11 @@ extension OME {
 
     /* SKIP @bridge */public func onLowMemory() {
         logger.debug("onLowMemory")
+    }
+
+    private func enforceStoredAuthenticationFreshness() {
+        Task {
+            try? await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
+        }
     }
 }

@@ -8,17 +8,26 @@ import XRPCClient
 
 private let openMusicEventOAuthSession = Shared<OAuth.Session?>(
     wrappedValue: nil,
-    .appStorage("fm_woody_openMusicEvent_oauth_session")
+    KeychainSharedKey(item: OpenMusicEventOAuth.sessionKeychainItem)
 )
 
 private let openMusicEventOAuthSessionStore = Shared(
     wrappedValue: OAuth.SessionStore(),
-    .appStorage("fm_woody_openMusicEvent_oauth_sessionStore")
+    KeychainSharedKey(item: OpenMusicEventOAuth.sessionStoreKeychainItem)
 )
 
 private let openMusicEventAuthFailureMessage = Shared<ErrorMessage?>(value: nil)
 
 public enum OpenMusicEventOAuth {
+    static let sessionKeychainItem = KeychainStorageItem(
+        service: "fm.woody.openMusicEvent",
+        account: "oauth.session"
+    )
+    static let sessionStoreKeychainItem = KeychainStorageItem(
+        service: "fm.woody.openMusicEvent",
+        account: "oauth.sessionStore"
+    )
+
     public static let clientMetadataURL = URL(
         string: "https://openmusicevent.app/.well-known/oauth-client-metadata.json"
     )!
@@ -115,6 +124,11 @@ public enum OpenMusicEventOAuth {
         session.withLock { $0 = nil }
         sessionStore.withLock { $0 = OAuth.SessionStore() }
         authFailureMessage.withLock { $0 = nil }
+    }
+
+    public static func enforceStoredAuthenticationFreshness() async throws {
+        try await session.load()
+        try await sessionStore.load()
     }
 }
 
