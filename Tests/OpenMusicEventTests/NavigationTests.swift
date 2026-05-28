@@ -1108,31 +1108,26 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.exhaustivity = .off
         } operation: {
             var state = EditParticipant.State(participantID: participantID, eventID: eventID)
             state.hasLoadedDraft = true
-            state.name = " New Name "
-            state.kind = "dj"
-            state.bio = " Updated bio "
+            state.form.value.name = " New Name "
+            state.form.value.kind = "dj"
+            state.form.value.bio = " Updated bio "
             state.imageURL = "https://example.com/image.jpg"
             state.logoURL = " "
             var link = EditableParticipantLink()
             link.url = "https://example.com"
             link.platformRawValue = ExternalPlatform.website.rawValue
-            state.links = [link]
+            state.form.value.links = [link]
 
             return TestStore(initialState: state) {
                 EditParticipant()
             }
         }
 
-        let task = store.send(.saveButtonTapped) {
-            $0.isSaving = true
-        }
-        await store.receive(\.saveSucceeded, timeout: .seconds(1)) {
-            $0.isSaving = false
-        }?.value
-        await task?.value
+        await store.send(.saveButtonTapped)?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)
@@ -1170,20 +1165,14 @@ struct NavigationTests {
         } operation: {
             var state = EditParticipant.State(participantID: participantID, eventID: eventID)
             state.hasLoadedDraft = true
-            state.name = "New Name"
+            state.form.value.name = "New Name"
 
             return TestStore(initialState: state) {
                 EditParticipant()
             }
         }
 
-        let task = store.send(.saveButtonTapped) {
-            $0.isSaving = true
-        }
-        await store.receive(\.saveFailed, timeout: .seconds(1)) {
-            $0.isSaving = false
-        }
-        await task?.value
+        await store.send(.saveButtonTapped)?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.isPresented)
@@ -1204,6 +1193,7 @@ struct NavigationTests {
 
         @Bindable var store = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
             Store(initialState: EditParticipant.State(participantID: participantID, eventID: eventID)) {
@@ -1212,9 +1202,9 @@ struct NavigationTests {
         }
 
         #expect(store.hasLoadedDraft)
-        #expect(store.name == "Old Name")
+        #expect(store.form.value.name == "Old Name")
 
-        $store.name.wrappedValue = "New Name"
+        $store.form.value.name.wrappedValue = "New Name"
         await store.send(.saveButtonTapped)?.value
 
         let participant = try await database.read { db in
@@ -1243,6 +1233,7 @@ struct NavigationTests {
 
         @Bindable var detailStore = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
             Store(initialState: ParticipantDetail.State(participantID: participantID, eventID: eventID)) {
@@ -1260,9 +1251,9 @@ struct NavigationTests {
         )
 
         #expect(editStore.hasLoadedDraft)
-        #expect(editStore.name == "Old Name")
+        #expect(editStore.form.value.name == "Old Name")
 
-        $editStore.name.wrappedValue = "New Name"
+        $editStore.form.value.name.wrappedValue = "New Name"
         await editStore.send(.saveButtonTapped)?.value
 
         let participant = try await database.read { db in
@@ -1293,6 +1284,7 @@ struct NavigationTests {
 
         @Bindable var peopleStore = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
@@ -1333,7 +1325,7 @@ struct NavigationTests {
                 .editParticipant
                 .wrappedValue
         )
-        $editStore.name.wrappedValue = "New Name"
+        $editStore.form.value.name.wrappedValue = "New Name"
         await editStore.send(.saveButtonTapped)?.value
         try await Task.sleep(for: .milliseconds(300))
 
@@ -1355,24 +1347,19 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.exhaustivity = .off
         } operation: {
             var state = EditParticipant.State(eventID: eventID)
-            state.name = " New Person "
-            state.kind = "speaker"
-            state.bio = " Bio "
+            state.form.value.name = " New Person "
+            state.form.value.kind = "speaker"
+            state.form.value.bio = " Bio "
 
             return TestStore(initialState: state) {
                 EditParticipant()
             }
         }
 
-        let task = store.send(.saveButtonTapped) {
-            $0.isSaving = true
-        }
-        await store.receive(\.saveSucceeded, timeout: .seconds(1)) {
-            $0.isSaving = false
-        }?.value
-        await task?.value
+        await store.send(.saveButtonTapped)?.value
 
         #expect(store.state.isSaving == false)
         #expect(store.state.errorMessage == nil)

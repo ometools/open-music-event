@@ -1,3 +1,4 @@
+import ComposableForms
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -328,6 +329,24 @@ public struct ParticipantDetailView: View {
 public struct EditParticipant {
     public init() {}
 
+    public struct FormValue: Equatable {
+        var bio = ""
+        var kind = ""
+        var links: [EditableParticipantLink] = []
+        var name = ""
+
+        init() {}
+
+        init(participant: OMERecord.Participant) {
+            bio = participant.bio ?? ""
+            kind = participant.kind?.rawValue ?? ""
+            links = (participant.links ?? []).map(EditableParticipantLink.init)
+            name = participant.name
+        }
+    }
+
+    public typealias FormFeature = ComposableForms.Form<FormValue>
+
     public struct State {
         public enum Mode: Equatable, Sendable {
             case create
@@ -345,6 +364,7 @@ public struct EditParticipant {
 
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
+            self.form = FormFeature.State(value: FormValue())
             self.hasLoadedDraft = true
             self.logoImagePicker = ImageAssetPicker.State(configuration: .participantLogo, assets: nil)
             self.mode = .create
@@ -356,6 +376,7 @@ public struct EditParticipant {
             eventID: OMERecord.Event.ID
         ) {
             self.eventID = eventID
+            self.form = FormFeature.State(value: FormValue())
             let cacheContext = LocalImageCacheContext(
                 participantID: OMERecord.Participant.ID(
                     organizerID: eventID.organizerID,
@@ -379,14 +400,11 @@ public struct EditParticipant {
         public let eventID: OMERecord.Event.ID
         let mode: Mode
 
-        @DebugSnapshotTracked var bio: String = ""
         @DebugSnapshotTracked var errorMessage: String?
+        var form: FormFeature.State
         @DebugSnapshotTracked var hasLoadedDraft: Bool = false
         @DebugSnapshotTracked var isSaving: Bool = false
-        @DebugSnapshotTracked var kind: String = ""
-        var links: [EditableParticipantLink] = []
         var logoImagePicker: ImageAssetPicker.State
-        @DebugSnapshotTracked var name: String = ""
         var originalImages: [OMERecord.ImageAsset] = []
         var photoImagePicker: ImageAssetPicker.State
 
@@ -401,7 +419,7 @@ public struct EditParticipant {
         }
 
         var canSubmit: Bool {
-            hasLoadedDraft && !isSaving && validationMessage == nil
+            hasLoadedDraft && !isSaving && form.canSubmit
         }
 
         var navigationTitle: String {
@@ -434,9 +452,9 @@ public struct EditParticipant {
             let preservedImages: [OMERecord.ImageAsset]
 
             init(state: State) {
-                self.bio = state.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                self.bio = state.form.value.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 self.eventID = state.eventID
-                self.kind = state.kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                self.kind = state.form.value.kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                     .map { OMERecord.Participant.Kind($0) }
                 self.links = state.preparedLinks.nilIfEmpty
                 self.logoImages = state.logoImagePicker.images
@@ -518,17 +536,7 @@ public struct EditParticipant {
         }
 
         var preparedLinks: [ExternalPlatform.Link] {
-            links.compactMap(\.preparedLink)
-        }
-
-        var validationMessage: String? {
-            guard hasLoadedDraft else { return nil }
-
-            if trimmedName.isEmpty {
-                return "Enter a name."
-            }
-
-            return links.compactMap(\.validationMessage).first
+            form.value.links.compactMap(\.preparedLink)
         }
 
         mutating func resetImagePickers() {
@@ -559,7 +567,7 @@ public struct EditParticipant {
         }
 
         private var trimmedName: String {
-            name.trimmingCharacters(in: .whitespacesAndNewlines)
+            form.value.name.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Participant> {
@@ -583,6 +591,8 @@ public struct EditParticipant {
     public enum Action {
         case addLinkButtonTapped
         case cancelButtonTapped
+        case form(FormFeature.Action)
+        case formSubmitted(FormValue)
         case logoImagePicker(ImageAssetPicker.Action)
         case photoImagePicker(ImageAssetPicker.Action)
         case removeLinkButtonTapped(UUID)
@@ -595,6 +605,12 @@ public struct EditParticipant {
 
     public var body: some Feature {
         let _ = Self._logChanges()
+        Scope(\.form, action: \.form) {
+            FormFeature()
+                .onSubmit { value in
+                    try store.send(.formSubmitted(value))
+                }
+        }
         Scope(\.logoImagePicker, action: \.logoImagePicker) {
             ImageAssetPicker()
         }
@@ -604,18 +620,53 @@ public struct EditParticipant {
         Update { state, action in
             switch action {
             case .addLinkButtonTapped:
-                state.links.append(EditableParticipantLink())
+                state.form.value.links.append(EditableParticipantLink())
 
             case .cancelButtonTapped:
                 store.addTask {
                     try store.dismiss()
                 }
 
+            case .form:
+                break
+
+            case .formSubmitted:
+                guard !state.isSaving else { return }
+                guard state.hasLoadedDraft else {
+                    state.errorMessage = "This person could not be loaded."
+                    return
+                }
+
+                state.errorMessage = nil
+                state.isSaving = true
+                let saveRequest = State.SaveRequest(state: state)
+
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            let participantID = try saveRequest.participantID(in: db)
+                            let preparedDraft = try saveRequest.preparedDraft(participantID: participantID)
+                            try OMERecord.Participant.upsert {
+                                preparedDraft.draft
+                            }
+                            .execute(db)
+                            if !preparedDraft.blobs.isEmpty {
+                                try LocalImageBlob.insert { preparedDraft.blobs }.execute(db)
+                            }
+                        }
+                        try store.send(.saveSucceeded)
+                    } catch {
+                        try store.send(
+                            .saveFailed("Unable to save person: \(error.editParticipantSaveDescription)")
+                        )
+                    }
+                }
+
             case .logoImagePicker, .photoImagePicker:
                 break
 
             case let .removeLinkButtonTapped(id):
-                state.links.removeAll { $0.id == id }
+                state.form.value.links.removeAll { $0.id == id }
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -624,35 +675,9 @@ public struct EditParticipant {
                     return
                 }
 
-                guard let validationMessage = state.validationMessage else {
-                    state.errorMessage = nil
-                    state.isSaving = true
-                    let saveRequest = State.SaveRequest(state: state)
-
-                    store.addTask {
-                        do {
-                            try await database.write { db in
-                                let participantID = try saveRequest.participantID(in: db)
-                                let preparedDraft = try saveRequest.preparedDraft(participantID: participantID)
-                                try OMERecord.Participant.upsert {
-                                    preparedDraft.draft
-                                }
-                                .execute(db)
-                                if !preparedDraft.blobs.isEmpty {
-                                    try LocalImageBlob.insert { preparedDraft.blobs }.execute(db)
-                                }
-                            }
-                            try store.send(.saveSucceeded)
-                        } catch {
-                            try store.send(
-                                .saveFailed("Unable to save person: \(error.editParticipantSaveDescription)")
-                            )
-                        }
-                    }
-                    return
+                store.addTask {
+                    try store.send(.form(.submittedForm))
                 }
-
-                state.errorMessage = validationMessage
 
             case let .saveFailed(message):
                 state.errorMessage = message
@@ -683,12 +708,9 @@ public struct EditParticipant {
                     )
                     .fetchOne(db)
                 }) {
-                    state.name = participant.name
-                    state.bio = participant.bio ?? ""
+                    state.form = FormFeature.State(value: FormValue(participant: participant))
                     state.originalImages = participant.images ?? []
                     state.resetImagePickers()
-                    state.kind = participant.kind?.rawValue ?? ""
-                    state.links = (participant.links ?? []).map(EditableParticipantLink.init)
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
@@ -701,8 +723,35 @@ public struct EditParticipant {
     }
 }
 
+private enum EditParticipantFormFieldID {
+    static var links: AnyHashable { AnyHashable(\EditParticipant.FormValue.links) }
+    static var name: AnyHashable { AnyHashable(\EditParticipant.FormValue.name) }
+}
+
+private extension EditParticipant.FormFeature {
+    init() {
+        self.init {
+            Self.Field(\.name) {
+                Validation(error: "Enter a name.") {
+                    !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+            }
+
+            Self.Field(\.links) {
+                Validation { links -> ValidationResult in
+                    guard let message = links.compactMap(\.validationMessage).first else {
+                        return .valid
+                    }
+                    return .invalid(LocalizedStringResource(stringLiteral: message))
+                }
+            }
+        }
+    }
+}
+
 public struct EditParticipantView: View {
     @Bindable var store: StoreOf<EditParticipant>
+    @FocusState var focusedField: AnyHashable?
 
     public init(store: StoreOf<EditParticipant>) {
         self.store = store
@@ -713,12 +762,12 @@ public struct EditParticipantView: View {
             if store.hasLoadedDraft {
                 Form {
                     Section("Person") {
-                        TextField("Name", text: $store.name)
-                        TextField("Kind", text: $store.kind)
+                        nameField
+                        TextField("Kind", text: $store.form.value.kind)
                     }
 
                     Section("Bio") {
-                        TextField("Bio", text: $store.bio, axis: .vertical)
+                        TextField("Bio", text: $store.form.value.bio, axis: .vertical)
                             .lineLimit(4...8)
                     }
 
@@ -730,7 +779,7 @@ public struct EditParticipantView: View {
                         store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
                     )
 
-                    ForEach($store.links) { $link in
+                    ForEach($store.form.value.links) { $link in
                         Section("Link") {
                             TextField("URL", text: $link.url)
                                 #if os(iOS)
@@ -756,6 +805,7 @@ public struct EditParticipantView: View {
                         Button("Add Link") {
                             store.send(.addLinkButtonTapped)
                         }
+                        FormFieldValidationStatus(validation: store.form.validation[EditParticipantFormFieldID.links])
                     }
 
                     if let errorMessage = store.errorMessage {
@@ -775,6 +825,16 @@ public struct EditParticipantView: View {
             }
         }
         .disabled(store.isSaving)
+        .onChange(of: focusedField) { _, focusedField in
+            if store.form.focusedField != focusedField {
+                $store.form.focusedField.wrappedValue = focusedField
+            }
+        }
+        .onChange(of: store.form.focusedField) { _, focusedField in
+            if self.focusedField != focusedField {
+                self.focusedField = focusedField
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -793,6 +853,17 @@ public struct EditParticipantView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
+    }
+
+    private var nameField: some View {
+        VStack(alignment: .leading) {
+            TextField("Name", text: $store.form.value.name)
+                .focused($focusedField, equals: EditParticipantFormFieldID.name)
+                .onSubmit {
+                    store.send(.form(.fieldSubmitted(EditParticipantFormFieldID.name)))
+                }
+            FormFieldValidationStatus(validation: store.form.validation[EditParticipantFormFieldID.name])
+        }
     }
 }
 
