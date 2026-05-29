@@ -120,6 +120,8 @@ public extension OME {
 
         public var eventSourceProvenances: [EventSourceProvenance]
         public var organizers: [OME.Organizer.Draft]
+        public var calendars: [OME.Calendar.Draft]
+        public var calendarEntries: [OME.CalendarEntry.Draft]
         public var events: [OME.Event.Draft]
         public var eventOrganizers: [OME.EventOrganizer.Draft]
         public var stages: [OME.Stage.Draft]
@@ -135,6 +137,11 @@ public extension OME {
             self.organizers = [
                 OME.Organizer.Draft(id: configuration.organizerID)
             ]
+            self.calendars = [
+                (configuration.source.calendar ?? CalendarDTO.defaultCalendar)
+                    .recordDraft(ownerID: configuration.organizerID)
+            ]
+            self.calendarEntries = []
             self.eventSourceProvenances = []
             self.events = []
             self.eventOrganizers = []
@@ -216,6 +223,19 @@ public extension OME {
                         eventID: localEventID,
                         eventOrganizerID: organizerID
                     )
+                )
+            )
+            calendarEntries.append(
+                OME.CalendarEntry.Draft(
+                    id: .init(
+                        calendarOwnerID: organizerID,
+                        calendarID: OME.Calendar.defaultID,
+                        entryID: OME.ID<OME.CalendarEntry>(localEventID.rawValue)
+                    ),
+                    event: OME.Event.reference(id: eventID),
+                    createdAt: .distantPast,
+                    note: nil,
+                    pinned: false
                 )
             )
 

@@ -35,6 +35,31 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
+            insertion.calendars,
+            [
+                OME.Calendar.Draft(
+                    id: calendarID(organizerID: organizerID),
+                    name: "Events",
+                    description: nil,
+                    images: nil
+                )
+            ]
+        )
+        expectNoDifference(
+            insertion.calendarEntries,
+            [
+                OME.CalendarEntry.Draft(
+                    id: calendarEntryID("testival-2026", organizerID: organizerID),
+                    event: OME.Event.reference(
+                        id: eventID("testival-2026", organizerID: organizerID)
+                    ),
+                    createdAt: .distantPast,
+                    note: nil,
+                    pinned: false
+                )
+            ]
+        )
+        expectNoDifference(
             insertion.events.map(\.id),
             [
                 eventID("testival-2026", organizerID: organizerID)
@@ -148,6 +173,37 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func buildsDefaultCalendarFromSourceMetadata() throws {
+        let source = try makeSourceRepository(
+            calendar: CalendarDTO(
+                name: "Testival Calendar",
+                description: "Organizer default calendar."
+            )
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        expectNoDifference(
+            insertion.calendars,
+            [
+                OME.Calendar.Draft(
+                    id: calendarID(organizerID: organizerID),
+                    name: "Testival Calendar",
+                    description: "Organizer default calendar.",
+                    images: nil
+                )
+            ]
+        )
+    }
+
+    @Test
     func actorOnlyPerformancesCreatePerformanceParticipantRowsWithoutParticipants() throws {
         let actor = try #require(OME.Participant.Actor("ARTIST.BSKY.SOCIAL"))
         var source = try makeSourceRepository(
@@ -188,6 +244,73 @@ struct SourceDatabaseInsertionTests {
                 )
             ]
         )
+    }
+
+    @Test
+    func sourceInsertionReplacesGeneratedDefaultCalendarEntries() async throws {
+        let firstSource = try makeSourceRepository(
+            eventDirectoryName: "first-event",
+            eventName: "First Event"
+        )
+        let secondSource = try makeSourceRepository(
+            eventDirectoryName: "second-event",
+            eventName: "Second Event"
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let firstInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: firstSource,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let secondInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: secondSource,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let database = try makeCoreDatabase()
+        let beforeImport = Date()
+        try await firstInsertion.insert(into: database)
+        try await secondInsertion.insert(into: database)
+        let afterImport = Date()
+
+        let calendar = try await database.read { db in
+            try OME.Calendar.fetchOne(db)
+        }
+        let entries = try await database.read { db in
+            try OME.CalendarEntry.fetchAll(db)
+        }
+
+        expectNoDifference(
+            calendar,
+            OME.Calendar(
+                id: calendarID(organizerID: organizerID),
+                name: "Events",
+                description: nil,
+                images: nil
+            )
+        )
+        expectNoDifference(
+            entries,
+            [
+                OME.CalendarEntry(
+                    id: calendarEntryID("second-event", organizerID: organizerID),
+                    event: OME.Event.reference(
+                        id: eventID("second-event", organizerID: organizerID)
+                    ),
+                    createdAt: entries.first?.createdAt ?? .distantPast,
+                    note: nil,
+                    pinned: false
+                )
+            ]
+        )
+        let createdAt = try #require(entries.first?.createdAt)
+        #expect(createdAt >= beforeImport)
+        #expect(createdAt <= afterImport)
     }
 
     @Test
@@ -2078,6 +2201,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     private func makeSourceRepository(
+        calendar: CalendarDTO? = nil,
         eventDirectoryName: String = "testival-2026",
         eventName: String = "Testival 2026",
         explicitLocalEventID: OME.ID<OME.Event>? = nil,
@@ -2113,6 +2237,7 @@ struct SourceDatabaseInsertionTests {
         let sourceOrganizerID = try #require(OME.Organizer.ID("did:plc:source"))
 
         return OpenMusicEventSourceRepository(
+            calendar: calendar,
             events: [
                 DirectoryContent(
                     directoryName: eventDirectoryName,
@@ -2294,6 +2419,26 @@ private func eventID(
     OME.Event.ID(
         organizerID: organizerID,
         eventID: id(eventID)
+    )
+}
+
+private func calendarID(
+    organizerID: OME.Organizer.ID
+) -> OME.Calendar.ID {
+    OME.Calendar.ID(
+        ownerID: organizerID,
+        calendarID: OME.Calendar.defaultID
+    )
+}
+
+private func calendarEntryID(
+    _ entryID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.CalendarEntry.ID {
+    OME.CalendarEntry.ID(
+        calendarOwnerID: organizerID,
+        calendarID: OME.Calendar.defaultID,
+        entryID: id(entryID)
     )
 }
 

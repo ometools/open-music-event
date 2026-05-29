@@ -2,10 +2,19 @@ import FileTree
 import OpenMusicEventLexicon
 
 public struct OpenMusicEventSourceRepository: Equatable, Sendable {
+    public var calendar: CalendarDTO?
     public var events: [DirectoryContent<OpenMusicEventSourceEvent>]
 
-    public init(events: [DirectoryContent<OpenMusicEventSourceEvent>]) {
+    public init(
+        calendar: CalendarDTO? = nil,
+        events: [DirectoryContent<OpenMusicEventSourceEvent>]
+    ) {
+        self.calendar = calendar
         self.events = events
+    }
+
+    public init(events: [DirectoryContent<OpenMusicEventSourceEvent>]) {
+        self.init(calendar: nil, events: events)
     }
 }
 

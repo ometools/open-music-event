@@ -33,6 +33,27 @@ struct OpenMusicEventSourceTests {
             ]
         )
         expectNoDifference(
+            result.insertion.calendars,
+            [
+                OME.Calendar.Draft(
+                    id: OME.Calendar.ID(
+                        ownerID: organizerID,
+                        calendarID: OME.Calendar.defaultID
+                    ),
+                    name: "Testival Calendar",
+                    description: "Organizer default calendar.",
+                    images: nil
+                )
+            ]
+        )
+        expectNoDifference(
+            result.insertion.calendarEntries.map(\.id?.entryID.rawValue.rawValue),
+            [
+                "minimal-event",
+                "testival-2026",
+            ]
+        )
+        expectNoDifference(
             result.insertion.eventSourceProvenances.map(\.eventIDOrigin),
             [
                 .inferred,
@@ -68,6 +89,13 @@ struct OpenMusicEventSourceTests {
             .read(from: fixtureURL("Organizer"))
         let repository = try repositoryResult.output.requiredValue
 
+        expectNoDifference(
+            repository.calendar,
+            CalendarDTO(
+                name: "Testival Calendar",
+                description: "Organizer default calendar."
+            )
+        )
         expectNoDifference(
             repository.events.map(\.directoryName),
             [
@@ -215,6 +243,12 @@ struct OpenMusicEventSourceTests {
         let writtenRepository = try writtenResult.output.requiredValue
 
         expectNoDifference(writtenRepository, repository)
+        let calendarText = try String(
+            contentsOf: outputURL.appending(path: "calendar.yml"),
+            encoding: .utf8
+        )
+        #expect(calendarText.contains("name: Testival Calendar"))
+        #expect(calendarText.contains("description: Organizer default calendar."))
 
         let participantText = try String(
             contentsOf: outputURL
@@ -227,6 +261,40 @@ struct OpenMusicEventSourceTests {
         #expect(participantText.hasPrefix("---\n"))
         #expect(participantText.contains("Artist One writes sturdy test fixtures."))
         #expect(!participantText.contains("bio:"))
+    }
+
+    @Test
+    func missingCalendarYAMLReadsAsNilAndDoesNotWriteFile() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "minimal", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: eventURL,
+            withIntermediateDirectories: true
+        )
+        try """
+        name: Minimal
+        timeZone: America/Denver
+        """
+        .write(to: eventURL.appending(path: "event.yml"), atomically: true, encoding: .utf8)
+
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let repository = try tree.read(from: repositoryURL).output.requiredValue
+        let outputURL = try temporaryRepositoryURL()
+        try """
+        name: Stale Calendar
+        """
+        .write(to: outputURL.appending(path: "calendar.yml"), atomically: true, encoding: .utf8)
+
+        _ = try $deletingNilOptionalWrites.withValue(true) {
+            try tree.write(repository, to: outputURL)
+        }
+        let writtenRepository = try tree.read(from: outputURL).output.requiredValue
+
+        #expect(repository.calendar == nil)
+        expectNoDifference(writtenRepository, repository)
+        #expect(!FileManager.default.fileExists(atPath: outputURL.appending(path: "calendar.yml").path()))
     }
 
     @Test

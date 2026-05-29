@@ -100,6 +100,8 @@ public extension OpenMusicEventSourceValidator {
 private struct PreparedSourceDatabaseInsertion {
     var sourceBaselines: [SourceBaselineRecord]
     var organizers: [OME.Organizer.Draft]
+    var calendars: [OME.Calendar.Draft]
+    var calendarEntries: [OME.CalendarEntry.Draft]
     var events: [OME.Event.Draft]
     var eventOrganizers: [OME.EventOrganizer.Draft]
     var eventSourceProvenances: [EventSourceProvenanceRecord]
@@ -131,6 +133,16 @@ private struct PreparedSourceDatabaseInsertion {
         }
         self.sourceBaselines = sourceBaselinesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
         self.organizers = sourceInsertion.organizers
+        self.calendars = sourceInsertion.calendars
+        self.calendarEntries = sourceInsertion.calendarEntries.map { entry in
+            OME.CalendarEntry.Draft(
+                id: entry.id,
+                event: entry.event,
+                createdAt: importedAt,
+                note: entry.note,
+                pinned: entry.pinned
+            )
+        }
         self.events = sourceInsertion.events
         self.eventOrganizers = sourceInsertion.eventOrganizers
         self.stages = sourceInsertion.stages
@@ -204,6 +216,17 @@ private struct PreparedSourceDatabaseInsertion {
             }
             .execute(db)
         }
+        if !calendars.isEmpty {
+            try OME.Calendar.insert {
+                calendars
+            } onConflict: {
+                (
+                    $0.id.ownerID,
+                    $0.id.calendarID
+                )
+            }
+            .execute(db)
+        }
         if !events.isEmpty {
             try OME.Event.insert { events }.execute(db)
         }
@@ -222,6 +245,20 @@ private struct PreparedSourceDatabaseInsertion {
         if !eventSourceProvenances.isEmpty {
             try EventSourceProvenanceRecord.insert {
                 eventSourceProvenances
+            }
+            .execute(db)
+        }
+        for calendar in calendars {
+            guard let calendarID = calendar.id else { continue }
+            try OME.CalendarEntry
+                .where { $0.id.calendarOwnerID.eq(calendarID.ownerID) }
+                .where { $0.id.calendarID.eq(calendarID.calendarID) }
+                .delete()
+                .execute(db)
+        }
+        if !calendarEntries.isEmpty {
+            try OME.CalendarEntry.insert {
+                calendarEntries
             }
             .execute(db)
         }

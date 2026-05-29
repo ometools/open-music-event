@@ -5,9 +5,14 @@ public struct OpenMusicEventSourceRepositoryFileTree: FileTreeWriter {
     public init() {}
 
     public var body: some FileTreeWriter<OpenMusicEventSourceRepository> {
-        Directory("events") {
-            Directory.Many {
-                OpenMusicEventSourceEventFileTree()
+        FileTree {
+            File.Optional("calendar", "yml")
+                .convert(YamlConversion<CalendarDTO>())
+
+            Directory("events") {
+                Directory.Many {
+                    OpenMusicEventSourceEventFileTree()
+                }
             }
         }
         .convert(RepositoryConversion())
@@ -52,15 +57,24 @@ public struct OpenMusicEventSourceEventFileTree: FileTreeWriter {
 }
 
 private struct RepositoryConversion: Conversion {
-    typealias Input = [DirectoryContent<OpenMusicEventSourceEvent>]
+    typealias Input = (
+        CalendarDTO?,
+        [DirectoryContent<OpenMusicEventSourceEvent>]
+    )
     typealias Output = OpenMusicEventSourceRepository
 
     func apply(_ input: Input) throws -> Output {
-        OpenMusicEventSourceRepository(events: input)
+        OpenMusicEventSourceRepository(
+            calendar: input.0,
+            events: input.1
+        )
     }
 
     func unapply(_ output: Output) throws -> Input {
-        output.events
+        (
+            output.calendar,
+            output.events
+        )
     }
 }
 

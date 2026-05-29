@@ -4,6 +4,33 @@ import OpenMusicEventLexicon
 
 public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
+public struct CalendarDTO: Codable, Equatable, Sendable {
+    public static let defaultCalendar = CalendarDTO(name: "Events")
+
+    public init(
+        name: String,
+        description: String? = nil
+    ) {
+        self.name = name
+        self.description = description
+    }
+
+    public var name: String
+    public var description: String?
+
+    public func recordDraft(ownerID: OMERecord.Organizer.ID) -> OMERecord.Calendar.Draft {
+        OMERecord.Calendar.Draft(
+            id: OMERecord.Calendar.ID(
+                ownerID: ownerID,
+                calendarID: OMERecord.Calendar.defaultID
+            ),
+            name: name,
+            description: description,
+            images: nil
+        )
+    }
+}
+
 public struct EventDTO: Codable, Equatable, Sendable {
     public init(
         id: OMERecord.Event.ID?,
