@@ -113,6 +113,9 @@
     "Browse feature stub." : {
 
     },
+    "Calendars" : {
+
+    },
     "Cancel" : {
       "comment" : "Button title indicating that the operation should be cancelled",
       "localizations" : {
@@ -231,6 +234,9 @@
 
     },
     "Event Name" : {
+
+    },
+    "Event unavailable" : {
 
     },
     "Events" : {
@@ -616,6 +622,9 @@
     "The Tangled source archive was empty." : {
 
     },
+    "This calendar has no events." : {
+
+    },
     "This organizer has no events." : {
 
     },
@@ -657,9 +666,6 @@
     "Unable to connect to Tangled over SSH." : {
 
     },
-    "Unable to verify Tangled's SSH host key." : {
-
-    },
     "Unable to extract the Tangled source archive." : {
 
     },
@@ -673,6 +679,9 @@
 
     },
     "Unable to store the imported source because a file already exists." : {
+
+    },
+    "Unable to verify Tangled's SSH host key." : {
 
     },
     "Upcoming Events" : {

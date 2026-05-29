@@ -27,6 +27,14 @@ private func eventLocalID(_ string: String) -> OMERecord.ID<OMERecord.Event> {
     OMERecord.ID<OMERecord.Event>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
+private func calendarLocalID(_ string: String) -> OMERecord.ID<OMERecord.Calendar> {
+    OMERecord.ID<OMERecord.Calendar>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private func calendarEntryLocalID(_ string: String) -> OMERecord.ID<OMERecord.CalendarEntry> {
+    OMERecord.ID<OMERecord.CalendarEntry>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
 private func participantLocalID(_ string: String) -> OMERecord.ID<OMERecord.Participant> {
     OMERecord.ID<OMERecord.Participant>(rawValue: ATProto.Record.Key(rawValue: string))
 }
@@ -339,6 +347,109 @@ struct NavigationTests {
         }
 
         #expect(events.map(\.id) == [linkedEventID])
+    }
+
+    @Test
+    func organizerDetailFetchesCalendarsForOrganizer() async throws {
+        let database = try makePreparedDatabase()
+        let otherOrganizerID = try #require(OMERecord.Organizer.ID("did:web:other.example"))
+        let defaultCalendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let sideCalendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: calendarLocalID("side-room")
+        )
+        let otherCalendarID = OMERecord.Calendar.ID(
+            ownerID: otherOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertOrganizer(db, id: otherOrganizerID)
+            try Self.insertCalendar(db, id: sideCalendarID, name: "Side Room")
+            try Self.insertCalendar(db, id: defaultCalendarID, name: "Main Calendar")
+            try Self.insertCalendar(db, id: otherCalendarID, name: "Other Calendar")
+        }
+
+        let calendars = try await database.read { db in
+            try OrganizerDetail.calendarsQuery(organizerID: testOrganizerID).fetchAll(db)
+        }
+
+        #expect(calendars.map(\.id) == [defaultCalendarID, sideCalendarID])
+    }
+
+    @Test
+    func calendarDetailResolvesEntriesWithLocalEvents() async throws {
+        let database = try makePreparedDatabase()
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let firstEventID = eventID("first-event")
+        let pinnedEventID = eventID("pinned-event")
+        let firstEntryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("first-entry")
+        )
+        let pinnedEntryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("pinned-entry")
+        )
+        let unavailableEntryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("unavailable-entry")
+        )
+        let unavailableEventRef = OMERecord.Event.Reference(
+            uri: ATProto.URI(
+                authority: .did(try #require(OMERecord.Organizer.ID("did:web:remote.example"))),
+                collection: OMERecord.Event.nsid,
+                rkey: "remote-event"
+            )
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: firstEventID, name: "First Event")
+            try Self.insertEvent(db, id: pinnedEventID, name: "Pinned Event")
+            try Self.insertCalendar(db, id: calendarID, name: "Main Calendar")
+            try Self.insertCalendarEntry(
+                db,
+                id: firstEntryID,
+                event: OMERecord.Event.reference(id: firstEventID),
+                createdAt: Date(timeIntervalSince1970: 100)
+            )
+            try Self.insertCalendarEntry(
+                db,
+                id: unavailableEntryID,
+                event: unavailableEventRef,
+                createdAt: Date(timeIntervalSince1970: 200)
+            )
+            try Self.insertCalendarEntry(
+                db,
+                id: pinnedEntryID,
+                event: OMERecord.Event.reference(id: pinnedEventID),
+                createdAt: Date(timeIntervalSince1970: 50),
+                note: "Pinned pick",
+                pinned: true
+            )
+        }
+
+        let rows = try await database.read { db in
+            CalendarDetail.EntryRows(
+                entries: try CalendarDetail.entriesQuery(calendarID: calendarID).fetchAll(db),
+                events: try CalendarDetail.localEventsQuery.fetchAll(db)
+            )
+        }
+
+        #expect(rows.rows.map(\.entry.id) == [pinnedEntryID, unavailableEntryID, firstEntryID])
+        #expect(rows.rows.map(\.event?.id) == [pinnedEventID, nil, firstEventID])
+        #expect(rows.rows.first?.entry.note == "Pinned pick")
     }
 
     @Test
@@ -1687,6 +1798,42 @@ struct NavigationTests {
                     eventID: eventID.eventID,
                     eventOrganizerID: organizerID
                 )
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertCalendar(
+        _ db: Database,
+        id calendarID: OMERecord.Calendar.ID,
+        name: String
+    ) throws {
+        try OMERecord.Calendar.insert {
+            OMERecord.Calendar.Draft(
+                id: calendarID,
+                name: name,
+                description: nil,
+                images: nil
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertCalendarEntry(
+        _ db: Database,
+        id entryID: OMERecord.CalendarEntry.ID,
+        event: OMERecord.Event.Reference,
+        createdAt: Date,
+        note: String? = nil,
+        pinned: Bool = false
+    ) throws {
+        try OMERecord.CalendarEntry.insert {
+            OMERecord.CalendarEntry.Draft(
+                id: entryID,
+                event: event,
+                createdAt: createdAt,
+                note: note,
+                pinned: pinned
             )
         }
         .execute(db)

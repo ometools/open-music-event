@@ -345,11 +345,17 @@ public struct OrganizerDetail {
     public struct State: Identifiable {
         public init(organizerID: OMERecord.Organizer.ID) {
             self.organizerID = organizerID
+            _calendars = FetchAll(OrganizerDetail.calendarsQuery(organizerID: organizerID))
             _organizer = FetchOne(OrganizerDetail.organizerQuery(organizerID: organizerID))
             _events = FetchAll(OrganizerDetail.eventsQuery(organizerID: organizerID))
         }
 
+        var calendarDetail: CalendarDetail.State?
         var destination: Destination.State?
+
+        @DebugSnapshotIgnored
+        @FetchAll
+        public var calendars: [OMERecord.Calendar]
 
         @DebugSnapshotIgnored
         @FetchAll
@@ -366,6 +372,8 @@ public struct OrganizerDetail {
 
     public enum Action {
         case addEventButtonTapped
+        case calendarButtonTapped(OMERecord.Calendar.ID)
+        case calendarDetail(CalendarDetail.Action)
         case destination(Destination.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case task
@@ -380,6 +388,14 @@ public struct OrganizerDetail {
         organizerID: OMERecord.Organizer.ID
     ) -> some SelectStatementOf<OMERecord.Organizer> {
         OMERecord.Organizer.where { $0.id.eq(organizerID) }
+    }
+
+    static func calendarsQuery(
+        organizerID: OMERecord.Organizer.ID
+    ) -> some SelectStatementOf<OMERecord.Calendar> {
+        OMERecord.Calendar
+            .where { $0.id.ownerID.eq(organizerID) }
+            .order { $0.name.collate(.nocase) }
     }
 
     static func eventsQuery(
@@ -469,6 +485,14 @@ public struct OrganizerDetail {
                     )
                 )
 
+            case .calendarButtonTapped(let calendarID):
+                store.withDependencies {
+                    state.calendarDetail = .init(calendarID: calendarID)
+                }
+
+            case .calendarDetail:
+                return
+
             case .destination:
                 return
 
@@ -486,6 +510,9 @@ public struct OrganizerDetail {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
+        }
+        .ifLet(\.calendarDetail, action: \.calendarDetail) {
+            CalendarDetail()
         }
     }
 }
@@ -509,6 +536,12 @@ public struct OrganizerDetailView: View {
                     .font(.system(size: 82, weight: .semibold))
             }
         } content: {
+            if !store.calendars.isEmpty {
+                Section("Calendars") {
+                    calendarRows(store.calendars)
+                }
+            }
+
             if !sections.currentEvents.isEmpty {
                 Section("Happening Now") {
                     eventRows(sections.currentEvents)
@@ -540,6 +573,9 @@ public struct OrganizerDetailView: View {
                 CreateEventView(store: createEventStore)
             }
         }
+        .navigationDestination(item: $store.scope(\.calendarDetail, action: \.calendarDetail)) { detailStore in
+            CalendarDetailView(store: detailStore)
+        }
         .toolbar {
             Button("Add Event", systemImage: "plus") {
                 store.send(.addEventButtonTapped)
@@ -556,6 +592,17 @@ public struct OrganizerDetailView: View {
     }
 
     @ViewBuilder
+    private func calendarRows(_ calendars: [OMERecord.Calendar]) -> some View {
+        ForEach(calendars) { calendar in
+            Button {
+                store.send(.calendarButtonTapped(calendar.id))
+            } label: {
+                CalendarRowView(calendar: calendar)
+            }
+        }
+    }
+
+    @ViewBuilder
     private func eventRows(_ events: [OMERecord.Event]) -> some View {
         ForEach(events) { event in
             Button {
@@ -564,6 +611,34 @@ public struct OrganizerDetailView: View {
                 EventRowView(event: event)
             }
         }
+    }
+}
+
+struct CalendarRowView: View {
+    let calendar: OMERecord.Calendar
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "calendar")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .frame(width: 60, height: 60)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(calendar.name)
+                    .lineLimit(1)
+
+                if let description = calendar.description, !description.isEmpty {
+                    Text(description)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+        }
+        .foregroundStyle(.primary)
     }
 }
 
