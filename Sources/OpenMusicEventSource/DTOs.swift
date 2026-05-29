@@ -19,7 +19,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
         images: [SourceImageAsset]?,
         contactNumbers: [OMERecord.Event.ContactNumber]?,
         categoryConfigs: OMERecord.Event.CategoryConfigs?,
-        policies: OMERecord.Event.Policies? = nil
+        policies: OMERecord.Event.Policies? = nil,
+        owner: OMERecord.Participant.Actor? = nil
     ) {
         self.id = id
         self.name = name
@@ -35,6 +36,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         self.contactNumbers = contactNumbers
         self.categoryConfigs = categoryConfigs
         self.policies = policies
+        self.owner = owner
     }
 
     public init(
@@ -53,7 +55,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
         siteMapImageURL: URL?,
         contactNumbers: [OMERecord.Event.ContactNumber]?,
         categoryConfigs: OMERecord.Event.CategoryConfigs?,
-        policies: OMERecord.Event.Policies? = nil
+        policies: OMERecord.Event.Policies? = nil,
+        owner: OMERecord.Participant.Actor? = nil
     ) {
         self.init(
             id: id,
@@ -73,7 +76,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             ),
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs,
-            policies: policies
+            policies: policies,
+            owner: owner
         )
     }
 
@@ -92,7 +96,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             images: draft.images?.map(SourceImageAsset.init),
             contactNumbers: draft.contactNumbers,
             categoryConfigs: draft.categoryConfigs,
-            policies: draft.policies
+            policies: draft.policies,
+            owner: draft.owner
         )
     }
 
@@ -110,6 +115,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
     public var contactNumbers: [OMERecord.Event.ContactNumber]?
     public var categoryConfigs: OMERecord.Event.CategoryConfigs?
     public var policies: OMERecord.Event.Policies?
+    public var owner: OMERecord.Participant.Actor?
 
     public var recordDraft: OMERecord.Event.Draft {
         OMERecord.Event.Draft(
@@ -126,7 +132,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             images: images?.map(\.recordValue),
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs,
-            policies: policies
+            policies: policies,
+            owner: owner
         )
     }
 
@@ -160,6 +167,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         case contactNumbers
         case categoryConfigs
         case policies
+        case owner
     }
 
     public init(from decoder: any Decoder) throws {
@@ -185,7 +193,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             images: images,
             contactNumbers: try container.decodeIfPresent([OMERecord.Event.ContactNumber].self, forKey: .contactNumbers),
             categoryConfigs: try container.decodeIfPresent(OMERecord.Event.CategoryConfigs.self, forKey: .categoryConfigs),
-            policies: try container.decodeIfPresent(OMERecord.Event.Policies.self, forKey: .policies)
+            policies: try container.decodeIfPresent(OMERecord.Event.Policies.self, forKey: .policies),
+            owner: try container.decodeIfPresent(OMERecord.Participant.Actor.self, forKey: .owner)
         )
     }
 
@@ -205,6 +214,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         try container.encodeIfPresent(contactNumbers, forKey: .contactNumbers)
         try container.encodeIfPresent(categoryConfigs, forKey: .categoryConfigs)
         try container.encodeIfPresent(policies, forKey: .policies)
+        try container.encodeIfPresent(owner, forKey: .owner)
     }
 
     private static func legacyImages(

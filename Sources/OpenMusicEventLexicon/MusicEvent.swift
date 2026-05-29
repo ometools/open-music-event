@@ -127,6 +127,8 @@ extension OpenMusicEvent {
 
         @Column(as: Policies.JSONRepresentation?.self)
         public var policies: Policies?
+
+        public var owner: OME.Participant.Actor?
     }
 }
 
@@ -179,6 +181,16 @@ extension OpenMusicEvent.Event {
         public var name: String?
     }
 
+    public struct Reference: Codable, Sendable, Equatable {
+        public init(uri: ATProto.URI, cid: ATProto.CID? = nil) {
+            self.uri = uri
+            self.cid = cid
+        }
+
+        public var uri: ATProto.URI
+        public var cid: ATProto.CID?
+    }
+
     public struct ContactNumber: Codable, Sendable, Equatable {
         public init(
             phoneNumber: String,
@@ -199,6 +211,108 @@ extension OpenMusicEvent.Event {
 
     public struct CategoryConfig: Codable, Sendable, Equatable {
         public var showStageNameLabels: Bool
+    }
+
+    public static func reference(
+        id: ID,
+        cid: ATProto.CID? = nil
+    ) -> Reference {
+        Reference(
+            uri: ATProto.URI(
+                authority: .did(id.organizerID),
+                collection: nsid,
+                rkey: id.eventID.rawValue
+            ),
+            cid: cid
+        )
+    }
+}
+
+// MARK: - Calendar  (app.openmusicevent.calendar)
+
+extension OpenMusicEvent {
+    @Table("calendars")
+    public struct Calendar: Equatable, Sendable, Identifiable {
+        public static let nsid = ATProto.NSID("app.openmusicevent.calendar")
+        public static let defaultID = OME.ID<OME.Calendar>(.init("self"))
+
+        @Selection public struct ID: Codable, Hashable, Sendable {
+            public init(
+                ownerID: OME.Organizer.ID,
+                calendarID: OME.ID<OME.Calendar>
+            ) {
+                self.ownerID = ownerID
+                self.calendarID = calendarID
+            }
+
+            public var ownerID: OME.Organizer.ID
+            public var calendarID: OME.ID<OME.Calendar>
+        }
+
+        public init(
+            id: ID,
+            name: String,
+            description: String? = nil,
+            images: [OpenMusicEvent.ImageAsset]? = nil
+        ) {
+            self.id = id
+            self.name = name
+            self.description = description
+            self.images = images
+        }
+
+        public var id: ID
+        public var name: String
+        public var description: String?
+        @Column(as: [OpenMusicEvent.ImageAsset].JSONRepresentation?.self)
+        public var images: [OpenMusicEvent.ImageAsset]?
+    }
+}
+
+// MARK: - CalendarEntry  (app.openmusicevent.calendar.entry)
+
+extension OpenMusicEvent {
+    @Table("calendarEntries")
+    public struct CalendarEntry: Equatable, Sendable, Identifiable {
+        public static let nsid = ATProto.NSID("app.openmusicevent.calendar.entry")
+
+        @Selection public struct ID: Codable, Hashable, Sendable {
+            public init(
+                calendarOwnerID: OME.Organizer.ID,
+                calendarID: OME.ID<OME.Calendar>,
+                entryID: OME.ID<OME.CalendarEntry>
+            ) {
+                self.calendarOwnerID = calendarOwnerID
+                self.calendarID = calendarID
+                self.entryID = entryID
+            }
+
+            public var calendarOwnerID: OME.Organizer.ID
+            public var calendarID: OME.ID<OME.Calendar>
+            public var entryID: OME.ID<OME.CalendarEntry>
+        }
+
+        public init(
+            id: ID,
+            event: OpenMusicEvent.Event.Reference,
+            createdAt: Date,
+            note: String? = nil,
+            pinned: Bool = false
+        ) {
+            self.id = id
+            self.event = event
+            self.createdAt = createdAt
+            self.note = note
+            self.pinned = pinned
+        }
+
+        public var id: ID
+
+        @Column(as: OpenMusicEvent.Event.Reference.JSONRepresentation.self)
+        public var event: OpenMusicEvent.Event.Reference
+        public var createdAt: Date
+        public var note: String?
+        public var pinned: Bool
     }
 }
 
@@ -522,6 +636,8 @@ extension OpenMusicEvent {
 
 extension OpenMusicEvent.Organizer.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Event.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.Calendar.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.CalendarEntry.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.EventOrganizer.Draft: Equatable, Sendable {}
 extension OpenMusicEvent.Stage.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Schedule.Draft: Codable, Equatable, Sendable {}

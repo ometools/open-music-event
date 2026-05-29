@@ -209,6 +209,44 @@ public extension OME {
                     .execute(db)
             }
 
+            migrator.registerMigration("Add OpenMusicEvent calendars") { db in
+                try #sql("""
+                    ALTER TABLE "events"
+                    ADD COLUMN "owner" TEXT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "calendars" (
+                      "ownerID" TEXT NOT NULL REFERENCES "organizers"("id") ON DELETE CASCADE,
+                      "calendarID" TEXT NOT NULL,
+                      "name" TEXT NOT NULL,
+                      "description" TEXT,
+                      "images" TEXT,
+                      PRIMARY KEY ("ownerID", "calendarID") ON CONFLICT REPLACE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "calendarEntries" (
+                      "calendarOwnerID" TEXT NOT NULL,
+                      "calendarID" TEXT NOT NULL,
+                      "entryID" TEXT NOT NULL,
+                      "event" TEXT NOT NULL,
+                      "createdAt" TEXT NOT NULL,
+                      "note" TEXT,
+                      "pinned" INTEGER NOT NULL DEFAULT 0,
+                      PRIMARY KEY ("calendarOwnerID", "calendarID", "entryID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("calendarOwnerID", "calendarID")
+                        REFERENCES "calendars"("ownerID", "calendarID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+            }
+
             OME.SourceEditingMigrations.register(into: &migrator)
 
             migrator.registerMigration("Create OpenMusicEvent local image blob schema") { db in

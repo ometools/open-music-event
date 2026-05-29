@@ -238,7 +238,8 @@ public extension OpenMusicEvent.Event.Draft {
         iconImageURL: URL? = nil,
         siteMapImageURL: URL? = nil,
         contactNumbers: [OME.Event.ContactNumber]? = nil,
-        categoryConfigs: OME.Event.CategoryConfigs? = nil
+        categoryConfigs: OME.Event.CategoryConfigs? = nil,
+        owner: OME.Participant.Actor? = nil
     ) {
         self.init(
             id: id,
@@ -257,7 +258,8 @@ public extension OpenMusicEvent.Event.Draft {
                 siteMapURL: siteMapImageURL
             ),
             contactNumbers: contactNumbers,
-            categoryConfigs: categoryConfigs
+            categoryConfigs: categoryConfigs,
+            owner: owner
         )
     }
 
