@@ -35,6 +35,17 @@ private func calendarEntryLocalID(_ string: String) -> OMERecord.ID<OMERecord.Ca
     OMERecord.ID<OMERecord.CalendarEntry>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
+private func sourceProvenance(
+    _ source: String,
+    ref: String? = "HEAD"
+) -> OMERecord.SourceDatabaseInsertion.SourceProvenance {
+    OMERecord.SourceDatabaseInsertion.SourceProvenance(
+        kind: .tangled,
+        reference: "tangled.org/woody.fm/\(source)",
+        ref: ref
+    )
+}
+
 private func participantLocalID(_ string: String) -> OMERecord.ID<OMERecord.Participant> {
     OMERecord.ID<OMERecord.Participant>(rawValue: ATProto.Record.Key(rawValue: string))
 }
@@ -331,6 +342,254 @@ struct NavigationTests {
     }
 
     @Test
+    func sourceDetailLoadsLiveCalendarFromSourceProvenance() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("live-calendar-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let importedAt = Date(timeIntervalSince1970: 1_000)
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+        let eventID = eventID("live-event")
+        let entryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("live-event")
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Live Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: importedAt
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+            try Self.insertCalendar(
+                db,
+                id: calendarID,
+                name: "Live Calendar",
+                description: "Live calendar description"
+            )
+            try Self.insertCalendarEntry(
+                db,
+                id: entryID,
+                event: OMERecord.Event.reference(id: eventID),
+                createdAt: importedAt,
+                note: "Live note",
+                pinned: true
+            )
+        }
+
+        let store = try makeSourceDetailStore(
+            sourceBaselineID: sourceBaselineID,
+            database: database
+        )
+
+        let displayEntries = SourceDetail.displayEntries(
+            calendarEntries: store.state.calendarEntries,
+            events: store.state.events,
+            sourceBaseline: store.state.sourceBaseline
+        )
+
+        #expect(store.state.calendar?.name == "Live Calendar")
+        #expect(store.state.calendar?.description == "Live calendar description")
+        #expect(displayEntries.map(\.id) == [entryID])
+        #expect(displayEntries.first?.note == "Live note")
+        #expect(displayEntries.first?.pinned == true)
+        #expect(store.state.events.map(\.name) == ["Live Event"])
+    }
+
+    @Test
+    func sourceDetailEditCalendarPresentsLiveCalendarEditor() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("editable-live-calendar-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+        let eventID = eventID("editable-live-event")
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Editable Live Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 1_500)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+            try Self.insertCalendar(db, id: calendarID, name: "Editable Live Calendar")
+        }
+
+        let store = try makeSourceDetailStore(
+            sourceBaselineID: sourceBaselineID,
+            database: database
+        )
+
+        store.send(.editButtonTapped)
+
+        #expect(store.state.editCalendar?.calendarID == calendarID)
+    }
+
+    @Test
+    func sourceDetailScopesLiveCalendarEntriesToSourceProvenance() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("first-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let importedAt = Date(timeIntervalSince1970: 2_000)
+        let firstEventID = eventID("first-source-event")
+        let otherEventID = eventID("other-source-event")
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: firstEventID, name: "First Source Event")
+            try Self.insertEvent(db, id: otherEventID, name: "Other Source Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: importedAt
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: firstEventID,
+                sourceProvenance: sourceProvenance
+            )
+            try Self.insertCalendar(db, id: calendarID, name: "Live Calendar")
+            try Self.insertCalendarEntry(
+                db,
+                id: .init(
+                    calendarOwnerID: testOrganizerID,
+                    calendarID: OMERecord.Calendar.defaultID,
+                    entryID: calendarEntryLocalID("first-source-event")
+                ),
+                event: OMERecord.Event.reference(id: firstEventID),
+                createdAt: importedAt
+            )
+            try Self.insertCalendarEntry(
+                db,
+                id: .init(
+                    calendarOwnerID: testOrganizerID,
+                    calendarID: OMERecord.Calendar.defaultID,
+                    entryID: calendarEntryLocalID("other-source-event")
+                ),
+                event: OMERecord.Event.reference(id: otherEventID),
+                createdAt: Date(timeIntervalSince1970: 3_000)
+            )
+        }
+
+        let store = try makeSourceDetailStore(
+            sourceBaselineID: sourceBaselineID,
+            database: database
+        )
+        let displayEntries = SourceDetail.displayEntries(
+            calendarEntries: store.state.calendarEntries,
+            events: store.state.events,
+            sourceBaseline: store.state.sourceBaseline
+        )
+
+        #expect(store.state.calendar?.name == "Live Calendar")
+        #expect(displayEntries.map(\.id.entryID) == [
+            calendarEntryLocalID("first-source-event")
+        ])
+        #expect(store.state.events.map(\.id) == [firstEventID])
+    }
+
+    @Test
+    func sourceDetailSynthesizesRowsFromProvenanceWhenLiveCalendarEntryIsMissing() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("missing-reference-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let importedAt = Date(timeIntervalSince1970: 4_000)
+        let eventID = eventID("fallback-event")
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Fallback Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                databaseFileName: "missing-reference.sqlite",
+                importedAt: importedAt
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        let store = try makeSourceDetailStore(
+            sourceBaselineID: sourceBaselineID,
+            database: database
+        )
+        let displayEntries = SourceDetail.displayEntries(
+            calendarEntries: store.state.calendarEntries,
+            events: store.state.events,
+            sourceBaseline: store.state.sourceBaseline
+        )
+
+        #expect(store.state.calendar == nil)
+        #expect(store.state.canEditCalendar == true)
+        #expect(displayEntries.map(\.id.entryID) == [
+            calendarEntryLocalID("fallback-event")
+        ])
+        #expect(displayEntries.first?.createdAt == importedAt)
+        #expect(displayEntries.first?.pinned == false)
+        #expect(store.state.events.map(\.id) == [eventID])
+
+        store.send(.editButtonTapped)
+        #expect(
+            store.state.editCalendar?.calendarID
+            == OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+        )
+    }
+
+    @Test
+    func sourceDetailEventTapPostsNavigationRequest() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("source-event")
+        let sourceProvenance = sourceProvenance("navigation-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        try database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Source Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 0)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: SourceDetailHarness.State(sourceBaselineID: sourceBaselineID)
+            ) {
+                SourceDetailHarness()
+            }
+        }
+
+        store.send(.sourceDetail(.eventButtonTapped(eventID))) {
+            $0.lastRequest = .event(eventID, nil)
+        }
+        #expect(store.state.lastRequest == .event(eventID, nil))
+    }
+
+    @Test
     func organizerDetailFetchesLinkedEvents() async throws {
         let database = try makePreparedDatabase()
         let linkedEventID = eventID("linked-event")
@@ -390,6 +649,8 @@ struct NavigationTests {
         )
         let firstEventID = eventID("first-event")
         let pinnedEventID = eventID("pinned-event")
+        let firstEventDate = try #require(LocalDate("2026-06-01"))
+        let pinnedEventDate = try #require(LocalDate("2026-05-01"))
         let firstEntryID = OMERecord.CalendarEntry.ID(
             calendarOwnerID: testOrganizerID,
             calendarID: OMERecord.Calendar.defaultID,
@@ -415,8 +676,18 @@ struct NavigationTests {
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(db, id: firstEventID, name: "First Event")
-            try Self.insertEvent(db, id: pinnedEventID, name: "Pinned Event")
+            try Self.insertEvent(
+                db,
+                id: firstEventID,
+                name: "First Event",
+                startDate: firstEventDate
+            )
+            try Self.insertEvent(
+                db,
+                id: pinnedEventID,
+                name: "Pinned Event",
+                startDate: pinnedEventDate
+            )
             try Self.insertCalendar(db, id: calendarID, name: "Main Calendar")
             try Self.insertCalendarEntry(
                 db,
@@ -447,17 +718,227 @@ struct NavigationTests {
             )
         }
 
-        #expect(rows.rows.map(\.entry.id) == [pinnedEntryID, unavailableEntryID, firstEntryID])
-        #expect(rows.rows.map(\.event?.id) == [pinnedEventID, nil, firstEventID])
+        #expect(rows.rows.map(\.entry.id) == [pinnedEntryID, firstEntryID, unavailableEntryID])
+        #expect(rows.rows.map(\.event?.id) == [pinnedEventID, firstEventID, nil])
         #expect(rows.rows.first?.entry.note == "Pinned pick")
     }
 
     @Test
-    func organizerDetailGroupsEventsLikeLegacyRoot() async throws {
+    func calendarDetailEditButtonPresentsEditor() throws {
         let database = try makePreparedDatabase()
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: CalendarDetail.State(calendarID: calendarID)) {
+                CalendarDetail()
+            }
+        }
+
+        store.send(.editButtonTapped)
+
+        #expect(store.state.editCalendar?.calendarID == calendarID)
+    }
+
+    @Test
+    func editCalendarSavesHeroImageURL() async throws {
+        let database = try makePreparedDatabase()
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let logoURL = try #require(URL(string: "https://example.com/logo.png"))
+        let logoImage = OMERecord.ImageAsset(
+            source: .url(logoURL),
+            role: .logo,
+            renderKind: .transparent,
+            materializationPolicy: .lazy
+        )
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertCalendar(
+                db,
+                id: calendarID,
+                name: "Main Calendar",
+                description: "Calendar description",
+                images: [logoImage]
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            var state = EditCalendar.State(calendarID: calendarID)
+            state.hasLoadedDraft = true
+            state.draft = OMERecord.Calendar.Draft(
+                id: calendarID,
+                name: "Main Calendar",
+                description: "Calendar description",
+                images: [logoImage]
+            )
+            state.form.value.name = " Updated Calendar "
+            state.form.value.description = " Updated description "
+            state.form.value.heroImageURL = " https://example.com/hero.png "
+
+            return TestStore(initialState: state) {
+                EditCalendar()
+            }
+        }
+
+        let submitTask = store.send(.saveButtonTapped)
+        let saveTask = await store.receive(
+            \.formSubmitted,
+            .equals(
+                EditCalendar.FormValue(
+                    name: " Updated Calendar ",
+                    description: " Updated description ",
+                    heroImageURL: " https://example.com/hero.png "
+                )
+            ),
+            timeout: .seconds(1)
+        )
+        await saveTask?.value
+        await submitTask?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+
+        let calendar = try await database.read { db in
+            try #require(
+                try OMERecord.Calendar
+                    .where { $0.id.eq(calendarID) }
+                    .fetchOne(db)
+            )
+        }
+
+        #expect(calendar.name == "Updated Calendar")
+        #expect(calendar.description == "Updated description")
+        #expect(calendar.images?.imageAsset(role: .hero)?.url?.absoluteString == "https://example.com/hero.png")
+        #expect(calendar.images?.imageAsset(role: .logo)?.url?.absoluteString == "https://example.com/logo.png")
+    }
+
+    @Test
+    func editCalendarLoadsMissingCalendarAsDefaultDraft() throws {
+        let database = try makePreparedDatabase()
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: EditCalendar.State(calendarID: calendarID)) {
+                EditCalendar()
+            }
+        }
+
+        #expect(store.state.hasLoadedDraft == true)
+        #expect(store.state.draft?.id == calendarID)
+        #expect(store.state.draft?.name == "Events")
+        #expect(store.state.form.value.name == "Events")
+        #expect(store.state.errorMessage == nil)
+    }
+
+    @Test
+    func editCalendarSavesMissingDefaultCalendar() async throws {
+        let database = try makePreparedDatabase()
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            var state = EditCalendar.State(calendarID: calendarID)
+            state.hasLoadedDraft = true
+            state.draft = OMERecord.Calendar.Draft(
+                id: calendarID,
+                name: "Events",
+                description: nil,
+                images: nil
+            )
+            state.form.value.name = " Source Calendar "
+            state.form.value.description = " Source description "
+            state.form.value.heroImageURL = "https://example.com/source-hero.png"
+
+            return TestStore(initialState: state) {
+                EditCalendar()
+            }
+        }
+
+        let submitTask = store.send(.saveButtonTapped)
+        let saveTask = await store.receive(
+            \.formSubmitted,
+            .equals(
+                EditCalendar.FormValue(
+                    name: " Source Calendar ",
+                    description: " Source description ",
+                    heroImageURL: "https://example.com/source-hero.png"
+                )
+            ),
+            timeout: .seconds(1)
+        )
+        await saveTask?.value
+        await submitTask?.value
+
+        let calendar = try await database.read { db in
+            try #require(
+                try OMERecord.Calendar
+                    .where { $0.id.eq(calendarID) }
+                    .fetchOne(db)
+            )
+        }
+
+        #expect(calendar.name == "Source Calendar")
+        #expect(calendar.description == "Source description")
+        #expect(calendar.images?.imageAsset(role: .hero)?.url?.absoluteString == "https://example.com/source-hero.png")
+    }
+
+    @Test
+    func organizerDetailGroupsDefaultCalendarEntries() async throws {
+        let database = try makePreparedDatabase()
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
         let currentEventID = eventID("current-event")
         let previousEventID = eventID("previous-event")
         let upcomingEventID = eventID("upcoming-event")
+        let legacyOnlyEventID = eventID("legacy-only-event")
+        let currentEntryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("current-event")
+        )
+        let previousEntryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("previous-event")
+        )
+        let upcomingEntryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("upcoming-event")
+        )
         let timeZone = try #require(TimeZone(secondsFromGMT: 0))
         let today = try #require(LocalDate("2026-05-11"))
         let currentStartDate = try #require(LocalDate("2026-05-10"))
@@ -492,21 +973,45 @@ struct NavigationTests {
                 endDate: upcomingEndDate,
                 timeZone: timeZone
             )
-            try Self.insertEventOrganizer(db, eventID: currentEventID, organizerID: testOrganizerID)
-            try Self.insertEventOrganizer(db, eventID: previousEventID, organizerID: testOrganizerID)
-            try Self.insertEventOrganizer(db, eventID: upcomingEventID, organizerID: testOrganizerID)
+            try Self.insertEvent(db, id: legacyOnlyEventID, name: "Legacy Only Event")
+            try Self.insertEventOrganizer(db, eventID: legacyOnlyEventID, organizerID: testOrganizerID)
+            try Self.insertCalendar(db, id: calendarID, name: "Main Calendar")
+            try Self.insertCalendarEntry(
+                db,
+                id: currentEntryID,
+                event: OMERecord.Event.reference(id: currentEventID),
+                createdAt: Date(timeIntervalSince1970: 100)
+            )
+            try Self.insertCalendarEntry(
+                db,
+                id: previousEntryID,
+                event: OMERecord.Event.reference(id: previousEventID),
+                createdAt: Date(timeIntervalSince1970: 200)
+            )
+            try Self.insertCalendarEntry(
+                db,
+                id: upcomingEntryID,
+                event: OMERecord.Event.reference(id: upcomingEventID),
+                createdAt: Date(timeIntervalSince1970: 300)
+            )
         }
-        let events = try await database.read { db in
-            try OrganizerDetail.eventsQuery(organizerID: testOrganizerID).fetchAll(db)
+        let entryRows = try await database.read { db in
+            CalendarDetail.EntryRows(
+                entries: try OrganizerDetail.defaultCalendarEntriesQuery(
+                    organizerID: testOrganizerID
+                )
+                .fetchAll(db),
+                events: try CalendarDetail.localEventsQuery.fetchAll(db)
+            )
         }
-        let sections = OrganizerDetail.EventSections(
-            events: events,
+        let sections = OrganizerDetail.CalendarEntrySections(
+            entryRows: entryRows,
             now: today.atStartOfDay(in: timeZone)
         )
 
-        #expect(sections.currentEvents.map(\.id) == [currentEventID])
-        #expect(sections.upcomingEvents.map(\.id) == [upcomingEventID])
-        #expect(sections.previousEvents.map(\.id) == [previousEventID])
+        #expect(sections.currentRows.map(\.event?.id) == [currentEventID])
+        #expect(sections.upcomingRows.map(\.event?.id) == [upcomingEventID])
+        #expect(sections.previousRows.map(\.event?.id) == [previousEventID])
     }
 
     @Test
@@ -1756,6 +2261,22 @@ struct NavigationTests {
         }
     }
 
+    private func makeSourceDetailStore(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        database: any DatabaseWriter
+    ) throws -> TestStore<SourceDetail> {
+        return withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                SourceDetail()
+            }
+        }
+    }
+
     private nonisolated static func insertOrganizer(
         _ db: Database,
         id organizerID: OMERecord.Organizer.ID
@@ -1806,14 +2327,16 @@ struct NavigationTests {
     private nonisolated static func insertCalendar(
         _ db: Database,
         id calendarID: OMERecord.Calendar.ID,
-        name: String
+        name: String,
+        description: String? = nil,
+        images: [OMERecord.ImageAsset]? = nil
     ) throws {
         try OMERecord.Calendar.insert {
             OMERecord.Calendar.Draft(
                 id: calendarID,
                 name: name,
-                description: nil,
-                images: nil
+                description: description,
+                images: images
             )
         }
         .execute(db)
@@ -1834,6 +2357,43 @@ struct NavigationTests {
                 createdAt: createdAt,
                 note: note,
                 pinned: pinned
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertSourceBaseline(
+        _ db: Database,
+        sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance,
+        databaseFileName: String = "baseline.sqlite",
+        importedAt: Date
+    ) throws {
+        try SourceBaselineRecord.insert {
+            SourceBaselineRecord(
+                source: sourceProvenance,
+                databaseFileName: databaseFileName,
+                importedAt: importedAt
+            )
+        } onConflict: {
+            $0.id
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertEventSourceProvenance(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance
+    ) throws {
+        try EventSourceProvenanceRecord.insert {
+            EventSourceProvenanceRecord(
+                id: eventID,
+                sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
+                sourceKind: sourceProvenance.kind,
+                sourceReference: sourceProvenance.reference,
+                ref: sourceProvenance.ref,
+                eventIDOrigin: .inferred,
+                sourceEventDirectory: eventID.eventID.rawValue.rawValue
             )
         }
         .execute(db)
@@ -2038,6 +2598,32 @@ private struct MyEventsEventHarness {
     var body: some Feature {
         Scope(\.myEvents, action: \.myEvents) {
             MyEvents()
+        }
+        .onEvent(NavigationRequested.self) { request, state in
+            state.lastRequest = request
+        }
+    }
+}
+
+@Feature
+private struct SourceDetailHarness {
+    struct State {
+        init(sourceBaselineID: SourceBaselineRecord.ID) {
+            self.sourceDetail = SourceDetail.State(sourceBaselineID: sourceBaselineID)
+        }
+
+        var lastRequest: NavigationRequest?
+        @DebugSnapshotIgnored
+        var sourceDetail: SourceDetail.State
+    }
+
+    enum Action {
+        case sourceDetail(SourceDetail.Action)
+    }
+
+    var body: some Feature {
+        Scope(\.sourceDetail, action: \.sourceDetail) {
+            SourceDetail()
         }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request

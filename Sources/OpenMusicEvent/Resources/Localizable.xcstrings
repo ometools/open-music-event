@@ -43,6 +43,9 @@
         }
       }
     },
+    "About" : {
+
+    },
     "Add" : {
       "comment" : "Button in items list that will cause a new item to be added",
       "localizations" : {
@@ -216,6 +219,9 @@
 
     },
     "Downloaded Sources" : {
+
+    },
+    "Edit Calendar" : {
 
     },
     "End Date" : {
@@ -490,6 +496,9 @@
     "Ref" : {
 
     },
+    "Reference" : {
+
+    },
     "Repository" : {
 
     },
@@ -682,6 +691,9 @@
 
     },
     "Unable to verify Tangled's SSH host key." : {
+
+    },
+    "Unavailable Events" : {
 
     },
     "Upcoming Events" : {

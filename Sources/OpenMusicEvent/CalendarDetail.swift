@@ -18,6 +18,8 @@ public struct CalendarDetail {
             _events = FetchAll(CalendarDetail.localEventsQuery)
         }
 
+        var editCalendar: EditCalendar.State?
+
         @DebugSnapshotIgnored
         @FetchOne
         public var calendar: OMERecord.Calendar?
@@ -36,6 +38,8 @@ public struct CalendarDetail {
     }
 
     public enum Action {
+        case editButtonTapped
+        case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case task
     }
@@ -66,13 +70,13 @@ public struct CalendarDetail {
         ) {
             let eventsByID = Dictionary(uniqueKeysWithValues: events.map { ($0.id, $0) })
             rows = entries
-                .sorted(by: Self.sort)
                 .map { entry in
                     EntryRow(
                         entry: entry,
                         event: entry.event.localEventID.flatMap { eventsByID[$0] }
                     )
                 }
+                .sorted(by: Self.sort)
         }
 
         public var isEmpty: Bool {
@@ -80,13 +84,33 @@ public struct CalendarDetail {
         }
 
         private static func sort(
-            lhs: OMERecord.CalendarEntry,
-            rhs: OMERecord.CalendarEntry
+            lhs: EntryRow,
+            rhs: EntryRow
         ) -> Bool {
-            if lhs.pinned != rhs.pinned { return lhs.pinned && !rhs.pinned }
-            if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
-            return lhs.id.entryID.rawValue.rawValue.localizedStandardCompare(
-                rhs.id.entryID.rawValue.rawValue
+            if lhs.entry.pinned != rhs.entry.pinned {
+                return lhs.entry.pinned && !rhs.entry.pinned
+            }
+
+            switch (lhs.event?.calendarSortDate, rhs.event?.calendarSortDate) {
+            case let (.some(lhsDate), .some(rhsDate)):
+                if lhsDate != rhsDate { return lhsDate > rhsDate }
+
+            case (.some, .none):
+                return true
+
+            case (.none, .some):
+                return false
+
+            case (.none, .none):
+                break
+            }
+
+            if lhs.entry.createdAt != rhs.entry.createdAt {
+                return lhs.entry.createdAt > rhs.entry.createdAt
+            }
+
+            return lhs.entry.id.entryID.rawValue.rawValue.localizedStandardCompare(
+                rhs.entry.id.entryID.rawValue.rawValue
             ) == .orderedAscending
         }
     }
@@ -105,8 +129,14 @@ public struct CalendarDetail {
     }
 
     public var body: some Feature {
-        Update { _, action in
+        Update { state, action in
             switch action {
+            case .editButtonTapped:
+                state.editCalendar = EditCalendar.State(calendarID: state.calendarID)
+
+            case .editCalendar:
+                return
+
             case .eventButtonTapped(let eventID):
                 store.addTask {
                     try store.post(
@@ -118,6 +148,9 @@ public struct CalendarDetail {
             case .task:
                 break
             }
+        }
+        .ifLet(\.editCalendar, action: \.editCalendar) {
+            EditCalendar()
         }
     }
 }
@@ -140,6 +173,14 @@ public struct CalendarDetailView: View {
                     .font(.system(size: 82, weight: .semibold))
             }
         } content: {
+            if let calendarDescription {
+                Section("About") {
+                    Text(calendarDescription)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if !entryRows.isEmpty {
                 Section("Events") {
                     ForEach(entryRows.rows) { row in
@@ -156,10 +197,27 @@ public struct CalendarDetailView: View {
                 )
             }
         }
+        .sheet(item: $store.scope(\.editCalendar, action: \.editCalendar)) { editStore in
+            NavigationStack {
+                EditCalendarView(store: editStore)
+            }
+        }
+        .toolbar {
+            Button("Edit Calendar", systemImage: "pencil") {
+                store.send(.editButtonTapped)
+            }
+        }
     }
 
     private var calendarTitle: String {
         store.calendar?.name ?? store.calendarID.calendarID.rawValue.rawValue
+    }
+
+    private var calendarDescription: String? {
+        guard let description = store.calendar?.description, !description.isEmpty else {
+            return nil
+        }
+        return description
     }
 
     private var entryRows: CalendarDetail.EntryRows {
@@ -220,7 +278,7 @@ struct CalendarEntryRowView: View {
     }
 }
 
-private extension OMERecord.Event.Reference {
+extension OMERecord.Event.Reference {
     var localEventID: OMERecord.Event.ID? {
         guard
             uri.collection == OMERecord.Event.nsid,
@@ -232,5 +290,11 @@ private extension OMERecord.Event.Reference {
             organizerID: organizerID,
             eventID: OMERecord.ID<OMERecord.Event>(rawValue: eventID)
         )
+    }
+}
+
+private extension OMERecord.Event {
+    var calendarSortDate: LocalDate? {
+        startDate ?? endDate
     }
 }

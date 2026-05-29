@@ -346,8 +346,11 @@ public struct OrganizerDetail {
         public init(organizerID: OMERecord.Organizer.ID) {
             self.organizerID = organizerID
             _calendars = FetchAll(OrganizerDetail.calendarsQuery(organizerID: organizerID))
+            _calendarEvents = FetchAll(CalendarDetail.localEventsQuery)
+            _defaultCalendarEntries = FetchAll(
+                OrganizerDetail.defaultCalendarEntriesQuery(organizerID: organizerID)
+            )
             _organizer = FetchOne(OrganizerDetail.organizerQuery(organizerID: organizerID))
-            _events = FetchAll(OrganizerDetail.eventsQuery(organizerID: organizerID))
         }
 
         var calendarDetail: CalendarDetail.State?
@@ -359,7 +362,11 @@ public struct OrganizerDetail {
 
         @DebugSnapshotIgnored
         @FetchAll
-        public var events: [OMERecord.Event]
+        public var calendarEvents: [OMERecord.Event]
+
+        @DebugSnapshotIgnored
+        @FetchAll
+        public var defaultCalendarEntries: [OMERecord.CalendarEntry]
 
         @DebugSnapshotIgnored
         @FetchOne
@@ -396,6 +403,23 @@ public struct OrganizerDetail {
         OMERecord.Calendar
             .where { $0.id.ownerID.eq(organizerID) }
             .order { $0.name.collate(.nocase) }
+    }
+
+    static func defaultCalendarID(
+        organizerID: OMERecord.Organizer.ID
+    ) -> OMERecord.Calendar.ID {
+        OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+    }
+
+    static func defaultCalendarEntriesQuery(
+        organizerID: OMERecord.Organizer.ID
+    ) -> some SelectStatementOf<OMERecord.CalendarEntry> {
+        CalendarDetail.entriesQuery(
+            calendarID: defaultCalendarID(organizerID: organizerID)
+        )
     }
 
     static func eventsQuery(
@@ -450,6 +474,58 @@ public struct OrganizerDetail {
         }
 
         private static func timing(for event: OMERecord.Event, now: Date) -> Timing {
+            let today = LocalDate(now, in: event.timeZone)
+
+            switch (event.startDate, event.endDate) {
+            case let (.some(startDate), .some(endDate)):
+                if startDate <= today && today <= endDate { return .current }
+                if endDate < today { return .previous }
+                return .upcoming
+
+            case let (.some(startDate), .none):
+                if startDate > today { return .upcoming }
+                if startDate == today { return .current }
+                return .previous
+
+            case let (.none, .some(endDate)):
+                return endDate >= today ? .current : .previous
+
+            case (.none, .none):
+                return .previous
+            }
+        }
+    }
+
+    public struct CalendarEntrySections: Equatable, Sendable {
+        public var currentRows: [CalendarDetail.EntryRow]
+        public var previousRows: [CalendarDetail.EntryRow]
+        public var unavailableRows: [CalendarDetail.EntryRow]
+        public var upcomingRows: [CalendarDetail.EntryRow]
+
+        public init(entryRows: CalendarDetail.EntryRows, now: Date) {
+            let rows = entryRows.rows
+            self.currentRows = rows.filter { Self.timing(for: $0, now: now) == .current }
+            self.previousRows = rows.filter { Self.timing(for: $0, now: now) == .previous }
+            self.unavailableRows = rows.filter { Self.timing(for: $0, now: now) == .unavailable }
+            self.upcomingRows = rows.filter { Self.timing(for: $0, now: now) == .upcoming }
+        }
+
+        public var isEmpty: Bool {
+            currentRows.isEmpty
+            && previousRows.isEmpty
+            && unavailableRows.isEmpty
+            && upcomingRows.isEmpty
+        }
+
+        private enum Timing {
+            case current
+            case previous
+            case unavailable
+            case upcoming
+        }
+
+        private static func timing(for row: CalendarDetail.EntryRow, now: Date) -> Timing {
+            guard let event = row.event else { return .unavailable }
             let today = LocalDate(now, in: event.timeZone)
 
             switch (event.startDate, event.endDate) {
@@ -542,21 +618,27 @@ public struct OrganizerDetailView: View {
                 }
             }
 
-            if !sections.currentEvents.isEmpty {
+            if !sections.currentRows.isEmpty {
                 Section("Happening Now") {
-                    eventRows(sections.currentEvents)
+                    calendarEntryRows(sections.currentRows)
                 }
             }
 
-            if !sections.upcomingEvents.isEmpty {
+            if !sections.upcomingRows.isEmpty {
                 Section("Upcoming Events") {
-                    eventRows(sections.upcomingEvents)
+                    calendarEntryRows(sections.upcomingRows)
                 }
             }
 
-            if !sections.previousEvents.isEmpty {
+            if !sections.previousRows.isEmpty {
                 Section("Previous Events") {
-                    eventRows(sections.previousEvents)
+                    calendarEntryRows(sections.previousRows)
+                }
+            }
+
+            if !sections.unavailableRows.isEmpty {
+                Section("Unavailable Events") {
+                    calendarEntryRows(sections.unavailableRows)
                 }
             }
 
@@ -583,8 +665,18 @@ public struct OrganizerDetailView: View {
         }
     }
 
-    private var sections: OrganizerDetail.EventSections {
-        OrganizerDetail.EventSections(events: store.events, now: now)
+    private var defaultCalendarEntryRows: CalendarDetail.EntryRows {
+        CalendarDetail.EntryRows(
+            entries: store.defaultCalendarEntries,
+            events: store.calendarEvents
+        )
+    }
+
+    private var sections: OrganizerDetail.CalendarEntrySections {
+        OrganizerDetail.CalendarEntrySections(
+            entryRows: defaultCalendarEntryRows,
+            now: now
+        )
     }
 
     private var organizerTitle: String {
@@ -603,12 +695,16 @@ public struct OrganizerDetailView: View {
     }
 
     @ViewBuilder
-    private func eventRows(_ events: [OMERecord.Event]) -> some View {
-        ForEach(events) { event in
-            Button {
-                store.send(.eventButtonTapped(event.id))
-            } label: {
-                EventRowView(event: event)
+    private func calendarEntryRows(_ rows: [CalendarDetail.EntryRow]) -> some View {
+        ForEach(rows) { row in
+            if let event = row.event {
+                Button {
+                    store.send(.eventButtonTapped(event.id))
+                } label: {
+                    CalendarEntryRowView(row: row)
+                }
+            } else {
+                CalendarEntryRowView(row: row)
             }
         }
     }
@@ -649,6 +745,12 @@ public struct SourceDetail {
     public struct State: Identifiable {
         public init(sourceBaselineID: SourceBaselineRecord.ID) {
             self.sourceBaselineID = sourceBaselineID
+            _calendar = FetchOne(
+                SourceDetail.calendarQuery(sourceBaselineID: sourceBaselineID)
+            )
+            _calendarEntries = FetchAll(
+                SourceDetail.calendarEntriesQuery(sourceBaselineID: sourceBaselineID)
+            )
             _sourceBaseline = FetchOne(
                 SourceDetail.sourceBaselineQuery(sourceBaselineID: sourceBaselineID)
             )
@@ -659,6 +761,16 @@ public struct SourceDetail {
                 SourceDetail.eventsQuery(sourceBaselineID: sourceBaselineID)
             )
         }
+
+        var editCalendar: EditCalendar.State?
+
+        @DebugSnapshotIgnored
+        @FetchOne
+        public var calendar: OMERecord.Calendar?
+
+        @DebugSnapshotIgnored
+        @FetchAll
+        public var calendarEntries: [OMERecord.CalendarEntry]
 
         @DebugSnapshotIgnored
         @FetchAll
@@ -675,9 +787,25 @@ public struct SourceDetail {
         public let sourceBaselineID: SourceBaselineRecord.ID
 
         public var id: SourceBaselineRecord.ID { sourceBaselineID }
+
+        var canEditCalendar: Bool {
+            editableCalendarID != nil
+        }
+
+        var editableCalendarID: OMERecord.Calendar.ID? {
+            if let calendar {
+                return calendar.id
+            }
+            if let organizer {
+                return OrganizerDetail.defaultCalendarID(organizerID: organizer.id)
+            }
+            return nil
+        }
     }
 
     public enum Action {
+        case editButtonTapped
+        case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case task
     }
@@ -686,6 +814,32 @@ public struct SourceDetail {
         sourceBaselineID: SourceBaselineRecord.ID
     ) -> some SelectStatementOf<SourceBaselineRecord> {
         SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
+    }
+
+    static func calendarQuery(
+        sourceBaselineID: SourceBaselineRecord.ID
+    ) -> some SelectStatementOf<OMERecord.Calendar> {
+        OMERecord.Calendar
+            .where { $0.id.calendarID.eq(OMERecord.Calendar.defaultID) }
+            .where { calendar in
+                EventSourceProvenanceRecord
+                    .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                    .where { $0.id.organizerID.eq(calendar.id.ownerID) }
+                    .exists()
+            }
+    }
+
+    static func calendarEntriesQuery(
+        sourceBaselineID: SourceBaselineRecord.ID
+    ) -> some SelectStatementOf<OMERecord.CalendarEntry> {
+        OMERecord.CalendarEntry
+            .where { $0.id.calendarID.eq(OMERecord.Calendar.defaultID) }
+            .where { entry in
+                EventSourceProvenanceRecord
+                    .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                    .where { $0.id.organizerID.eq(entry.id.calendarOwnerID) }
+                    .exists()
+            }
     }
 
     static func organizerQuery(
@@ -711,9 +865,65 @@ public struct SourceDetail {
         }
     }
 
+    static func displayEntries(
+        calendarEntries: [OMERecord.CalendarEntry],
+        events: [OMERecord.Event],
+        sourceBaseline: SourceBaselineRecord?
+    ) -> [OMERecord.CalendarEntry] {
+        let sourceEventIDs = Set(events.map(\.id))
+        var displayEntries = calendarEntries.filter { entry in
+            entry.event.localEventID.map(sourceEventIDs.contains) ?? false
+        }
+
+        guard let sourceBaseline else {
+            return displayEntries
+        }
+
+        let existingEventIDs = Set(displayEntries.compactMap(\.event.localEventID))
+        displayEntries.append(
+            contentsOf: events
+                .filter { !existingEventIDs.contains($0.id) }
+                .map { event in
+                    synthesizedEntry(
+                        event: event,
+                        importedAt: sourceBaseline.importedAt
+                    )
+                }
+        )
+        return displayEntries
+    }
+
+    static func synthesizedEntry(
+        event: OMERecord.Event,
+        importedAt: Date
+    ) -> OMERecord.CalendarEntry {
+        OMERecord.CalendarEntry(
+            id: .init(
+                calendarOwnerID: event.id.organizerID,
+                calendarID: OMERecord.Calendar.defaultID,
+                entryID: OMERecord.ID<OMERecord.CalendarEntry>(
+                    rawValue: event.id.eventID.rawValue
+                )
+            ),
+            event: OMERecord.Event.reference(id: event.id),
+            createdAt: importedAt,
+            note: nil,
+            pinned: false
+        )
+    }
+
     public var body: some Feature {
-        Update { _, action in
+        Update { state, action in
             switch action {
+            case .editButtonTapped:
+                guard let calendarID = state.editableCalendarID else {
+                    return
+                }
+                state.editCalendar = EditCalendar.State(calendarID: calendarID)
+
+            case .editCalendar:
+                return
+
             case .eventButtonTapped(let eventID):
                 store.addTask {
                     try store.post(
@@ -726,6 +936,9 @@ public struct SourceDetail {
                 break
             }
         }
+        .ifLet(\.editCalendar, action: \.editCalendar) {
+            EditCalendar()
+        }
     }
 }
 
@@ -737,32 +950,70 @@ public struct SourceDetailView: View {
         self.store = store
     }
 
+    @State var sourceSectionExpanded = false
+
+
     public var body: some View {
-        HeroImageList(title: Text(sourceTitle)) {
+        HeroImageList(title: Text(calendarTitle)) {
             HeroImage(
-                title: Text(sourceTitle),
-                asset: nil,
+                title: Text(calendarTitle),
+                asset: store.calendar?.images?.imageAsset(role: .hero),
                 cacheContext: nil
             ) {
-                Image(systemName: "folder")
+                Image(systemName: "calendar")
                     .font(.system(size: 82, weight: .semibold))
             }
         } content: {
-            if !sections.currentEvents.isEmpty {
+            if let calendarDescription {
+                Section("About") {
+                    Text(calendarDescription)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let sourceBaseline = store.sourceBaseline {
+                DisclosureGroup("Source", isExpanded: $sourceSectionExpanded) {
+                    LabeledContent("Reference", value: sourceBaseline.sourceReference)
+                    LabeledContent("Ref", value: sourceBaseline.ref ?? "default ref")
+                    LabeledContent(
+                        "Imported",
+                        value: sourceBaseline.importedAt.formatted(
+                            date: .abbreviated,
+                            time: .shortened
+                        )
+                    )
+                    if store.canEditCalendar {
+                        Button {
+                            store.send(.editButtonTapped)
+                        } label: {
+                            Label("Edit Calendar", systemImage: "pencil")
+                        }
+                    }
+                }
+            }
+
+            if !sections.currentRows.isEmpty {
                 Section("Happening Now") {
-                    eventRows(sections.currentEvents)
+                    calendarEntryRows(sections.currentRows)
                 }
             }
 
-            if !sections.upcomingEvents.isEmpty {
+            if !sections.upcomingRows.isEmpty {
                 Section("Upcoming Events") {
-                    eventRows(sections.upcomingEvents)
+                    calendarEntryRows(sections.upcomingRows)
                 }
             }
 
-            if !sections.previousEvents.isEmpty {
+            if !sections.previousRows.isEmpty {
                 Section("Previous Events") {
-                    eventRows(sections.previousEvents)
+                    calendarEntryRows(sections.previousRows)
+                }
+            }
+
+            if !sections.unavailableRows.isEmpty {
+                Section("Unavailable Events") {
+                    calendarEntryRows(sections.unavailableRows)
                 }
             }
 
@@ -774,25 +1025,60 @@ public struct SourceDetailView: View {
                 )
             }
         }
+        .sheet(item: $store.scope(\.editCalendar, action: \.editCalendar)) { editStore in
+            NavigationStack {
+                EditCalendarView(store: editStore)
+            }
+        }
+        .toolbar {
+            if store.canEditCalendar {
+                Button("Edit Calendar", systemImage: "pencil") {
+                    store.send(.editButtonTapped)
+                }
+            }
+        }
     }
 
-    private var sections: OrganizerDetail.EventSections {
-        OrganizerDetail.EventSections(events: store.events, now: now)
+    private var calendarDescription: String? {
+        guard let description = store.calendar?.description,
+              !description.isEmpty
+        else { return nil }
+        return description
     }
 
-    private var sourceTitle: String {
-        store.sourceBaseline?.sourceReference
+    private var calendarTitle: String {
+        store.calendar?.name
+        ?? store.sourceBaseline?.sourceReference
         ?? store.organizer?.id.description
         ?? store.sourceBaselineID.rawValue
     }
 
+    private var entryRows: CalendarDetail.EntryRows {
+        return CalendarDetail.EntryRows(
+            entries: SourceDetail.displayEntries(
+                calendarEntries: store.calendarEntries,
+                events: store.events,
+                sourceBaseline: store.sourceBaseline
+            ),
+            events: store.events
+        )
+    }
+
+    private var sections: OrganizerDetail.CalendarEntrySections {
+        OrganizerDetail.CalendarEntrySections(entryRows: entryRows, now: now)
+    }
+
     @ViewBuilder
-    private func eventRows(_ events: [OMERecord.Event]) -> some View {
-        ForEach(events) { event in
-            Button {
-                store.send(.eventButtonTapped(event.id))
-            } label: {
-                EventRowView(event: event)
+    private func calendarEntryRows(_ rows: [CalendarDetail.EntryRow]) -> some View {
+        ForEach(rows) { row in
+            if let event = row.event {
+                Button {
+                    store.send(.eventButtonTapped(event.id))
+                } label: {
+                    CalendarEntryRowView(row: row)
+                }
+            } else {
+                CalendarEntryRowView(row: row)
             }
         }
     }
