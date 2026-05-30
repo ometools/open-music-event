@@ -18,19 +18,17 @@ struct OpenMusicEventSourceTests {
         )
         .validate()
 
+        let resolvedEventIDs = [
+            "Organizer-minimal-event",
+            "Organizer-testival-2026",
+        ]
         expectNoDifference(
             result.summary.events.map(\.eventID),
-            [
-                "minimal-event",
-                "testival-2026",
-            ]
+            resolvedEventIDs
         )
         expectNoDifference(
             result.insertedEventIDs.map(\.eventID.rawValue.rawValue),
-            [
-                "minimal-event",
-                "testival-2026",
-            ]
+            resolvedEventIDs
         )
         expectNoDifference(
             result.insertion.calendars,
@@ -48,10 +46,7 @@ struct OpenMusicEventSourceTests {
         )
         expectNoDifference(
             result.insertion.calendarEntries.map(\.id?.entryID.rawValue.rawValue),
-            [
-                "minimal-event",
-                "testival-2026",
-            ]
+            resolvedEventIDs
         )
         expectNoDifference(
             result.insertion.eventSourceProvenances.map(\.eventIDOrigin),

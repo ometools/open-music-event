@@ -191,7 +191,10 @@ public extension OME {
                 localEventID = explicitEventID
             } else {
                 eventIDOrigin = .inferred
-                localEventID = Self.localID(eventDirectoryName)
+                localEventID = Self.inferredEventID(
+                    eventDirectoryName: eventDirectoryName,
+                    sourceProvenance: sourceProvenance
+                )
             }
             let eventID = OME.Event.ID(
                 organizerID: organizerID,
@@ -541,6 +544,34 @@ public extension OME {
 
         private static func localID<Record>(_ string: String) -> OME.ID<Record> {
             OME.ID<Record>(.init(string))
+        }
+
+        private static func inferredEventID(
+            eventDirectoryName: String,
+            sourceProvenance: SourceProvenance?
+        ) -> OME.ID<OME.Event> {
+            let rawValue = if let sourceProvenance {
+                "\(sourceProvenance.inferredEventIDPrefix)-\(eventDirectoryName)"
+            } else {
+                eventDirectoryName
+            }
+            return OME.ID<OME.Event>(.init(rawValue))
+        }
+    }
+}
+
+private extension OME.SourceDatabaseInsertion.SourceProvenance {
+    var inferredEventIDPrefix: String {
+        switch kind {
+        case .local:
+            return URL(fileURLWithPath: reference).lastPathComponent
+
+        case .tangled:
+            return reference
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .last
+                .map(String.init)
+                ?? reference
         }
     }
 }

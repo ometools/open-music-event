@@ -18,6 +18,7 @@ struct SourceDatabaseInsertionTests {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let sourceProvenance = tangledSourceProvenance("testival-source")
+        let resolvedEventID = "testival-source-testival-2026"
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: source,
@@ -49,9 +50,9 @@ struct SourceDatabaseInsertionTests {
             insertion.calendarEntries,
             [
                 OME.CalendarEntry.Draft(
-                    id: calendarEntryID("testival-2026", organizerID: organizerID),
+                    id: calendarEntryID(resolvedEventID, organizerID: organizerID),
                     event: OME.Event.reference(
-                        id: eventID("testival-2026", organizerID: organizerID)
+                        id: eventID(resolvedEventID, organizerID: organizerID)
                     ),
                     createdAt: .distantPast,
                     note: nil,
@@ -62,14 +63,14 @@ struct SourceDatabaseInsertionTests {
         expectNoDifference(
             insertion.events.map(\.id),
             [
-                eventID("testival-2026", organizerID: organizerID)
+                eventID(resolvedEventID, organizerID: organizerID)
             ]
         )
         expectNoDifference(
             insertion.eventSourceProvenances,
             [
                 OME.SourceDatabaseInsertion.EventSourceProvenance(
-                    eventID: eventID("testival-2026", organizerID: organizerID),
+                    eventID: eventID(resolvedEventID, organizerID: organizerID),
                     eventIDOrigin: .inferred,
                     source: sourceProvenance,
                     sourceEventDirectory: "testival-2026"
@@ -82,7 +83,7 @@ struct SourceDatabaseInsertionTests {
                 OME.EventOrganizer.Draft(
                     id: .init(
                         organizerID: organizerID,
-                        eventID: id("testival-2026"),
+                        eventID: id(resolvedEventID),
                         eventOrganizerID: organizerID
                     )
                 )
@@ -90,25 +91,25 @@ struct SourceDatabaseInsertionTests {
         )
         expectNoDifference(
             insertion.stages.map(\.id),
-            [stageID("meadow", eventID: "testival-2026", organizerID: organizerID)]
+            [stageID("meadow", eventID: resolvedEventID, organizerID: organizerID)]
         )
         expectNoDifference(
             insertion.participants.map(\.id),
-            [participantID("artist-one", eventID: "testival-2026", organizerID: organizerID)]
+            [participantID("artist-one", eventID: resolvedEventID, organizerID: organizerID)]
         )
         expectNoDifference(
             insertion.channels.map(\.id),
-            [channelID("general", eventID: "testival-2026", organizerID: organizerID)]
+            [channelID("general", eventID: resolvedEventID, organizerID: organizerID)]
         )
         expectNoDifference(
             insertion.posters.map(\.id),
-            [posterID("lineup", eventID: "testival-2026", organizerID: organizerID)]
+            [posterID("lineup", eventID: resolvedEventID, organizerID: organizerID)]
         )
         expectNoDifference(
             insertion.schedules,
             [
                 OME.Schedule.Draft(
-                    id: scheduleID("saturday", eventID: "testival-2026", organizerID: organizerID),
+                    id: scheduleID("saturday", eventID: resolvedEventID, organizerID: organizerID),
                     date: scheduleDate,
                     startsAt: try localDate(scheduleDate, atHour: 18, in: timeZone),
                     endsAt: try localDate(scheduleDate, atHour: 22, minute: 30, in: timeZone),
@@ -120,7 +121,7 @@ struct SourceDatabaseInsertionTests {
             insertion.performances,
             [
                 OME.Performance.Draft(
-                    id: performanceID("opening-set", eventID: "testival-2026", organizerID: organizerID),
+                    id: performanceID("opening-set", eventID: resolvedEventID, organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
                     startTime: try localDate(scheduleDate, atHour: 18, in: timeZone),
@@ -130,7 +131,7 @@ struct SourceDatabaseInsertionTests {
                     recordings: []
                 ),
                 OME.Performance.Draft(
-                    id: performanceID("saturday-meadow-2", eventID: "testival-2026", organizerID: organizerID),
+                    id: performanceID("saturday-meadow-2", eventID: resolvedEventID, organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
                     startTime: try localDate(scheduleDate, atHour: 20, in: timeZone),
@@ -140,7 +141,7 @@ struct SourceDatabaseInsertionTests {
                     recordings: []
                 ),
                 OME.Performance.Draft(
-                    id: performanceID("closing-set", eventID: "testival-2026", organizerID: organizerID),
+                    id: performanceID("closing-set", eventID: resolvedEventID, organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
                     startTime: try localDate(scheduleDate, atHour: 21, in: timeZone),
@@ -156,14 +157,14 @@ struct SourceDatabaseInsertionTests {
             [
                 OME.Performance.Participants.Draft(
                     organizerID: organizerID,
-                    eventID: id("testival-2026"),
+                    eventID: id(resolvedEventID),
                     performanceID: id("opening-set"),
                     participantID: id("artist-one"),
                     anonymousName: nil
                 ),
                 OME.Performance.Participants.Draft(
                     organizerID: organizerID,
-                    eventID: id("testival-2026"),
+                    eventID: id(resolvedEventID),
                     performanceID: id("saturday-meadow-2"),
                     participantID: nil,
                     anonymousName: "Guest Artist"
@@ -273,7 +274,7 @@ struct SourceDatabaseInsertionTests {
             [
                 OME.Performance.Participants.Draft(
                     organizerID: organizerID,
-                    eventID: id("testival-2026"),
+                    eventID: id("testival-source-testival-2026"),
                     performanceID: id("actor-set"),
                     participantID: nil,
                     anonymousName: nil,
@@ -335,9 +336,9 @@ struct SourceDatabaseInsertionTests {
             entries,
             [
                 OME.CalendarEntry(
-                    id: calendarEntryID("second-event", organizerID: organizerID),
+                    id: calendarEntryID("testival-source-second-event", organizerID: organizerID),
                     event: OME.Event.reference(
-                        id: eventID("second-event", organizerID: organizerID)
+                        id: eventID("testival-source-second-event", organizerID: organizerID)
                     ),
                     createdAt: entries.first?.createdAt ?? .distantPast,
                     note: nil,
@@ -383,7 +384,7 @@ struct SourceDatabaseInsertionTests {
     func eventEditSummaryReportsSourceBaselineAvailability() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
         let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
@@ -465,14 +466,14 @@ struct SourceDatabaseInsertionTests {
 
         let baselineStage = try baselineDatabase.read { db in
             try OME.Stage
-                .where { $0.id.eq(stageID("meadow", eventID: "testival-2026", organizerID: organizerID)) }
+                .where { $0.id.eq(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID)) }
                 .fetchOne(db)
         }
         #expect(baselineStage?.name == "Meadow")
 
         try await database.write { db in
             try OME.Stage
-                .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
+                .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
                 .update { $0.name = "Updated Meadow" }
                 .execute(db)
         }
@@ -512,7 +513,7 @@ struct SourceDatabaseInsertionTests {
 
         try await database.write { db in
             try OME.Participant
-                .find(participantID("artist-one", eventID: "testival-2026", organizerID: organizerID))
+                .find(participantID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
                 .update { $0.name = "Updated Artist One" }
                 .execute(db)
         }
@@ -555,7 +556,7 @@ struct SourceDatabaseInsertionTests {
     func eventEditSummaryUsesSourceEditingSessionDatabase() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
         let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
@@ -589,7 +590,7 @@ struct SourceDatabaseInsertionTests {
 
         try await session.database.write { db in
             try OME.Stage
-                .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
+                .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
                 .update { $0.name = "Changed through session" }
                 .execute(db)
         }
@@ -633,7 +634,7 @@ struct SourceDatabaseInsertionTests {
     func sourceEditingSessionPrefersSourceLocalReferenceDatabase() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let openedEventID = eventID("source-testival-2026", organizerID: organizerID)
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -711,7 +712,7 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: source,
@@ -736,7 +737,7 @@ struct SourceDatabaseInsertionTests {
         try await database.write { db in
             var stage = try #require(
                 try OME.Stage
-                    .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
+                    .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
             var stageImages = try #require(stage.images)
@@ -749,7 +750,7 @@ struct SourceDatabaseInsertionTests {
 
             var participant = try #require(
                 try OME.Participant
-                    .find(participantID("artist-one", eventID: "testival-2026", organizerID: organizerID))
+                    .find(participantID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
             var participantImages = try #require(participant.images)
@@ -786,7 +787,7 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: source,
@@ -807,7 +808,7 @@ struct SourceDatabaseInsertionTests {
         try await database.write { db in
             var stage = try #require(
                 try OME.Stage
-                    .find(stageID("meadow", eventID: "testival-2026", organizerID: organizerID))
+                    .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
             var images = try #require(stage.images)
@@ -845,7 +846,7 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: source,
@@ -900,7 +901,7 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: source,
@@ -921,7 +922,7 @@ struct SourceDatabaseInsertionTests {
         try await database.write { db in
             var participant = try #require(
                 try OME.Participant
-                    .find(participantID("artist-one", eventID: "testival-2026", organizerID: organizerID))
+                    .find(participantID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
             var images = try #require(participant.images)
@@ -964,7 +965,7 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
-        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
                 source: source,
@@ -985,7 +986,7 @@ struct SourceDatabaseInsertionTests {
         try await database.write { db in
             var participant = try #require(
                 try OME.Participant
-                    .find(participantID("artist-one", eventID: "testival-2026", organizerID: organizerID))
+                    .find(participantID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
             var images = try #require(participant.images)
@@ -1093,15 +1094,15 @@ struct SourceDatabaseInsertionTests {
         expectNoDifference(
             Set(events.map(\.id)),
             Set([
-                eventID("2025", organizerID: organizerID),
-                eventID("2026", organizerID: organizerID),
+                eventID("first-source-2025", organizerID: organizerID),
+                eventID("second-source-2026", organizerID: organizerID),
             ])
         )
         expectNoDifference(
             Set(eventOrganizers.map(\.id.eventID)),
             Set([
-                id("2025"),
-                id("2026"),
+                id("first-source-2025"),
+                id("second-source-2026"),
             ])
         )
         expectNoDifference(
@@ -1114,7 +1115,23 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func rejectsInferredEventIDCollisionFromDifferentSource() async throws {
+    func infersBareEventIDWithoutSourceProvenance() throws {
+        let source = try makeSourceRepository(eventDirectoryName: "2026")
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+
+        expectNoDifference(
+            insertion.events.map(\.id),
+            [
+                eventID("2026", organizerID: organizerID)
+            ]
+        )
+    }
+
+    @Test
+    func importsMatchingInferredEventDirectoriesFromDifferentSources() async throws {
         let firstSource = try makeSourceRepository(eventDirectoryName: "2026")
         let secondSource = try makeSourceRepository(eventDirectoryName: "2026")
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
@@ -1135,24 +1152,33 @@ struct SourceDatabaseInsertionTests {
         let database = try makeCoreDatabase()
 
         try await firstInsertion.insert(into: database)
+        try await secondInsertion.insert(into: database)
 
-        do {
-            try await secondInsertion.insert(into: database)
-            Issue.record("Expected inferred event ID collision to fail.")
-        } catch let error as OME.SourceDatabaseInsertion.Error {
-            expectNoDifference(
-                error,
-                .conflictingInferredEventID(
-                    eventID: eventID("2026", organizerID: organizerID),
-                    existingSourceKind: .tangled,
-                    existingSourceReference: "tangled.org/woody.fm/first-source",
-                    incomingSourceKind: .tangled,
-                    incomingSourceReference: "tangled.org/woody.fm/second-source"
-                )
-            )
-        } catch {
-            Issue.record("Unexpected error: \(error)")
+        let events = try await database.read { db in
+            try OME.Event.fetchAll(db)
         }
+        let sourceProvenances = try await database.read { db in
+            try EventSourceProvenanceRecord.fetchAll(db)
+        }
+
+        expectNoDifference(
+            Set(events.map(\.id)),
+            Set([
+                eventID("first-source-2026", organizerID: organizerID),
+                eventID("second-source-2026", organizerID: organizerID),
+            ])
+        )
+        expectNoDifference(
+            Set(sourceProvenances.map(\.id)),
+            Set([
+                eventID("first-source-2026", organizerID: organizerID),
+                eventID("second-source-2026", organizerID: organizerID),
+            ])
+        )
+        expectNoDifference(
+            Set(sourceProvenances.map(\.sourceEventDirectory)),
+            Set(["2026"])
+        )
     }
 
     @Test
@@ -1186,12 +1212,12 @@ struct SourceDatabaseInsertionTests {
         try await secondInsertion.insert(into: database)
 
         let event = try await database.read { db in
-            try OME.Event.where { $0.id.eq(eventID("2026", organizerID: organizerID)) }
+            try OME.Event.where { $0.id.eq(eventID("wicked-woods-2026", organizerID: organizerID)) }
                 .fetchOne(db)
         }
         let sourceProvenance = try await database.read { db in
             try EventSourceProvenanceRecord
-                .where { $0.id.eq(eventID("2026", organizerID: organizerID)) }
+                .where { $0.id.eq(eventID("wicked-woods-2026", organizerID: organizerID)) }
                 .fetchOne(db)
         }
 
@@ -1247,7 +1273,7 @@ struct SourceDatabaseInsertionTests {
         }
         let baselineEvent = try baselineDatabase.read { db in
             try OME.Event
-                .where { $0.id.eq(eventID("2026", organizerID: organizerID)) }
+                .where { $0.id.eq(eventID("wicked-woods-2026", organizerID: organizerID)) }
                 .fetchOne(db)
         }
 
