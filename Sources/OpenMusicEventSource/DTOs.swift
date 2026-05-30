@@ -9,14 +9,33 @@ public struct CalendarDTO: Codable, Equatable, Sendable {
 
     public init(
         name: String,
-        description: String? = nil
+        description: String? = nil,
+        images: [SourceImageAsset]? = nil
     ) {
         self.name = name
         self.description = description
+        self.images = images
+    }
+
+    public init(_ draft: OMERecord.Calendar.Draft) {
+        self.init(
+            name: draft.name,
+            description: draft.description,
+            images: draft.images?.map(SourceImageAsset.init)
+        )
+    }
+
+    public init(_ calendar: OMERecord.Calendar) {
+        self.init(
+            name: calendar.name,
+            description: calendar.description,
+            images: calendar.images?.map(SourceImageAsset.init)
+        )
     }
 
     public var name: String
     public var description: String?
+    public var images: [SourceImageAsset]?
 
     public func recordDraft(ownerID: OMERecord.Organizer.ID) -> OMERecord.Calendar.Draft {
         OMERecord.Calendar.Draft(
@@ -26,7 +45,7 @@ public struct CalendarDTO: Codable, Equatable, Sendable {
             ),
             name: name,
             description: description,
-            images: nil
+            images: images?.map(\.recordValue)
         )
     }
 }

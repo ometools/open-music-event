@@ -165,6 +165,17 @@ private struct PreparedSourceDatabaseInsertion {
             uniqueKeysWithValues: sourceInsertion.pendingFileImageAssets.map { ($0.assetKey, $0) }
         )
 
+        for index in calendars.indices {
+            guard let calendarID = calendars[index].id else { continue }
+            let result = try await materializer.materialize(
+                calendar: calendars[index],
+                pendingFileAssets: pendingFileAssets,
+                parentLocalID: calendarID.calendarID.rawValue.rawValue
+            )
+            calendars[index] = result.value
+            localImageBlobs.append(contentsOf: result.blobs)
+        }
+
         for index in events.indices {
             guard let eventID = events[index].id else { continue }
             let result = try await materializer.materialize(
@@ -291,6 +302,24 @@ private struct PreparedSourceDatabaseInsertion {
 
 private extension LocalImageMaterializer {
     func materialize(
+        calendar: OME.Calendar.Draft,
+        pendingFileAssets: [String: OME.SourceDatabaseInsertion.PendingFileImageAsset],
+        parentLocalID: String
+    ) async throws -> Result<OME.Calendar.Draft> {
+        let images = try await materializeImages(
+            images: calendar.images,
+            organizerID: calendar.id?.ownerID,
+            eventID: nil,
+            parentKind: .calendar,
+            parentLocalID: parentLocalID,
+            pendingFileAssets: pendingFileAssets
+        )
+        var calendar = calendar
+        calendar.images = images.images
+        return .init(value: calendar, blobs: images.blobs)
+    }
+
+    func materialize(
         event: OME.Event.Draft,
         pendingFileAssets: [String: OME.SourceDatabaseInsertion.PendingFileImageAsset],
         parentLocalID: String
@@ -352,7 +381,7 @@ private extension LocalImageMaterializer {
         parentLocalID: String,
         pendingFileAssets: [String: OME.SourceDatabaseInsertion.PendingFileImageAsset]
     ) async throws -> (images: [OME.ImageAsset]?, blobs: [LocalImageBlob]) {
-        guard let organizerID, let eventID, let images else {
+        guard let organizerID, let images else {
             return (images, [])
         }
 

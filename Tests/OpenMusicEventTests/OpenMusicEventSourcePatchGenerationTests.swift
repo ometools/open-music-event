@@ -98,6 +98,290 @@ struct OpenMusicEventSourcePatchGenerationTests {
     }
 
     @Test
+    func calendarGeneratorUpdatesRootCalendarYamlFromDatabase() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "calendar.yml",
+            contents: """
+            name: Old Calendar
+            description: Old description.
+            """
+        )
+        try fixture.writeFile(
+            "events/test-event/event.yml",
+            contents: "name: Test Event\ntimeZone: GMT\n"
+        )
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:sourcepatch"))
+        let calendarID = OME.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        let source = localSourceProvenance(repositoryURL: fixture.repositoryURL)
+        let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+            try OME.Calendar.insert {
+                OME.Calendar.Draft(
+                    id: calendarID,
+                    name: "New Calendar",
+                    description: "Updated description.",
+                    images: [
+                        OME.ImageAsset.calendarHero(
+                            url: URL(string: "https://example.com/calendar-hero.jpg")!
+                        ),
+                        OME.ImageAsset.calendarLogo(
+                            url: URL(string: "https://example.com/calendar-logo.png")!
+                        ),
+                    ]
+                )
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    source: source,
+                    databaseFileName: "baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 1)
+                )
+            }
+            .execute(db)
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventCalendarSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventCalendarSourcePatchRequest(
+                    calendarID: calendarID,
+                    sourceBaselineID: sourceBaselineID
+                )
+            )
+        }
+
+        let change = try #require(patch.fileChanges.first)
+        #expect(patch.fileChanges.count == 1)
+        #expect(change.path == "calendar.yml")
+        #expect(change.kind == .modified)
+        let newContents = try #require(change.newContents)
+        let newText = String(decoding: newContents, as: UTF8.self)
+        #expect(newText.contains("name: New Calendar"))
+        #expect(newText.contains("description: Updated description."))
+        #expect(newText.contains("url: https://example.com/calendar-hero.jpg"))
+        #expect(newText.contains("role: hero"))
+        #expect(newText.contains("renderKind: fullImage"))
+        #expect(newText.contains("url: https://example.com/calendar-logo.png"))
+        #expect(newText.contains("role: logo"))
+        #expect(newText.contains("renderKind: transparent"))
+    }
+
+    @Test
+    func calendarGeneratorPreservesSourceFileImageReferences() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "calendar.yml",
+            contents: """
+            name: Old Calendar
+            images:
+            - source:
+                file: images/calendar-logo.png
+              role: logo
+              renderKind: transparent
+              materializationPolicy: prefetchOnOpen
+            """
+        )
+        try fixture.writeFile(
+            "images/calendar-logo.png",
+            contents: "logo"
+        )
+        try fixture.writeFile(
+            "events/test-event/event.yml",
+            contents: "name: Test Event\ntimeZone: GMT\n"
+        )
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:sourcepatch"))
+        let calendarID = OME.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        let materializedImageURL = fixture.rootURL
+            .appending(path: "local-image-cache/calendar-logo.png")
+        let source = localSourceProvenance(repositoryURL: fixture.repositoryURL)
+        let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+            try OME.Calendar.insert {
+                OME.Calendar.Draft(
+                    id: calendarID,
+                    name: "New Calendar",
+                    description: nil,
+                    images: [
+                        OME.ImageAsset(
+                            assetKey: calendarSourceImageAssetKey(
+                                organizerID: organizerID,
+                                parentLocalID: "self",
+                                role: .logo
+                            ),
+                            source: .url(materializedImageURL),
+                            role: .logo,
+                            renderKind: .transparent,
+                            materializationPolicy: .prefetchOnOpen,
+                            focalPoint: OME.ImageAsset.FocalPoint(x: 0.4, y: 0.6)
+                        )
+                    ]
+                )
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    source: source,
+                    databaseFileName: "baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 1)
+                )
+            }
+            .execute(db)
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventCalendarSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventCalendarSourcePatchRequest(
+                    calendarID: calendarID,
+                    sourceBaselineID: sourceBaselineID
+                )
+            )
+        }
+
+        let change = try #require(patch.fileChanges.first)
+        #expect(patch.fileChanges.count == 1)
+        #expect(change.path == "calendar.yml")
+        let newContents = try #require(change.newContents)
+        let newText = String(decoding: newContents, as: UTF8.self)
+        #expect(newText.contains("name: New Calendar"))
+        #expect(newText.contains("file: images/calendar-logo.png"))
+        #expect(newText.contains("focalPoint:"))
+        #expect(!newText.contains("assetKey:"))
+        #expect(!newText.contains("url:"))
+        #expect(!newText.contains("local-image-cache"))
+    }
+
+    @Test
+    func calendarGeneratorOmitsLocalOnlyBinaryImageFiles() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "calendar.yml",
+            contents: "name: Old Calendar\n"
+        )
+        try fixture.writeFile(
+            "events/test-event/event.yml",
+            contents: "name: Test Event\ntimeZone: GMT\n"
+        )
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:sourcepatch"))
+        let calendarID = OME.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        let localImageURL = fixture.rootURL
+            .appending(path: "local-image-cache/imported-hero.png")
+        let source = localSourceProvenance(repositoryURL: fixture.repositoryURL)
+        let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+            try OME.Calendar.insert {
+                OME.Calendar.Draft(
+                    id: calendarID,
+                    name: "New Calendar",
+                    description: nil,
+                    images: [
+                        OME.ImageAsset(
+                            assetKey: calendarSourceImageAssetKey(
+                                organizerID: organizerID,
+                                parentLocalID: "self",
+                                role: .hero
+                            ),
+                            source: .url(localImageURL),
+                            role: .hero,
+                            renderKind: .fullImage,
+                            materializationPolicy: .lazy
+                        )
+                    ]
+                )
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    source: source,
+                    databaseFileName: "baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 1)
+                )
+            }
+            .execute(db)
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventCalendarSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventCalendarSourcePatchRequest(
+                    calendarID: calendarID,
+                    sourceBaselineID: sourceBaselineID
+                )
+            )
+        }
+
+        let change = try #require(patch.fileChanges.first)
+        #expect(patch.fileChanges.count == 1)
+        #expect(change.path == "calendar.yml")
+        let newContents = try #require(change.newContents)
+        let newText = String(decoding: newContents, as: UTF8.self)
+        #expect(newText.contains("name: New Calendar"))
+        #expect(!newText.contains("images:"))
+        #expect(!newText.contains("file:"))
+        #expect(!newText.contains("file://"))
+        #expect(!newText.contains("local-image-cache"))
+    }
+
+    @Test
     func liveConversionUpdatesParticipantMarkdownFromDatabase() async throws {
         let fixture = try OpenMusicEventSourcePatchGenerationFixture()
         defer { fixture.cleanUp() }
@@ -809,4 +1093,30 @@ private func sourceImageAssetKey(
         appearance?.rawValue ?? "default",
     ]
     .joined(separator: "|")
+}
+
+private func calendarSourceImageAssetKey(
+    organizerID: OME.Organizer.ID,
+    parentLocalID: String,
+    role: OME.ImageAsset.Role,
+    appearance: OME.ImageAsset.Appearance? = nil
+) -> String {
+    [
+        organizerID.description,
+        "calendar",
+        parentLocalID,
+        role.rawValue,
+        appearance?.rawValue ?? "default",
+    ]
+    .joined(separator: "|")
+}
+
+private func localSourceProvenance(
+    repositoryURL: URL
+) -> OME.SourceDatabaseInsertion.SourceProvenance {
+    OME.SourceDatabaseInsertion.SourceProvenance(
+        kind: .local,
+        reference: repositoryURL.path,
+        ref: nil
+    )
 }

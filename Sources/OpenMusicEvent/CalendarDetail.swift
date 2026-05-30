@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
 import SwiftUI
@@ -167,7 +168,8 @@ public struct CalendarDetailView: View {
             HeroImage(
                 title: Text(calendarTitle),
                 asset: store.calendar?.images?.imageAsset(role: .hero),
-                cacheContext: nil
+                cacheContext: calendarImageCacheContext,
+                logoAsset: store.calendar?.images?.imageAsset(role: .logo)
             ) {
                 Image(systemName: "calendar")
                     .font(.system(size: 82, weight: .semibold))
@@ -218,6 +220,10 @@ public struct CalendarDetailView: View {
             return nil
         }
         return description
+    }
+
+    private var calendarImageCacheContext: LocalImageCacheContext {
+        LocalImageCacheContext(calendarID: store.calendar?.id ?? store.calendarID)
     }
 
     private var entryRows: CalendarDetail.EntryRows {

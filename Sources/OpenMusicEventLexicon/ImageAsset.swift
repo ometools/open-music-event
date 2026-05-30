@@ -102,6 +102,24 @@ extension OpenMusicEvent.ImageAsset {
 }
 
 public extension OpenMusicEvent.ImageAsset {
+    static func calendarHero(url: URL) -> Self {
+        Self(
+            source: .url(url),
+            role: .hero,
+            renderKind: .fullImage,
+            materializationPolicy: .lazy
+        )
+    }
+
+    static func calendarLogo(url: URL) -> Self {
+        Self(
+            source: .url(url),
+            role: .logo,
+            renderKind: .transparent,
+            materializationPolicy: .lazy
+        )
+    }
+
     static func stageHero(url: URL) -> Self {
         Self(
             source: .url(url),

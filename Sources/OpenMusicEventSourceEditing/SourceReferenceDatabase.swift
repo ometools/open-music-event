@@ -115,6 +115,16 @@ public extension EventSourceProvenanceRecord {
     }
 }
 
+public extension SourceBaselineRecord {
+    var sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance {
+        OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: sourceKind,
+            reference: sourceReference,
+            ref: ref
+        )
+    }
+}
+
 public extension DependencyValues {
     var sourceReferenceDatabase: SourceReferenceDatabaseClient {
         get { self[SourceReferenceDatabaseClientKey.self] }

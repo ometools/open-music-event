@@ -204,6 +204,43 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func buildsDefaultCalendarImagesFromSourceMetadata() throws {
+        let source = try makeSourceRepository(
+            calendar: CalendarDTO(
+                name: "Testival Calendar",
+                description: "Organizer default calendar.",
+                images: [
+                    SourceImageAsset(
+                        source: .url(URL(string: "https://example.com/calendar-hero.jpg")!),
+                        role: .hero,
+                        renderKind: .fullImage,
+                        materializationPolicy: .lazy
+                    ),
+                    SourceImageAsset(
+                        source: .url(URL(string: "https://example.com/calendar-logo.png")!),
+                        role: .logo,
+                        renderKind: .transparent,
+                        materializationPolicy: .lazy
+                    ),
+                ]
+            )
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        let calendar = try #require(insertion.calendars.first)
+        #expect(calendar.images?.imageAsset(role: .hero)?.url?.absoluteString == "https://example.com/calendar-hero.jpg")
+        #expect(calendar.images?.imageAsset(role: .logo)?.url?.absoluteString == "https://example.com/calendar-logo.png")
+    }
+
+    @Test
     func actorOnlyPerformancesCreatePerformanceParticipantRowsWithoutParticipants() throws {
         let actor = try #require(OME.Participant.Actor("ARTIST.BSKY.SOCIAL"))
         var source = try makeSourceRepository(
@@ -1618,6 +1655,104 @@ struct SourceDatabaseInsertionTests {
         #expect(blob.renderKind == OME.ImageAsset.RenderKind.transparent)
         #expect(blob.sourceURL == sourceFileURL)
         expectNoDifference(blob.data, sourceData)
+    }
+
+    @Test
+    func materializesFileBackedCalendarImagesOnInsert() async throws {
+        let repositoryURL = try temporaryDirectoryURL()
+        let imagesDirectoryURL = repositoryURL.appending(path: "images", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: imagesDirectoryURL, withIntermediateDirectories: true)
+
+        let sourceFileURL = imagesDirectoryURL.appending(path: "calendar-hero.png")
+        let sourceData = Data("calendar-hero".utf8)
+        try sourceData.write(to: sourceFileURL)
+
+        let source = try makeSourceRepository(
+            calendar: CalendarDTO(
+                name: "Testival Calendar",
+                images: [
+                    SourceImageAsset(
+                        source: .file("images/calendar-hero.png"),
+                        role: .hero,
+                        renderKind: .fullImage,
+                        materializationPolicy: .prefetchOnOpen
+                    )
+                ]
+            )
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceRootURL: repositoryURL
+            )
+        )
+        let database = try makeCoreDatabase()
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+
+        try await withDependencies {
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let calendar = try await database.read { db in
+            try OME.Calendar.fetchOne(db)
+        }
+        let storedBlob = try await database.read { db in
+            try LocalImageBlob.fetchOne(db)
+        }
+
+        let heroURL = try #require(calendar?.images?.imageAsset(role: .hero)?.url)
+        #expect(heroURL.isFileURL)
+        let blob = try #require(storedBlob)
+        #expect(blob.organizerID == organizerID)
+        #expect(blob.eventID == nil)
+        #expect(blob.parentKind == .calendar)
+        #expect(blob.parentLocalID == OME.Calendar.defaultID.rawValue.rawValue)
+        #expect(blob.role == OME.ImageAsset.Role.hero)
+        #expect(blob.renderKind == OME.ImageAsset.RenderKind.fullImage)
+        #expect(blob.sourceURL == sourceFileURL)
+        expectNoDifference(blob.data, sourceData)
+    }
+
+    @Test
+    func leavesRemoteCalendarImagesUnfetchedOnInsert() async throws {
+        let remoteURL = try #require(URL(string: "https://example.com/calendar-hero.png"))
+        let source = try makeSourceRepository(
+            calendar: CalendarDTO(
+                name: "Testival Calendar",
+                images: [
+                    SourceImageAsset(
+                        source: .url(remoteURL),
+                        role: .hero,
+                        renderKind: .fullImage,
+                        materializationPolicy: .prefetchOnOpen
+                    )
+                ]
+            )
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID
+            )
+        )
+        let database = try makeCoreDatabase()
+
+        try await insertion.insert(into: database)
+
+        let calendar = try await database.read { db in
+            try OME.Calendar.fetchOne(db)
+        }
+        let blobs = try await database.read { db in
+            try LocalImageBlob.fetchAll(db)
+        }
+
+        #expect(calendar?.images?.imageAsset(role: .hero)?.url == remoteURL)
+        expectNoDifference(blobs, [])
     }
 
     @Test

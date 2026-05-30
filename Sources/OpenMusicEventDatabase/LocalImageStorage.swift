@@ -8,7 +8,7 @@ import SQLiteData
 public struct LocalImageBlob: Equatable, Sendable, Identifiable {
     @Column(primaryKey: true) public var assetKey: String
     public var organizerID: OME.Organizer.ID
-    public var eventID: OME.ID<OME.Event>
+    public var eventID: OME.ID<OME.Event>?
     public var parentKind: ParentKind
     public var parentLocalID: String
     public var role: OME.ImageAsset.Role
@@ -22,19 +22,21 @@ public struct LocalImageBlob: Equatable, Sendable, Identifiable {
 
     public static func assetKey(
         organizerID: OME.Organizer.ID,
-        eventID: OME.ID<OME.Event>,
+        eventID: OME.ID<OME.Event>?,
         parentKind: ParentKind,
         parentLocalID: String,
         role: OME.ImageAsset.Role,
         discriminator: String? = nil
     ) -> String {
-        var components = [
-            organizerID.description,
-            eventID.rawValue.rawValue,
+        var components = [organizerID.description]
+        if let eventID {
+            components.append(eventID.rawValue.rawValue)
+        }
+        components.append(contentsOf: [
             parentKind.rawValue,
             parentLocalID,
             role.rawValue,
-        ]
+        ])
         if let discriminator, !discriminator.isEmpty {
             components.append(discriminator)
         }
@@ -42,6 +44,7 @@ public struct LocalImageBlob: Equatable, Sendable, Identifiable {
     }
 
     public enum ParentKind: String, Codable, Sendable, Equatable, CaseIterable, SQLiteType {
+        case calendar
         case event
         case stage
         case participant
@@ -51,10 +54,15 @@ public struct LocalImageBlob: Equatable, Sendable, Identifiable {
 
 public struct LocalImageCacheContext: Equatable, Sendable {
     public enum Parent: Equatable, Sendable {
+        case calendar(OME.Calendar.ID)
         case event(OME.Event.ID)
         case stage(OME.Stage.ID)
         case participant(OME.Participant.ID)
         case poster(OME.Poster.ID)
+    }
+
+    public init(calendarID: OME.Calendar.ID) {
+        self.parent = .calendar(calendarID)
     }
 
     public init(eventID: OME.Event.ID) {
@@ -77,6 +85,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
 
     public var organizerID: OME.Organizer.ID {
         switch parent {
+        case let .calendar(id):
+            id.ownerID
         case let .event(id):
             id.organizerID
         case let .stage(id):
@@ -88,8 +98,10 @@ public struct LocalImageCacheContext: Equatable, Sendable {
         }
     }
 
-    public var eventID: OME.ID<OME.Event> {
+    public var eventID: OME.ID<OME.Event>? {
         switch parent {
+        case .calendar:
+            nil
         case let .event(id):
             id.eventID
         case let .stage(id):
@@ -103,6 +115,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
 
     public var parentKind: LocalImageBlob.ParentKind {
         switch parent {
+        case .calendar:
+            .calendar
         case .event:
             .event
         case .stage:
@@ -116,6 +130,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
 
     public var parentLocalID: String {
         switch parent {
+        case let .calendar(id):
+            id.calendarID.rawValue.rawValue
         case let .event(id):
             id.eventID.rawValue.rawValue
         case let .stage(id):
@@ -589,10 +605,23 @@ struct LocalImageMaterializer {
         return .init(value: participant, blobs: images.blobs)
     }
 
+    func materialize(calendar: OME.Calendar) async throws -> Result<OME.Calendar> {
+        let images = try await materializeImages(
+            images: calendar.images,
+            organizerID: calendar.id.ownerID,
+            eventID: nil,
+            parentKind: .calendar,
+            parentLocalID: calendar.id.calendarID.rawValue.rawValue
+        )
+        var calendar = calendar
+        calendar.images = images.images
+        return .init(value: calendar, blobs: images.blobs)
+    }
+
     private func materializeImages(
         images: [OME.ImageAsset]?,
         organizerID: OME.Organizer.ID,
-        eventID: OME.ID<OME.Event>,
+        eventID: OME.ID<OME.Event>?,
         parentKind: LocalImageBlob.ParentKind,
         parentLocalID: String
     ) async throws -> (images: [OME.ImageAsset]?, blobs: [LocalImageBlob]) {
@@ -635,7 +664,7 @@ struct LocalImageMaterializer {
     func materializeImage(
         _ image: OME.ImageAsset,
         organizerID: OME.Organizer.ID,
-        eventID: OME.ID<OME.Event>,
+        eventID: OME.ID<OME.Event>?,
         parentKind: LocalImageBlob.ParentKind,
         parentLocalID: String
     ) async throws -> ImageResult {
@@ -720,7 +749,7 @@ struct LocalImageMaterializer {
     static func assetKey(
         for image: OME.ImageAsset,
         organizerID: OME.Organizer.ID,
-        eventID: OME.ID<OME.Event>,
+        eventID: OME.ID<OME.Event>?,
         parentKind: LocalImageBlob.ParentKind,
         parentLocalID: String
     ) -> String {
@@ -762,6 +791,14 @@ private func updateCachedImage(
     in db: Database
 ) throws -> Bool {
     switch context.parent {
+    case let .calendar(id):
+        guard var calendar = try OME.Calendar.where({ $0.id.eq(id) }).fetchOne(db),
+              replaceImage(originalImage, with: cachedImage, in: &calendar.images) else {
+            return false
+        }
+        try OME.Calendar.upsert { calendar }.execute(db)
+        return true
+
     case let .event(id):
         guard var event = try OME.Event.where({ $0.id.eq(id) }).fetchOne(db),
               replaceImage(originalImage, with: cachedImage, in: &event.images) else {

@@ -747,7 +747,7 @@ struct NavigationTests {
     }
 
     @Test
-    func editCalendarSavesHeroImageURL() async throws {
+    func editCalendarSavesHeroAndLogoImages() async throws {
         let database = try makePreparedDatabase()
         let calendarID = OMERecord.Calendar.ID(
             ownerID: testOrganizerID,
@@ -785,9 +785,10 @@ struct NavigationTests {
                 description: "Calendar description",
                 images: [logoImage]
             )
+            state.resetImagePickers()
             state.form.value.name = " Updated Calendar "
             state.form.value.description = " Updated description "
-            state.form.value.heroImageURL = " https://example.com/hero.png "
+            state.heroImagePicker.replaceURLString(" https://example.com/hero.png ")
 
             return TestStore(initialState: state) {
                 EditCalendar()
@@ -800,8 +801,7 @@ struct NavigationTests {
             .equals(
                 EditCalendar.FormValue(
                     name: " Updated Calendar ",
-                    description: " Updated description ",
-                    heroImageURL: " https://example.com/hero.png "
+                    description: " Updated description "
                 )
             ),
             timeout: .seconds(1)
@@ -881,7 +881,7 @@ struct NavigationTests {
             )
             state.form.value.name = " Source Calendar "
             state.form.value.description = " Source description "
-            state.form.value.heroImageURL = "https://example.com/source-hero.png"
+            state.heroImagePicker.replaceURLString("https://example.com/source-hero.png")
 
             return TestStore(initialState: state) {
                 EditCalendar()
@@ -894,8 +894,7 @@ struct NavigationTests {
             .equals(
                 EditCalendar.FormValue(
                     name: " Source Calendar ",
-                    description: " Source description ",
-                    heroImageURL: "https://example.com/source-hero.png"
+                    description: " Source description "
                 )
             ),
             timeout: .seconds(1)

@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventSourceEditing
 import SQLiteData
@@ -958,7 +959,8 @@ public struct SourceDetailView: View {
             HeroImage(
                 title: Text(calendarTitle),
                 asset: store.calendar?.images?.imageAsset(role: .hero),
-                cacheContext: nil
+                cacheContext: calendarImageCacheContext,
+                logoAsset: store.calendar?.images?.imageAsset(role: .logo)
             ) {
                 Image(systemName: "calendar")
                     .font(.system(size: 82, weight: .semibold))
@@ -983,13 +985,6 @@ public struct SourceDetailView: View {
                             time: .shortened
                         )
                     )
-                    if store.canEditCalendar {
-                        Button {
-                            store.send(.editButtonTapped)
-                        } label: {
-                            Label("Edit Calendar", systemImage: "pencil")
-                        }
-                    }
                 }
             }
 
@@ -1051,6 +1046,10 @@ public struct SourceDetailView: View {
         ?? store.sourceBaseline?.sourceReference
         ?? store.organizer?.id.description
         ?? store.sourceBaselineID.rawValue
+    }
+
+    private var calendarImageCacheContext: LocalImageCacheContext? {
+        store.editableCalendarID.map(LocalImageCacheContext.init(calendarID:))
     }
 
     private var entryRows: CalendarDetail.EntryRows {

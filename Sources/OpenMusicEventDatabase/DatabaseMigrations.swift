@@ -254,7 +254,7 @@ public extension OME {
                     CREATE TABLE IF NOT EXISTS "localImageBlobs" (
                       "assetKey" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
                       "organizerID" TEXT NOT NULL,
-                      "eventID" TEXT NOT NULL,
+                      "eventID" TEXT,
                       "parentKind" TEXT NOT NULL,
                       "parentLocalID" TEXT NOT NULL,
                       "role" TEXT NOT NULL,
@@ -264,6 +264,71 @@ public extension OME {
                       "sourceURL" TEXT,
                       "lastFetchedAt" TEXT
                     ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE INDEX IF NOT EXISTS "localImageBlobs_event_parent_role"
+                    ON "localImageBlobs" ("organizerID", "eventID", "parentKind", "parentLocalID", "role")
+                    """)
+                    .execute(db)
+            }
+
+            migrator.registerMigration("Allow OpenMusicEvent calendar local image blobs") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "localImageBlobs_new" (
+                      "assetKey" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT,
+                      "parentKind" TEXT NOT NULL,
+                      "parentLocalID" TEXT NOT NULL,
+                      "role" TEXT NOT NULL,
+                      "renderKind" TEXT NOT NULL,
+                      "mimeType" TEXT NOT NULL,
+                      "data" BLOB NOT NULL,
+                      "sourceURL" TEXT,
+                      "lastFetchedAt" TEXT
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    INSERT OR REPLACE INTO "localImageBlobs_new" (
+                      "assetKey",
+                      "organizerID",
+                      "eventID",
+                      "parentKind",
+                      "parentLocalID",
+                      "role",
+                      "renderKind",
+                      "mimeType",
+                      "data",
+                      "sourceURL",
+                      "lastFetchedAt"
+                    )
+                    SELECT
+                      "assetKey",
+                      "organizerID",
+                      "eventID",
+                      "parentKind",
+                      "parentLocalID",
+                      "role",
+                      "renderKind",
+                      "mimeType",
+                      "data",
+                      "sourceURL",
+                      "lastFetchedAt"
+                    FROM "localImageBlobs"
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    DROP TABLE "localImageBlobs"
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    ALTER TABLE "localImageBlobs_new" RENAME TO "localImageBlobs"
                     """)
                     .execute(db)
 

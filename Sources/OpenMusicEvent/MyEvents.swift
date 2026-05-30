@@ -11,6 +11,7 @@ import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
+import OpenMusicEventImages
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
@@ -503,8 +504,24 @@ struct EventRowView: View {
 
     struct EventIconImageView: View {
         let event: OMERecord.Event
-        var body: some View {
 
+        var body: some View {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.secondary.opacity(0.12))
+
+                ImageAssetAsyncImage(
+                    asset: event.images?.imageAsset(role: .icon),
+                    cacheContext: .init(eventID: event.id),
+                    contentMode: .fit
+                ) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(10)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
 }

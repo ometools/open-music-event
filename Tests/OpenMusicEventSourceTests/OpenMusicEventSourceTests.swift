@@ -402,6 +402,16 @@ struct OpenMusicEventSourceTests {
         let repositoryResult = try OpenMusicEventSourceRepositoryFileTree()
             .read(from: repositoryURL)
         let repository = try repositoryResult.output.requiredValue
+        let calendar = try #require(repository.calendar)
+        let calendarHero = try #require(calendar.images?.first { $0.role == .hero })
+        expectNoDifference(calendarHero.renderKind, .fullImage)
+        expectNoDifference(calendarHero.materializationPolicy, .lazy)
+        expectNoDifference(calendarHero.source, .url(URL(string: "https://example.com/calendar-hero.jpg")!))
+        let calendarLogo = try #require(calendar.images?.first { $0.role == .logo })
+        expectNoDifference(calendarLogo.renderKind, .transparent)
+        expectNoDifference(calendarLogo.materializationPolicy, .prefetchOnOpen)
+        expectNoDifference(calendarLogo.source, .file("images/calendar-logo.png"))
+
         let event = try #require(repository.events.first?.components)
 
         let hero = try #require(event.event.images?.first)
@@ -423,6 +433,14 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(photo.renderKind, .fullImage)
         expectNoDifference(photo.materializationPolicy, .lazy)
         expectNoDifference(photo.source, .url(URL(string: "https://example.com/artist-one.jpg")!))
+
+        let outputURL = try temporaryRepositoryURL()
+        _ = try OpenMusicEventSourceRepositoryFileTree().write(repository, to: outputURL)
+        let roundTripped = try OpenMusicEventSourceRepositoryFileTree()
+            .read(from: outputURL)
+            .output
+            .requiredValue
+        expectNoDifference(roundTripped.calendar, repository.calendar)
     }
 
     @Test
@@ -549,6 +567,10 @@ struct OpenMusicEventSourceTests {
     }
 
     private func writeImageFixtureRepository(at repositoryURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: repositoryURL.appending(path: "images", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
         let eventURL = repositoryURL
             .appending(path: "events", directoryHint: .isDirectory)
             .appending(path: "image-event", directoryHint: .isDirectory)
@@ -565,6 +587,23 @@ struct OpenMusicEventSourceTests {
             at: eventURL.appending(path: "images", directoryHint: .isDirectory),
             withIntermediateDirectories: true
         )
+
+        try """
+        name: Image Calendar
+        description: Calendar image fixture.
+        images:
+        - source:
+            url: https://example.com/calendar-hero.jpg
+          role: hero
+          renderKind: fullImage
+          materializationPolicy: lazy
+        - source:
+            file: images/calendar-logo.png
+          role: logo
+          renderKind: transparent
+          materializationPolicy: prefetchOnOpen
+        """
+            .write(to: repositoryURL.appending(path: "calendar.yml"), atomically: true, encoding: .utf8)
 
         try """
         name: Image Event
@@ -620,6 +659,11 @@ struct OpenMusicEventSourceTests {
             to: eventURL
                 .appending(path: "images", directoryHint: .isDirectory)
                 .appending(path: "meadow-logo.png")
+        )
+        try Data("calendar-logo".utf8).write(
+            to: repositoryURL
+                .appending(path: "images", directoryHint: .isDirectory)
+                .appending(path: "calendar-logo.png")
         )
     }
 }

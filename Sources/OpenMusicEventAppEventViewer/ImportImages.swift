@@ -191,6 +191,28 @@ public extension ImportImages {
         public var appearance: OMERecord.ImageAsset.Appearance?
         public var materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy
 
+        public static var calendarHero: Self {
+            Self(
+                cardinality: .single,
+                title: "Choose Calendar Hero",
+                role: .hero,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy,
+                imageInfoConfiguration: .calendarHero
+            )
+        }
+
+        public static var calendarLogo: Self {
+            Self(
+                cardinality: .single,
+                title: "Choose Calendar Logo",
+                role: .logo,
+                renderKind: .transparent,
+                materializationPolicy: .lazy,
+                imageInfoConfiguration: .calendarLogo
+            )
+        }
+
         public static var posters: Self {
             Self(
                 cardinality: .multiple,

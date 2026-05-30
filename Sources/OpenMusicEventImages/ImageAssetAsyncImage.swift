@@ -109,14 +109,18 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     }
 
     private var cacheTaskID: String {
-        [
-            asset?.assetKey ?? asset?.url?.absoluteString ?? "nil",
-            cacheContext?.organizerID.description ?? "nil",
-            cacheContext?.eventID.rawValue.rawValue ?? "nil",
-            cacheContext?.parentKind.rawValue ?? "nil",
-            cacheContext?.parentLocalID ?? "nil",
-        ]
-        .joined(separator: "|")
+        let assetID = asset?.assetKey ?? asset?.url?.absoluteString ?? "nil"
+        let organizerID = cacheContext?.organizerID.description ?? "nil"
+        let eventID = cacheContext?.eventID?.rawValue.rawValue ?? "nil"
+        let parentKind = cacheContext?.parentKind.rawValue ?? "nil"
+        let parentLocalID = cacheContext?.parentLocalID ?? "nil"
+        return [
+            assetID,
+            organizerID,
+            eventID,
+            parentKind,
+            parentLocalID,
+        ].joined(separator: "|")
     }
 
     private var resolvedContentMode: ContentMode {

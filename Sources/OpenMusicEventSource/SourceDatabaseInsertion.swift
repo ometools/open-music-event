@@ -137,10 +137,7 @@ public extension OME {
             self.organizers = [
                 OME.Organizer.Draft(id: configuration.organizerID)
             ]
-            self.calendars = [
-                (configuration.source.calendar ?? CalendarDTO.defaultCalendar)
-                    .recordDraft(ownerID: configuration.organizerID)
-            ]
+            self.calendars = []
             self.calendarEntries = []
             self.eventSourceProvenances = []
             self.events = []
@@ -153,6 +150,18 @@ public extension OME {
             self.performances = []
             self.performanceParticipants = []
             self.pendingFileImageAssets = []
+
+            let sourceCalendar = configuration.source.calendar ?? CalendarDTO.defaultCalendar
+            var calendar = sourceCalendar.recordDraft(ownerID: configuration.organizerID)
+            calendar.images = try resolve(
+                sourceCalendar.images,
+                organizerID: configuration.organizerID,
+                eventID: nil,
+                parentKind: "calendar",
+                parentLocalID: OME.Calendar.defaultID.rawValue.rawValue,
+                sourceDirectoryURL: configuration.sourceRootURL
+            )
+            self.calendars = [calendar]
 
             var resolvedEventIDs: Set<OME.Event.ID> = []
             for sourceEvent in configuration.source.events {
@@ -203,7 +212,7 @@ public extension OME {
                 eventID: localEventID,
                 parentKind: "event",
                 parentLocalID: localEventID.rawValue.rawValue,
-                eventDirectoryURL: eventDirectoryURL
+                sourceDirectoryURL: eventDirectoryURL
             )
             events.append(event)
             if let sourceProvenance {
@@ -254,7 +263,7 @@ public extension OME {
                         eventID: localEventID,
                         parentKind: "stage",
                         parentLocalID: stageID.stageID.rawValue.rawValue,
-                        eventDirectoryURL: eventDirectoryURL
+                        sourceDirectoryURL: eventDirectoryURL
                     )
                     return draft
                 } ?? []
@@ -275,7 +284,7 @@ public extension OME {
                         eventID: localEventID,
                         parentKind: "participant",
                         parentLocalID: participantID.participantID.rawValue.rawValue,
-                        eventDirectoryURL: eventDirectoryURL
+                        sourceDirectoryURL: eventDirectoryURL
                     )
                     return draft
                 } ?? []
@@ -307,7 +316,7 @@ public extension OME {
                         eventID: localEventID,
                         parentKind: "poster",
                         parentLocalID: localPosterID,
-                        eventDirectoryURL: eventDirectoryURL
+                        sourceDirectoryURL: eventDirectoryURL
                     )
                     guard let image = resolvedImages?.first else {
                         throw Error.missingPosterImage(poster.fileName)
@@ -452,10 +461,10 @@ public extension OME {
         private mutating func resolve(
             _ sourceImages: [SourceImageAsset]?,
             organizerID: OME.Organizer.ID,
-            eventID: OME.ID<OME.Event>,
+            eventID: OME.ID<OME.Event>?,
             parentKind: String,
             parentLocalID: String,
-            eventDirectoryURL: URL?
+            sourceDirectoryURL: URL?
         ) throws -> [OME.ImageAsset]? {
             let images = try sourceImages?.map { image in
                 let assetKey = image.assetKey
@@ -474,11 +483,11 @@ public extension OME {
                     resolvedSource = .url(url)
 
                 case let .file(path):
-                    guard let eventDirectoryURL else {
+                    guard let sourceDirectoryURL else {
                         throw Error.missingSourceRootForFileAsset(path)
                     }
 
-                    let sourceURL = eventDirectoryURL
+                    let sourceURL = sourceDirectoryURL
                         .appending(path: path)
                         .standardizedFileURL
                     let data = try Data(contentsOf: sourceURL)
@@ -511,21 +520,23 @@ public extension OME {
 
         private func makeAssetKey(
             organizerID: OME.Organizer.ID,
-            eventID: OME.ID<OME.Event>,
+            eventID: OME.ID<OME.Event>?,
             parentKind: String,
             parentLocalID: String,
             role: OME.ImageAsset.Role,
             appearance: OME.ImageAsset.Appearance?
         ) -> String {
-            [
-                organizerID.description,
-                eventID.rawValue.rawValue,
+            var components = [organizerID.description]
+            if let eventID {
+                components.append(eventID.rawValue.rawValue)
+            }
+            components.append(contentsOf: [
                 parentKind,
                 parentLocalID,
                 role.rawValue,
-                appearance?.rawValue ?? "default"
-            ]
-            .joined(separator: "|")
+                appearance?.rawValue ?? "default",
+            ])
+            return components.joined(separator: "|")
         }
 
         private static func localID<Record>(_ string: String) -> OME.ID<Record> {

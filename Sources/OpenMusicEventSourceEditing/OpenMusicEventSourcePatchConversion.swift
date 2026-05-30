@@ -74,7 +74,8 @@ public extension OpenMusicEventSourcePatchConversion {
             .preservingSourceImageReferences(
                 from: sourceEvent.event,
                 context: SourceImageReferenceContext(
-                    eventID: request.eventID,
+                    organizerID: request.eventID.organizerID,
+                    eventID: request.eventID.eventID,
                     parentKind: .event,
                     parentLocalID: request.eventID.eventID.rawValue.rawValue
                 )
@@ -102,8 +103,44 @@ public extension OpenMusicEventSourcePatchConversion {
     }
 }
 
+public extension OpenMusicEventCalendarSourcePatchConversion {
+    static var live: Self {
+        Self { sourceRepository, request in
+            @Dependency(\.defaultDatabase) var database
+
+            let calendar = try await database.read { db in
+                try OME.Calendar
+                    .where { $0.id.eq(request.calendarID) }
+                    .fetchOne(db)
+            }
+            guard let calendar else {
+                throw OpenMusicEventCalendarSourcePatchConversionError.calendarNotFound(request.calendarID)
+            }
+
+            var sourceRepository = sourceRepository
+            let sourceCalendar = sourceRepository.calendar ?? .defaultCalendar
+            sourceRepository.calendar = CalendarDTO(calendar)
+                .preservingSourceImageReferences(
+                    from: sourceCalendar,
+                    context: SourceImageReferenceContext(
+                        organizerID: request.calendarID.ownerID,
+                        eventID: nil,
+                        parentKind: .calendar,
+                        parentLocalID: request.calendarID.calendarID.rawValue.rawValue
+                    )
+                )
+                .removingLocalFileURLImages()
+            return sourceRepository
+        }
+    }
+}
+
 public enum OpenMusicEventSourcePatchConversionError: Equatable, Error, Sendable {
     case eventNotFound(OME.Event.ID)
+}
+
+public enum OpenMusicEventCalendarSourcePatchConversionError: Equatable, Error, Sendable {
+    case calendarNotFound(OME.Calendar.ID)
 }
 
 private extension OpenMusicEventSourceEvent {
@@ -219,7 +256,8 @@ private extension OpenMusicEventSourceEvent {
                     .preservingSourceImageReferences(
                         from: sourceStage,
                         context: SourceImageReferenceContext(
-                            eventID: eventID,
+                            organizerID: eventID.organizerID,
+                            eventID: eventID.eventID,
                             parentKind: .stage,
                             parentLocalID: stageID.rawValue.rawValue
                         )
@@ -276,7 +314,8 @@ private extension OpenMusicEventSourceEvent {
                     .preservingSourceImageReference(
                         from: sourcePoster,
                         context: SourceImageReferenceContext(
-                            eventID: eventID,
+                            organizerID: eventID.organizerID,
+                            eventID: eventID.eventID,
                             parentKind: .poster,
                             parentLocalID: posterID.rawValue.rawValue
                         )
@@ -333,7 +372,8 @@ private extension OpenMusicEventSourceEvent {
                     .preservingSourceImageReferences(
                         from: sourceParticipant,
                         context: SourceImageReferenceContext(
-                            eventID: eventID,
+                            organizerID: eventID.organizerID,
+                            eventID: eventID.eventID,
                             parentKind: .participant,
                             parentLocalID: participantID.rawValue.rawValue
                         )
@@ -365,6 +405,7 @@ private extension OpenMusicEventSourceEvent {
 }
 
 private enum SourceImageParentKind: String, Sendable {
+    case calendar
     case event
     case stage
     case participant
@@ -372,22 +413,29 @@ private enum SourceImageParentKind: String, Sendable {
 }
 
 private struct SourceImageReferenceContext: Sendable {
-    var eventID: OME.Event.ID
+    var organizerID: OME.Organizer.ID
+    var eventID: OME.ID<OME.Event>?
     var parentKind: SourceImageParentKind
     var parentLocalID: String
 
     func assetKey(for sourceImage: SourceImageAsset) -> String {
         // Mirrors source insertion's inferred key for source file image assets.
-        sourceImage.assetKey
-        ?? [
-            eventID.organizerID.description,
-            eventID.eventID.rawValue.rawValue,
+        if let assetKey = sourceImage.assetKey {
+            return assetKey
+        }
+
+        var components = [organizerID.description]
+        if let eventID {
+            components.append(eventID.rawValue.rawValue)
+        }
+        components.append(contentsOf: [
             parentKind.rawValue,
             parentLocalID,
             sourceImage.role.rawValue,
             sourceImage.appearance?.rawValue ?? "default",
-        ]
-        .joined(separator: "|")
+        ])
+        return components
+            .joined(separator: "|")
     }
 }
 
@@ -433,6 +481,26 @@ private extension ParticipantDTO {
     }
 }
 
+private extension CalendarDTO {
+    func preservingSourceImageReferences(
+        from source: CalendarDTO,
+        context: SourceImageReferenceContext
+    ) -> Self {
+        var dto = self
+        dto.images = images?.preservingSourceImageReferences(
+            from: source.images,
+            context: context
+        )
+        return dto
+    }
+
+    func removingLocalFileURLImages() -> Self {
+        var dto = self
+        dto.images = dto.images?.removingLocalFileURLImages()
+        return dto
+    }
+}
+
 private extension PosterDTO {
     func preservingSourceImageReference(
         from source: PosterDTO,
@@ -471,6 +539,11 @@ private extension Array where Element == SourceImageAsset {
             return image.preservingSourceImageReference(from: sourceImage)
         }
     }
+
+    func removingLocalFileURLImages() -> [SourceImageAsset]? {
+        let images = filter { !$0.source.isLocalFileURL }
+        return images.isEmpty ? nil : images
+    }
 }
 
 private extension SourceImageAsset {
@@ -501,6 +574,16 @@ private extension SourceImageAsset {
 }
 
 private extension SourceImageRef {
+    var isLocalFileURL: Bool {
+        switch self {
+        case .file:
+            return false
+
+        case let .url(url):
+            return url.isFileURL
+        }
+    }
+
     func isEquivalentSourceImageReference(to other: SourceImageRef) -> Bool {
         switch (self, other) {
         case let (.file(lhs), .file(rhs)):

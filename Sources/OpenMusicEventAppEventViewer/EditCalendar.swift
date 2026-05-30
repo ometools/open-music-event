@@ -14,23 +14,19 @@ public struct EditCalendar {
     public struct FormValue: Equatable, Sendable {
         public init(
             name: String = "",
-            description: String = "",
-            heroImageURL: String = ""
+            description: String = ""
         ) {
             self.name = name
             self.description = description
-            self.heroImageURL = heroImageURL
         }
 
         init(calendar: OMERecord.Calendar) {
             self.name = calendar.name
             self.description = calendar.description ?? ""
-            self.heroImageURL = calendar.images?.imageAsset(role: .hero)?.url?.absoluteString ?? ""
         }
 
         public var name: String
         public var description: String
-        public var heroImageURL: String
     }
 
     public typealias FormFeature = ComposableForms.Form<FormValue>
@@ -39,6 +35,15 @@ public struct EditCalendar {
         public init(calendarID: OMERecord.Calendar.ID) {
             self.calendarID = calendarID
             self.form = FormFeature.State(value: FormValue())
+            let cacheContext = LocalImageCacheContext(calendarID: calendarID)
+            self.heroImagePicker = ImageAssetPicker.State(
+                configuration: .calendarHero,
+                cacheContext: cacheContext
+            )
+            self.logoImagePicker = ImageAssetPicker.State(
+                configuration: .calendarLogo,
+                cacheContext: cacheContext
+            )
         }
 
         public let calendarID: OMERecord.Calendar.ID
@@ -47,16 +52,14 @@ public struct EditCalendar {
         var errorMessage: String?
         var form: FormFeature.State
         var hasLoadedDraft = false
+        var heroImagePicker: ImageAssetPicker.State
         var isSaving = false
+        var logoImagePicker: ImageAssetPicker.State
 
         public var id: OMERecord.Calendar.ID { calendarID }
 
         var canSubmit: Bool {
             hasLoadedDraft && !isSaving && form.canSubmit
-        }
-
-        var heroImageAsset: OMERecord.ImageAsset? {
-            trimmedHeroImageURL.httpOrHTTPSURL.map(OMERecord.ImageAsset.calendarHero)
         }
 
         var navigationTitle: String {
@@ -67,35 +70,51 @@ public struct EditCalendar {
             "Save"
         }
 
-        fileprivate var trimmedHeroImageURL: String {
-            form.value.heroImageURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
-    fileprivate struct SaveRequest: Sendable {
-        init?(state: State, value: FormValue) {
-            guard let draft = state.draft else { return nil }
-            self.draft = draft
-            self.description = value.description.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.heroImageURL = value.heroImageURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.name = value.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        var draft: OMERecord.Calendar.Draft
-        var description: String
-        var heroImageURL: String
-        var name: String
-
-        var preparedDraft: OMERecord.Calendar.Draft {
-            var draft = draft
-            draft.name = name
-            draft.description = description.isEmpty ? nil : description
-            var images = (draft.images ?? []).filter { $0.role != .hero }
-            if let heroURL = heroImageURL.httpOrHTTPSURL {
-                images.append(.calendarHero(url: heroURL))
+        func preparedDraft(
+            value: FormValue
+        ) throws -> (draft: OMERecord.Calendar.Draft, blobs: [LocalImageBlob]) {
+            guard var draft = draft else {
+                throw EditCalendarError.missingDraft
             }
-            draft.images = images.isEmpty ? nil : images
-            return draft
+            let preparedImages = try preparedImages(
+                context: LocalImageCacheContext(calendarID: calendarID)
+            )
+            let description = value.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.name = value.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.description = description.isEmpty ? nil : description
+            draft.images = preparedImages.images.isEmpty ? nil : preparedImages.images
+            return (draft, preparedImages.blobs)
+        }
+
+        mutating func resetImagePickers() {
+            let cacheContext = LocalImageCacheContext(calendarID: calendarID)
+            heroImagePicker = ImageAssetPicker.State(
+                configuration: .calendarHero,
+                assets: draft?.images,
+                cacheContext: cacheContext
+            )
+            logoImagePicker = ImageAssetPicker.State(
+                configuration: .calendarLogo,
+                assets: draft?.images,
+                cacheContext: cacheContext
+            )
+        }
+
+        private func preparedImages(
+            context: LocalImageCacheContext
+        ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
+            var images = (draft?.images ?? []).filter {
+                $0.role != .hero && $0.role != .logo
+            }
+            var blobs: [LocalImageBlob] = []
+
+            for picker in [heroImagePicker, logoImagePicker] {
+                let preparedImages = try picker.materializedImages(context: context)
+                images.append(contentsOf: preparedImages.images)
+                blobs.append(contentsOf: preparedImages.blobs)
+            }
+
+            return (images, blobs)
         }
     }
 
@@ -103,6 +122,8 @@ public struct EditCalendar {
         case cancelButtonTapped
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
+        case heroImagePicker(ImageAssetPicker.Action)
+        case logoImagePicker(ImageAssetPicker.Action)
         case saveButtonTapped
     }
 
@@ -114,6 +135,12 @@ public struct EditCalendar {
                 .onSubmit { value in
                     try store.send(.formSubmitted(value))
                 }
+        }
+        Scope(\.heroImagePicker, action: \.heroImagePicker) {
+            ImageAssetPicker()
+        }
+        Scope(\.logoImagePicker, action: \.logoImagePicker) {
+            ImageAssetPicker()
         }
         Update { state, action in
             switch action {
@@ -135,11 +162,13 @@ public struct EditCalendar {
                     state.errorMessage = "Fix the highlighted fields."
                     return
                 }
-                guard let request = SaveRequest(state: state, value: value) else {
-                    state.errorMessage = "This calendar could not be loaded."
+                let preparedDraft: (draft: OMERecord.Calendar.Draft, blobs: [LocalImageBlob])
+                do {
+                    preparedDraft = try state.preparedDraft(value: value)
+                } catch {
+                    state.errorMessage = "Unable to save calendar."
                     return
                 }
-
                 state.errorMessage = nil
                 state.isSaving = true
 
@@ -147,9 +176,12 @@ public struct EditCalendar {
                     do {
                         try await database.write { db in
                             try OMERecord.Calendar.upsert {
-                                request.preparedDraft
+                                preparedDraft.draft
                             }
                             .execute(db)
+                            if !preparedDraft.blobs.isEmpty {
+                                try LocalImageBlob.insert { preparedDraft.blobs }.execute(db)
+                            }
                         }
                         try store.modify {
                             $0.errorMessage = nil
@@ -163,6 +195,9 @@ public struct EditCalendar {
                         }
                     }
                 }
+
+            case .heroImagePicker, .logoImagePicker:
+                break
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -188,6 +223,7 @@ public struct EditCalendar {
                 }) {
                     state.draft = calendar.editDraft
                     state.form = FormFeature.State(value: FormValue(calendar: calendar))
+                    state.resetImagePickers()
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
@@ -198,6 +234,7 @@ public struct EditCalendar {
                         images: nil
                     )
                     state.form = FormFeature.State(value: FormValue(name: "Events"))
+                    state.resetImagePickers()
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 }
@@ -209,8 +246,11 @@ public struct EditCalendar {
 }
 
 private enum EditCalendarFormFieldID {
-    static var heroImageURL: AnyHashable { AnyHashable(\EditCalendar.FormValue.heroImageURL) }
     static var name: AnyHashable { AnyHashable(\EditCalendar.FormValue.name) }
+}
+
+private enum EditCalendarError: Error {
+    case missingDraft
 }
 
 private extension EditCalendar.FormFeature {
@@ -219,12 +259,6 @@ private extension EditCalendar.FormFeature {
             Self.Field(\.name) {
                 Validation(error: "Enter a calendar name.") { value in
                     !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                }
-            }
-            Self.Field(\.heroImageURL) {
-                Validation(error: "Enter an http or https hero image URL.") { value in
-                    let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return value.isEmpty || value.httpOrHTTPSURL != nil
                 }
             }
         }
@@ -290,35 +324,12 @@ public struct EditCalendarView: View {
                     #endif
             }
 
-            Section("Hero Image") {
-                if let asset = store.heroImageAsset {
-                    ImageAssetAsyncImage(
-                        asset: asset,
-                        cacheContext: nil,
-                        contentMode: .fill
-                    ) {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(.secondary.opacity(0.12))
-                            .overlay {
-                                Image(systemName: "photo")
-                                    .foregroundStyle(.secondary)
-                            }
-                    }
-                    .frame(height: 160)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-
-                TextField("Image URL", text: $store.form.value.heroImageURL)
-                    #if os(iOS)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
-
-                FormFieldValidationStatus(
-                    validation: store.form.validation[EditCalendarFormFieldID.heroImageURL]
-                )
-            }
+            ImageAssetPickerSection(
+                store: store.scope(\.heroImagePicker, action: \.heroImagePicker)
+            )
+            ImageAssetPickerSection(
+                store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
+            )
 
             if let errorMessage = store.errorMessage {
                 Section {
@@ -339,27 +350,5 @@ private extension OMERecord.Calendar {
             description: description,
             images: images
         )
-    }
-}
-
-private extension OMERecord.ImageAsset {
-    static func calendarHero(url: URL) -> Self {
-        Self(
-            source: .url(url),
-            role: .hero,
-            renderKind: .fullImage,
-            materializationPolicy: .lazy
-        )
-    }
-}
-
-private extension String {
-    var httpOrHTTPSURL: URL? {
-        guard
-            let url = URL(string: self),
-            url.scheme == "http" || url.scheme == "https"
-        else { return nil }
-
-        return url
     }
 }

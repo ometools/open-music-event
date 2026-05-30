@@ -122,6 +122,26 @@ public extension ImageInfo {
             Self()
         }
 
+        public static var calendarHero: Self {
+            Self(
+                allowedRoles: [.hero],
+                allowedRenderKinds: [.fullImage],
+                allowsAppearance: true,
+                allowsMaterializationPolicy: false,
+                allowedMaterializationPolicies: [.lazy]
+            )
+        }
+
+        public static var calendarLogo: Self {
+            Self(
+                allowedRoles: [.logo],
+                allowedRenderKinds: [.transparent],
+                allowsAppearance: true,
+                allowsMaterializationPolicy: false,
+                allowedMaterializationPolicies: [.lazy]
+            )
+        }
+
         public static var posters: Self {
             Self(
                 allowedRoles: [.poster],
