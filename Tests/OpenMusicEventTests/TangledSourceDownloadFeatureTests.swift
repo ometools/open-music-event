@@ -190,8 +190,8 @@ struct TangledSourceDownloadFeatureTests {
         let schedules = try await database.read { db in
             try OMERecord.Schedule.fetchAll(db)
         }
-        let participants = try await database.read { db in
-            try OMERecord.Participant.fetchAll(db)
+        let contributors = try await database.read { db in
+            try OMERecord.Contributor.fetchAll(db)
         }
         let channels = try await database.read { db in
             try OMERecord.Channel.fetchAll(db)
@@ -202,8 +202,8 @@ struct TangledSourceDownloadFeatureTests {
         let performances = try await database.read { db in
             try OMERecord.Performance.fetchAll(db)
         }
-        let performanceParticipants = try await database.read { db in
-            try OMERecord.Performance.Participants.fetchAll(db)
+        let performanceContributors = try await database.read { db in
+            try OMERecord.Performance.Contributors.fetchAll(db)
         }
         let sourceBaselines = try await database.read { db in
             try SourceBaselineRecord.fetchAll(db)
@@ -225,11 +225,11 @@ struct TangledSourceDownloadFeatureTests {
         expectNoDifference(eventOrganizers.map(\.id.eventID), [secondEventID.eventID])
         expectNoDifference(stages.map(\.id.eventID), [secondEventID.eventID])
         expectNoDifference(schedules.map(\.id.eventID), [secondEventID.eventID])
-        expectNoDifference(participants.map(\.id.eventID), [secondEventID.eventID])
+        expectNoDifference(contributors.map(\.id.eventID), [secondEventID.eventID])
         expectNoDifference(channels.map(\.id.eventID), [secondEventID.eventID])
         expectNoDifference(posters.map(\.id.eventID), [secondEventID.eventID])
         expectNoDifference(performances.map(\.id.eventID), [secondEventID.eventID])
-        expectNoDifference(performanceParticipants.map(\.eventID), [secondEventID.eventID])
+        expectNoDifference(performanceContributors.map(\.eventID), [secondEventID.eventID])
         expectNoDifference(sourceBaselines.map(\.id), [secondSourceBaselineID])
         expectNoDifference(sourceProvenances.map(\.id), [secondEventID])
         expectNoDifference(downloadedSources.map(\.id), [secondSourceBaselineID])
@@ -826,12 +826,12 @@ private func insertImportedEventData(
             )
         }
         .execute(db)
-        try OMERecord.Participant.insert {
-            OMERecord.Participant.Draft(
-                id: OMERecord.Participant.ID(
+        try OMERecord.Contributor.insert {
+            OMERecord.Contributor.Draft(
+                id: OMERecord.Contributor.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    participantID: localID("artist")
+                    contributorID: localID("artist")
                 ),
                 name: "Artist"
             )
@@ -883,12 +883,12 @@ private func insertImportedEventData(
             )
         }
         .execute(db)
-        try OMERecord.Performance.Participants.insert {
-            OMERecord.Performance.Participants.Draft(
+        try OMERecord.Performance.Contributors.insert {
+            OMERecord.Performance.Contributors.Draft(
                 organizerID: eventID.organizerID,
                 eventID: eventID.eventID,
                 performanceID: localID("opening"),
-                participantID: localID("artist"),
+                contributorID: localID("artist"),
                 anonymousName: nil
             )
         }
@@ -1064,11 +1064,11 @@ private func validationResult(
             events: [.init(eventID: eventID.eventID.rawValue.rawValue, name: "Imported Event")],
             stageCount: 0,
             scheduleCount: 0,
-            participantCount: 0,
+            contributorCount: 0,
             channelCount: 0,
             posterCount: 0,
             performanceCount: 0,
-            performanceParticipantCount: 0
+            performanceContributorCount: 0
         )
     )
 }

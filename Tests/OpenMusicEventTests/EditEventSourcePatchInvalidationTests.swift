@@ -390,12 +390,12 @@ struct EditEventSourcePatchInvalidationTests {
         let invalidation = SourcePatchInvalidation(
             eventID: eventID,
             operation: .update,
-            tableName: OME.Participant.tableName
+            tableName: OME.Contributor.tableName
         )
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
-                    path: "events/event-1/participants/artist.md",
+                    path: "events/event-1/contributors/artist.md",
                     kind: .modified,
                     oldContents: Data("Old bio.\n".utf8),
                     newContents: Data("New bio.\n".utf8)
@@ -461,7 +461,7 @@ struct EditEventSourcePatchInvalidationTests {
         let invalidation = SourcePatchInvalidation(
             eventID: eventID,
             operation: .update,
-            tableName: OME.Participant.tableName
+            tableName: OME.Contributor.tableName
         )
         let stream = AsyncStream.makeStream(of: SourcePatchInvalidation.self)
         let store = withDependencies {
@@ -496,7 +496,7 @@ struct EditEventSourcePatchInvalidationTests {
         let otherEventInvalidation = SourcePatchInvalidation(
             eventID: testEventID("event-2"),
             operation: .update,
-            tableName: OME.Participant.tableName
+            tableName: OME.Contributor.tableName
         )
         let stream = AsyncStream.makeStream(of: SourcePatchInvalidation.self)
         let store = withDependencies {

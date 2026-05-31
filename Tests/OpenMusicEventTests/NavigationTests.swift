@@ -46,8 +46,8 @@ private func sourceProvenance(
     )
 }
 
-private func participantLocalID(_ string: String) -> OMERecord.ID<OMERecord.Participant> {
-    OMERecord.ID<OMERecord.Participant>(rawValue: ATProto.Record.Key(rawValue: string))
+private func contributorLocalID(_ string: String) -> OMERecord.ID<OMERecord.Contributor> {
+    OMERecord.ID<OMERecord.Contributor>(rawValue: ATProto.Record.Key(rawValue: string))
 }
 
 private func performanceLocalID(_ string: String) -> OMERecord.ID<OMERecord.Performance> {
@@ -87,12 +87,12 @@ struct NavigationTests {
                 AppRoute.event(eventID("event-1"), .schedule)
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/people",
-                AppRoute.event(eventID("event-1"), .people)
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/contributors",
+                AppRoute.event(eventID("event-1"), .contributors)
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/participants/artist-1",
-                AppRoute.event(eventID("event-1"), .participant(participantLocalID("artist-1")))
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/contributors/artist-1",
+                AppRoute.event(eventID("event-1"), .contributor(contributorLocalID("artist-1")))
             ),
             (
                 "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/stages",
@@ -120,6 +120,17 @@ struct NavigationTests {
         #expect(route.path == url.path(percentEncoded: true))
     }
 
+    @Test(
+        arguments: [
+            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/people",
+            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/participants/artist-1",
+        ]
+    )
+    func appRouteRejectsOldContributorURLs(urlString: String) throws {
+        let url = try #require(URL(string: urlString))
+        #expect(AppRoute(url: url) == nil)
+    }
+
     @Test
     func navigationRequestSelectsEventAndMountsViewer() async throws {
         let database = try makePreparedDatabase()
@@ -142,10 +153,10 @@ struct NavigationTests {
     }
 
     @Test
-    func navigationRequestSelectsParticipantPeopleDestination() throws {
+    func navigationRequestSelectsContributorContributorsDestination() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let participantID = participantLocalID("participant-1")
+        let contributorID = contributorLocalID("contributor-1")
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         withDependencies {
@@ -153,12 +164,12 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            store.send(.root(.handleNavigationRequest(.event(eventID, .participant(participantID)))))
+            store.send(.root(.handleNavigationRequest(.event(eventID, .contributor(contributorID)))))
         }
 
-        #expect(store.state.root.eventViewer?.state.selectedFeature == .people)
+        #expect(store.state.root.eventViewer?.state.selectedFeature == .contributors)
         #expect(
-            store.state.root.eventViewer?.state.peopleViewer?.destination?.participantDetail?.participantID == participantID
+            store.state.root.eventViewer?.state.contributorsViewer?.destination?.contributorDetail?.contributorID == contributorID
         )
     }
 
@@ -202,33 +213,33 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerConsumesParticipantNavigationFromSearchDescendant() async throws {
-        let participantID = participantLocalID("participant-1")
+    func eventViewerConsumesContributorNavigationFromSearchDescendant() async throws {
+        let contributorID = contributorLocalID("contributor-1")
         let store = try makeEventViewerHarnessStore()
 
-        await store.send(to: \.eventViewer.eventSearch, .openParticipant(participantID))?.value
+        await store.send(to: \.eventViewer.eventSearch, .openContributor(contributorID))?.value
         await Task.yield()
 
-        #expect(store.state.eventViewer.selectedFeature == .people)
+        #expect(store.state.eventViewer.selectedFeature == .contributors)
         #expect(
-            store.state.eventViewer.peopleViewer?.destination?.participantDetail?.participantID == participantID
+            store.state.eventViewer.contributorsViewer?.destination?.contributorDetail?.contributorID == contributorID
         )
         #expect(store.state.lastRequest == nil)
     }
 
     @Test
-    func eventViewerSearchUsesMountedEventIDForParticipantNavigation() async throws {
+    func eventViewerSearchUsesMountedEventIDForContributorNavigation() async throws {
         let selectedEventID = eventID("event-1")
         let ambientEventID = eventID("other-event")
-        let participantID = participantLocalID("participant-1")
+        let contributorID = contributorLocalID("contributor-1")
         let store = try makeEventViewerHarnessStore(eventID: selectedEventID, defaultEventID: ambientEventID)
 
-        await store.send(to: \.eventViewer.eventSearch, .openParticipant(participantID))?.value
+        await store.send(to: \.eventViewer.eventSearch, .openContributor(contributorID))?.value
         await Task.yield()
 
-        #expect(store.state.eventViewer.selectedFeature == .people)
+        #expect(store.state.eventViewer.selectedFeature == .contributors)
         #expect(
-            store.state.eventViewer.peopleViewer?.destination?.participantDetail?.eventID == selectedEventID
+            store.state.eventViewer.contributorsViewer?.destination?.contributorDetail?.eventID == selectedEventID
         )
     }
 
@@ -1014,7 +1025,7 @@ struct NavigationTests {
     }
 
     @Test
-    func peopleViewerFetchesParticipantsForEvent() async throws {
+    func contributorsViewerFetchesContributorsForEvent() async throws {
         let database = try makePreparedDatabase()
         let selectedEventID = eventID("event-1")
         let otherEventID = eventID("event-2")
@@ -1022,16 +1033,147 @@ struct NavigationTests {
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: selectedEventID, name: "Event One")
             try Self.insertEvent(db, id: otherEventID, name: "Event Two")
-            try Self.insertParticipant(db, eventID: selectedEventID, participantID: "zara", name: "Zara")
-            try Self.insertParticipant(db, eventID: selectedEventID, participantID: "amy", name: "Amy")
-            try Self.insertParticipant(db, eventID: otherEventID, participantID: "other", name: "Other")
+            try Self.insertContributor(db, eventID: selectedEventID, contributorID: "zara", name: "Zara")
+            try Self.insertContributor(db, eventID: selectedEventID, contributorID: "amy", name: "Amy")
+            try Self.insertContributor(db, eventID: otherEventID, contributorID: "other", name: "Other")
         }
 
-        let participants = try await database.read { db in
-            try PeopleViewer.participantsQuery(eventID: selectedEventID).fetchAll(db)
+        let contributors = try await database.read { db in
+            try ContributorsViewer.contributorsQuery(eventID: selectedEventID).fetchAll(db)
         }
 
-        #expect(participants.map(\.name) == ["Amy", "Zara"])
+        #expect(contributors.map(\.name) == ["Amy", "Zara"])
+    }
+
+    @Test
+    func contributorStageContextAggregatesScheduledAndLineupStages() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let otherEventID = eventID("event-2")
+        let contributorID = contributorLocalID("artist")
+        let date = try #require(LocalDate("2026-08-07"))
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
+            try Self.insertContributor(db, eventID: selectedEventID, contributorID: "artist", name: "Artist")
+            try Self.insertContributor(db, eventID: otherEventID, contributorID: "artist", name: "Other Artist")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertSchedule(db, eventID: otherEventID, scheduleID: "friday", date: date)
+            try Self.insertStage(
+                db,
+                eventID: selectedEventID,
+                stageID: "main",
+                name: "Main",
+                sortIndex: 1,
+                lineup: [contributorID]
+            )
+            try Self.insertStage(
+                db,
+                eventID: selectedEventID,
+                stageID: "meadow",
+                name: "Meadow",
+                sortIndex: 2
+            )
+            try Self.insertStage(
+                db,
+                eventID: selectedEventID,
+                stageID: "tent",
+                name: "Tent",
+                sortIndex: 3,
+                lineup: [contributorID]
+            )
+            try Self.insertStage(
+                db,
+                eventID: otherEventID,
+                stageID: "other",
+                name: "Other",
+                sortIndex: 0,
+                lineup: [contributorID]
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "meadow-set",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 100),
+                endTime: Date(timeIntervalSince1970: 200),
+                title: "Meadow Set"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "tent-set",
+                stageID: "tent",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 300),
+                endTime: Date(timeIntervalSince1970: 400),
+                title: "Tent Set"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: otherEventID,
+                performanceID: "other-set",
+                stageID: "other",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 50),
+                endTime: Date(timeIntervalSince1970: 60),
+                title: "Other Set"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "meadow-set",
+                contributorID: "artist"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "tent-set",
+                contributorID: "artist"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: otherEventID,
+                performanceID: "other-set",
+                contributorID: "artist"
+            )
+        }
+
+        let context = try await database.read { db in
+            ContributorStageContext(
+                contributorID: contributorID,
+                performanceContributors: try ContributorsViewer.performanceContributorsQuery(
+                    eventID: selectedEventID
+                )
+                .fetchAll(db),
+                performances: try ScheduleViewer.eventPerformancesQuery(eventID: selectedEventID)
+                    .fetchAll(db),
+                stages: try ScheduleViewer.stagesQuery(eventID: selectedEventID)
+                    .fetchAll(db)
+            )
+        }
+
+        #expect(context.scheduledPerformances.map(\.title) == ["Meadow Set", "Tent Set"])
+        #expect(context.lineupOnlyStages.map(\.name) == ["Main"])
+        #expect(context.stages.map(\.name) == ["Main", "Meadow", "Tent"])
+        #expect(context.primaryStage?.name == "Main")
+        let firstPerformance = try #require(context.scheduledPerformances.first)
+        #expect(context.stage(for: firstPerformance)?.name == "Meadow")
+
+        let rowContext = try await database.read { db in
+            try #require(
+                ContributorsViewer.contributorRowsQuery(eventID: selectedEventID)
+                    .fetchAll(db)
+                    .first { $0.contributorID == contributorID }
+            )
+            .stageContext
+        }
+
+        #expect(rowContext.lineupOnlyStages.map(\.name) == ["Main"])
+        #expect(rowContext.stages.map(\.name) == ["Main", "Meadow", "Tent"])
     }
 
     @Test
@@ -1654,8 +1796,8 @@ struct NavigationTests {
             try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
             try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
             try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
-            try Self.insertParticipant(db, eventID: eventID, participantID: "amy", name: "Amy")
-            try Self.insertParticipant(db, eventID: eventID, participantID: "zara", name: "Zara")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "amy", name: "Amy")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "zara", name: "Zara")
             try Self.insertPerformance(
                 db,
                 eventID: eventID,
@@ -1668,17 +1810,17 @@ struct NavigationTests {
                 description: "First set",
                 recordings: [ExternalPlatform.Asset(url: recordingURL)]
             )
-            try Self.insertPerformanceParticipant(
+            try Self.insertPerformanceContributor(
                 db,
                 eventID: eventID,
                 performanceID: "opening",
-                participantID: "zara"
+                contributorID: "zara"
             )
-            try Self.insertPerformanceParticipant(
+            try Self.insertPerformanceContributor(
                 db,
                 eventID: eventID,
                 performanceID: "opening",
-                participantID: "amy"
+                contributorID: "amy"
             )
         }
 
@@ -1691,8 +1833,8 @@ struct NavigationTests {
                 .fetchOne(db)
             )
         }
-        let participants = try await database.read { db in
-            try PerformanceDetail.participantsQuery(
+        let contributors = try await database.read { db in
+            try PerformanceDetail.contributorsQuery(
                 performanceID: performanceLocalID("opening"),
                 eventID: eventID
             )
@@ -1706,18 +1848,18 @@ struct NavigationTests {
         #expect(performance.description == "First set")
         #expect(performance.recordings.map(\.url) == [recordingURL])
         #expect(stages.first { $0.id.stageID == performance.stageID }?.name == "Meadow")
-        #expect(participants.map(\.name) == ["Amy", "Zara"])
+        #expect(contributors.map(\.name) == ["Amy", "Zara"])
     }
 
     @Test
-    func editParticipantSavesChanges() async throws {
+    func editContributorSavesChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let participantID = participantLocalID("artist-1")
+        let contributorID = contributorLocalID("artist-1")
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertParticipant(db, eventID: eventID, participantID: "artist-1", name: "Old Name")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
         }
 
         let store = withDependencies {
@@ -1725,20 +1867,20 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.exhaustivity = .off
         } operation: {
-            var state = EditParticipant.State(participantID: participantID, eventID: eventID)
+            var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
             state.hasLoadedDraft = true
             state.form.value.name = " New Name "
             state.form.value.kind = "dj"
             state.form.value.bio = " Updated bio "
             state.imageURL = "https://example.com/image.jpg"
             state.logoURL = " "
-            var link = EditableParticipantLink()
+            var link = EditableContributorLink()
             link.url = "https://example.com"
             link.platformRawValue = ExternalPlatform.website.rawValue
             state.form.value.links = [link]
 
             return TestStore(initialState: state) {
-                EditParticipant()
+                EditContributor()
             }
         }
 
@@ -1748,42 +1890,42 @@ struct NavigationTests {
         #expect(store.state.errorMessage == nil)
         #expect(store.isPresented == false)
 
-        let participant = try await database.read { db in
+        let contributor = try await database.read { db in
             try #require(
-                try ParticipantDetail.participantQuery(
-                    participantID: participantID,
+                try ContributorDetail.contributorQuery(
+                    contributorID: contributorID,
                     eventID: eventID
                 )
                 .fetchOne(db)
             )
         }
 
-        #expect(participant.name == "New Name")
-        #expect(participant.kind?.rawValue == "dj")
-        #expect(participant.bio == "Updated bio")
-        #expect(participant.imageURL?.absoluteString == "https://example.com/image.jpg")
-        #expect(participant.logoURL == nil)
-        #expect(participant.links?.map(\.url.absoluteString) == ["https://example.com"])
-        #expect(participant.links?.map(\.platform) == [.website])
+        #expect(contributor.name == "New Name")
+        #expect(contributor.kind?.rawValue == "dj")
+        #expect(contributor.bio == "Updated bio")
+        #expect(contributor.imageURL?.absoluteString == "https://example.com/image.jpg")
+        #expect(contributor.logoURL == nil)
+        #expect(contributor.links?.map(\.url.absoluteString) == ["https://example.com"])
+        #expect(contributor.links?.map(\.platform) == [.website])
     }
 
     @Test
-    func editParticipantSaveSurfacesUnderlyingError() async throws {
+    func editContributorSaveSurfacesUnderlyingError() async throws {
         let database = try defaultDatabase()
         let eventID = eventID("event-1")
-        let participantID = participantLocalID("artist-1")
+        let contributorID = contributorLocalID("artist-1")
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.exhaustivity = .off
         } operation: {
-            var state = EditParticipant.State(participantID: participantID, eventID: eventID)
+            var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
             state.hasLoadedDraft = true
             state.form.value.name = "New Name"
 
             return TestStore(initialState: state) {
-                EditParticipant()
+                EditContributor()
             }
         }
 
@@ -1791,19 +1933,19 @@ struct NavigationTests {
 
         #expect(store.state.isSaving == false)
         #expect(store.isPresented)
-        #expect(store.state.errorMessage?.hasPrefix("Unable to save person: ") == true)
-        #expect(store.state.errorMessage != "Unable to save person.")
+        #expect(store.state.errorMessage?.hasPrefix("Unable to save contributor: ") == true)
+        #expect(store.state.errorMessage != "Unable to save contributor.")
     }
 
     @Test
-    func editParticipantStoreBindingsSaveChanges() async throws {
+    func editContributorStoreBindingsSaveChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let participantID = participantLocalID("artist-1")
+        let contributorID = contributorLocalID("artist-1")
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertParticipant(db, eventID: eventID, participantID: "artist-1", name: "Old Name")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
         }
 
         @Bindable var store = withDependencies {
@@ -1811,8 +1953,8 @@ struct NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: EditParticipant.State(participantID: participantID, eventID: eventID)) {
-                EditParticipant()
+            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+                EditContributor()
             }
         }
 
@@ -1822,28 +1964,28 @@ struct NavigationTests {
         $store.form.value.name.wrappedValue = "New Name"
         await store.send(.saveButtonTapped)?.value
 
-        let participant = try await database.read { db in
+        let contributor = try await database.read { db in
             try #require(
-                try ParticipantDetail.participantQuery(
-                    participantID: participantID,
+                try ContributorDetail.contributorQuery(
+                    contributorID: contributorID,
                     eventID: eventID
                 )
                 .fetchOne(db)
             )
         }
 
-        #expect(participant.name == "New Name")
+        #expect(contributor.name == "New Name")
     }
 
     @Test
-    func participantDetailEditSheetBindingsSaveChanges() async throws {
+    func contributorDetailEditSheetBindingsSaveChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let participantID = participantLocalID("artist-1")
+        let contributorID = contributorLocalID("artist-1")
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertParticipant(db, eventID: eventID, participantID: "artist-1", name: "Old Name")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
         }
 
         @Bindable var detailStore = withDependencies {
@@ -1851,8 +1993,8 @@ struct NavigationTests {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            Store(initialState: ParticipantDetail.State(participantID: participantID, eventID: eventID)) {
-                ParticipantDetail()
+            Store(initialState: ContributorDetail.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorDetail()
             }
         }
 
@@ -1861,7 +2003,7 @@ struct NavigationTests {
         @Bindable var editStore = try #require(
             $detailStore
                 .scope(\.destination, action: \.destination)
-                .editParticipant
+                .editContributor
                 .wrappedValue
         )
 
@@ -1871,62 +2013,62 @@ struct NavigationTests {
         $editStore.form.value.name.wrappedValue = "New Name"
         await editStore.send(.saveButtonTapped)?.value
 
-        let participant = try await database.read { db in
+        let contributor = try await database.read { db in
             try #require(
-                try ParticipantDetail.participantQuery(
-                    participantID: participantID,
+                try ContributorDetail.contributorQuery(
+                    contributorID: contributorID,
                     eventID: eventID
                 )
                 .fetchOne(db)
             )
         }
 
-        #expect(participant.name == "New Name")
-        #expect(detailStore.participant?.name == "New Name")
+        #expect(contributor.name == "New Name")
+        #expect(detailStore.contributor?.name == "New Name")
         #expect(detailStore.destination == nil)
     }
 
     @Test
-    func spawnedParticipantDetailObservesSavedChanges() async throws {
+    func spawnedContributorDetailObservesSavedChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
-        let participantID = participantLocalID("artist-1")
+        let contributorID = contributorLocalID("artist-1")
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Event One")
-            try Self.insertParticipant(db, eventID: eventID, participantID: "artist-1", name: "Old Name")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
         }
 
-        @Bindable var peopleStore = withDependencies {
+        @Bindable var contributorsStore = withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            Store(initialState: PeopleViewer.State(eventID: eventID)) {
-                PeopleViewer()
+            Store(initialState: ContributorsViewer.State(eventID: eventID)) {
+                ContributorsViewer()
             }
         }
 
-        peopleStore.send(.participantButtonTapped(participantID))
+        contributorsStore.send(.contributorButtonTapped(contributorID))
         @Bindable var detailStore = try #require(
-            $peopleStore
+            $contributorsStore
                 .scope(\.destination, action: \.destination)
-                .participantDetail
+                .contributorDetail
                 .wrappedValue
         )
 
         let storeObservationRecorder = ObservationRecorder<String>()
         let viewObservationRecorder = ObservationRecorder<String>()
         withObservationTracking {
-            _ = detailStore.participant?.name
+            _ = detailStore.contributor?.name
         } onChange: {
             Task {
                 await storeObservationRecorder.record("invalidated")
             }
         }
         withObservationTracking {
-            _ = ParticipantDetailView(store: detailStore).body
+            _ = ContributorDetailView(store: detailStore).body
         } onChange: {
             Task {
                 await viewObservationRecorder.record("invalidated")
@@ -1937,7 +2079,7 @@ struct NavigationTests {
         @Bindable var editStore = try #require(
             $detailStore
                 .scope(\.destination, action: \.destination)
-                .editParticipant
+                .editContributor
                 .wrappedValue
         )
         $editStore.form.value.name.wrappedValue = "New Name"
@@ -1946,12 +2088,12 @@ struct NavigationTests {
 
         #expect(await storeObservationRecorder.values == ["invalidated"])
         #expect(await viewObservationRecorder.values == ["invalidated"])
-        #expect(detailStore.participant?.name == "New Name")
+        #expect(detailStore.contributor?.name == "New Name")
         #expect(detailStore.destination == nil)
     }
 
     @Test
-    func createParticipantSavesNewPerson() async throws {
+    func createContributorSavesNewContributor() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         try await database.write { db in
@@ -1964,13 +2106,13 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.exhaustivity = .off
         } operation: {
-            var state = EditParticipant.State(eventID: eventID)
-            state.form.value.name = " New Person "
+            var state = EditContributor.State(eventID: eventID)
+            state.form.value.name = " New Contributor "
             state.form.value.kind = "speaker"
             state.form.value.bio = " Bio "
 
             return TestStore(initialState: state) {
-                EditParticipant()
+                EditContributor()
             }
         }
 
@@ -1980,20 +2122,20 @@ struct NavigationTests {
         #expect(store.state.errorMessage == nil)
         #expect(store.isPresented == false)
 
-        let participantID = participantLocalID("new-person")
-        let participant = try await database.read { db in
+        let contributorID = contributorLocalID("new-contributor")
+        let contributor = try await database.read { db in
             try #require(
-                try ParticipantDetail.participantQuery(
-                    participantID: participantID,
+                try ContributorDetail.contributorQuery(
+                    contributorID: contributorID,
                     eventID: eventID
                 )
                 .fetchOne(db)
             )
         }
 
-        #expect(participant.name == "New Person")
-        #expect(participant.kind?.rawValue == "speaker")
-        #expect(participant.bio == "Bio")
+        #expect(contributor.name == "New Contributor")
+        #expect(contributor.kind?.rawValue == "speaker")
+        #expect(contributor.bio == "Bio")
     }
 
     @Test
@@ -2029,7 +2171,7 @@ struct NavigationTests {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let stageID = stageLocalID("meadow")
-        let lineupID = participantLocalID("artist-1")
+        let lineupID = contributorLocalID("artist-1")
         let posterURL = try #require(URL(string: "https://example.com/poster.png"))
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
@@ -2398,18 +2540,18 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertParticipant(
+    private nonisolated static func insertContributor(
         _ db: Database,
         eventID: OMERecord.Event.ID,
-        participantID: String,
+        contributorID: String,
         name: String
     ) throws {
-        try OMERecord.Participant.insert {
-            OMERecord.Participant.Draft(
-                id: OMERecord.Participant.ID(
+        try OMERecord.Contributor.insert {
+            OMERecord.Contributor.Draft(
+                id: OMERecord.Contributor.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    participantID: participantLocalID(participantID)
+                    contributorID: contributorLocalID(contributorID)
                 ),
                 name: name,
                 bio: nil,
@@ -2453,18 +2595,18 @@ struct NavigationTests {
         .execute(db)
     }
 
-    private nonisolated static func insertPerformanceParticipant(
+    private nonisolated static func insertPerformanceContributor(
         _ db: Database,
         eventID: OMERecord.Event.ID,
         performanceID: String,
-        participantID: String
+        contributorID: String
     ) throws {
-        try OMERecord.Performance.Participants.insert {
-            OMERecord.Performance.Participants.Draft(
+        try OMERecord.Performance.Contributors.insert {
+            OMERecord.Performance.Contributors.Draft(
                 organizerID: eventID.organizerID,
                 eventID: eventID.eventID,
                 performanceID: performanceLocalID(performanceID),
-                participantID: participantLocalID(participantID),
+                contributorID: contributorLocalID(contributorID),
                 anonymousName: nil
             )
         }
@@ -2509,7 +2651,7 @@ struct NavigationTests {
         iconShortCode: String? = nil,
         imageURL: URL? = nil,
         posterImageURL: URL? = nil,
-        lineup: [OMERecord.ID<OMERecord.Participant>]? = nil
+        lineup: [OMERecord.ID<OMERecord.Contributor>]? = nil
     ) throws {
         try OMERecord.Stage.insert {
             OMERecord.Stage.Draft(

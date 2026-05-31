@@ -21,7 +21,7 @@ public struct OpenMusicEventSourceRepository: Equatable, Sendable {
 public struct OpenMusicEventSourceEvent: Equatable, Sendable {
     public var event: EventDTO
     public var stages: [FileContent<StageDTO>]?
-    public var participants: [FileContent<ParticipantDTO>]?
+    public var contributors: [FileContent<ContributorDTO>]?
     public var posters: [FileContent<PosterDTO>]?
     public var schedules: [FileContent<ScheduleDTO>]?
     public var channels: [FileContent<ChannelDTO>]?
@@ -29,14 +29,14 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
     public init(
         event: EventDTO,
         stages: [FileContent<StageDTO>]? = nil,
-        participants: [FileContent<ParticipantDTO>]? = nil,
+        contributors: [FileContent<ContributorDTO>]? = nil,
         posters: [FileContent<PosterDTO>]? = nil,
         schedules: [FileContent<ScheduleDTO>]? = nil,
         channels: [FileContent<ChannelDTO>]? = nil
     ) {
         self.event = event
         self.stages = stages
-        self.participants = participants
+        self.contributors = contributors
         self.posters = posters
         self.schedules = schedules
         self.channels = channels
@@ -45,7 +45,7 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
     public init(
         event: OMERecord.Event.Draft,
         stages: [FileContent<StageDTO>]? = nil,
-        participants: [FileContent<ParticipantDTO>]? = nil,
+        contributors: [FileContent<ContributorDTO>]? = nil,
         posters: [FileContent<PosterDTO>]? = nil,
         schedules: [FileContent<ScheduleDTO>]? = nil,
         channels: [FileContent<ChannelDTO>]? = nil
@@ -53,7 +53,7 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
         self.init(
             event: EventDTO(event),
             stages: stages,
-            participants: participants,
+            contributors: contributors,
             posters: posters,
             schedules: schedules,
             channels: channels

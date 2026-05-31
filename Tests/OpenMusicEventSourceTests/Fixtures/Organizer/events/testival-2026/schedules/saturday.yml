@@ -6,7 +6,7 @@ performances:
     title: Opening Set
     startTime: "18:00"
     endTime: "19:00"
-    participantIDs:
+    contributorIDs:
     - artist-one
     recordings:
     - url: https://example.com/opening-set.mp3
@@ -15,7 +15,7 @@ performances:
         cid: bafyreibvlzqnyqbyq2xlxzyelbnzczd3i2cppmx7xghg42yyjz7dss6xju
   - title: Late Set
     startTime: "20:00"
-    participantNames:
+    contributorNames:
     - Guest Artist
   - id: closing-set
     title: Closing Set

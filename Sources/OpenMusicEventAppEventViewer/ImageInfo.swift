@@ -152,7 +152,7 @@ public extension ImageInfo {
             )
         }
 
-        public static var participantLogo: Self {
+        public static var contributorLogo: Self {
             Self(
                 allowedRoles: [.logo],
                 allowedRenderKinds: [.transparent],
@@ -162,7 +162,7 @@ public extension ImageInfo {
             )
         }
 
-        public static var participantPhoto: Self {
+        public static var contributorPhoto: Self {
             Self(
                 allowedRoles: [.photo],
                 allowedRenderKinds: [.fullImage],

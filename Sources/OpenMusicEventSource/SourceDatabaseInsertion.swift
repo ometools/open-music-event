@@ -126,11 +126,11 @@ public extension OME {
         public var eventOrganizers: [OME.EventOrganizer.Draft]
         public var stages: [OME.Stage.Draft]
         public var schedules: [OME.Schedule.Draft]
-        public var participants: [OME.Participant.Draft]
+        public var contributors: [OME.Contributor.Draft]
         public var channels: [OME.Channel.Draft]
         public var posters: [OME.Poster.Draft]
         public var performances: [OME.Performance.Draft]
-        public var performanceParticipants: [OME.Performance.Participants.Draft]
+        public var performanceContributors: [OME.Performance.Contributors.Draft]
         public var pendingFileImageAssets: [PendingFileImageAsset]
 
         public init(_ configuration: Configuration) throws {
@@ -144,11 +144,11 @@ public extension OME {
             self.eventOrganizers = []
             self.stages = []
             self.schedules = []
-            self.participants = []
+            self.contributors = []
             self.channels = []
             self.posters = []
             self.performances = []
-            self.performanceParticipants = []
+            self.performanceContributors = []
             self.pendingFileImageAssets = []
 
             let sourceCalendar = configuration.source.calendar ?? CalendarDTO.defaultCalendar
@@ -272,34 +272,34 @@ public extension OME {
                 } ?? []
             )
 
-            let explicitParticipants: [OME.Participant.Draft] = try sourceEvent.participants?.map { participant in
-                var draft = participant.data.recordDraft
-                let participantID = draft.id ?? .init(
+            let explicitContributors: [OME.Contributor.Draft] = try sourceEvent.contributors?.map { contributor in
+                var draft = contributor.data.recordDraft
+                let contributorID = draft.id ?? .init(
                     organizerID: organizerID,
                     eventID: localEventID,
-                    participantID: Self.localID(participant.fileName)
+                    contributorID: Self.localID(contributor.fileName)
                 )
-                draft.id = participantID
+                draft.id = contributorID
                 draft.images = try resolve(
-                    participant.data.images,
+                    contributor.data.images,
                     organizerID: organizerID,
                     eventID: localEventID,
-                    parentKind: "participant",
-                    parentLocalID: participantID.participantID.rawValue.rawValue,
+                    parentKind: "contributor",
+                    parentLocalID: contributorID.contributorID.rawValue.rawValue,
                     sourceDirectoryURL: eventDirectoryURL
                 )
                 return draft
             } ?? []
 
-            participants.append(contentsOf: explicitParticipants)
+            contributors.append(contentsOf: explicitContributors)
 
-            let scheduleParticipantIndex = Self.scheduleParticipantIndex(
+            let scheduleContributorIndex = Self.scheduleContributorIndex(
                 for: sourceEvent,
                 organizerID: organizerID,
                 eventID: localEventID,
-                explicitParticipants: explicitParticipants
+                explicitContributors: explicitContributors
             )
-            participants.append(contentsOf: scheduleParticipantIndex.generatedParticipants)
+            contributors.append(contentsOf: scheduleContributorIndex.generatedContributors)
 
             channels.append(
                 contentsOf: sourceEvent.channels?.map { channel in
@@ -347,7 +347,7 @@ public extension OME {
                     organizerID: organizerID,
                     eventID: localEventID,
                     timeZone: event.timeZone,
-                    scheduleParticipantIndex: scheduleParticipantIndex
+                    scheduleContributorIndex: scheduleContributorIndex
                 )
             }
         }
@@ -358,7 +358,7 @@ public extension OME {
             organizerID: OME.Organizer.ID,
             eventID: OME.ID<OME.Event>,
             timeZone: TimeZone,
-            scheduleParticipantIndex: ScheduleParticipantIndex
+            scheduleContributorIndex: ScheduleContributorIndex
         ) throws {
             let scheduleID = schedule.id ?? Self.localID(scheduleFileName)
             let scopedScheduleID = OME.Schedule.ID(
@@ -431,39 +431,39 @@ public extension OME {
                         )
                     )
 
-                    performanceParticipants.append(
-                        contentsOf: (sourcePerformance.participantIDs ?? []).map {
-                            OME.Performance.Participants.Draft(
+                    performanceContributors.append(
+                        contentsOf: (sourcePerformance.contributorIDs ?? []).map {
+                            OME.Performance.Contributors.Draft(
                                 organizerID: organizerID,
                                 eventID: eventID,
                                 performanceID: performanceID,
-                                participantID: $0,
+                                contributorID: $0,
                                 anonymousName: nil,
-                                participantActor: nil
+                                contributorActor: nil
                             )
                         }
                     )
-                    performanceParticipants.append(
-                        contentsOf: (sourcePerformance.participantNames ?? []).map { name in
-                            OME.Performance.Participants.Draft(
+                    performanceContributors.append(
+                        contentsOf: (sourcePerformance.contributorNames ?? []).map { name in
+                            OME.Performance.Contributors.Draft(
                                 organizerID: organizerID,
                                 eventID: eventID,
                                 performanceID: performanceID,
-                                participantID: scheduleParticipantIndex.participantID(forName: name),
+                                contributorID: scheduleContributorIndex.contributorID(forName: name),
                                 anonymousName: name,
-                                participantActor: nil
+                                contributorActor: nil
                             )
                         }
                     )
-                    performanceParticipants.append(
-                        contentsOf: (sourcePerformance.participantActors ?? []).map { actor in
-                            OME.Performance.Participants.Draft(
+                    performanceContributors.append(
+                        contentsOf: (sourcePerformance.contributorActors ?? []).map { actor in
+                            OME.Performance.Contributors.Draft(
                                 organizerID: organizerID,
                                 eventID: eventID,
                                 performanceID: performanceID,
-                                participantID: scheduleParticipantIndex.participantID(forActor: actor),
+                                contributorID: scheduleContributorIndex.contributorID(forActor: actor),
                                 anonymousName: nil,
-                                participantActor: actor
+                                contributorActor: actor
                             )
                         }
                     )
@@ -471,18 +471,18 @@ public extension OME {
             }
         }
 
-        private struct ScheduleParticipantIndex {
+        private struct ScheduleContributorIndex {
             static let disabled = Self()
 
-            var generatedParticipants: [OME.Participant.Draft] = []
-            var names: [String: OME.ID<OME.Participant>] = [:]
-            var actors: [OME.Participant.Actor: OME.ID<OME.Participant>] = [:]
+            var generatedContributors: [OME.Contributor.Draft] = []
+            var names: [String: OME.ID<OME.Contributor>] = [:]
+            var actors: [OME.Contributor.Actor: OME.ID<OME.Contributor>] = [:]
 
-            func participantID(forName name: String) -> OME.ID<OME.Participant>? {
+            func contributorID(forName name: String) -> OME.ID<OME.Contributor>? {
                 Self.nameKey(name).flatMap { names[$0] }
             }
 
-            func participantID(forActor actor: OME.Participant.Actor) -> OME.ID<OME.Participant>? {
+            func contributorID(forActor actor: OME.Contributor.Actor) -> OME.ID<OME.Contributor>? {
                 actors[actor]
             }
 
@@ -492,49 +492,49 @@ public extension OME {
             }
         }
 
-        private static func scheduleParticipantIndex(
+        private static func scheduleContributorIndex(
             for sourceEvent: OpenMusicEventSourceEvent,
             organizerID: OME.Organizer.ID,
             eventID: OME.ID<OME.Event>,
-            explicitParticipants: [OME.Participant.Draft]
-        ) -> ScheduleParticipantIndex {
-            guard sourceEvent.event.policies?.participants?.usesScheduleParticipantListing == true else {
+            explicitContributors: [OME.Contributor.Draft]
+        ) -> ScheduleContributorIndex {
+            guard sourceEvent.event.policies?.contributors?.usesScheduleContributorListing == true else {
                 return .disabled
             }
 
-            var index = ScheduleParticipantIndex()
-            var usedParticipantIDs = Set(explicitParticipants.compactMap { $0.id?.participantID })
+            var index = ScheduleContributorIndex()
+            var usedContributorIDs = Set(explicitContributors.compactMap { $0.id?.contributorID })
 
-            for participant in explicitParticipants {
-                guard let participantID = participant.id?.participantID,
-                      let key = ScheduleParticipantIndex.nameKey(participant.name),
+            for contributor in explicitContributors {
+                guard let contributorID = contributor.id?.contributorID,
+                      let key = ScheduleContributorIndex.nameKey(contributor.name),
                       index.names[key] == nil
                 else { continue }
 
-                index.names[key] = participantID
+                index.names[key] = contributorID
             }
 
             for schedule in sourceEvent.schedules ?? [] {
                 for stageID in schedule.data.performances.keys.sorted() {
                     for performance in schedule.data.performances[stageID] ?? [] {
-                        for name in performance.participantNames ?? [] {
-                            guard let displayName = scheduleParticipantDisplayName(forName: name),
-                                  let key = ScheduleParticipantIndex.nameKey(displayName),
+                        for name in performance.contributorNames ?? [] {
+                            guard let displayName = scheduleContributorDisplayName(forName: name),
+                                  let key = ScheduleContributorIndex.nameKey(displayName),
                                   index.names[key] == nil
                             else { continue }
 
-                            let participantID = generatedScheduleParticipantID(
+                            let contributorID = generatedScheduleContributorID(
                                 prefix: "schedule-name",
                                 value: displayName,
-                                usedParticipantIDs: &usedParticipantIDs
+                                usedContributorIDs: &usedContributorIDs
                             )
-                            index.names[key] = participantID
-                            index.generatedParticipants.append(
-                                OME.Participant.Draft(
+                            index.names[key] = contributorID
+                            index.generatedContributors.append(
+                                OME.Contributor.Draft(
                                     id: .init(
                                         organizerID: organizerID,
                                         eventID: eventID,
-                                        participantID: participantID
+                                        contributorID: contributorID
                                     ),
                                     name: displayName,
                                     bio: nil,
@@ -545,22 +545,22 @@ public extension OME {
                             )
                         }
 
-                        for actor in performance.participantActors ?? [] {
+                        for actor in performance.contributorActors ?? [] {
                             guard index.actors[actor] == nil else { continue }
 
                             let displayName = actor.description
-                            let participantID = generatedScheduleParticipantID(
+                            let contributorID = generatedScheduleContributorID(
                                 prefix: "schedule-actor",
                                 value: displayName,
-                                usedParticipantIDs: &usedParticipantIDs
+                                usedContributorIDs: &usedContributorIDs
                             )
-                            index.actors[actor] = participantID
-                            index.generatedParticipants.append(
-                                OME.Participant.Draft(
+                            index.actors[actor] = contributorID
+                            index.generatedContributors.append(
+                                OME.Contributor.Draft(
                                     id: .init(
                                         organizerID: organizerID,
                                         eventID: eventID,
-                                        participantID: participantID
+                                        contributorID: contributorID
                                     ),
                                     name: displayName,
                                     bio: nil,
@@ -577,33 +577,33 @@ public extension OME {
             return index
         }
 
-        private static func scheduleParticipantDisplayName(forName name: String) -> String? {
+        private static func scheduleContributorDisplayName(forName name: String) -> String? {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
 
-        private static func generatedScheduleParticipantID(
+        private static func generatedScheduleContributorID(
             prefix: String,
             value: String,
-            usedParticipantIDs: inout Set<OME.ID<OME.Participant>>
-        ) -> OME.ID<OME.Participant> {
+            usedContributorIDs: inout Set<OME.ID<OME.Contributor>>
+        ) -> OME.ID<OME.Contributor> {
             let encodedValue = value.addingPercentEncoding(
-                withAllowedCharacters: generatedParticipantIDAllowedCharacters
+                withAllowedCharacters: generatedContributorIDAllowedCharacters
             ) ?? value
             let baseID = "\(prefix)-\(encodedValue)"
-            var candidate = OME.ID<OME.Participant>(.init(baseID))
+            var candidate = OME.ID<OME.Contributor>(.init(baseID))
             var suffix = 2
 
-            while usedParticipantIDs.contains(candidate) {
-                candidate = OME.ID<OME.Participant>(.init("\(baseID)-\(suffix)"))
+            while usedContributorIDs.contains(candidate) {
+                candidate = OME.ID<OME.Contributor>(.init("\(baseID)-\(suffix)"))
                 suffix += 1
             }
 
-            usedParticipantIDs.insert(candidate)
+            usedContributorIDs.insert(candidate)
             return candidate
         }
 
-        private static var generatedParticipantIDAllowedCharacters: CharacterSet {
+        private static var generatedContributorIDAllowedCharacters: CharacterSet {
             CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         }
 
@@ -772,9 +772,9 @@ private extension Date {
     }
 }
 
-private extension OME.Event.ParticipantPolicies {
-    var usesScheduleParticipantListing: Bool {
-        if case .known(.scheduleParticipants)? = listing {
+private extension OME.Event.ContributorPolicies {
+    var usesScheduleContributorListing: Bool {
+        if case .known(.scheduleContributors)? = listing {
             return true
         }
         return false

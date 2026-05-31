@@ -42,7 +42,7 @@ public struct EventViewer {
 
     public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeatureValue {
         case schedule(ScheduleViewer.ScheduleDivision)
-        case people
+        case contributors
         case stages
         case communications
         case contactInfo
@@ -57,7 +57,7 @@ public struct EventViewer {
 
         public static let defaultFeatures: [Self] = [
             .schedule(.schedule),
-            .people,
+            .contributors,
             .stages,
             .communications,
             .contactInfo,
@@ -83,8 +83,8 @@ public struct EventViewer {
                         category: OMERecord.Stage.Category(rawCategory)
                     )
                 )
-            case "people":
-                self = .people
+            case "contributors":
+                self = .contributors
             case "stages":
                 self = .stages
             case "communications":
@@ -119,8 +119,8 @@ public struct EventViewer {
                     return "schedule:\(category.rawValue)"
                 }
                 return "schedule"
-            case .people:
-                return "people"
+            case .contributors:
+                return "contributors"
             case .stages:
                 return "stages"
             case .communications:
@@ -149,7 +149,7 @@ public struct EventViewer {
         var title: String {
             switch self {
             case let .schedule(division): division.title
-            case .people: "People"
+            case .contributors: "Contributors"
             case .stages: "Stages"
             case .communications: "Comms"
             case .contactInfo: "Contact"
@@ -167,7 +167,7 @@ public struct EventViewer {
         var systemImage: String {
             switch self {
             case let .schedule(division): division.systemImage
-            case .people: "person.3"
+            case .contributors: "person.3"
             case .stages: "square.grid.2x2"
             case .communications: "megaphone"
             case .contactInfo: "phone"
@@ -185,7 +185,7 @@ public struct EventViewer {
         var labelTint: Color? {
             switch self {
             case .schedule: .green
-            case .people: .pink
+            case .contributors: .pink
             case .stages: .indigo
             case .communications: .orange
             case .contactInfo: .green
@@ -207,7 +207,7 @@ public struct EventViewer {
                     return "openMusicEvent.eventViewer.schedule"
                 }
                 return "openMusicEvent.eventViewer.schedule.\(division.id)"
-            case .people: return "openMusicEvent.eventViewer.people"
+            case .contributors: return "openMusicEvent.eventViewer.contributors"
             case .stages: return "openMusicEvent.eventViewer.stages"
             case .communications: return "openMusicEvent.eventViewer.communications"
             case .contactInfo: return "openMusicEvent.eventViewer.contactInfo"
@@ -285,8 +285,8 @@ public struct EventViewer {
                                 )
                             )
                         )
-                    case .people:
-                        self.peopleViewer = Spawn(PeopleViewer.State(eventID: eventID))
+                    case .contributors:
+                        self.contributorsViewer = Spawn(ContributorsViewer.State(eventID: eventID))
                     case .stages:
                         self.stagesViewer = Spawn(StagesViewer.State(eventID: eventID))
                     case .communications:
@@ -331,7 +331,7 @@ public struct EventViewer {
         public var selectedFeature: EventFeature
 
         public var scheduleViewers: [Spawn<ScheduleViewer>] = []
-        public var peopleViewer: Spawn<PeopleViewer>?
+        public var contributorsViewer: Spawn<ContributorsViewer>?
         public var stagesViewer: Spawn<StagesViewer>?
         public var communicationsViewer: Spawn<CommunicationsViewer>?
         public var contactInfoViewer: Spawn<ContactInfoViewer>?
@@ -349,7 +349,7 @@ public struct EventViewer {
         mutating func navigate(to target: EventTarget?) {
             guard let target else {
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
-                self.peopleViewer?.state.destination = nil
+                self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
                 return
@@ -358,32 +358,32 @@ public struct EventViewer {
             self.selectedFeature = target.eventFeature
 
             switch target {
-            case let .participant(participantID):
+            case let .contributor(contributorID):
                 let eventID = self.eventID
                 self.eventSearch.state = withEventDependencies {
                     EventSearch.State(eventID: eventID)
                 }
-                if self.peopleViewer == nil {
-                    self.peopleViewer = withEventDependencies {
-                        Spawn(PeopleViewer.State(eventID: eventID))
+                if self.contributorsViewer == nil {
+                    self.contributorsViewer = withEventDependencies {
+                        Spawn(ContributorsViewer.State(eventID: eventID))
                     }
                 }
                 let destination = withEventDependencies {
-                    PeopleViewer.Destination.State.participantDetail(
+                    ContributorsViewer.Destination.State.contributorDetail(
                         Spawn(
-                            ParticipantDetail.State(
-                                participantID: participantID,
+                            ContributorDetail.State(
+                                contributorID: contributorID,
                                 eventID: eventID
                             )
                         )
                     )
                 }
-                self.peopleViewer?.state.destination = destination
+                self.contributorsViewer?.state.destination = destination
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
-            case .people:
+            case .contributors:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
-                self.peopleViewer?.state.destination = nil
+                self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             case let .stage(stageID):
@@ -391,7 +391,7 @@ public struct EventViewer {
                 self.eventSearch.state = withEventDependencies {
                     EventSearch.State(eventID: eventID)
                 }
-                self.peopleViewer?.state.destination = nil
+                self.contributorsViewer?.state.destination = nil
                 if self.stagesViewer == nil {
                     self.stagesViewer = withEventDependencies {
                         Spawn(StagesViewer.State(eventID: eventID))
@@ -411,17 +411,17 @@ public struct EventViewer {
                 self.eventInfoViewer?.state.destination = nil
             case .stages:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
-                self.peopleViewer?.state.destination = nil
+                self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             case .search:
                 self.eventSearch.state = EventSearch.State.route(eventID: eventID, target: target)
-                self.peopleViewer?.state.destination = nil
+                self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             case .edit:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
-                self.peopleViewer?.state.destination = nil
+                self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
                 if self.editEvent == nil {
@@ -429,7 +429,7 @@ public struct EventViewer {
                 }
             default:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
-                self.peopleViewer?.state.destination = nil
+                self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 self.eventInfoViewer?.state.destination = nil
             }
@@ -474,8 +474,8 @@ public struct EventViewer {
         .forEach(\.scheduleViewers) {
             ScheduleViewer()
         }
-        .ifLet(\.peopleViewer) {
-            PeopleViewer()
+        .ifLet(\.contributorsViewer) {
+            ContributorsViewer()
         }
         .ifLet(\.stagesViewer) {
             StagesViewer()
@@ -569,15 +569,15 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.spawn(\.peopleViewer) {
+                if let featureStore = store.spawn(\.contributorsViewer) {
                     TabFeature(
-                        .people,
-                        title: EventViewer.EventFeature.people.title,
-                        systemImage: EventViewer.EventFeature.people.systemImage,
-                        labelTint: EventViewer.EventFeature.people.labelTint,
+                        .contributors,
+                        title: EventViewer.EventFeature.contributors.title,
+                        systemImage: EventViewer.EventFeature.contributors.systemImage,
+                        labelTint: EventViewer.EventFeature.contributors.labelTint,
                         navigation: .stack
                     ) {
-                        PeopleViewerView(store: featureStore)
+                        ContributorsViewerView(store: featureStore)
                     }
                 }
 
@@ -728,11 +728,11 @@ public struct EventViewerView: View {
                 .tag(feature)
             }
 
-            if let featureStore = store.spawn(\.peopleViewer) {
-                viewerTab(.people) {
-                    PeopleViewerView(store: featureStore)
+            if let featureStore = store.spawn(\.contributorsViewer) {
+                viewerTab(.contributors) {
+                    ContributorsViewerView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.people)
+                .tag(EventViewer.EventFeature.contributors)
             }
 
             if let featureStore = store.spawn(\.stagesViewer) {
@@ -829,11 +829,11 @@ public struct EventViewerView: View {
                 .tag(feature)
             }
 
-            if let featureStore = store.spawn(\.peopleViewer) {
-                viewerTab(.people) {
-                    PeopleViewerView(store: featureStore)
+            if let featureStore = store.spawn(\.contributorsViewer) {
+                viewerTab(.contributors) {
+                    ContributorsViewerView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.people)
+                .tag(EventViewer.EventFeature.contributors)
             }
 
             if let featureStore = store.spawn(\.stagesViewer) {

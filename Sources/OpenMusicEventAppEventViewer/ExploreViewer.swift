@@ -26,11 +26,11 @@ public struct EventSearch {
             target: EventTarget?
         ) -> Self {
             switch target {
-            case let .participant(participantID):
+            case let .contributor(contributorID):
                 return .init(
                     eventID: eventID,
-                    destination: .participantDetail(
-                        Spawn(.init(participantID: participantID, eventID: eventID))
+                    destination: .contributorDetail(
+                        Spawn(.init(contributorID: contributorID, eventID: eventID))
                     )
                 )
             case let .stage(stageID):
@@ -48,13 +48,13 @@ public struct EventSearch {
 
     public enum Action {
         case destination(Destination.Action)
-        case openParticipant(OMERecord.ID<OMERecord.Participant>)
+        case openContributor(OMERecord.ID<OMERecord.Contributor>)
         case openStage(OMERecord.ID<OMERecord.Stage>)
     }
 
     @Feature
     public enum Destination {
-        case participantDetail(Spawn<ParticipantDetail>)
+        case contributorDetail(Spawn<ContributorDetail>)
         case stageDetail(Spawn<StageDetail>)
     }
 
@@ -64,12 +64,12 @@ public struct EventSearch {
             case .destination:
                 break
 
-            case .openParticipant(let participantID):
+            case .openContributor(let contributorID):
                 let eventID = state.eventID
                 store.addTask {
                     try store.post(
                         key: NavigationRequested.self,
-                        value: .event(eventID, .participant(participantID))
+                        value: .event(eventID, .contributor(contributorID))
                     )
                 }
 
@@ -103,10 +103,10 @@ public struct EventSearchView: View {
             ViewerPlaceholderView(
                 title: "Search",
                 systemImage: "magnifyingglass",
-                description: "Search within this event to find participants and stages."
+                description: "Search within this event to find contributors and stages."
             )
-            .navigationDestination(item: $store.scope(\.destination, action: \.destination).participantDetail) { detailStore in
-                ParticipantDetailView(store: detailStore)
+            .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
+                ContributorDetailView(store: detailStore)
             }
             .navigationDestination(item: $store.scope(\.destination, action: \.destination).stageDetail) { detailStore in
                 StageDetailView(store: detailStore)

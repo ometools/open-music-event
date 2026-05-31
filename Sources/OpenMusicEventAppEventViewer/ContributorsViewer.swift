@@ -9,7 +9,7 @@ import Tagged
 import SwiftUI
 
 @Feature
-public struct PeopleViewer {
+public struct ContributorsViewer {
     public init() {}
 
     public struct State {
@@ -19,8 +19,8 @@ public struct PeopleViewer {
         ) {
             self.eventID = eventID
             self.destination = destination
-            _participants = FetchAll(
-                PeopleViewer.participantsQuery(eventID: eventID)
+            _contributorRows = FetchAll(
+                ContributorsViewer.contributorRowsQuery(eventID: eventID)
             )
         }
 
@@ -28,38 +28,112 @@ public struct PeopleViewer {
         public var destination: Destination.State?
         public var searchText = ""
 
-        @FetchAll public var participants: [OMERecord.Participant]
+        @DebugSnapshotIgnored
+        @FetchAll var contributorRows: [ContributorListRow]
 
-        public var filteredParticipants: [OMERecord.Participant] {
+        var filteredContributorRows: [ContributorListRow] {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else { return participants }
+            guard !query.isEmpty else { return contributorRows }
 
-            return participants.filter { participant in
-                participant.name.localizedStandardContains(query)
-                    || participant.kind?.rawValue.localizedStandardContains(query) == true
-            }
+            return contributorRows.filter { $0.matchesSearch(query) }
         }
     }
 
     public enum Action {
         case addButtonTapped
         case destination(Destination.Action)
-        case participantButtonTapped(OMERecord.ID<OMERecord.Participant>)
+        case contributorButtonTapped(OMERecord.ID<OMERecord.Contributor>)
     }
 
     @Feature
     public enum Destination {
-        case createParticipant(Spawn<EditParticipant>)
-        case participantDetail(Spawn<ParticipantDetail>)
+        case createContributor(Spawn<EditContributor>)
+        case contributorDetail(Spawn<ContributorDetail>)
     }
 
-    static func participantsQuery(
+    static func contributorsQuery(
         eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Participant> {
-        OMERecord.Participant
+    ) -> some SelectStatementOf<OMERecord.Contributor> {
+        OMERecord.Contributor
             .where { $0.id.organizerID.eq(eventID.organizerID) }
             .where { $0.id.eventID.eq(eventID.eventID) }
             .order { $0.name.collate(.nocase) }
+    }
+
+    static func contributorRowsQuery(
+        eventID: OMERecord.Event.ID
+    ) -> some Statement<ContributorListRow> {
+        OMERecord.Contributor
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .order { $0.name.collate(.nocase) }
+            .leftJoin(OMERecord.Stage.all) { contributor, stage in
+                stage.id.organizerID.eq(eventID.organizerID)
+                    .and(stage.id.eventID.eq(eventID.eventID))
+            }
+            .group(by: { contributor, _ in
+                contributor.id
+            })
+            .select { (
+                contributor: OMERecord.Contributor.TableColumns,
+                stage: (OMERecord.Stage?).TableColumns
+            ) -> ContributorListRow.Columns in
+                let isScheduledStage = #sql(
+                    """
+                    EXISTS (
+                      SELECT 1
+                      FROM "performances"
+                      JOIN "performanceContributors"
+                        ON "performanceContributors"."organizerID" = "performances"."organizerID"
+                        AND "performanceContributors"."eventID" = "performances"."eventID"
+                        AND "performanceContributors"."performanceID" = "performances"."performanceID"
+                      WHERE "performances"."organizerID" = \(eventID.organizerID)
+                        AND "performances"."eventID" = \(eventID.eventID)
+                        AND "performances"."stageID" = "stages"."stageID"
+                        AND "performanceContributors"."contributorID" = "contributors"."contributorID"
+                    )
+                    """,
+                    as: Bool.self
+                )
+
+                let scheduledStages = stage.jsonGroupArray(
+                    distinct: true,
+                    filter: isScheduledStage
+                )
+                let eventStages = stage.jsonGroupArray(distinct: true)
+                return Self.contributorListRowColumns(
+                    contributor: contributor,
+                    scheduledStages: scheduledStages,
+                    eventStages: eventStages
+                )
+            }
+    }
+
+    private static func contributorListRowColumns<
+        ScheduledStages: QueryExpression,
+        EventStages: QueryExpression
+    >(
+        contributor: OMERecord.Contributor.TableColumns,
+        scheduledStages: ScheduledStages,
+        eventStages: EventStages
+    ) -> ContributorListRow.Columns
+    where
+        ScheduledStages.QueryValue == [OMERecord.Stage].JSONRepresentation,
+        EventStages.QueryValue == [OMERecord.Stage].JSONRepresentation
+    {
+        ContributorListRow.Columns(
+            contributor: contributor,
+            scheduledStages: scheduledStages,
+            eventStages: eventStages
+        )
+    }
+
+    static func performanceContributorsQuery(
+        eventID: OMERecord.Event.ID
+    ) -> some SelectStatementOf<OMERecord.Performance.Contributors> {
+        OMERecord.Performance.Contributors
+            .where { $0.organizerID.eq(eventID.organizerID) }
+            .where { $0.eventID.eq(eventID.eventID) }
     }
 
     public var body: some Feature {
@@ -67,18 +141,18 @@ public struct PeopleViewer {
             switch action {
             case .addButtonTapped:
                 store.withDependencies {
-                    state.destination = .createParticipant(
-                        Spawn(EditParticipant.State(eventID: state.eventID))
+                    state.destination = .createContributor(
+                        Spawn(EditContributor.State(eventID: state.eventID))
                     )
                 }
 
             case .destination:
                 break
 
-            case let .participantButtonTapped(participantID):
+            case let .contributorButtonTapped(contributorID):
                 store.withDependencies {
-                    state.destination = .participantDetail(
-                        Spawn(.init(participantID: participantID, eventID: state.eventID))
+                    state.destination = .contributorDetail(
+                        Spawn(.init(contributorID: contributorID, eventID: state.eventID))
                     )
                 }
             }
@@ -89,84 +163,112 @@ public struct PeopleViewer {
     }
 }
 
-public struct PeopleViewerView: View {
-    @Bindable var store: StoreOf<PeopleViewer>
+public struct ContributorsViewerView: View {
+    @Bindable var store: StoreOf<ContributorsViewer>
 
-    public init(store: StoreOf<PeopleViewer>) {
+    public init(store: StoreOf<ContributorsViewer>) {
         self.store = store
     }
 
     public var body: some View {
         Group {
-            if store.participants.isEmpty {
+            if store.contributorRows.isEmpty {
                 ViewerPlaceholderView(
-                    title: "People",
+                    title: "Contributors",
                     systemImage: "person.3",
-                    description: "No people have been added to this event yet."
+                    description: "No contributors have been added to this event yet."
                 )
-            } else if store.filteredParticipants.isEmpty {
+            } else if store.filteredContributorRows.isEmpty {
                 ViewerPlaceholderView(
                     title: "No Results",
                     systemImage: "person.3",
-                    description: "No people match your search."
+                    description: "No contributors match your search."
                 )
             } else {
-                List(store.filteredParticipants) { participant in
-                    Button {
-                        store.send(.participantButtonTapped(participant.id.participantID))
-                    } label: {
-                        PeopleRowView(participant: participant)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
+                List(store.filteredContributorRows) { row in
+                    ContributorListButton(row: row) { contributorID in
+                        store.send(.contributorButtonTapped(contributorID))
                     }
-                    .buttonStyle(.plain)
                 }
                 .listStyle(.plain)
             }
         }
-        .searchable(text: $store.searchText, prompt: "Search People")
+        .searchable(text: $store.searchText, prompt: "Search Contributors")
         .autocorrectionDisabled()
         #if os(iOS)
         .textInputAutocapitalization(.never)
         #endif
-        .navigationTitle("People")
+        .navigationTitle("Contributors")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     store.send(.addButtonTapped)
                 } label: {
                     Image(systemName: "plus")
-                        .accessibilityLabel("Add Person")
+                        .accessibilityLabel("Add Contributor")
                 }
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).createParticipant) { createStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).createContributor) { createStore in
             NavigationStack {
-                EditParticipantView(store: createStore)
+                EditContributorView(store: createStore)
             }
         }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).participantDetail) { detailStore in
-            ParticipantDetailView(store: detailStore)
+        .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
+            ContributorDetailView(store: detailStore)
         }
     }
 }
 
-struct PeopleRowView: View {
-    let participant: OMERecord.Participant
+struct ContributorListButton: View {
+    let row: ContributorListRow
+    let contributorButtonTapped: (OMERecord.ID<OMERecord.Contributor>) -> Void
+
+    var body: some View {
+        Button {
+            contributorButtonTapped(row.contributorID)
+        } label: {
+            ContributorsRowView(
+                contributor: row.contributor,
+                stageContext: row.stageContext
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct ContributorsRowView: View {
+    let contributor: OMERecord.Contributor
+    let stageContext: ContributorStageContext?
+
+    init(
+        contributor: OMERecord.Contributor,
+        stageContext: ContributorStageContext? = nil
+    ) {
+        self.contributor = contributor
+        self.stageContext = stageContext
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            ParticipantArtworkView(
-                asset: participant.preferredArtworkAsset,
-                cacheContext: .init(participantID: participant.id),
+            ContributorArtworkView(
+                asset: contributor.preferredArtworkAsset,
+                cacheContext: .init(contributorID: contributor.id),
                 size: 60
             )
 
+            if let stageContext, !stageContext.stages.isEmpty {
+                ContributorStageIndicatorView(
+                    colors: stageContext.stages.map { $0.color.swiftUIColor }
+                )
+                .frame(width: 5, height: 60)
+            }
+
             VStack(alignment: .leading, spacing: 3) {
-                Text(participant.name)
+                Text(contributor.name)
                     .lineLimit(1)
 
-                if let kind = participant.kind?.displayName {
+                if let kind = contributor.kind?.displayName {
                     Text(kind)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -182,33 +284,55 @@ struct PeopleRowView: View {
 }
 
 @Feature
-public struct ParticipantDetail {
+public struct ContributorDetail {
     public init() {}
 
     public struct State: Identifiable {
-        public let participantID: OMERecord.ID<OMERecord.Participant>
+        public let contributorID: OMERecord.ID<OMERecord.Contributor>
         public let eventID: OMERecord.Event.ID
         public var destination: Destination.State?
 
-        @FetchOne public var participant: OMERecord.Participant?
+        @FetchOne public var contributor: OMERecord.Contributor?
 
         public init(
-            participantID: OMERecord.ID<OMERecord.Participant>,
+            contributorID: OMERecord.ID<OMERecord.Contributor>,
             eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
 
-            self.participantID = participantID
+            self.contributorID = contributorID
             self.eventID = eventID ?? defaultEventID
-            _participant = FetchOne(
-                ParticipantDetail.participantQuery(
-                    participantID: participantID,
+            _contributor = FetchOne(
+                ContributorDetail.contributorQuery(
+                    contributorID: contributorID,
                     eventID: self.eventID
                 )
             )
+            _performanceContributors = FetchAll(
+                ContributorsViewer.performanceContributorsQuery(eventID: self.eventID)
+            )
+            _performances = FetchAll(
+                ScheduleViewer.eventPerformancesQuery(eventID: self.eventID)
+            )
+            _stages = FetchAll(
+                ScheduleViewer.stagesQuery(eventID: self.eventID)
+            )
         }
 
-        public var id: OMERecord.ID<OMERecord.Participant> { participantID }
+        public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
+
+        @FetchAll public var performanceContributors: [OMERecord.Performance.Contributors]
+        @FetchAll public var performances: [OMERecord.Performance]
+        @FetchAll public var stages: [OMERecord.Stage]
+
+        var stageContext: ContributorStageContext {
+            ContributorStageContext(
+                contributorID: contributorID,
+                performanceContributors: performanceContributors,
+                performances: performances,
+                stages: stages
+            )
+        }
     }
 
     public enum Action {
@@ -218,17 +342,17 @@ public struct ParticipantDetail {
 
     @Feature
     public enum Destination {
-        case editParticipant(Spawn<EditParticipant>)
+        case editContributor(Spawn<EditContributor>)
     }
 
-    static func participantQuery(
-        participantID: OMERecord.ID<OMERecord.Participant>,
+    static func contributorQuery(
+        contributorID: OMERecord.ID<OMERecord.Contributor>,
         eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Participant> {
-        OMERecord.Participant
+    ) -> some SelectStatementOf<OMERecord.Contributor> {
+        OMERecord.Contributor
             .where { $0.id.organizerID.eq(eventID.organizerID) }
             .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.participantID.eq(participantID) }
+            .where { $0.id.contributorID.eq(contributorID) }
     }
 
     public var body: some Feature {
@@ -239,10 +363,10 @@ public struct ParticipantDetail {
 
             case .editButtonTapped:
                 store.withDependencies {
-                    state.destination = .editParticipant(
+                    state.destination = .editContributor(
                         Spawn(
-                            EditParticipant.State(
-                                participantID: state.participantID,
+                            EditContributor.State(
+                                contributorID: state.contributorID,
                                 eventID: state.eventID
                             )
                         )
@@ -256,92 +380,56 @@ public struct ParticipantDetail {
     }
 }
 
-public struct ParticipantDetailView: View {
-    @Bindable var store: StoreOf<ParticipantDetail>
+public struct ContributorDetailView: View {
+    @Bindable var store: StoreOf<ContributorDetail>
 
-    public init(store: StoreOf<ParticipantDetail>) {
+    public init(store: StoreOf<ContributorDetail>) {
         self.store = store
     }
 
     public var body: some View {
         Group {
-            if let participant = store.participant {
-                let logoAsset = participant.images?.imageAsset(role: .logo)
-                HeroImageList(
-                    title: Text(participant.name),
-                    showsNavigationTitleBeforeScroll: logoAsset != nil
+            if let contributor = store.contributor {
+                ContributorDetailContentView(
+                    contributor: contributor,
+                    stageContext: store.state.stageContext
                 ) {
-                    HeroImage(
-                        title: Text(participant.name),
-                        asset: participant.preferredArtworkAsset,
-                        cacheContext: .init(participantID: participant.id),
-                        logoAsset: logoAsset
-                    ) {
-                        Image(systemName: "person.crop.square")
-                            .font(.system(size: 82, weight: .semibold))
-                    }
-                } content: {
-                    if let kind = participant.kind?.displayName {
-                        Section("Details") {
-                            LabeledContent("Kind", value: kind)
-                        }
-                    }
-
-                    if let bio = participant.displayBio {
-                        Section("About") {
-                            Text(bio)
-                        }
-                    }
-
-                    if let links = participant.links, !links.isEmpty {
-                        Section("Links") {
-                            ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                                ParticipantLinkRow(link: link)
-                            }
-                        }
-                    }
-                }
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Edit") {
-                            store.send(.editButtonTapped)
-                        }
-                    }
+                    store.send(.editButtonTapped)
                 }
             } else {
                 ContentUnavailableView(
-                    "Person",
+                    "Contributor",
                     systemImage: "person.crop.circle",
-                    description: Text(verbatim: store.participantID.rawValue.rawValue)
+                    description: Text(verbatim: store.contributorID.rawValue.rawValue)
                 )
-                .navigationTitle("Person")
+                .navigationTitle("Contributor")
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).editParticipant) { editStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).editContributor) { editStore in
             NavigationStack {
-                EditParticipantView(store: editStore)
+                EditContributorView(store: editStore)
             }
         }
     }
 }
 
 @Feature
-public struct EditParticipant {
+public struct EditContributor {
     public init() {}
 
     public struct FormValue: Equatable {
         var bio = ""
         var kind = ""
-        var links: [EditableParticipantLink] = []
+        var links: [EditableContributorLink] = []
         var name = ""
 
         init() {}
 
-        init(participant: OMERecord.Participant) {
-            bio = participant.bio ?? ""
-            kind = participant.kind?.rawValue ?? ""
-            links = (participant.links ?? []).map(EditableParticipantLink.init)
-            name = participant.name
+        init(contributor: OMERecord.Contributor) {
+            bio = contributor.bio ?? ""
+            kind = contributor.kind?.rawValue ?? ""
+            links = (contributor.links ?? []).map(EditableContributorLink.init)
+            name = contributor.name
         }
     }
 
@@ -350,14 +438,14 @@ public struct EditParticipant {
     public struct State {
         public enum Mode: Equatable, Sendable {
             case create
-            case edit(OMERecord.ID<OMERecord.Participant>)
+            case edit(OMERecord.ID<OMERecord.Contributor>)
 
-            var participantID: OMERecord.ID<OMERecord.Participant>? {
+            var contributorID: OMERecord.ID<OMERecord.Contributor>? {
                 switch self {
                 case .create:
                     return nil
-                case let .edit(participantID):
-                    return participantID
+                case let .edit(contributorID):
+                    return contributorID
                 }
             }
         }
@@ -366,32 +454,32 @@ public struct EditParticipant {
             self.eventID = eventID
             self.form = FormFeature.State(value: FormValue())
             self.hasLoadedDraft = true
-            self.logoImagePicker = ImageAssetPicker.State(configuration: .participantLogo, assets: nil)
+            self.logoImagePicker = ImageAssetPicker.State(configuration: .contributorLogo, assets: nil)
             self.mode = .create
-            self.photoImagePicker = ImageAssetPicker.State(configuration: .participantPhoto, assets: nil)
+            self.photoImagePicker = ImageAssetPicker.State(configuration: .contributorPhoto, assets: nil)
         }
 
         public init(
-            participantID: OMERecord.ID<OMERecord.Participant>,
+            contributorID: OMERecord.ID<OMERecord.Contributor>,
             eventID: OMERecord.Event.ID
         ) {
             self.eventID = eventID
             self.form = FormFeature.State(value: FormValue())
             let cacheContext = LocalImageCacheContext(
-                participantID: OMERecord.Participant.ID(
+                contributorID: OMERecord.Contributor.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    participantID: participantID
+                    contributorID: contributorID
                 )
             )
             self.logoImagePicker = ImageAssetPicker.State(
-                configuration: .participantLogo,
+                configuration: .contributorLogo,
                 assets: nil,
                 cacheContext: cacheContext
             )
-            self.mode = .edit(participantID)
+            self.mode = .edit(contributorID)
             self.photoImagePicker = ImageAssetPicker.State(
-                configuration: .participantPhoto,
+                configuration: .contributorPhoto,
                 assets: nil,
                 cacheContext: cacheContext
             )
@@ -422,14 +510,14 @@ public struct EditParticipant {
             hasLoadedDraft && !isSaving && form.canSubmit
         }
 
-        var navigationTitle: String {
-            switch mode {
-            case .create:
-                return "New Person"
-            case .edit:
-                return "Edit Person"
+            var navigationTitle: String {
+                switch mode {
+                case .create:
+                return "New Contributor"
+                case .edit:
+                return "Edit Contributor"
+                }
             }
-        }
 
         var submitButtonTitle: String {
             switch mode {
@@ -443,7 +531,7 @@ public struct EditParticipant {
         fileprivate struct SaveRequest: Sendable {
             let bio: String?
             let eventID: OMERecord.Event.ID
-            let kind: OMERecord.Participant.Kind?
+            let kind: OMERecord.Contributor.Kind?
             let links: [ExternalPlatform.Link]?
             let logoImages: [ImageAssetPicker.ImageValue]
             let mode: Mode
@@ -455,7 +543,7 @@ public struct EditParticipant {
                 self.bio = state.form.value.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 self.eventID = state.eventID
                 self.kind = state.form.value.kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                    .map { OMERecord.Participant.Kind($0) }
+                    .map { OMERecord.Contributor.Kind($0) }
                 self.links = state.preparedLinks.nilIfEmpty
                 self.logoImages = state.logoImagePicker.images
                 self.mode = state.mode
@@ -466,17 +554,17 @@ public struct EditParticipant {
                 }
             }
 
-            func participantID(in db: Database) throws -> OMERecord.ID<OMERecord.Participant> {
-                if let participantID = mode.participantID {
-                    return participantID
+            func contributorID(in db: Database) throws -> OMERecord.ID<OMERecord.Contributor> {
+                if let contributorID = mode.contributorID {
+                    return contributorID
                 }
 
-                let base = State.participantIDBase(for: name)
+                let base = State.contributorIDBase(for: name)
                 var candidate = base
                 var suffix = 2
 
-                while try ParticipantDetail.participantQuery(
-                    participantID: State.localID(candidate),
+                while try ContributorDetail.contributorQuery(
+                    contributorID: State.localID(candidate),
                     eventID: eventID
                 )
                 .fetchOne(db) != nil {
@@ -487,26 +575,26 @@ public struct EditParticipant {
                 return State.localID(candidate)
             }
 
-            func participantRecordID(
-                participantID: OMERecord.ID<OMERecord.Participant>
-            ) -> OMERecord.Participant.ID {
-                OMERecord.Participant.ID(
+            func contributorRecordID(
+                contributorID: OMERecord.ID<OMERecord.Contributor>
+            ) -> OMERecord.Contributor.ID {
+                OMERecord.Contributor.ID(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
-                    participantID: participantID
+                    contributorID: contributorID
                 )
             }
 
             func preparedDraft(
-                participantID: OMERecord.ID<OMERecord.Participant>
-            ) throws -> (draft: OMERecord.Participant.Draft, blobs: [LocalImageBlob]) {
-                let participantRecordID = participantRecordID(participantID: participantID)
+                contributorID: OMERecord.ID<OMERecord.Contributor>
+            ) throws -> (draft: OMERecord.Contributor.Draft, blobs: [LocalImageBlob]) {
+                let contributorRecordID = contributorRecordID(contributorID: contributorID)
                 let preparedImages = try preparedImages(
-                    context: .init(participantID: participantRecordID)
+                    context: .init(contributorID: contributorRecordID)
                 )
                 return (
-                    OMERecord.Participant.Draft(
-                        id: participantRecordID,
+                    OMERecord.Contributor.Draft(
+                        id: contributorRecordID,
                         name: name,
                         bio: bio,
                         images: preparedImages.images.isEmpty ? nil : preparedImages.images,
@@ -542,24 +630,24 @@ public struct EditParticipant {
         mutating func resetImagePickers() {
             let cacheContext = imageCacheContext
             logoImagePicker = ImageAssetPicker.State(
-                configuration: .participantLogo,
+                configuration: .contributorLogo,
                 assets: originalImages,
                 cacheContext: cacheContext
             )
             photoImagePicker = ImageAssetPicker.State(
-                configuration: .participantPhoto,
+                configuration: .contributorPhoto,
                 assets: originalImages,
                 cacheContext: cacheContext
             )
         }
 
         private var imageCacheContext: LocalImageCacheContext? {
-            if let participantID = mode.participantID {
+            if let contributorID = mode.contributorID {
                 return LocalImageCacheContext(
-                    participantID: OMERecord.Participant.ID(
+                    contributorID: OMERecord.Contributor.ID(
                         organizerID: eventID.organizerID,
                         eventID: eventID.eventID,
-                        participantID: participantID
+                        contributorID: contributorID
                     )
                 )
             }
@@ -570,11 +658,11 @@ public struct EditParticipant {
             form.value.name.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Participant> {
-            OMERecord.ID<OMERecord.Participant>(.init(string))
+        private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Contributor> {
+            OMERecord.ID<OMERecord.Contributor>(.init(string))
         }
 
-        private static func participantIDBase(for name: String) -> String {
+        private static func contributorIDBase(for name: String) -> String {
             let normalized = name
                 .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
                 .lowercased()
@@ -583,7 +671,7 @@ public struct EditParticipant {
                 .filter { !$0.isEmpty }
 
             return words.isEmpty
-                ? "person-\(UUID().uuidString.lowercased())"
+                ? "contributor-\(UUID().uuidString.lowercased())"
                 : words.joined(separator: "-")
         }
     }
@@ -620,7 +708,7 @@ public struct EditParticipant {
         Update { state, action in
             switch action {
             case .addLinkButtonTapped:
-                state.form.value.links.append(EditableParticipantLink())
+                state.form.value.links.append(EditableContributorLink())
 
             case .cancelButtonTapped:
                 store.addTask {
@@ -633,7 +721,7 @@ public struct EditParticipant {
             case .formSubmitted:
                 guard !state.isSaving else { return }
                 guard state.hasLoadedDraft else {
-                    state.errorMessage = "This person could not be loaded."
+                    state.errorMessage = "This contributor could not be loaded."
                     return
                 }
 
@@ -644,9 +732,9 @@ public struct EditParticipant {
                 store.addTask {
                     do {
                         try await database.write { db in
-                            let participantID = try saveRequest.participantID(in: db)
-                            let preparedDraft = try saveRequest.preparedDraft(participantID: participantID)
-                            try OMERecord.Participant.upsert {
+                            let contributorID = try saveRequest.contributorID(in: db)
+                            let preparedDraft = try saveRequest.preparedDraft(contributorID: contributorID)
+                            try OMERecord.Contributor.upsert {
                                 preparedDraft.draft
                             }
                             .execute(db)
@@ -657,7 +745,7 @@ public struct EditParticipant {
                         try store.send(.saveSucceeded)
                     } catch {
                         try store.send(
-                            .saveFailed("Unable to save person: \(error.editParticipantSaveDescription)")
+                            .saveFailed("Unable to save contributor: \(error.editContributorSaveDescription)")
                         )
                     }
                 }
@@ -671,7 +759,7 @@ public struct EditParticipant {
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
                 guard state.hasLoadedDraft else {
-                    state.errorMessage = "This person could not be loaded."
+                    state.errorMessage = "This contributor could not be loaded."
                     return
                 }
 
@@ -694,41 +782,41 @@ public struct EditParticipant {
         .onMount { state in
             guard !state.hasLoadedDraft else { return }
 
-            guard let participantID = state.mode.participantID else {
+            guard let contributorID = state.mode.contributorID else {
                 state.hasLoadedDraft = true
                 state.errorMessage = nil
                 return
             }
 
             do {
-                if let participant = try database.read({ db in
-                    try ParticipantDetail.participantQuery(
-                        participantID: participantID,
+                if let contributor = try database.read({ db in
+                    try ContributorDetail.contributorQuery(
+                        contributorID: contributorID,
                         eventID: state.eventID
                     )
                     .fetchOne(db)
                 }) {
-                    state.form = FormFeature.State(value: FormValue(participant: participant))
-                    state.originalImages = participant.images ?? []
+                    state.form = FormFeature.State(value: FormValue(contributor: contributor))
+                    state.originalImages = contributor.images ?? []
                     state.resetImagePickers()
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
-                    state.errorMessage = "This person could not be loaded."
+                    state.errorMessage = "This contributor could not be loaded."
                 }
             } catch {
-                state.errorMessage = "This person could not be loaded."
+                state.errorMessage = "This contributor could not be loaded."
             }
         }
     }
 }
 
-private enum EditParticipantFormFieldID {
-    static var links: AnyHashable { AnyHashable(\EditParticipant.FormValue.links) }
-    static var name: AnyHashable { AnyHashable(\EditParticipant.FormValue.name) }
+private enum EditContributorFormFieldID {
+    static var links: AnyHashable { AnyHashable(\EditContributor.FormValue.links) }
+    static var name: AnyHashable { AnyHashable(\EditContributor.FormValue.name) }
 }
 
-private extension EditParticipant.FormFeature {
+private extension EditContributor.FormFeature {
     init() {
         self.init {
             Self.Field(\.name) {
@@ -749,11 +837,11 @@ private extension EditParticipant.FormFeature {
     }
 }
 
-public struct EditParticipantView: View {
-    @Bindable var store: StoreOf<EditParticipant>
+public struct EditContributorView: View {
+    @Bindable var store: StoreOf<EditContributor>
     @FocusState var focusedField: AnyHashable?
 
-    public init(store: StoreOf<EditParticipant>) {
+    public init(store: StoreOf<EditContributor>) {
         self.store = store
     }
 
@@ -761,7 +849,7 @@ public struct EditParticipantView: View {
         Group {
             if store.hasLoadedDraft {
                 Form {
-                    Section("Person") {
+                    Section("Contributor") {
                         nameField
                         TextField("Kind", text: $store.form.value.kind)
                     }
@@ -805,7 +893,7 @@ public struct EditParticipantView: View {
                         Button("Add Link") {
                             store.send(.addLinkButtonTapped)
                         }
-                        FormFieldValidationStatus(validation: store.form.validation[EditParticipantFormFieldID.links])
+                        FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.links])
                     }
 
                     if let errorMessage = store.errorMessage {
@@ -820,7 +908,7 @@ public struct EditParticipantView: View {
                 ViewerPlaceholderView(
                     title: store.navigationTitle,
                     systemImage: "person.crop.circle",
-                    description: "This person could not be loaded."
+                    description: "This contributor could not be loaded."
                 )
             }
         }
@@ -858,16 +946,16 @@ public struct EditParticipantView: View {
     private var nameField: some View {
         VStack(alignment: .leading) {
             TextField("Name", text: $store.form.value.name)
-                .focused($focusedField, equals: EditParticipantFormFieldID.name)
+                .focused($focusedField, equals: EditContributorFormFieldID.name)
                 .onSubmit {
-                    store.send(.form(.fieldSubmitted(EditParticipantFormFieldID.name)))
+                    store.send(.form(.fieldSubmitted(EditContributorFormFieldID.name)))
                 }
-            FormFieldValidationStatus(validation: store.form.validation[EditParticipantFormFieldID.name])
+            FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.name])
         }
     }
 }
 
-public struct EditableParticipantLink: Identifiable, Equatable {
+public struct EditableContributorLink: Identifiable, Equatable {
     public var id = UUID()
     var platformRawValue = ""
     var url = ""
@@ -910,7 +998,7 @@ public struct EditableParticipantLink: Identifiable, Equatable {
     }
 }
 
-struct ParticipantArtworkView: View {
+struct ContributorArtworkView: View {
     let asset: OMERecord.ImageAsset?
     let cacheContext: LocalImageCacheContext
     let size: CGFloat
@@ -935,7 +1023,7 @@ struct ParticipantArtworkView: View {
     }
 }
 
-struct ParticipantLinkRow: View {
+struct ContributorLinkRow: View {
     let link: ExternalPlatform.Link
 
     var body: some View {
@@ -955,7 +1043,7 @@ struct ParticipantLinkRow: View {
     }
 }
 
-private extension OMERecord.Participant {
+extension OMERecord.Contributor {
     var preferredArtworkAsset: OMERecord.ImageAsset? {
         images?.imageAsset(role: .photo)
         ?? images?.imageAsset(role: .logo)
@@ -980,13 +1068,13 @@ private extension String {
 }
 
 private extension Error {
-    var editParticipantSaveDescription: String {
+    var editContributorSaveDescription: String {
         let description = String(describing: self)
         return description.isEmpty ? localizedDescription : description
     }
 }
 
-private extension OMERecord.Participant.Kind {
+extension OMERecord.Contributor.Kind {
     var displayName: String? {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value

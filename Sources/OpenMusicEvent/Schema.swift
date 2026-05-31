@@ -76,12 +76,12 @@ private func registerOpenMusicEventAppMigrations(into migrator: inout DatabaseMi
             .execute(db)
 
         try #sql("""
-            CREATE TABLE IF NOT EXISTS "participantPreferences" (
+            CREATE TABLE IF NOT EXISTS "contributorPreferences" (
               "organizerID" TEXT NOT NULL,
               "eventID" TEXT NOT NULL,
-              "participantID" TEXT NOT NULL,
+              "contributorID" TEXT NOT NULL,
               "isFavorite" INTEGER NOT NULL DEFAULT 0,
-              PRIMARY KEY ("organizerID", "eventID", "participantID") ON CONFLICT REPLACE
+              PRIMARY KEY ("organizerID", "eventID", "contributorID") ON CONFLICT REPLACE
             ) STRICT
             """)
             .execute(db)
@@ -178,6 +178,19 @@ private func registerOpenMusicEventAppMigrations(into migrator: inout DatabaseMi
             """)
             .execute(db)
     }
+
+    migrator.registerMigration("Create OpenMusicEvent contributor preferences") { db in
+        try #sql("""
+            CREATE TABLE IF NOT EXISTS "contributorPreferences" (
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "contributorID" TEXT NOT NULL,
+              "isFavorite" INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY ("organizerID", "eventID", "contributorID") ON CONFLICT REPLACE
+            ) STRICT
+            """)
+            .execute(db)
+    }
 }
 
 @Table("appState")
@@ -206,9 +219,9 @@ public struct OrganizerPreferences: Equatable, Sendable, Identifiable {
     public var id: OMERecord.Organizer.ID { organizerID }
 }
 
-@Table("participantPreferences")
-struct ParticipantPreferences: Equatable, Sendable, Identifiable {
-    var id: OMERecord.Participant.ID
+@Table("contributorPreferences")
+struct ContributorPreferences: Equatable, Sendable, Identifiable {
+    var id: OMERecord.Contributor.ID
     var isFavorite = false
 }
 

@@ -32,9 +32,9 @@ public struct OpenMusicEventSourceEventFileTree: FileTreeWriter {
                     .map(FileContentConversion(YamlConversion<StageDTO>()))
             }
 
-            Directory.Optional("participants") {
+            Directory.Optional("contributors") {
                 File.Many(withExtension: "md")
-                    .map(ParticipantMarkdownConversion())
+                    .map(ContributorMarkdownConversion())
             }
 
             Directory.Optional("posters") {
@@ -82,7 +82,7 @@ private struct EventConversion: Conversion {
     typealias Input = (
         EventDTO,
         [FileContent<StageDTO>]?,
-        [FileContent<ParticipantDTO>]?,
+        [FileContent<ContributorDTO>]?,
         [FileContent<PosterDTO>]?,
         [FileContent<ScheduleDTO>]?,
         [FileContent<ChannelDTO>]?
@@ -93,7 +93,7 @@ private struct EventConversion: Conversion {
         OpenMusicEventSourceEvent(
             event: input.0,
             stages: input.1,
-            participants: input.2,
+            contributors: input.2,
             posters: input.3,
             schedules: input.4,
             channels: input.5
@@ -104,7 +104,7 @@ private struct EventConversion: Conversion {
         (
             output.event,
             output.stages,
-            output.participants,
+            output.contributors,
             output.posters,
             output.schedules,
             output.channels

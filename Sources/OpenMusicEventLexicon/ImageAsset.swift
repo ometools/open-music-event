@@ -205,7 +205,7 @@ public extension OpenMusicEvent.Stage {
     }
 }
 
-public extension OpenMusicEvent.Participant {
+public extension OpenMusicEvent.Contributor {
     var imageURL: URL? {
         images?.imageAsset(role: .photo)?.url
     }
@@ -257,7 +257,7 @@ public extension OpenMusicEvent.Event.Draft {
         siteMapImageURL: URL? = nil,
         contactNumbers: [OME.Event.ContactNumber]? = nil,
         categoryConfigs: OME.Event.CategoryConfigs? = nil,
-        owner: OME.Participant.Actor? = nil
+        owner: OME.Contributor.Actor? = nil
     ) {
         self.init(
             id: id,
@@ -341,7 +341,7 @@ public extension OpenMusicEvent.Stage.Draft {
         iconShortCode: String? = nil,
         imageURL: URL? = nil,
         posterImageURL: URL? = nil,
-        lineup: [OME.ID<OME.Participant>]? = nil
+        lineup: [OME.ID<OME.Contributor>]? = nil
     ) {
         self.init(
             id: id,
@@ -387,14 +387,14 @@ public extension OpenMusicEvent.Stage.Draft {
     }
 }
 
-public extension OpenMusicEvent.Participant.Draft {
+public extension OpenMusicEvent.Contributor.Draft {
     init(
-        id: OME.Participant.ID? = nil,
+        id: OME.Contributor.ID? = nil,
         name: String,
         bio: String? = nil,
         imageURL: URL? = nil,
         logoURL: URL? = nil,
-        kind: OME.Participant.Kind? = nil,
+        kind: OME.Contributor.Kind? = nil,
         links: [ExternalPlatform.Link]? = nil
     ) {
         self.init(

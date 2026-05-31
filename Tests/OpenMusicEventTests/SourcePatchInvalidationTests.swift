@@ -16,9 +16,9 @@ struct SourcePatchInvalidationTests {
         let invalidationTask = nextInvalidationTask(from: invalidations.stream())
 
         try await database.write { db in
-            try OME.Participant.insert {
-                OME.Participant.Draft(
-                    id: participantID(eventID: eventID),
+            try OME.Contributor.insert {
+                OME.Contributor.Draft(
+                    id: contributorID(eventID: eventID),
                     name: "Artist"
                 )
             }
@@ -29,7 +29,7 @@ struct SourcePatchInvalidationTests {
         #expect(invalidation == SourcePatchInvalidation(
             eventID: eventID,
             operation: .insert,
-            tableName: OME.Participant.tableName
+            tableName: OME.Contributor.tableName
         ))
     }
 
@@ -37,14 +37,14 @@ struct SourcePatchInvalidationTests {
     func sourceTableUpdatePublishesInvalidation() async throws {
         let database = try makePreparedDatabase()
         let eventID = try seedEvent(in: database)
-        let participantID = participantID(eventID: eventID)
-        try seedParticipant(participantID, in: database)
+        let contributorID = contributorID(eventID: eventID)
+        try seedContributor(contributorID, in: database)
         let invalidations = try installSourcePatchInvalidations(in: database)
         let invalidationTask = nextInvalidationTask(from: invalidations.stream())
 
         try await database.write { db in
-            try OME.Participant
-                .find(participantID)
+            try OME.Contributor
+                .find(contributorID)
                 .update { $0.bio = #bind("Updated bio") }
                 .execute(db)
         }
@@ -53,7 +53,7 @@ struct SourcePatchInvalidationTests {
         #expect(invalidation == SourcePatchInvalidation(
             eventID: eventID,
             operation: .update,
-            tableName: OME.Participant.tableName
+            tableName: OME.Contributor.tableName
         ))
     }
 
@@ -61,14 +61,14 @@ struct SourcePatchInvalidationTests {
     func sourceTableDeletePublishesInvalidation() async throws {
         let database = try makePreparedDatabase()
         let eventID = try seedEvent(in: database)
-        let participantID = participantID(eventID: eventID)
-        try seedParticipant(participantID, in: database)
+        let contributorID = contributorID(eventID: eventID)
+        try seedContributor(contributorID, in: database)
         let invalidations = try installSourcePatchInvalidations(in: database)
         let invalidationTask = nextInvalidationTask(from: invalidations.stream())
 
         try await database.write { db in
-            try OME.Participant
-                .find(participantID)
+            try OME.Contributor
+                .find(contributorID)
                 .delete()
                 .execute(db)
         }
@@ -77,7 +77,7 @@ struct SourcePatchInvalidationTests {
         #expect(invalidation == SourcePatchInvalidation(
             eventID: eventID,
             operation: .delete,
-            tableName: OME.Participant.tableName
+            tableName: OME.Contributor.tableName
         ))
     }
 
@@ -139,14 +139,14 @@ struct SourcePatchInvalidationTests {
         return eventID
     }
 
-    private func seedParticipant(
-        _ participantID: OME.Participant.ID,
+    private func seedContributor(
+        _ contributorID: OME.Contributor.ID,
         in database: any DatabaseWriter
     ) throws {
         try database.write { db in
-            try OME.Participant.insert {
-                OME.Participant.Draft(
-                    id: participantID,
+            try OME.Contributor.insert {
+                OME.Contributor.Draft(
+                    id: contributorID,
                     name: "Artist",
                     bio: "Original bio"
                 )
@@ -155,11 +155,11 @@ struct SourcePatchInvalidationTests {
         }
     }
 
-    private func participantID(eventID: OME.Event.ID) -> OME.Participant.ID {
-        OME.Participant.ID(
+    private func contributorID(eventID: OME.Event.ID) -> OME.Contributor.ID {
+        OME.Contributor.ID(
             organizerID: eventID.organizerID,
             eventID: eventID.eventID,
-            participantID: localID("artist")
+            contributorID: localID("artist")
         )
     }
 }

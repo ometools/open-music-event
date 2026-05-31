@@ -47,7 +47,7 @@ public struct LocalImageBlob: Equatable, Sendable, Identifiable {
         case calendar
         case event
         case stage
-        case participant
+        case contributor
         case poster
     }
 }
@@ -57,7 +57,7 @@ public struct LocalImageCacheContext: Equatable, Sendable {
         case calendar(OME.Calendar.ID)
         case event(OME.Event.ID)
         case stage(OME.Stage.ID)
-        case participant(OME.Participant.ID)
+        case contributor(OME.Contributor.ID)
         case poster(OME.Poster.ID)
     }
 
@@ -73,8 +73,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
         self.parent = .stage(stageID)
     }
 
-    public init(participantID: OME.Participant.ID) {
-        self.parent = .participant(participantID)
+    public init(contributorID: OME.Contributor.ID) {
+        self.parent = .contributor(contributorID)
     }
 
     public init(posterID: OME.Poster.ID) {
@@ -91,7 +91,7 @@ public struct LocalImageCacheContext: Equatable, Sendable {
             id.organizerID
         case let .stage(id):
             id.organizerID
-        case let .participant(id):
+        case let .contributor(id):
             id.organizerID
         case let .poster(id):
             id.organizerID
@@ -106,7 +106,7 @@ public struct LocalImageCacheContext: Equatable, Sendable {
             id.eventID
         case let .stage(id):
             id.eventID
-        case let .participant(id):
+        case let .contributor(id):
             id.eventID
         case let .poster(id):
             id.eventID
@@ -121,8 +121,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
             .event
         case .stage:
             .stage
-        case .participant:
-            .participant
+        case .contributor:
+            .contributor
         case .poster:
             .poster
         }
@@ -136,8 +136,8 @@ public struct LocalImageCacheContext: Equatable, Sendable {
             id.eventID.rawValue.rawValue
         case let .stage(id):
             id.stageID.rawValue.rawValue
-        case let .participant(id):
-            id.participantID.rawValue.rawValue
+        case let .contributor(id):
+            id.contributorID.rawValue.rawValue
         case let .poster(id):
             id.posterID.rawValue.rawValue
         }
@@ -297,7 +297,7 @@ public extension EventImagePrefetchClient {
                         .where { $0.id.organizerID.eq(eventID.organizerID) }
                         .where { $0.id.eventID.eq(eventID.eventID) }
                         .fetchAll(db),
-                    try OME.Participant
+                    try OME.Contributor
                         .where { $0.id.organizerID.eq(eventID.organizerID) }
                         .where { $0.id.eventID.eq(eventID.eventID) }
                         .fetchAll(db),
@@ -326,11 +326,11 @@ public extension EventImagePrefetchClient {
                 event: event
             )
             let materializedStages = try await snapshot.1.asyncMap { try await materializer.materialize(stage: $0) }
-            let materializedParticipants = try await snapshot.2.asyncMap { try await materializer.materialize(participant: $0) }
+            let materializedContributors = try await snapshot.2.asyncMap { try await materializer.materialize(contributor: $0) }
 
             let blobs = materializedEvent.blobs
                 + materializedStages.flatMap(\.blobs)
-                + materializedParticipants.flatMap(\.blobs)
+                + materializedContributors.flatMap(\.blobs)
 
             try await database.write { db in
                 if materializedEvent.value != event {
@@ -339,8 +339,8 @@ public extension EventImagePrefetchClient {
                 for item in materializedStages where item.value != snapshot.1.first(where: { $0.id == item.value.id }) {
                     try OME.Stage.upsert { item.value }.execute(db)
                 }
-                for item in materializedParticipants where item.value != snapshot.2.first(where: { $0.id == item.value.id }) {
-                    try OME.Participant.upsert { item.value }.execute(db)
+                for item in materializedContributors where item.value != snapshot.2.first(where: { $0.id == item.value.id }) {
+                    try OME.Contributor.upsert { item.value }.execute(db)
                 }
                 if !blobs.isEmpty {
                     try LocalImageBlob.insert { blobs }.execute(db)
@@ -592,17 +592,17 @@ struct LocalImageMaterializer {
         return .init(value: stage, blobs: images.blobs)
     }
 
-    func materialize(participant: OME.Participant) async throws -> Result<OME.Participant> {
+    func materialize(contributor: OME.Contributor) async throws -> Result<OME.Contributor> {
         let images = try await materializeImages(
-            images: participant.images,
-            organizerID: participant.id.organizerID,
-            eventID: participant.id.eventID,
-            parentKind: .participant,
-            parentLocalID: participant.id.participantID.rawValue.rawValue
+            images: contributor.images,
+            organizerID: contributor.id.organizerID,
+            eventID: contributor.id.eventID,
+            parentKind: .contributor,
+            parentLocalID: contributor.id.contributorID.rawValue.rawValue
         )
-        var participant = participant
-        participant.images = images.images
-        return .init(value: participant, blobs: images.blobs)
+        var contributor = contributor
+        contributor.images = images.images
+        return .init(value: contributor, blobs: images.blobs)
     }
 
     func materialize(calendar: OME.Calendar) async throws -> Result<OME.Calendar> {
@@ -815,12 +815,12 @@ private func updateCachedImage(
         try OME.Stage.upsert { stage }.execute(db)
         return true
 
-    case let .participant(id):
-        guard var participant = try OME.Participant.where({ $0.id.eq(id) }).fetchOne(db),
-              replaceImage(originalImage, with: cachedImage, in: &participant.images) else {
+    case let .contributor(id):
+        guard var contributor = try OME.Contributor.where({ $0.id.eq(id) }).fetchOne(db),
+              replaceImage(originalImage, with: cachedImage, in: &contributor.images) else {
             return false
         }
-        try OME.Participant.upsert { participant }.execute(db)
+        try OME.Contributor.upsert { contributor }.execute(db)
         return true
 
     case let .poster(id):

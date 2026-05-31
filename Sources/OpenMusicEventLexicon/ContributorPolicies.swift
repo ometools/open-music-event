@@ -5,57 +5,57 @@ import SQLiteData
 
 extension OpenMusicEvent.Event {
     public struct Policies: Codable, Equatable, Sendable {
-        public init(participants: ParticipantPolicies? = nil) {
-            self.participants = participants
+        public init(contributors: ContributorPolicies? = nil) {
+            self.contributors = contributors
         }
 
-        public var participants: ParticipantPolicies?
+        public var contributors: ContributorPolicies?
     }
 
-    public struct ParticipantPolicies: Codable, Equatable, Sendable {
+    public struct ContributorPolicies: Codable, Equatable, Sendable {
         public init(
-            listing: Open<ParticipantListingPolicy>? = nil,
-            profile: Open<ParticipantProfilePolicy>? = nil
+            listing: Open<ContributorListingPolicy>? = nil,
+            profile: Open<ContributorProfilePolicy>? = nil
         ) {
             self.listing = listing
             self.profile = profile
         }
 
-        public var listing: Open<ParticipantListingPolicy>?
-        public var profile: Open<ParticipantProfilePolicy>?
+        public var listing: Open<ContributorListingPolicy>?
+        public var profile: Open<ContributorProfilePolicy>?
     }
 
-    public enum ParticipantListingPolicy: Equatable, Sendable {
-        case scheduleParticipants
+    public enum ContributorListingPolicy: Equatable, Sendable {
+        case scheduleContributors
     }
 
-    public enum ParticipantProfilePolicy: Equatable, Sendable {
+    public enum ContributorProfilePolicy: Equatable, Sendable {
         case actorProfiles(ActorProfiles)
         case claimedArtistsOnly(ClaimedArtistsOnly)
 
         public struct ActorProfiles: Codable, Equatable, Sendable {
-            public init(providers: [Open<ParticipantProfileProvider>]) {
+            public init(providers: [Open<ContributorProfileProvider>]) {
                 self.providers = providers
             }
 
-            public var providers: [Open<ParticipantProfileProvider>]
+            public var providers: [Open<ContributorProfileProvider>]
         }
 
         public struct ClaimedArtistsOnly: Codable, Equatable, Sendable {
-            public init(providers: [Open<ParticipantProfileProvider>]) {
+            public init(providers: [Open<ContributorProfileProvider>]) {
                 self.providers = providers
             }
 
-            public var providers: [Open<ParticipantProfileProvider>]
+            public var providers: [Open<ContributorProfileProvider>]
         }
     }
 
-    public enum ParticipantProfileProvider: String, Codable, Equatable, Hashable, Sendable, OpenValue, SQLiteType {
+    public enum ContributorProfileProvider: String, Codable, Equatable, Hashable, Sendable, OpenValue, SQLiteType {
         case bskyActorProfile = "app.bsky.actor.profile"
     }
 }
 
-extension OpenMusicEvent.Event.ParticipantListingPolicy: OpenValue {
+extension OpenMusicEvent.Event.ContributorListingPolicy: OpenValue {
     public static func decodeOpen(from decoder: any Decoder) throws -> Open<Self> {
         let partialValue = try Open<Self>.PartialValue(from: decoder)
         guard case let .object(object) = partialValue,
@@ -65,8 +65,8 @@ extension OpenMusicEvent.Event.ParticipantListingPolicy: OpenValue {
         }
 
         switch type {
-        case "scheduleParticipants":
-            return .known(.scheduleParticipants)
+        case "scheduleContributors":
+            return .known(.scheduleContributors)
 
         default:
             return .unknown(partialValue)
@@ -87,8 +87,8 @@ extension OpenMusicEvent.Event.ParticipantListingPolicy: OpenValue {
         let type: String
 
         switch policy {
-        case .scheduleParticipants:
-            type = "scheduleParticipants"
+        case .scheduleContributors:
+            type = "scheduleContributors"
         }
 
         return .object([
@@ -97,7 +97,7 @@ extension OpenMusicEvent.Event.ParticipantListingPolicy: OpenValue {
     }
 }
 
-extension OpenMusicEvent.Event.ParticipantProfilePolicy: OpenValue {
+extension OpenMusicEvent.Event.ContributorProfilePolicy: OpenValue {
     public static func decodeOpen(from decoder: any Decoder) throws -> Open<Self> {
         let partialValue = try Open<Self>.PartialValue(from: decoder)
         guard case let .object(object) = partialValue,
@@ -147,7 +147,7 @@ extension OpenMusicEvent.Event.ParticipantProfilePolicy: OpenValue {
                 policy,
                 .init(
                     codingPath: [],
-                    debugDescription: "Participant profile policy payload must encode as an object."
+                    debugDescription: "Contributor profile policy payload must encode as an object."
                 )
             )
         }
@@ -157,7 +157,7 @@ extension OpenMusicEvent.Event.ParticipantProfilePolicy: OpenValue {
     }
 }
 
-extension OpenMusicEvent.Participant {
+extension OpenMusicEvent.Contributor {
     public struct Actor: Codable, Equatable, Hashable, Sendable, LosslessStringConvertible, SQLiteType {
         public init(_ identifier: Atmosphere.Account.Identifier) {
             switch identifier {
@@ -233,23 +233,23 @@ extension OpenMusicEvent.Participant {
     }
 }
 
-extension OpenMusicEvent.Participant.Actor: QueryRepresentable {}
-extension OpenMusicEvent.Participant.Actor: QueryExpression {}
-extension OpenMusicEvent.Participant.Actor: QueryBindable {
+extension OpenMusicEvent.Contributor.Actor: QueryRepresentable {}
+extension OpenMusicEvent.Contributor.Actor: QueryExpression {}
+extension OpenMusicEvent.Contributor.Actor: QueryBindable {
     public var queryBinding: QueryBinding { description.queryBinding }
 }
-extension OpenMusicEvent.Participant.Actor: _OptionalPromotable {}
-extension OpenMusicEvent.Participant.Actor: QueryDecodable {
+extension OpenMusicEvent.Contributor.Actor: _OptionalPromotable {}
+extension OpenMusicEvent.Contributor.Actor: QueryDecodable {
     public init(decoder: inout some QueryDecoder) throws {
         let rawValue = try String(decoder: &decoder)
         guard let actor = Self(rawValue) else {
-            throw InvalidParticipantActorIdentifier(rawValue: rawValue)
+            throw InvalidContributorActorIdentifier(rawValue: rawValue)
         }
         self = actor
     }
 }
 
-public struct InvalidParticipantActorIdentifier: Error, Equatable, Sendable {
+public struct InvalidContributorActorIdentifier: Error, Equatable, Sendable {
     public let rawValue: String
 
     public init(rawValue: String) {

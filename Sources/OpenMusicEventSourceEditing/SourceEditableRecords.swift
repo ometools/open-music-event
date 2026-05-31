@@ -9,7 +9,7 @@ public extension OME {
         [
             Event.self,
             Stage.self,
-            Participant.self,
+            Contributor.self,
             Schedule.self,
             Channel.self,
             Poster.self,
@@ -32,8 +32,8 @@ public extension OME {
                         && sourceComparableImages(baseline.images) == sourceComparableImages(working.images)
                 }
             ),
-            Participant.sourceRecordType(
-                projection: SourceComparableParticipant.init,
+            Contributor.sourceRecordType(
+                projection: SourceComparableContributor.init,
                 semanticallyEqualColumn: { columnName, baseline, working in
                     columnName == "images"
                         && sourceComparableImages(baseline.images) == sourceComparableImages(working.images)
@@ -58,7 +58,7 @@ public extension OME {
 
 extension OME.Event: SourceEditableTable {}
 extension OME.Stage: SourceEditableTable {}
-extension OME.Participant: SourceEditableTable {}
+extension OME.Contributor: SourceEditableTable {}
 extension OME.Schedule: SourceEditableTable {}
 extension OME.Channel: SourceEditableTable {}
 extension OME.Poster: SourceEditableTable {}
@@ -193,7 +193,7 @@ private struct SourceComparableStage: Equatable, Sendable {
     var images: [SourceComparableImageAsset]?
     var systemIconName: String?
     var iconShortCode: String?
-    var lineup: [OME.ID<OME.Participant>]?
+    var lineup: [OME.ID<OME.Contributor>]?
 
     init(_ stage: OME.Stage) {
         self.id = stage.id
@@ -208,21 +208,21 @@ private struct SourceComparableStage: Equatable, Sendable {
     }
 }
 
-private struct SourceComparableParticipant: Equatable, Sendable {
-    var id: OME.Participant.ID
+private struct SourceComparableContributor: Equatable, Sendable {
+    var id: OME.Contributor.ID
     var name: String
     var bio: String?
     var images: [SourceComparableImageAsset]?
-    var kind: OME.Participant.Kind?
+    var kind: OME.Contributor.Kind?
     var links: [ExternalPlatform.Link]?
 
-    init(_ participant: OME.Participant) {
-        self.id = participant.id
-        self.name = participant.name
-        self.bio = participant.bio
-        self.images = sourceComparableImages(participant.images)
-        self.kind = participant.kind
-        self.links = participant.links
+    init(_ contributor: OME.Contributor) {
+        self.id = contributor.id
+        self.name = contributor.name
+        self.bio = contributor.bio
+        self.images = sourceComparableImages(contributor.images)
+        self.kind = contributor.kind
+        self.links = contributor.links
     }
 }
 

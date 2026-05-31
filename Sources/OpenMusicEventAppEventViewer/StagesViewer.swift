@@ -216,7 +216,7 @@ public struct StageDetail {
         public var destination: Destination.State?
 
         @FetchOne public var stage: OMERecord.Stage?
-        @FetchAll public var participants: [OMERecord.Participant]
+        @FetchAll public var contributors: [OMERecord.Contributor]
 
         public init(
             stageID: OMERecord.ID<OMERecord.Stage>,
@@ -232,19 +232,19 @@ public struct StageDetail {
                     eventID: self.eventID
                 )
             )
-            _participants = FetchAll(
-                PeopleViewer.participantsQuery(eventID: self.eventID)
+            _contributors = FetchAll(
+                ContributorsViewer.contributorsQuery(eventID: self.eventID)
             )
         }
 
         public var id: OMERecord.ID<OMERecord.Stage> { stageID }
 
-        public var lineupParticipants: [OMERecord.Participant] {
+        public var lineupContributors: [OMERecord.Contributor] {
             guard let lineup = stage?.lineup, !lineup.isEmpty else { return [] }
-            let participantsByID = Dictionary(
-                uniqueKeysWithValues: participants.map { ($0.id.participantID, $0) }
+            let contributorsByID = Dictionary(
+                uniqueKeysWithValues: contributors.map { ($0.id.contributorID, $0) }
             )
-            return lineup.compactMap { participantsByID[$0] }
+            return lineup.compactMap { contributorsByID[$0] }
         }
     }
 
@@ -330,10 +330,10 @@ public struct StageDetailView: View {
                         }
                     }
 
-                    if !store.lineupParticipants.isEmpty {
+                    if !store.lineupContributors.isEmpty {
                         Section("Lineup") {
-                            ForEach(store.lineupParticipants) { participant in
-                                PeopleRowView(participant: participant)
+                            ForEach(store.lineupContributors) { contributor in
+                                ContributorsRowView(contributor: contributor)
                             }
                         }
                     }

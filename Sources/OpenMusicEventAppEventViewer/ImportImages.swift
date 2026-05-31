@@ -224,25 +224,25 @@ public extension ImportImages {
             )
         }
 
-        public static var participantLogo: Self {
+        public static var contributorLogo: Self {
             Self(
                 cardinality: .single,
-                title: "Choose Person Logo",
+                title: "Choose Contributor Logo",
                 role: .logo,
                 renderKind: .transparent,
                 materializationPolicy: .lazy,
-                imageInfoConfiguration: .participantLogo
+                imageInfoConfiguration: .contributorLogo
             )
         }
 
-        public static var participantPhoto: Self {
+        public static var contributorPhoto: Self {
             Self(
                 cardinality: .single,
-                title: "Choose Person Photo",
+                title: "Choose Contributor Photo",
                 role: .photo,
                 renderKind: .fullImage,
                 materializationPolicy: .lazy,
-                imageInfoConfiguration: .participantPhoto
+                imageInfoConfiguration: .contributorPhoto
             )
         }
 

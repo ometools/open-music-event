@@ -128,7 +128,7 @@ extension OpenMusicEvent {
         @Column(as: Policies.JSONRepresentation?.self)
         public var policies: Policies?
 
-        public var owner: OME.Participant.Actor?
+        public var owner: OME.Contributor.Actor?
     }
 }
 
@@ -359,7 +359,7 @@ extension OpenMusicEvent {
 //
 extension OpenMusicEvent {
     @Table("stages")
-    public struct Stage: Equatable, Sendable, Identifiable {
+    public struct Stage: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.stage")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
@@ -389,14 +389,67 @@ extension OpenMusicEvent {
         public var systemIconName: String?
         public var iconShortCode: String?
 
-        @Column(as: [OME.ID<OpenMusicEvent.Participant>].JSONRepresentation?.self)
-        public var lineup: [OME.ID<OpenMusicEvent.Participant>]?
+        @Column(as: [OME.ID<OpenMusicEvent.Contributor>].JSONRepresentation?.self)
+        public var lineup: [OME.ID<OpenMusicEvent.Contributor>]?
     }
 }
 
 extension OpenMusicEvent.Stage {
     public enum _CategoryTag {}
     public typealias Category = Tagged<_CategoryTag, String>
+}
+
+extension OpenMusicEvent.Stage {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case organizerID
+        case eventID
+        case stageID
+        case name
+        case color
+        case category
+        case sortIndex
+        case images
+        case systemIconName
+        case iconShortCode
+        case lineup
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let id = try container.decodeIfPresent(ID.self, forKey: .id) {
+            self.id = id
+        } else {
+            self.id = ID(
+                organizerID: try container.decode(OME.Organizer.ID.self, forKey: .organizerID),
+                eventID: try container.decode(OME.ID<OME.Event>.self, forKey: .eventID),
+                stageID: try container.decode(OME.ID<OME.Stage>.self, forKey: .stageID)
+            )
+        }
+        self.name = try container.decode(String.self, forKey: .name)
+        self.color = try container.decode(OMEColor.self, forKey: .color)
+        self.category = try container.decodeIfPresent(Category.self, forKey: .category)
+        self.sortIndex = try container.decodeIfPresent(Int.self, forKey: .sortIndex)
+        self.images = try container.decodeIfPresent([OpenMusicEvent.ImageAsset].self, forKey: .images)
+        self.systemIconName = try container.decodeIfPresent(String.self, forKey: .systemIconName)
+        self.iconShortCode = try container.decodeIfPresent(String.self, forKey: .iconShortCode)
+        self.lineup = try container.decodeIfPresent([OME.ID<OpenMusicEvent.Contributor>].self, forKey: .lineup)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id.organizerID, forKey: .organizerID)
+        try container.encode(id.eventID, forKey: .eventID)
+        try container.encode(id.stageID, forKey: .stageID)
+        try container.encode(name, forKey: .name)
+        try container.encode(color, forKey: .color)
+        try container.encodeIfPresent(category, forKey: .category)
+        try container.encodeIfPresent(sortIndex, forKey: .sortIndex)
+        try container.encodeIfPresent(images, forKey: .images)
+        try container.encodeIfPresent(systemIconName, forKey: .systemIconName)
+        try container.encodeIfPresent(iconShortCode, forKey: .iconShortCode)
+        try container.encodeIfPresent(lineup, forKey: .lineup)
+    }
 }
 
 // MARK: - Schedule  (app.openmusicevent.schedule)
@@ -468,58 +521,58 @@ extension OpenMusicEvent {
 }
 
 extension OpenMusicEvent.Performance {
-    @Table("performanceParticipants")
-    public struct Participants: Equatable, Sendable, Codable {
+    @Table("performanceContributors")
+    public struct Contributors: Equatable, Sendable, Codable {
         public init(
             organizerID: OME.Organizer.ID,
             eventID: OME.ID<OME.Event>,
             performanceID: OME.ID<OME.Performance>,
-            participantID: OME.ID<OME.Participant>? = nil,
+            contributorID: OME.ID<OME.Contributor>? = nil,
             anonymousName: String? = nil,
-            participantActor: OME.Participant.Actor? = nil
+            contributorActor: OME.Contributor.Actor? = nil
         ) {
             self.organizerID = organizerID
             self.eventID = eventID
             self.performanceID = performanceID
-            self.participantID = participantID
+            self.contributorID = contributorID
             self.anonymousName = anonymousName
-            self.participantActor = participantActor
+            self.contributorActor = contributorActor
         }
 
         public var organizerID: OME.Organizer.ID
         public var eventID: OME.ID<OME.Event>
         public var performanceID: OME.ID<OME.Performance>
-        public var participantID: OME.ID<OME.Participant>?
+        public var contributorID: OME.ID<OME.Contributor>?
         public var anonymousName: String?
-        public var participantActor: OME.Participant.Actor?
+        public var contributorActor: OME.Contributor.Actor?
     }
 }
 
-extension OpenMusicEvent.Performance.Participants {
+extension OpenMusicEvent.Performance.Contributors {
     public typealias Draft = Self
 }
 
-// MARK: - Participant  (app.openmusicevent.participant)
+// MARK: - Contributor  (app.openmusicevent.contributor)
 
 extension OpenMusicEvent {
-    @Table("participants")
-    public struct Participant: Equatable, Sendable, Identifiable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.participant")
+    @Table("contributors")
+    public struct Contributor: Equatable, Sendable, Identifiable {
+        public static let nsid = ATProto.NSID("app.openmusicevent.contributor")
 
         @Selection public struct ID: Codable, Hashable, Sendable {
             public init(
                 organizerID: OME.Organizer.ID,
                 eventID: OME.ID<OME.Event>,
-                participantID: OME.ID<OME.Participant>
+                contributorID: OME.ID<OME.Contributor>
             ) {
                 self.organizerID = organizerID
                 self.eventID = eventID
-                self.participantID = participantID
+                self.contributorID = contributorID
             }
 
             public var organizerID: OME.Organizer.ID
             public var eventID: OME.ID<OME.Event>
-            public var participantID: OME.ID<OME.Participant>
+            public var contributorID: OME.ID<OME.Contributor>
         }
 
         public var id: ID
@@ -530,14 +583,14 @@ extension OpenMusicEvent {
         public var images: [OpenMusicEvent.ImageAsset]?
         public var kind: Kind?
 
-//        public var participantDID: DID?
+//        public var contributorDID: DID?
 
         @Column(as: [ExternalPlatform.Link].JSONRepresentation?.self)
         public var links: [ExternalPlatform.Link]?
     }
 }
 
-extension OpenMusicEvent.Participant {
+extension OpenMusicEvent.Contributor {
     public struct Kind: Codable, Sendable, Equatable, ExpressibleByStringLiteral, RawRepresentable, SQLiteType {
         public var type: String
         public var rawValue: String { type }
@@ -547,15 +600,15 @@ extension OpenMusicEvent.Participant {
     }
 }
 
-// MARK: - Participant.Claim  (app.openmusicevent.participant.claim)
+// MARK: - Contributor.Claim  (app.openmusicevent.contributor.claim)
 
-extension OpenMusicEvent.Participant {
-    @Table("participantClaims")
+extension OpenMusicEvent.Contributor {
+    @Table("contributorClaims")
     public struct Claim: Equatable, Sendable, Identifiable {
-        public static let nsid = ATProto.NSID("app.openmusicevent.participant.claim")
+        public static let nsid = ATProto.NSID("app.openmusicevent.contributor.claim")
 
         @Column(primaryKey: true) public var id: OME.ID<Self>
-        public var participantID: OpenMusicEvent.Participant.ID
+        public var contributorID: OpenMusicEvent.Contributor.ID
     }
 }
 
@@ -642,6 +695,6 @@ extension OpenMusicEvent.EventOrganizer.Draft: Equatable, Sendable {}
 extension OpenMusicEvent.Stage.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Schedule.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Performance.Draft: Codable, Equatable, Sendable {}
-extension OpenMusicEvent.Participant.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.Contributor.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Poster.Draft: Codable, Equatable, Sendable {}
 extension OpenMusicEvent.Channel.Draft: Codable, Equatable, Sendable {}

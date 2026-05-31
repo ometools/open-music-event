@@ -149,13 +149,13 @@ struct OpenMusicEventSourceTests {
             ]
         )
 
-        let participant = try #require(testival.participants?.first)
-        #expect(participant.fileName == "artist-one")
-        #expect(participant.data.id == nil)
-        #expect(participant.data.name == "Artist One")
-        #expect(participant.data.bio == "Artist One writes sturdy test fixtures.\n")
+        let contributor = try #require(testival.contributors?.first)
+        #expect(contributor.fileName == "artist-one")
+        #expect(contributor.data.id == nil)
+        #expect(contributor.data.name == "Artist One")
+        #expect(contributor.data.bio == "Artist One writes sturdy test fixtures.\n")
         expectNoDifference(
-            participant.data.images,
+            contributor.data.images,
             [
                 SourceImageAsset(
                     source: .url(URL(string: "https://example.com/artist-one.jpg")!),
@@ -165,7 +165,7 @@ struct OpenMusicEventSourceTests {
                 )
             ]
         )
-        #expect(participant.data.links?.first?.platform == .soundcloud)
+        #expect(contributor.data.links?.first?.platform == .soundcloud)
 
         let poster = try #require(testival.posters?.first)
         #expect(poster.fileName == "lineup")
@@ -199,7 +199,7 @@ struct OpenMusicEventSourceTests {
                 "closing-set",
             ]
         )
-        #expect(performances[0].participantIDs?.first?.rawValue.rawValue == "artist-one")
+        #expect(performances[0].contributorIDs?.first?.rawValue.rawValue == "artist-one")
         expectNoDifference(
             performances[0].recordings,
             [
@@ -214,13 +214,13 @@ struct OpenMusicEventSourceTests {
                 ),
             ]
         )
-        #expect(performances[1].participantNames == ["Guest Artist"])
+        #expect(performances[1].contributorNames == ["Guest Artist"])
 
         let minimal = try #require(
             repository.events.first { $0.directoryName == "minimal-event" }?.components
         )
         #expect(minimal.stages == nil)
-        #expect(minimal.participants == nil)
+        #expect(minimal.contributors == nil)
         #expect(minimal.posters == nil)
         #expect(minimal.schedules == nil)
         #expect(minimal.channels == nil)
@@ -245,17 +245,17 @@ struct OpenMusicEventSourceTests {
         #expect(calendarText.contains("name: Testival Calendar"))
         #expect(calendarText.contains("description: Organizer default calendar."))
 
-        let participantText = try String(
+        let contributorText = try String(
             contentsOf: outputURL
                 .appending(path: "events", directoryHint: .isDirectory)
                 .appending(path: "testival-2026", directoryHint: .isDirectory)
-                .appending(path: "participants", directoryHint: .isDirectory)
+                .appending(path: "contributors", directoryHint: .isDirectory)
                 .appending(path: "artist-one.md"),
             encoding: .utf8
         )
-        #expect(participantText.hasPrefix("---\n"))
-        #expect(participantText.contains("Artist One writes sturdy test fixtures."))
-        #expect(!participantText.contains("bio:"))
+        #expect(contributorText.hasPrefix("---\n"))
+        #expect(contributorText.contains("Artist One writes sturdy test fixtures."))
+        #expect(!contributorText.contains("bio:"))
     }
 
     @Test
@@ -293,7 +293,7 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
-    func participantProfilePoliciesAndActorsRoundTrip() throws {
+    func contributorProfilePoliciesAndActorsRoundTrip() throws {
         let repositoryURL = try temporaryRepositoryURL()
         let eventURL = repositoryURL
             .appending(path: "events", directoryHint: .isDirectory)
@@ -311,9 +311,9 @@ struct OpenMusicEventSourceTests {
         name: Actor Event
         timeZone: America/Denver
         policies:
-          participants:
+          contributors:
             listing:
-              type: scheduleParticipants
+              type: scheduleContributors
             profile:
               type: actorProfiles
               providers:
@@ -341,7 +341,7 @@ struct OpenMusicEventSourceTests {
             - title: Actor Set
               startTime: "18:00"
               endTime: "19:00"
-              participantActors:
+              contributorActors:
                 - WOODY.FM
                 - did:plc:actor123
         """
@@ -360,8 +360,8 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(
             event.event.policies,
             OME.Event.Policies(
-                participants: .init(
-                    listing: .known(.scheduleParticipants),
+                contributors: .init(
+                    listing: .known(.scheduleContributors),
                     profile: .known(
                         .actorProfiles(
                             .init(
@@ -378,7 +378,7 @@ struct OpenMusicEventSourceTests {
 
         let performance = try #require(event.schedules?.first?.data.performances["main"]?.first)
         expectNoDifference(
-            performance.participantActors?.map(\.description),
+            performance.contributorActors?.map(\.description),
             [
                 "woody.fm",
                 "did:plc:actor123",
@@ -425,8 +425,8 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(stageLogo.materializationPolicy, .prefetchOnOpen)
         expectNoDifference(stageLogo.source, .file("images/meadow-logo.png"))
 
-        let participant = try #require(event.participants?.first)
-        let photo = try #require(participant.data.images?.first)
+        let contributor = try #require(event.contributors?.first)
+        let photo = try #require(contributor.data.images?.first)
         expectNoDifference(photo.role, .photo)
         expectNoDifference(photo.renderKind, .fullImage)
         expectNoDifference(photo.materializationPolicy, .lazy)
@@ -442,13 +442,13 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
-    func participantMarkdownWriteEmitsFrontMatterAndBody() throws {
-        let participant = try participantFile(
+    func contributorMarkdownWriteEmitsFrontMatterAndBody() throws {
+        let contributor = try contributorFile(
             name: "Artist One",
             bio: "Artist One writes markdown."
         )
 
-        let printed = try ParticipantMarkdownConversion().unapply(participant)
+        let printed = try ContributorMarkdownConversion().unapply(contributor)
         let text = String(decoding: printed.data, as: UTF8.self)
 
         #expect(text.hasPrefix("---\n"))
@@ -456,33 +456,33 @@ struct OpenMusicEventSourceTests {
         #expect(text.contains("Artist One writes markdown."))
         #expect(!text.contains("bio:"))
 
-        let roundTripped = try ParticipantMarkdownConversion().apply(printed)
-        expectNoDifference(roundTripped, participant)
+        let roundTripped = try ContributorMarkdownConversion().apply(printed)
+        expectNoDifference(roundTripped, contributor)
     }
 
     @Test
-    func participantMarkdownFixtureRoundTripsThroughWriter() throws {
-        let participantURL = try fixtureURL("Organizer")
+    func contributorMarkdownFixtureRoundTripsThroughWriter() throws {
+        let contributorURL = try fixtureURL("Organizer")
             .appending(path: "events", directoryHint: .isDirectory)
             .appending(path: "testival-2026", directoryHint: .isDirectory)
-            .appending(path: "participants", directoryHint: .isDirectory)
+            .appending(path: "contributors", directoryHint: .isDirectory)
             .appending(path: "artist-one.md")
         let input = try FileContent(
             fileName: "artist-one",
             fileType: "md",
-            data: Data(contentsOf: participantURL)
+            data: Data(contentsOf: contributorURL)
         )
-        let participant = try ParticipantMarkdownConversion().apply(input)
+        let contributor = try ContributorMarkdownConversion().apply(input)
 
-        let printed = try ParticipantMarkdownConversion().unapply(participant)
-        let roundTripped = try ParticipantMarkdownConversion().apply(printed)
+        let printed = try ContributorMarkdownConversion().unapply(contributor)
+        let roundTripped = try ContributorMarkdownConversion().apply(printed)
 
-        expectNoDifference(roundTripped, participant)
+        expectNoDifference(roundTripped, contributor)
         #expect(!String(decoding: printed.data, as: UTF8.self).contains("bio:"))
     }
 
     @Test
-    func participantMarkdownRewriteUpdatesBody() throws {
+    func contributorMarkdownRewriteUpdatesBody() throws {
         let directoryURL = try temporaryRepositoryURL()
         try """
         ---
@@ -493,13 +493,13 @@ struct OpenMusicEventSourceTests {
         .write(to: directoryURL.appending(path: "artist-one.md"), atomically: true, encoding: .utf8)
 
         let tree = File.Many(withExtension: "md")
-            .map(ParticipantMarkdownConversion())
-        let participant = try participantFile(
+            .map(ContributorMarkdownConversion())
+        let contributor = try contributorFile(
             name: "Artist One",
             bio: "New biography."
         )
 
-        _ = try tree.rewrite([participant], at: directoryURL)
+        _ = try tree.rewrite([contributor], at: directoryURL)
 
         let text = try String(contentsOf: directoryURL.appending(path: "artist-one.md"), encoding: .utf8)
         #expect(text.contains("name: Artist One"))
@@ -509,7 +509,7 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
-    func participantMarkdownRewriteWithMetadataChangeStaysReadable() throws {
+    func contributorMarkdownRewriteWithMetadataChangeStaysReadable() throws {
         let directoryURL = try temporaryRepositoryURL()
         try """
         ---
@@ -520,17 +520,17 @@ struct OpenMusicEventSourceTests {
         .write(to: directoryURL.appending(path: "artist-one.md"), atomically: true, encoding: .utf8)
 
         let tree = File.Many(withExtension: "md")
-            .map(ParticipantMarkdownConversion())
-        let participant = try participantFile(
+            .map(ContributorMarkdownConversion())
+        let contributor = try contributorFile(
             name: "Artist One",
             bio: "New biography."
         )
 
-        _ = try tree.rewrite([participant], at: directoryURL)
+        _ = try tree.rewrite([contributor], at: directoryURL)
         let readResult = try tree.read(from: directoryURL)
         let roundTripped = try #require(readResult.output.requiredValue.first)
 
-        expectNoDifference(roundTripped, participant)
+        expectNoDifference(roundTripped, contributor)
     }
 
     private func fixtureURL(_ name: String) throws -> URL {
@@ -550,14 +550,14 @@ struct OpenMusicEventSourceTests {
         return url
     }
 
-    private func participantFile(
+    private func contributorFile(
         name: String,
         bio: String?
-    ) throws -> FileContent<ParticipantDTO> {
+    ) throws -> FileContent<ContributorDTO> {
         try FileContent(
             fileName: "artist-one",
             fileType: "md",
-            data: ParticipantDTO(
+            data: ContributorDTO(
                 name: name,
                 bio: bio
             )
@@ -578,7 +578,7 @@ struct OpenMusicEventSourceTests {
             withIntermediateDirectories: true
         )
         try FileManager.default.createDirectory(
-            at: eventURL.appending(path: "participants", directoryHint: .isDirectory),
+            at: eventURL.appending(path: "contributors", directoryHint: .isDirectory),
             withIntermediateDirectories: true
         )
         try FileManager.default.createDirectory(
@@ -647,7 +647,7 @@ struct OpenMusicEventSourceTests {
         """
             .write(
                 to: eventURL
-                    .appending(path: "participants", directoryHint: .isDirectory)
+                    .appending(path: "contributors", directoryHint: .isDirectory)
                     .appending(path: "artist-one.md"),
                 atomically: true,
                 encoding: .utf8

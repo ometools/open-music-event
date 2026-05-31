@@ -212,7 +212,7 @@ private func deleteEventOwnedRecords(
     in db: Database
 ) throws {
     for eventID in eventIDs.uniqued() {
-        try OMERecord.Performance.Participants
+        try OMERecord.Performance.Contributors
             .where { $0.organizerID.eq(eventID.organizerID) }
             .where { $0.eventID.eq(eventID.eventID) }
             .delete()
@@ -232,12 +232,12 @@ private func deleteEventOwnedRecords(
             .where { $0.id.eventID.eq(eventID.eventID) }
             .delete()
             .execute(db)
-        try OMERecord.Participant.Claim
-            .where { $0.participantID.organizerID.eq(eventID.organizerID) }
-            .where { $0.participantID.eventID.eq(eventID.eventID) }
+        try OMERecord.Contributor.Claim
+            .where { $0.contributorID.organizerID.eq(eventID.organizerID) }
+            .where { $0.contributorID.eventID.eq(eventID.eventID) }
             .delete()
             .execute(db)
-        try OMERecord.Participant
+        try OMERecord.Contributor
             .where { $0.id.organizerID.eq(eventID.organizerID) }
             .where { $0.id.eventID.eq(eventID.eventID) }
             .delete()
@@ -270,7 +270,7 @@ private func deleteEventOwnedRecords(
             .where { $0.id.eventID.eq(eventID) }
             .delete()
             .execute(db)
-        try ParticipantPreferences
+        try ContributorPreferences
             .where { $0.id.organizerID.eq(eventID.organizerID) }
             .where { $0.id.eventID.eq(eventID.eventID) }
             .delete()

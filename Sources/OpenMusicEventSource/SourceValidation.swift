@@ -222,30 +222,30 @@ public struct SourceValidationSummary: CustomStringConvertible, Equatable, Senda
     public var events: [Event]
     public var stageCount: Int
     public var scheduleCount: Int
-    public var participantCount: Int
+    public var contributorCount: Int
     public var channelCount: Int
     public var posterCount: Int
     public var performanceCount: Int
-    public var performanceParticipantCount: Int
+    public var performanceContributorCount: Int
 
     public init(
         events: [Event],
         stageCount: Int,
         scheduleCount: Int,
-        participantCount: Int,
+        contributorCount: Int,
         channelCount: Int,
         posterCount: Int,
         performanceCount: Int,
-        performanceParticipantCount: Int
+        performanceContributorCount: Int
     ) {
         self.events = events
         self.stageCount = stageCount
         self.scheduleCount = scheduleCount
-        self.participantCount = participantCount
+        self.contributorCount = contributorCount
         self.channelCount = channelCount
         self.posterCount = posterCount
         self.performanceCount = performanceCount
-        self.performanceParticipantCount = performanceParticipantCount
+        self.performanceContributorCount = performanceContributorCount
     }
 
     public init(
@@ -260,11 +260,11 @@ public struct SourceValidationSummary: CustomStringConvertible, Equatable, Senda
         }
         self.stageCount = insertion.stages.count
         self.scheduleCount = insertion.schedules.count
-        self.participantCount = insertion.participants.count
+        self.contributorCount = insertion.contributors.count
         self.channelCount = insertion.channels.count
         self.posterCount = insertion.posters.count
         self.performanceCount = insertion.performances.count
-        self.performanceParticipantCount = insertion.performanceParticipants.count
+        self.performanceContributorCount = insertion.performanceContributors.count
     }
 
     public var description: String {
@@ -273,11 +273,11 @@ public struct SourceValidationSummary: CustomStringConvertible, Equatable, Senda
         Events: \(events.count)
         Stages: \(stageCount)
         Schedules: \(scheduleCount)
-        Participants: \(participantCount)
+        Contributors: \(contributorCount)
         Channels: \(channelCount)
         Posters: \(posterCount)
         Performances: \(performanceCount)
-        Performance participants: \(performanceParticipantCount)
+        Performance contributors: \(performanceContributorCount)
         """
     }
 }

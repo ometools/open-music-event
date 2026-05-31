@@ -382,7 +382,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
     }
 
     @Test
-    func liveConversionUpdatesParticipantMarkdownFromDatabase() async throws {
+    func liveConversionUpdatesContributorMarkdownFromDatabase() async throws {
         let fixture = try OpenMusicEventSourcePatchGenerationFixture()
         defer { fixture.cleanUp() }
         try fixture.writeFile(
@@ -390,7 +390,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
             contents: "name: Test Event\ntimeZone: GMT\n"
         )
         try fixture.writeFile(
-            "events/test-event/participants/artist-one.md",
+            "events/test-event/contributors/artist-one.md",
             contents: """
             ---
             name: Artist One
@@ -400,10 +400,10 @@ struct OpenMusicEventSourcePatchGenerationTests {
         )
         let database = try makePreparedDatabase()
         let eventID = testEventID("test-event")
-        let participantID = OME.Participant.ID(
+        let contributorID = OME.Contributor.ID(
             organizerID: eventID.organizerID,
             eventID: eventID.eventID,
-            participantID: localID("artist-one")
+            contributorID: localID("artist-one")
         )
         let repositoryURL = fixture.repositoryURL
         let workingRootURL = fixture.rootURL
@@ -431,9 +431,9 @@ struct OpenMusicEventSourcePatchGenerationTests {
                 )
             }
             .execute(db)
-            try OME.Participant.insert {
-                OME.Participant.Draft(
-                    id: participantID,
+            try OME.Contributor.insert {
+                OME.Contributor.Draft(
+                    id: contributorID,
                     name: "Artist One",
                     bio: "New bio."
                 )
@@ -469,7 +469,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
 
         let change = try #require(patch.fileChanges.first)
         #expect(patch.fileChanges.count == 1)
-        #expect(change.path == "events/test-event/participants/artist-one.md")
+        #expect(change.path == "events/test-event/contributors/artist-one.md")
         #expect(change.kind == .modified)
         let newContents = try #require(change.newContents)
         let newText = String(decoding: newContents, as: UTF8.self)
@@ -973,8 +973,8 @@ struct OpenMusicEventSourcePatchGenerationTests {
                 )
             }
             .execute(db)
-            try OME.Performance.Participants.insert {
-                OME.Performance.Participants.Draft(
+            try OME.Performance.Contributors.insert {
+                OME.Performance.Contributors.Draft(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
                     performanceID: performanceID.performanceID,
@@ -1024,7 +1024,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
     }
 
     @Test
-    func liveConversionPreservesScheduleDerivedParticipantsInScheduleYaml() async throws {
+    func liveConversionPreservesScheduleDerivedContributorsInScheduleYaml() async throws {
         let fixture = try OpenMusicEventSourcePatchGenerationFixture()
         defer { fixture.cleanUp() }
         try fixture.writeFile(
@@ -1033,9 +1033,9 @@ struct OpenMusicEventSourcePatchGenerationTests {
             name: Test Event
             timeZone: GMT
             policies:
-              participants:
+              contributors:
                 listing:
-                  type: scheduleParticipants
+                  type: scheduleContributors
             """
         )
         try fixture.writeFile(
@@ -1073,10 +1073,10 @@ struct OpenMusicEventSourcePatchGenerationTests {
             eventID: eventID.eventID,
             performanceID: localID("main-set")
         )
-        let participantID = OME.Participant.ID(
+        let contributorID = OME.Contributor.ID(
             organizerID: eventID.organizerID,
             eventID: eventID.eventID,
-            participantID: localID("schedule-name-Guest%20Artist")
+            contributorID: localID("schedule-name-Guest%20Artist")
         )
         let performanceStart = try #require(scheduleDate.at(hour: 20, in: timeZone))
         let performanceEnd = try #require(scheduleDate.at(hour: 21, minute: 30, in: timeZone))
@@ -1103,7 +1103,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
                     images: nil,
                     contactNumbers: nil,
                     categoryConfigs: nil,
-                    policies: scheduleParticipantListingPolicy()
+                    policies: scheduleContributorListingPolicy()
                 )
             }
             .execute(db)
@@ -1125,9 +1125,9 @@ struct OpenMusicEventSourcePatchGenerationTests {
                 )
             }
             .execute(db)
-            try OME.Participant.insert {
-                OME.Participant.Draft(
-                    id: participantID,
+            try OME.Contributor.insert {
+                OME.Contributor.Draft(
+                    id: contributorID,
                     name: "Guest Artist",
                     bio: nil,
                     images: nil,
@@ -1149,12 +1149,12 @@ struct OpenMusicEventSourcePatchGenerationTests {
                 )
             }
             .execute(db)
-            try OME.Performance.Participants.insert {
-                OME.Performance.Participants.Draft(
+            try OME.Performance.Contributors.insert {
+                OME.Performance.Contributors.Draft(
                     organizerID: eventID.organizerID,
                     eventID: eventID.eventID,
                     performanceID: performanceID.performanceID,
-                    participantID: participantID.participantID,
+                    contributorID: contributorID.contributorID,
                     anonymousName: "Guest Artist"
                 )
             }
@@ -1187,7 +1187,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
             )
         }
 
-        #expect(!patch.fileChanges.contains { $0.path.contains("/participants/") })
+        #expect(!patch.fileChanges.contains { $0.path.contains("/contributors/") })
         let change = try #require(
             patch.fileChanges.first { $0.path == "events/test-event/schedules/saturday.yml" }
         )
@@ -1195,9 +1195,9 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(change.kind == .modified)
         let newContents = try #require(change.newContents)
         let newText = String(decoding: newContents, as: UTF8.self)
-        #expect(newText.contains("participantNames:"))
+        #expect(newText.contains("contributorNames:"))
         #expect(newText.contains("Guest Artist"))
-        #expect(!newText.contains("participantIDs:"))
+        #expect(!newText.contains("contributorIDs:"))
     }
 
     private func makePreparedDatabase() throws -> any DatabaseWriter {
@@ -1254,10 +1254,10 @@ private func localID<Record>(_ string: String) -> OME.ID<Record> {
     OME.ID<Record>(.init(string))
 }
 
-private func scheduleParticipantListingPolicy() -> OME.Event.Policies {
+private func scheduleContributorListingPolicy() -> OME.Event.Policies {
     OME.Event.Policies(
-        participants: .init(
-            listing: .known(.scheduleParticipants)
+        contributors: .init(
+            listing: .known(.scheduleContributors)
         )
     )
 }

@@ -66,7 +66,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         contactNumbers: [OMERecord.Event.ContactNumber]?,
         categoryConfigs: OMERecord.Event.CategoryConfigs?,
         policies: OMERecord.Event.Policies? = nil,
-        owner: OMERecord.Participant.Actor? = nil
+        owner: OMERecord.Contributor.Actor? = nil
     ) {
         self.id = id
         self.name = name
@@ -102,7 +102,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         contactNumbers: [OMERecord.Event.ContactNumber]?,
         categoryConfigs: OMERecord.Event.CategoryConfigs?,
         policies: OMERecord.Event.Policies? = nil,
-        owner: OMERecord.Participant.Actor? = nil
+        owner: OMERecord.Contributor.Actor? = nil
     ) {
         self.init(
             id: id,
@@ -161,7 +161,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
     public var contactNumbers: [OMERecord.Event.ContactNumber]?
     public var categoryConfigs: OMERecord.Event.CategoryConfigs?
     public var policies: OMERecord.Event.Policies?
-    public var owner: OMERecord.Participant.Actor?
+    public var owner: OMERecord.Contributor.Actor?
 
     public var recordDraft: OMERecord.Event.Draft {
         OMERecord.Event.Draft(
@@ -240,7 +240,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
             contactNumbers: try container.decodeIfPresent([OMERecord.Event.ContactNumber].self, forKey: .contactNumbers),
             categoryConfigs: try container.decodeIfPresent(OMERecord.Event.CategoryConfigs.self, forKey: .categoryConfigs),
             policies: try container.decodeIfPresent(OMERecord.Event.Policies.self, forKey: .policies),
-            owner: try container.decodeIfPresent(OMERecord.Participant.Actor.self, forKey: .owner)
+            owner: try container.decodeIfPresent(OMERecord.Contributor.Actor.self, forKey: .owner)
         )
     }
 
@@ -309,7 +309,7 @@ public struct StageDTO: Codable, Equatable, Sendable {
         images: [SourceImageAsset]? = nil,
         systemIconName: String? = nil,
         iconShortCode: String? = nil,
-        lineup: [OMERecord.ID<OMERecord.Participant>]? = nil
+        lineup: [OMERecord.ID<OMERecord.Contributor>]? = nil
     ) {
         self.id = id
         self.name = name
@@ -333,7 +333,7 @@ public struct StageDTO: Codable, Equatable, Sendable {
         iconShortCode: String? = nil,
         imageURL: URL? = nil,
         posterImageURL: URL? = nil,
-        lineup: [OMERecord.ID<OMERecord.Participant>]? = nil
+        lineup: [OMERecord.ID<OMERecord.Contributor>]? = nil
     ) {
         self.init(
             id: id,
@@ -374,7 +374,7 @@ public struct StageDTO: Codable, Equatable, Sendable {
     public var images: [SourceImageAsset]?
     public var systemIconName: String?
     public var iconShortCode: String?
-    public var lineup: [OMERecord.ID<OMERecord.Participant>]?
+    public var lineup: [OMERecord.ID<OMERecord.Contributor>]?
 
     public var recordDraft: OMERecord.Stage.Draft {
         OMERecord.Stage.Draft(
@@ -423,7 +423,7 @@ public struct StageDTO: Codable, Equatable, Sendable {
             images: images,
             systemIconName: try container.decodeIfPresent(String.self, forKey: .systemIconName),
             iconShortCode: try container.decodeIfPresent(String.self, forKey: .iconShortCode),
-            lineup: try container.decodeIfPresent([OMERecord.ID<OMERecord.Participant>].self, forKey: .lineup)
+            lineup: try container.decodeIfPresent([OMERecord.ID<OMERecord.Contributor>].self, forKey: .lineup)
         )
     }
 
@@ -476,13 +476,13 @@ public struct StageDTO: Codable, Equatable, Sendable {
     }
 }
 
-public struct ParticipantDTO: Codable, Equatable, Sendable {
+public struct ContributorDTO: Codable, Equatable, Sendable {
     public init(
-        id: OMERecord.Participant.ID? = nil,
+        id: OMERecord.Contributor.ID? = nil,
         name: String,
         bio: String? = nil,
         images: [SourceImageAsset]? = nil,
-        kind: OMERecord.Participant.Kind? = nil,
+        kind: OMERecord.Contributor.Kind? = nil,
         links: [ExternalPlatform.Link]? = nil
     ) {
         self.id = id
@@ -494,12 +494,12 @@ public struct ParticipantDTO: Codable, Equatable, Sendable {
     }
 
     public init(
-        id: OMERecord.Participant.ID? = nil,
+        id: OMERecord.Contributor.ID? = nil,
         name: String,
         bio: String? = nil,
         imageURL: URL? = nil,
         logoURL: URL? = nil,
-        kind: OMERecord.Participant.Kind? = nil,
+        kind: OMERecord.Contributor.Kind? = nil,
         links: [ExternalPlatform.Link]? = nil
     ) {
         self.init(
@@ -512,7 +512,7 @@ public struct ParticipantDTO: Codable, Equatable, Sendable {
         )
     }
 
-    public init(_ draft: OMERecord.Participant.Draft) {
+    public init(_ draft: OMERecord.Contributor.Draft) {
         self.init(
             id: draft.id,
             name: draft.name,
@@ -523,15 +523,15 @@ public struct ParticipantDTO: Codable, Equatable, Sendable {
         )
     }
 
-    public var id: OMERecord.Participant.ID?
+    public var id: OMERecord.Contributor.ID?
     public var name: String
     public var bio: String?
     public var images: [SourceImageAsset]?
-    public var kind: OMERecord.Participant.Kind?
+    public var kind: OMERecord.Contributor.Kind?
     public var links: [ExternalPlatform.Link]?
 
-    public var recordDraft: OMERecord.Participant.Draft {
-        OMERecord.Participant.Draft(
+    public var recordDraft: OMERecord.Contributor.Draft {
+        OMERecord.Contributor.Draft(
             id: id,
             name: name,
             bio: bio,
@@ -569,11 +569,11 @@ public struct ParticipantDTO: Codable, Equatable, Sendable {
             )
 
         self.init(
-            id: try container.decodeIfPresent(OMERecord.Participant.ID.self, forKey: .id),
+            id: try container.decodeIfPresent(OMERecord.Contributor.ID.self, forKey: .id),
             name: try container.decode(String.self, forKey: .name),
             bio: try container.decodeIfPresent(String.self, forKey: .bio),
             images: images,
-            kind: try container.decodeIfPresent(OMERecord.Participant.Kind.self, forKey: .kind),
+            kind: try container.decodeIfPresent(OMERecord.Contributor.Kind.self, forKey: .kind),
             links: try container.decodeIfPresent([ExternalPlatform.Link].self, forKey: .links)
         )
     }

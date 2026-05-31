@@ -36,9 +36,9 @@ extension ScheduleDTO {
         public var description: String?
         public var startTime: String
         public var endTime: String?
-        public var participantIDs: [OMERecord.ID<OMERecord.Participant>]?
-        public var participantNames: [String]?
-        public var participantActors: [OMERecord.Participant.Actor]?
+        public var contributorIDs: [OMERecord.ID<OMERecord.Contributor>]?
+        public var contributorNames: [String]?
+        public var contributorActors: [OMERecord.Contributor.Actor]?
         public var recordings: [ExternalPlatform.Asset]?
 
         public init(
@@ -47,9 +47,9 @@ extension ScheduleDTO {
             description: String? = nil,
             startTime: String,
             endTime: String? = nil,
-            participantIDs: [OMERecord.ID<OMERecord.Participant>]? = nil,
-            participantNames: [String]? = nil,
-            participantActors: [OMERecord.Participant.Actor]? = nil,
+            contributorIDs: [OMERecord.ID<OMERecord.Contributor>]? = nil,
+            contributorNames: [String]? = nil,
+            contributorActors: [OMERecord.Contributor.Actor]? = nil,
             recordings: [ExternalPlatform.Asset]? = nil
         ) {
             self.id = id
@@ -57,9 +57,9 @@ extension ScheduleDTO {
             self.description = description
             self.startTime = startTime
             self.endTime = endTime
-            self.participantIDs = participantIDs
-            self.participantNames = participantNames
-            self.participantActors = participantActors
+            self.contributorIDs = contributorIDs
+            self.contributorNames = contributorNames
+            self.contributorActors = contributorActors
             self.recordings = recordings
         }
     }

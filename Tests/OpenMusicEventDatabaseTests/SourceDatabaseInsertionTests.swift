@@ -94,8 +94,8 @@ struct SourceDatabaseInsertionTests {
             [stageID("meadow", eventID: resolvedEventID, organizerID: organizerID)]
         )
         expectNoDifference(
-            insertion.participants.map(\.id),
-            [participantID("artist-one", eventID: resolvedEventID, organizerID: organizerID)]
+            insertion.contributors.map(\.id),
+            [contributorID("artist-one", eventID: resolvedEventID, organizerID: organizerID)]
         )
         expectNoDifference(
             insertion.channels.map(\.id),
@@ -153,20 +153,20 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performanceParticipants,
+            insertion.performanceContributors,
             [
-                OME.Performance.Participants.Draft(
+                OME.Performance.Contributors.Draft(
                     organizerID: organizerID,
                     eventID: id(resolvedEventID),
                     performanceID: id("opening-set"),
-                    participantID: id("artist-one"),
+                    contributorID: id("artist-one"),
                     anonymousName: nil
                 ),
-                OME.Performance.Participants.Draft(
+                OME.Performance.Contributors.Draft(
                     organizerID: organizerID,
                     eventID: id(resolvedEventID),
                     performanceID: id("saturday-meadow-2"),
-                    participantID: nil,
+                    contributorID: nil,
                     anonymousName: "Guest Artist"
                 ),
             ]
@@ -242,8 +242,8 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func actorOnlyPerformancesCreatePerformanceParticipantRowsWithoutParticipants() throws {
-        let actor = try #require(OME.Participant.Actor("ARTIST.BSKY.SOCIAL"))
+    func actorOnlyPerformancesCreatePerformanceContributorRowsWithoutContributors() throws {
+        let actor = try #require(OME.Contributor.Actor("ARTIST.BSKY.SOCIAL"))
         var source = try makeSourceRepository(
             performances: [
                 "meadow": [
@@ -252,12 +252,12 @@ struct SourceDatabaseInsertionTests {
                         title: "Actor Set",
                         startTime: "18:00",
                         endTime: "19:00",
-                        participantActors: [actor]
+                        contributorActors: [actor]
                     )
                 ]
             ]
         )
-        source.events[0].components.participants = nil
+        source.events[0].components.contributors = nil
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
 
         let insertion = try OME.SourceDatabaseInsertion(
@@ -268,27 +268,27 @@ struct SourceDatabaseInsertionTests {
             )
         )
 
-        expectNoDifference(insertion.participants, [])
+        expectNoDifference(insertion.contributors, [])
         expectNoDifference(
-            insertion.performanceParticipants,
+            insertion.performanceContributors,
             [
-                OME.Performance.Participants.Draft(
+                OME.Performance.Contributors.Draft(
                     organizerID: organizerID,
                     eventID: id("testival-source-testival-2026"),
                     performanceID: id("actor-set"),
-                    participantID: nil,
+                    contributorID: nil,
                     anonymousName: nil,
-                    participantActor: OME.Participant.Actor("artist.bsky.social")
+                    contributorActor: OME.Contributor.Actor("artist.bsky.social")
                 )
             ]
         )
     }
 
     @Test
-    func scheduleParticipantListingCreatesParticipantsFromNames() throws {
+    func scheduleContributorListingCreatesContributorsFromNames() throws {
         let source = try makeSourceRepository(
-            eventPolicies: scheduleParticipantListingPolicy(),
-            includeDefaultParticipant: false,
+            eventPolicies: scheduleContributorListingPolicy(),
+            includeDefaultContributor: false,
             performances: [
                 "meadow": [
                     .init(
@@ -296,7 +296,7 @@ struct SourceDatabaseInsertionTests {
                         title: "Guest Set",
                         startTime: "18:00",
                         endTime: "19:00",
-                        participantNames: ["Guest Artist"]
+                        contributorNames: ["Guest Artist"]
                     )
                 ]
             ]
@@ -312,10 +312,10 @@ struct SourceDatabaseInsertionTests {
         )
 
         expectNoDifference(
-            insertion.participants,
+            insertion.contributors,
             [
-                OME.Participant.Draft(
-                    id: participantID(
+                OME.Contributor.Draft(
+                    id: contributorID(
                         "schedule-name-Guest%20Artist",
                         eventID: "testival-source-testival-2026",
                         organizerID: organizerID
@@ -329,13 +329,13 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performanceParticipants,
+            insertion.performanceContributors,
             [
-                OME.Performance.Participants.Draft(
+                OME.Performance.Contributors.Draft(
                     organizerID: organizerID,
                     eventID: id("testival-source-testival-2026"),
                     performanceID: id("guest-set"),
-                    participantID: id("schedule-name-Guest%20Artist"),
+                    contributorID: id("schedule-name-Guest%20Artist"),
                     anonymousName: "Guest Artist"
                 )
             ]
@@ -343,11 +343,11 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func scheduleParticipantListingCreatesParticipantsFromActors() throws {
-        let actor = try #require(OME.Participant.Actor("ARTIST.BSKY.SOCIAL"))
+    func scheduleContributorListingCreatesContributorsFromActors() throws {
+        let actor = try #require(OME.Contributor.Actor("ARTIST.BSKY.SOCIAL"))
         let source = try makeSourceRepository(
-            eventPolicies: scheduleParticipantListingPolicy(),
-            includeDefaultParticipant: false,
+            eventPolicies: scheduleContributorListingPolicy(),
+            includeDefaultContributor: false,
             performances: [
                 "meadow": [
                     .init(
@@ -355,7 +355,7 @@ struct SourceDatabaseInsertionTests {
                         title: "Actor Set",
                         startTime: "18:00",
                         endTime: "19:00",
-                        participantActors: [actor]
+                        contributorActors: [actor]
                     )
                 ]
             ]
@@ -371,10 +371,10 @@ struct SourceDatabaseInsertionTests {
         )
 
         expectNoDifference(
-            insertion.participants,
+            insertion.contributors,
             [
-                OME.Participant.Draft(
-                    id: participantID(
+                OME.Contributor.Draft(
+                    id: contributorID(
                         "schedule-actor-artist.bsky.social",
                         eventID: "testival-source-testival-2026",
                         organizerID: organizerID
@@ -388,24 +388,24 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performanceParticipants,
+            insertion.performanceContributors,
             [
-                OME.Performance.Participants.Draft(
+                OME.Performance.Contributors.Draft(
                     organizerID: organizerID,
                     eventID: id("testival-source-testival-2026"),
                     performanceID: id("actor-set"),
-                    participantID: id("schedule-actor-artist.bsky.social"),
+                    contributorID: id("schedule-actor-artist.bsky.social"),
                     anonymousName: nil,
-                    participantActor: actor
+                    contributorActor: actor
                 )
             ]
         )
     }
 
     @Test
-    func explicitParticipantsWinOverScheduleParticipantListing() throws {
+    func explicitContributorsWinOverScheduleContributorListing() throws {
         let source = try makeSourceRepository(
-            eventPolicies: scheduleParticipantListingPolicy(),
+            eventPolicies: scheduleContributorListingPolicy(),
             performances: [
                 "meadow": [
                     .init(
@@ -413,7 +413,7 @@ struct SourceDatabaseInsertionTests {
                         title: "Artist Set",
                         startTime: "18:00",
                         endTime: "19:00",
-                        participantNames: ["Artist One"]
+                        contributorNames: ["Artist One"]
                     )
                 ]
             ]
@@ -429,9 +429,9 @@ struct SourceDatabaseInsertionTests {
         )
 
         expectNoDifference(
-            insertion.participants.map(\.id),
+            insertion.contributors.map(\.id),
             [
-                participantID(
+                contributorID(
                     "artist-one",
                     eventID: "testival-source-testival-2026",
                     organizerID: organizerID
@@ -439,13 +439,13 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performanceParticipants,
+            insertion.performanceContributors,
             [
-                OME.Performance.Participants.Draft(
+                OME.Performance.Contributors.Draft(
                     organizerID: organizerID,
                     eventID: id("testival-source-testival-2026"),
                     performanceID: id("artist-set"),
-                    participantID: id("artist-one"),
+                    contributorID: id("artist-one"),
                     anonymousName: "Artist One"
                 )
             ]
@@ -526,7 +526,7 @@ struct SourceDatabaseInsertionTests {
             [
                 ObjectIdentifier(OME.Event.self),
                 ObjectIdentifier(OME.Stage.self),
-                ObjectIdentifier(OME.Participant.self),
+                ObjectIdentifier(OME.Contributor.self),
                 ObjectIdentifier(OME.Schedule.self),
                 ObjectIdentifier(OME.Channel.self),
                 ObjectIdentifier(OME.Poster.self),
@@ -680,13 +680,13 @@ struct SourceDatabaseInsertionTests {
         )
 
         try await database.write { db in
-            try OME.Participant
-                .find(participantID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
+            try OME.Contributor
+                .find(contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
                 .update { $0.name = "Updated Artist One" }
                 .execute(db)
         }
 
-        let withParticipantChange = try await withDependencies {
+        let withContributorChange = try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
         } operation: {
             try await database.read { db in
@@ -694,22 +694,22 @@ struct SourceDatabaseInsertionTests {
             }
         }
 
-        #expect(withParticipantChange.eventID == openedEventID)
-        #expect(withParticipantChange.availability == .available)
-        #expect(withParticipantChange.totalCount == 2)
-        #expect(withParticipantChange.badgeCount == 2)
-        let participantGroup = try #require(
-            withParticipantChange.groups.first { $0.id == OME.Participant.tableName }
+        #expect(withContributorChange.eventID == openedEventID)
+        #expect(withContributorChange.availability == .available)
+        #expect(withContributorChange.totalCount == 2)
+        #expect(withContributorChange.badgeCount == 2)
+        let contributorGroup = try #require(
+            withContributorChange.groups.first { $0.id == OME.Contributor.tableName }
         )
-        #expect(participantGroup.displayName == "Participant")
-        #expect(participantGroup.added == 0)
-        #expect(participantGroup.modified == 1)
-        #expect(participantGroup.deleted == 0)
-        let participantRecord = try #require(participantGroup.records.first)
-        #expect(participantRecord.kind == .modified)
-        #expect(participantRecord.recordDiff?.contains("Updated Artist One") == true)
+        #expect(contributorGroup.displayName == "Contributor")
+        #expect(contributorGroup.added == 0)
+        #expect(contributorGroup.modified == 1)
+        #expect(contributorGroup.deleted == 0)
+        let contributorRecord = try #require(contributorGroup.records.first)
+        #expect(contributorRecord.kind == .modified)
+        #expect(contributorRecord.recordDiff?.contains("Updated Artist One") == true)
         expectNoDifference(
-            participantRecord.fieldChanges,
+            contributorRecord.fieldChanges,
             [
                 SourceFieldChange(
                     columnName: "name",
@@ -870,7 +870,7 @@ struct SourceDatabaseInsertionTests {
                     materializationPolicy: .prefetchOnOpen
                 )
             ],
-            participantImages: [
+            contributorImages: [
                 SourceImageAsset(
                     source: .file("images/artist-one.png"),
                     role: .photo,
@@ -916,18 +916,18 @@ struct SourceDatabaseInsertionTests {
             stage.images = stageImages
             try OME.Stage.update(stage).execute(db)
 
-            var participant = try #require(
-                try OME.Participant
-                    .find(participantID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
+            var contributor = try #require(
+                try OME.Contributor
+                    .find(contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
-            var participantImages = try #require(participant.images)
-            var participantImage = try #require(participantImages.first)
-            let participantURL = try #require(participantImage.url)
-            participantImage.source = .url(movedCacheDirectoryURL.appending(path: participantURL.lastPathComponent))
-            participantImages[0] = participantImage
-            participant.images = participantImages
-            try OME.Participant.update(participant).execute(db)
+            var contributorImages = try #require(contributor.images)
+            var contributorImage = try #require(contributorImages.first)
+            let contributorURL = try #require(contributorImage.url)
+            contributorImage.source = .url(movedCacheDirectoryURL.appending(path: contributorURL.lastPathComponent))
+            contributorImages[0] = contributorImage
+            contributor.images = contributorImages
+            try OME.Contributor.update(contributor).execute(db)
         }
 
         let summary = try await eventEditSummary(
@@ -1059,7 +1059,7 @@ struct SourceDatabaseInsertionTests {
         let baselinePhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let workingPhotoURL = try #require(URL(string: "https://example.com/artist-two.jpg"))
         let source = try makeSourceRepository(
-            participantImages: [
+            contributorImages: [
                 SourceImageAsset(
                     source: .url(baselinePhotoURL),
                     role: .photo,
@@ -1088,17 +1088,17 @@ struct SourceDatabaseInsertionTests {
         }
 
         try await database.write { db in
-            var participant = try #require(
-                try OME.Participant
-                    .find(participantID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
+            var contributor = try #require(
+                try OME.Contributor
+                    .find(contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
-            var images = try #require(participant.images)
+            var images = try #require(contributor.images)
             var image = try #require(images.first)
             image.source = .url(workingPhotoURL)
             images[0] = image
-            participant.images = images
-            try OME.Participant.update(participant).execute(db)
+            contributor.images = images
+            try OME.Contributor.update(contributor).execute(db)
         }
 
         let summary = try await eventEditSummary(
@@ -1110,11 +1110,11 @@ struct SourceDatabaseInsertionTests {
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 1)
         #expect(summary.badgeCount == 1)
-        let participantGroup = try #require(
-            summary.groups.first { $0.id == OME.Participant.tableName }
+        let contributorGroup = try #require(
+            summary.groups.first { $0.id == OME.Contributor.tableName }
         )
-        #expect(participantGroup.modified == 1)
-        let record = try #require(participantGroup.records.first)
+        #expect(contributorGroup.modified == 1)
+        let record = try #require(contributorGroup.records.first)
         #expect(record.fieldChanges.map(\.columnName) == ["images"])
         #expect(record.recordDiff?.contains(workingPhotoURL.absoluteString) == true)
     }
@@ -1123,7 +1123,7 @@ struct SourceDatabaseInsertionTests {
     func eventEditSummaryCountsImageMetadataChanges() async throws {
         let photoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let source = try makeSourceRepository(
-            participantImages: [
+            contributorImages: [
                 SourceImageAsset(
                     source: .url(photoURL),
                     role: .photo,
@@ -1152,17 +1152,17 @@ struct SourceDatabaseInsertionTests {
         }
 
         try await database.write { db in
-            var participant = try #require(
-                try OME.Participant
-                    .find(participantID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
+            var contributor = try #require(
+                try OME.Contributor
+                    .find(contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
-            var images = try #require(participant.images)
+            var images = try #require(contributor.images)
             var image = try #require(images.first)
             image.focalPoint = OME.ImageAsset.FocalPoint(x: 0.25, y: 0.75)
             images[0] = image
-            participant.images = images
-            try OME.Participant.update(participant).execute(db)
+            contributor.images = images
+            try OME.Contributor.update(contributor).execute(db)
         }
 
         let summary = try await eventEditSummary(
@@ -1173,11 +1173,11 @@ struct SourceDatabaseInsertionTests {
 
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 1)
-        let participantGroup = try #require(
-            summary.groups.first { $0.id == OME.Participant.tableName }
+        let contributorGroup = try #require(
+            summary.groups.first { $0.id == OME.Contributor.tableName }
         )
-        #expect(participantGroup.modified == 1)
-        let record = try #require(participantGroup.records.first)
+        #expect(contributorGroup.modified == 1)
+        let record = try #require(contributorGroup.records.first)
         #expect(record.fieldChanges.map(\.columnName) == ["images"])
         #expect(record.recordDiff?.contains("focalPoint") == true)
     }
@@ -1784,15 +1784,15 @@ struct SourceDatabaseInsertionTests {
         let performanceCount = try await database.read { db in
             try OME.Performance.fetchCount(db)
         }
-        let performanceParticipantCount = try await database.read { db in
-            try OME.Performance.Participants.fetchCount(db)
+        let performanceContributorCount = try await database.read { db in
+            try OME.Performance.Contributors.fetchCount(db)
         }
 
         #expect(organizerCount == 1)
         #expect(eventCount == 1)
         #expect(eventOrganizerCount == 1)
         #expect(performanceCount == 3)
-        #expect(performanceParticipantCount == 2)
+        #expect(performanceContributorCount == 2)
     }
 
     @Test
@@ -2028,7 +2028,7 @@ struct SourceDatabaseInsertionTests {
     @Test
     func leavesRemoteImagesUnfetchedUntilEventOpen() async throws {
         let eventHeroURL = try #require(URL(string: "https://example.com/event-hero.jpg"))
-        let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let contributorPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let source = try makeSourceRepository(
             eventImages: [
                 SourceImageAsset(
@@ -2038,9 +2038,9 @@ struct SourceDatabaseInsertionTests {
                     materializationPolicy: .prefetchOnOpen
                 )
             ],
-            participantImages: [
+            contributorImages: [
                 SourceImageAsset(
-                    source: .url(participantPhotoURL),
+                    source: .url(contributorPhotoURL),
                     role: .photo,
                     renderKind: .fullImage,
                     materializationPolicy: .lazy
@@ -2067,15 +2067,15 @@ struct SourceDatabaseInsertionTests {
         let event = try await database.read { db in
             try OME.Event.fetchOne(db)
         }
-        let participant = try await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let contributor = try await database.read { db in
+            try OME.Contributor.fetchOne(db)
         }
         let blobs = try await database.read { db in
             try LocalImageBlob.fetchAll(db)
         }
 
         #expect(event?.images?.first?.url == eventHeroURL)
-        #expect(participant?.images?.first?.url == participantPhotoURL)
+        #expect(contributor?.images?.first?.url == contributorPhotoURL)
         #expect(blobs.isEmpty)
 
         let cacheDirectoryURL = try temporaryDirectoryURL()
@@ -2095,8 +2095,8 @@ struct SourceDatabaseInsertionTests {
         let prefetchedEvent = try await database.read { db in
             try OME.Event.fetchOne(db)
         }
-        let prefetchedParticipant = try await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let prefetchedContributor = try await database.read { db in
+            try OME.Contributor.fetchOne(db)
         }
         let prefetchedBlobs = try await database.read { db in
             try LocalImageBlob.fetchAll(db)
@@ -2105,7 +2105,7 @@ struct SourceDatabaseInsertionTests {
         let prefetchedHeroImage = try #require(prefetchedEvent?.images?.first)
         let prefetchedHeroURL = try #require(prefetchedHeroImage.url)
         #expect(prefetchedHeroURL == eventHeroURL)
-        #expect(prefetchedParticipant?.images?.first?.url == participantPhotoURL)
+        #expect(prefetchedContributor?.images?.first?.url == contributorPhotoURL)
         #expect(prefetchedBlobs.count == 1)
         let blob = try #require(prefetchedBlobs.first)
         #expect(blob.sourceURL == eventHeroURL)
@@ -2249,12 +2249,12 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func cachesLazyRemoteParticipantImagesOnDemand() async throws {
-        let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+    func cachesLazyRemoteContributorImagesOnDemand() async throws {
+        let contributorPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let source = try makeSourceRepository(
-            participantImages: [
+            contributorImages: [
                 SourceImageAsset(
-                    source: .url(participantPhotoURL),
+                    source: .url(contributorPhotoURL),
                     role: .photo,
                     renderKind: .fullImage,
                     materializationPolicy: .lazy
@@ -2268,12 +2268,12 @@ struct SourceDatabaseInsertionTests {
         let database = try makeCoreDatabase()
         try await insertion.insert(into: database)
 
-        let participant = try #require(await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let contributor = try #require(await database.read { db in
+            try OME.Contributor.fetchOne(db)
         })
-        let originalImage = try #require(participant.images?.first)
+        let originalImage = try #require(contributor.images?.first)
         let cacheDirectoryURL = try temporaryDirectoryURL()
-        let remoteData = Data("lazy-participant-photo".utf8)
+        let remoteData = Data("lazy-contributor-photo".utf8)
 
         let cachedImage = try await withDependencies {
             $0.date.now = testImageCacheDate
@@ -2288,37 +2288,37 @@ struct SourceDatabaseInsertionTests {
             @Dependency(\.lazyImageCache) var lazyImageCache
             return try await lazyImageCache.cache(
                 originalImage,
-                .init(participantID: participant.id)
+                .init(contributorID: contributor.id)
             )
         }
 
-        let updatedParticipant = try await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let updatedContributor = try await database.read { db in
+            try OME.Contributor.fetchOne(db)
         }
         let blobs = try await database.read { db in
             try LocalImageBlob.fetchAll(db)
         }
 
         let cachedURL = try #require(cachedImage.url)
-        let updatedURL = try #require(updatedParticipant?.images?.first?.url)
+        let updatedURL = try #require(updatedContributor?.images?.first?.url)
         #expect(cachedURL.isFileURL)
-        #expect(updatedURL == participantPhotoURL)
+        #expect(updatedURL == contributorPhotoURL)
         expectNoDifference(try Data(contentsOf: cachedURL), remoteData)
         let blob = try #require(blobs.first)
-        #expect(blob.parentKind == .participant)
+        #expect(blob.parentKind == .contributor)
         #expect(blob.parentLocalID == "artist-one")
-        #expect(blob.sourceURL == participantPhotoURL)
+        #expect(blob.sourceURL == contributorPhotoURL)
         expectNoDifference(blob.data, remoteData)
-        expectNoDifference(updatedParticipant, participant)
+        expectNoDifference(updatedContributor, contributor)
     }
 
     @Test
-    func restoresLazyParticipantImagesFromBlobWhenLocalFileIsMissing() async throws {
-        let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+    func restoresLazyContributorImagesFromBlobWhenLocalFileIsMissing() async throws {
+        let contributorPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let source = try makeSourceRepository(
-            participantImages: [
+            contributorImages: [
                 SourceImageAsset(
-                    source: .url(participantPhotoURL),
+                    source: .url(contributorPhotoURL),
                     role: .photo,
                     renderKind: .fullImage,
                     materializationPolicy: .lazy
@@ -2332,12 +2332,12 @@ struct SourceDatabaseInsertionTests {
         let database = try makeCoreDatabase()
         try await insertion.insert(into: database)
 
-        let participant = try #require(await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let contributor = try #require(await database.read { db in
+            try OME.Contributor.fetchOne(db)
         })
-        let originalImage = try #require(participant.images?.first)
+        let originalImage = try #require(contributor.images?.first)
         let cacheDirectoryURL = try temporaryDirectoryURL()
-        let remoteData = Data("lazy-participant-photo".utf8)
+        let remoteData = Data("lazy-contributor-photo".utf8)
 
         let cachedImage = try await withDependencies {
             $0.date.now = testImageCacheDate
@@ -2349,18 +2349,18 @@ struct SourceDatabaseInsertionTests {
             @Dependency(\.lazyImageCache) var lazyImageCache
             return try await lazyImageCache.cache(
                 originalImage,
-                .init(participantID: participant.id)
+                .init(contributorID: contributor.id)
             )
         }
         let cachedURL = try #require(cachedImage.url)
         #expect(cachedURL.isFileURL)
         try FileManager.default.removeItem(at: cachedURL)
 
-        let cachedParticipant = try #require(await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let cachedContributor = try #require(await database.read { db in
+            try OME.Contributor.fetchOne(db)
         })
-        let cachedParticipantImage = try #require(cachedParticipant.images?.first)
-        #expect(cachedParticipantImage.url == participantPhotoURL)
+        let cachedContributorImage = try #require(cachedContributor.images?.first)
+        #expect(cachedContributorImage.url == contributorPhotoURL)
 
         let recoveryDirectoryURL = try temporaryDirectoryURL()
         let restoredImage = try await withDependencies {
@@ -2375,8 +2375,8 @@ struct SourceDatabaseInsertionTests {
         } operation: {
             @Dependency(\.lazyImageCache) var lazyImageCache
             return try await lazyImageCache.cache(
-                cachedParticipantImage,
-                .init(participantID: cachedParticipant.id)
+                cachedContributorImage,
+                .init(contributorID: cachedContributor.id)
             )
         }
 
@@ -2384,15 +2384,15 @@ struct SourceDatabaseInsertionTests {
         let blobs = try await database.read { db in
             try LocalImageBlob.fetchAll(db)
         }
-        let restoredParticipant = try await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let restoredContributor = try await database.read { db in
+            try OME.Contributor.fetchOne(db)
         }
 
         #expect(restoredURL.isFileURL)
         #expect(restoredURL != cachedURL)
         #expect(FileManager.default.fileExists(atPath: restoredURL.path))
         expectNoDifference(try Data(contentsOf: restoredURL), remoteData)
-        expectNoDifference(restoredParticipant, participant)
+        expectNoDifference(restoredContributor, contributor)
         #expect(blobs.count == 1)
     }
 
@@ -2448,11 +2448,11 @@ struct SourceDatabaseInsertionTests {
 
     @Test
     func failingLazyImageCacheDoesNotMutateDatabase() async throws {
-        let participantPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let contributorPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let source = try makeSourceRepository(
-            participantImages: [
+            contributorImages: [
                 SourceImageAsset(
-                    source: .url(participantPhotoURL),
+                    source: .url(contributorPhotoURL),
                     role: .photo,
                     renderKind: .fullImage,
                     materializationPolicy: .lazy
@@ -2466,10 +2466,10 @@ struct SourceDatabaseInsertionTests {
         let database = try makeCoreDatabase()
         try await insertion.insert(into: database)
 
-        let participant = try #require(await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let contributor = try #require(await database.read { db in
+            try OME.Contributor.fetchOne(db)
         })
-        let originalImage = try #require(participant.images?.first)
+        let originalImage = try #require(contributor.images?.first)
         let cacheDirectoryURL = try temporaryDirectoryURL()
 
         do {
@@ -2485,21 +2485,21 @@ struct SourceDatabaseInsertionTests {
                 @Dependency(\.lazyImageCache) var lazyImageCache
                 return try await lazyImageCache.cache(
                     originalImage,
-                    .init(participantID: participant.id)
+                    .init(contributorID: contributor.id)
                 )
             }
             Issue.record("Expected lazy image caching to fail.")
         } catch TestImageCacheError.failed {
         }
 
-        let updatedParticipant = try await database.read { db in
-            try OME.Participant.fetchOne(db)
+        let updatedContributor = try await database.read { db in
+            try OME.Contributor.fetchOne(db)
         }
         let blobs = try await database.read { db in
             try LocalImageBlob.fetchAll(db)
         }
 
-        expectNoDifference(updatedParticipant, participant)
+        expectNoDifference(updatedContributor, contributor)
         #expect(blobs.isEmpty)
     }
 
@@ -2537,8 +2537,8 @@ struct SourceDatabaseInsertionTests {
         eventPolicies: OME.Event.Policies? = nil,
         eventImages: [SourceImageAsset]? = nil,
         stageImages: [SourceImageAsset]? = nil,
-        participantImages: [SourceImageAsset]? = nil,
-        includeDefaultParticipant: Bool = true,
+        contributorImages: [SourceImageAsset]? = nil,
+        includeDefaultContributor: Bool = true,
         performances: [String: [ScheduleDTO.Performance]] = [
             "meadow": [
                 .init(
@@ -2546,12 +2546,12 @@ struct SourceDatabaseInsertionTests {
                     title: "Opening Set",
                     startTime: "18:00",
                     endTime: "19:00",
-                    participantIDs: [id("artist-one")]
+                    contributorIDs: [id("artist-one")]
                 ),
                 .init(
                     title: "Late Set",
                     startTime: "20:00",
-                    participantNames: ["Guest Artist"]
+                    contributorNames: ["Guest Artist"]
                 ),
                 .init(
                     id: id("closing-set"),
@@ -2611,15 +2611,15 @@ struct SourceDatabaseInsertionTests {
                                 )
                             )
                         ],
-                        participants: includeDefaultParticipant ? [
+                        contributors: includeDefaultContributor ? [
                             try FileContent(
                                 fileName: "artist-one",
                                 fileType: nil,
-                                data: ParticipantDTO(
+                                data: ContributorDTO(
                                     id: nil,
                                     name: "Artist One",
                                     bio: nil,
-                                    images: participantImages,
+                                    images: contributorImages,
                                     kind: nil,
                                     links: nil
                                 )
@@ -2798,15 +2798,15 @@ private func scheduleID(
     )
 }
 
-private func participantID(
-    _ participantID: String,
+private func contributorID(
+    _ contributorID: String,
     eventID: String,
     organizerID: OME.Organizer.ID
-) -> OME.Participant.ID {
-    OME.Participant.ID(
+) -> OME.Contributor.ID {
+    OME.Contributor.ID(
         organizerID: organizerID,
         eventID: id(eventID),
-        participantID: id(participantID)
+        contributorID: id(contributorID)
     )
 }
 
@@ -2846,10 +2846,10 @@ private func performanceID(
     )
 }
 
-private func scheduleParticipantListingPolicy() -> OME.Event.Policies {
+private func scheduleContributorListingPolicy() -> OME.Event.Policies {
     OME.Event.Policies(
-        participants: .init(
-            listing: .known(.scheduleParticipants)
+        contributors: .init(
+            listing: .known(.scheduleContributors)
         )
     )
 }

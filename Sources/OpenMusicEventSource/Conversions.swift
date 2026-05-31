@@ -16,41 +16,41 @@ struct YamlConversion<Value: Codable>: Conversion {
     }
 }
 
-public struct ParticipantMarkdownConversion: Conversion {
+public struct ContributorMarkdownConversion: Conversion {
     public typealias Input = FileContent<Data>
-    public typealias Output = FileContent<ParticipantDTO>
+    public typealias Output = FileContent<ContributorDTO>
 
     public init() {}
 
-    public func apply(_ input: FileContent<Data>) throws -> FileContent<ParticipantDTO> {
-        let markdown = try MarkdownWithFrontMatterConversion<ParticipantDTO>()
+    public func apply(_ input: FileContent<Data>) throws -> FileContent<ContributorDTO> {
+        let markdown = try MarkdownWithFrontMatterConversion<ContributorDTO>()
             .apply(String(decoding: input.data, as: UTF8.self))
-        guard var participant = markdown.frontMatter else {
+        guard var contributor = markdown.frontMatter else {
             throw MissingFrontMatterError(fileName: input.fileName)
         }
 
         if let body = markdown.body?.nonEmptyMarkdownBody {
-            participant.bio = body
+            contributor.bio = body
         }
 
-        return try input.map { _ in participant }
+        return try input.map { _ in contributor }
     }
 
-    public func unapply(_ output: FileContent<ParticipantDTO>) throws -> FileContent<Data> {
-        try output.map { participant in
-            try Self.markdownData(for: participant)
+    public func unapply(_ output: FileContent<ContributorDTO>) throws -> FileContent<Data> {
+        try output.map { contributor in
+            try Self.markdownData(for: contributor)
         }
     }
 
     public func unapply(
-        _ output: FileContent<ParticipantDTO>,
+        _ output: FileContent<ContributorDTO>,
         in context: FileTreeWriteContext
     ) -> Conversions.Result<FileContent<Data>> {
         do {
             let rootedContext = context.rooted(at: output)
             return .value(
-                try output.map { participant in
-                    try Self.markdownData(for: participant, context: rootedContext)
+                try output.map { contributor in
+                    try Self.markdownData(for: contributor, context: rootedContext)
                 }
             )
         } catch {
@@ -59,7 +59,7 @@ public struct ParticipantMarkdownConversion: Conversion {
                     diagnostics: [
                         Diagnostic(
                             severity: .error,
-                            code: "open-music-event.participant-markdown.print.failed",
+                            code: "open-music-event.contributor-markdown.print.failed",
                             message: String(describing: error),
                             location: .init(path: output.path.rawValue)
                         )
@@ -70,18 +70,18 @@ public struct ParticipantMarkdownConversion: Conversion {
     }
 
     private static func markdownData(
-        for participant: ParticipantDTO,
+        for contributor: ContributorDTO,
         context: FileTreeWriteContext? = nil
     ) throws -> Data {
-        try Data(markdownString(for: participant, context: context).utf8)
+        try Data(markdownString(for: contributor, context: context).utf8)
     }
 
     private static func markdownString(
-        for participant: ParticipantDTO,
+        for contributor: ContributorDTO,
         context: FileTreeWriteContext? = nil
     ) throws -> String {
-        let conversion = MarkdownWithFrontMatterConversion<ParticipantDTO>()
-        let frontMatter = frontMatterParticipant(for: participant)
+        let conversion = MarkdownWithFrontMatterConversion<ContributorDTO>()
+        let frontMatter = frontMatterContributor(for: contributor)
 
         if let existing = try context?.rootText(),
            let existingMarkdown = try? conversion.apply(existing),
@@ -90,7 +90,7 @@ public struct ParticipantMarkdownConversion: Conversion {
             return try conversion.unapply(
                 MarkdownWithFrontMatter(
                     frontMatter: existingMarkdown.frontMatter,
-                    body: participant.bio
+                    body: contributor.bio
                 )
             )
         }
@@ -98,13 +98,13 @@ public struct ParticipantMarkdownConversion: Conversion {
         return try conversion.unapply(
             MarkdownWithFrontMatter(
                 frontMatter: frontMatter,
-                body: participant.bio
+                body: contributor.bio
             )
         )
     }
 
-    private static func frontMatterParticipant(for participant: ParticipantDTO) -> ParticipantDTO {
-        var frontMatter = participant
+    private static func frontMatterContributor(for contributor: ContributorDTO) -> ContributorDTO {
+        var frontMatter = contributor
         frontMatter.bio = nil
         return frontMatter
     }

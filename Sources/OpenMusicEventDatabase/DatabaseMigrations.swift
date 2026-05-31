@@ -86,16 +86,16 @@ public extension OME {
                     .execute(db)
 
                 try #sql("""
-                    CREATE TABLE IF NOT EXISTS "participants" (
+                    CREATE TABLE IF NOT EXISTS "contributors" (
                       "organizerID" TEXT NOT NULL,
                       "eventID" TEXT NOT NULL,
-                      "participantID" TEXT NOT NULL,
+                      "contributorID" TEXT NOT NULL,
                       "name" TEXT NOT NULL,
                       "bio" TEXT,
                       "images" TEXT,
                       "kind" TEXT,
                       "links" TEXT,
-                      PRIMARY KEY ("organizerID", "eventID", "participantID") ON CONFLICT REPLACE,
+                      PRIMARY KEY ("organizerID", "eventID", "contributorID") ON CONFLICT REPLACE,
                       FOREIGN KEY ("organizerID", "eventID")
                         REFERENCES "events"("organizerID", "eventID")
                         ON DELETE CASCADE
@@ -104,13 +104,13 @@ public extension OME {
                     .execute(db)
 
                 try #sql("""
-                    CREATE TABLE IF NOT EXISTS "participantClaims" (
+                    CREATE TABLE IF NOT EXISTS "contributorClaims" (
                       "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
                       "organizerID" TEXT NOT NULL,
                       "eventID" TEXT NOT NULL,
-                      "participantID" TEXT NOT NULL,
-                      FOREIGN KEY ("organizerID", "eventID", "participantID")
-                        REFERENCES "participants"("organizerID", "eventID", "participantID")
+                      "contributorID" TEXT NOT NULL,
+                      FOREIGN KEY ("organizerID", "eventID", "contributorID")
+                        REFERENCES "contributors"("organizerID", "eventID", "contributorID")
                         ON DELETE CASCADE
                     ) STRICT
                     """)
@@ -178,17 +178,17 @@ public extension OME {
                     .execute(db)
 
                 try #sql("""
-                    CREATE TABLE IF NOT EXISTS "performanceParticipants" (
+                    CREATE TABLE IF NOT EXISTS "performanceContributors" (
                       "organizerID" TEXT NOT NULL,
                       "eventID" TEXT NOT NULL,
                       "performanceID" TEXT NOT NULL,
-                      "participantID" TEXT,
+                      "contributorID" TEXT,
                       "anonymousName" TEXT,
                       FOREIGN KEY ("organizerID", "eventID", "performanceID")
                         REFERENCES "performances"("organizerID", "eventID", "performanceID")
                         ON DELETE CASCADE,
-                      FOREIGN KEY ("organizerID", "eventID", "participantID")
-                        REFERENCES "participants"("organizerID", "eventID", "participantID")
+                      FOREIGN KEY ("organizerID", "eventID", "contributorID")
+                        REFERENCES "contributors"("organizerID", "eventID", "contributorID")
                         ON DELETE CASCADE
                     ) STRICT
                     """)
@@ -203,8 +203,8 @@ public extension OME {
                     .execute(db)
 
                 try #sql("""
-                    ALTER TABLE "performanceParticipants"
-                    ADD COLUMN "participantActor" TEXT
+                    ALTER TABLE "performanceContributors"
+                    ADD COLUMN "contributorActor" TEXT
                     """)
                     .execute(db)
             }
@@ -335,6 +335,57 @@ public extension OME {
                 try #sql("""
                     CREATE INDEX IF NOT EXISTS "localImageBlobs_event_parent_role"
                     ON "localImageBlobs" ("organizerID", "eventID", "parentKind", "parentLocalID", "role")
+                    """)
+                    .execute(db)
+            }
+
+            migrator.registerMigration("Create OpenMusicEvent contributor schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "contributors" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "contributorID" TEXT NOT NULL,
+                      "name" TEXT NOT NULL,
+                      "bio" TEXT,
+                      "images" TEXT,
+                      "kind" TEXT,
+                      "links" TEXT,
+                      PRIMARY KEY ("organizerID", "eventID", "contributorID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "contributorClaims" (
+                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "contributorID" TEXT NOT NULL,
+                      FOREIGN KEY ("organizerID", "eventID", "contributorID")
+                        REFERENCES "contributors"("organizerID", "eventID", "contributorID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "performanceContributors" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "performanceID" TEXT NOT NULL,
+                      "contributorID" TEXT,
+                      "anonymousName" TEXT,
+                      "contributorActor" TEXT,
+                      FOREIGN KEY ("organizerID", "eventID", "performanceID")
+                        REFERENCES "performances"("organizerID", "eventID", "performanceID")
+                        ON DELETE CASCADE,
+                      FOREIGN KEY ("organizerID", "eventID", "contributorID")
+                        REFERENCES "contributors"("organizerID", "eventID", "contributorID")
+                        ON DELETE CASCADE
+                    ) STRICT
                     """)
                     .execute(db)
             }

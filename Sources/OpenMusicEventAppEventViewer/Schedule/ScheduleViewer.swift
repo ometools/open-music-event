@@ -453,8 +453,8 @@ public struct PerformanceDetail {
 
             self.eventID = eventID ?? defaultEventID
             self.performanceID = performanceID
-            _participants = FetchAll(
-                PerformanceDetail.participantsQuery(
+            _contributors = FetchAll(
+                PerformanceDetail.contributorsQuery(
                     performanceID: performanceID,
                     eventID: self.eventID
                 )
@@ -473,7 +473,7 @@ public struct PerformanceDetail {
         public let eventID: OMERecord.Event.ID
         public let performanceID: OMERecord.ID<OMERecord.Performance>
 
-        @FetchAll public var participants: [OMERecord.Participant]
+        @FetchAll public var contributors: [OMERecord.Contributor]
         @FetchOne public var performance: OMERecord.Performance?
         @FetchAll public var stages: [OMERecord.Stage]
 
@@ -487,19 +487,19 @@ public struct PerformanceDetail {
 
     public enum Action {}
 
-    static func participantsQuery(
+    static func contributorsQuery(
         performanceID: OMERecord.ID<OMERecord.Performance>,
         eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Participant> {
-        OMERecord.Participant
+    ) -> some SelectStatementOf<OMERecord.Contributor> {
+        OMERecord.Contributor
             .where { $0.id.organizerID.eq(eventID.organizerID) }
             .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { participant in
-                OMERecord.Performance.Participants
+            .where { contributor in
+                OMERecord.Performance.Contributors
                     .where { $0.organizerID.eq(eventID.organizerID) }
                     .where { $0.eventID.eq(eventID.eventID) }
                     .where { $0.performanceID.eq(performanceID) }
-                    .where { $0.participantID.eq(participant.id.participantID) }
+                    .where { $0.contributorID.eq(contributor.id.contributorID) }
                     .exists()
             }
             .order { $0.name.collate(.nocase) }
@@ -542,10 +542,10 @@ public struct PerformanceDetailView: View {
                         }
                     }
 
-                    if !store.participants.isEmpty {
-                        Section("People") {
-                            ForEach(store.participants) { participant in
-                                PeopleRowView(participant: participant)
+                    if !store.contributors.isEmpty {
+                        Section("Contributors") {
+                            ForEach(store.contributors) { contributor in
+                                ContributorsRowView(contributor: contributor)
                             }
                         }
                     }

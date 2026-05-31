@@ -107,11 +107,11 @@ private struct PreparedSourceDatabaseInsertion {
     var eventSourceProvenances: [EventSourceProvenanceRecord]
     var stages: [OME.Stage.Draft]
     var schedules: [OME.Schedule.Draft]
-    var participants: [OME.Participant.Draft]
+    var contributors: [OME.Contributor.Draft]
     var channels: [OME.Channel.Draft]
     var posters: [OME.Poster.Draft]
     var performances: [OME.Performance.Draft]
-    var performanceParticipants: [OME.Performance.Participants.Draft]
+    var performanceContributors: [OME.Performance.Contributors.Draft]
     var localImageBlobs: [LocalImageBlob]
 
     init(
@@ -147,11 +147,11 @@ private struct PreparedSourceDatabaseInsertion {
         self.eventOrganizers = sourceInsertion.eventOrganizers
         self.stages = sourceInsertion.stages
         self.schedules = sourceInsertion.schedules
-        self.participants = sourceInsertion.participants
+        self.contributors = sourceInsertion.contributors
         self.channels = sourceInsertion.channels
         self.posters = sourceInsertion.posters
         self.performances = sourceInsertion.performances
-        self.performanceParticipants = sourceInsertion.performanceParticipants
+        self.performanceContributors = sourceInsertion.performanceContributors
         self.localImageBlobs = []
 
         let materializer = LocalImageMaterializer(
@@ -198,14 +198,14 @@ private struct PreparedSourceDatabaseInsertion {
             localImageBlobs.append(contentsOf: result.blobs)
         }
 
-        for index in participants.indices {
-            guard let participantID = participants[index].id else { continue }
+        for index in contributors.indices {
+            guard let contributorID = contributors[index].id else { continue }
             let result = try await materializer.materialize(
-                participant: participants[index],
+                contributor: contributors[index],
                 pendingFileAssets: pendingFileAssets,
-                parentLocalID: participantID.participantID.rawValue.rawValue
+                parentLocalID: contributorID.contributorID.rawValue.rawValue
             )
-            participants[index] = result.value
+            contributors[index] = result.value
             localImageBlobs.append(contentsOf: result.blobs)
         }
     }
@@ -279,8 +279,8 @@ private struct PreparedSourceDatabaseInsertion {
         if !schedules.isEmpty {
             try OME.Schedule.insert { schedules }.execute(db)
         }
-        if !participants.isEmpty {
-            try OME.Participant.insert { participants }.execute(db)
+        if !contributors.isEmpty {
+            try OME.Contributor.insert { contributors }.execute(db)
         }
         if !channels.isEmpty {
             try OME.Channel.insert { channels }.execute(db)
@@ -291,8 +291,8 @@ private struct PreparedSourceDatabaseInsertion {
         if !performances.isEmpty {
             try OME.Performance.insert { performances }.execute(db)
         }
-        if !performanceParticipants.isEmpty {
-            try OME.Performance.Participants.insert { performanceParticipants }.execute(db)
+        if !performanceContributors.isEmpty {
+            try OME.Performance.Contributors.insert { performanceContributors }.execute(db)
         }
         if !localImageBlobs.isEmpty {
             try LocalImageBlob.insert { localImageBlobs }.execute(db)
@@ -356,21 +356,21 @@ private extension LocalImageMaterializer {
     }
 
     func materialize(
-        participant: OME.Participant.Draft,
+        contributor: OME.Contributor.Draft,
         pendingFileAssets: [String: OME.SourceDatabaseInsertion.PendingFileImageAsset],
         parentLocalID: String
-    ) async throws -> Result<OME.Participant.Draft> {
+    ) async throws -> Result<OME.Contributor.Draft> {
         let images = try await materializeImages(
-            images: participant.images,
-            organizerID: participant.id?.organizerID,
-            eventID: participant.id?.eventID,
-            parentKind: .participant,
+            images: contributor.images,
+            organizerID: contributor.id?.organizerID,
+            eventID: contributor.id?.eventID,
+            parentKind: .contributor,
             parentLocalID: parentLocalID,
             pendingFileAssets: pendingFileAssets
         )
-        var participant = participant
-        participant.images = images.images
-        return .init(value: participant, blobs: images.blobs)
+        var contributor = contributor
+        contributor.images = images.images
+        return .init(value: contributor, blobs: images.blobs)
     }
 
     private func materializeImages(

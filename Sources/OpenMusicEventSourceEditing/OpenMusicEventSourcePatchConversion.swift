@@ -13,11 +13,11 @@ public extension OpenMusicEventSourcePatchConversion {
             let (
                 event,
                 stages,
-                participants,
+                contributors,
                 posters,
                 schedules,
                 performances,
-                performanceParticipants
+                performanceContributors
             ) = try await database.read { db in
                 let event = try OME.Event
                     .where { $0.id.eq(request.eventID) }
@@ -31,7 +31,7 @@ public extension OpenMusicEventSourcePatchConversion {
                     .where { $0.id.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
 
-                let participants = try OME.Participant
+                let contributors = try OME.Contributor
                     .where { $0.id.organizerID.eq(request.eventID.organizerID) }
                     .where { $0.id.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
@@ -51,7 +51,7 @@ public extension OpenMusicEventSourcePatchConversion {
                     .where { $0.id.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
 
-                let performanceParticipants = try OME.Performance.Participants
+                let performanceContributors = try OME.Performance.Contributors
                     .where { $0.organizerID.eq(request.eventID.organizerID) }
                     .where { $0.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
@@ -59,11 +59,11 @@ public extension OpenMusicEventSourcePatchConversion {
                 return (
                     event,
                     stages,
-                    participants,
+                    contributors,
                     posters,
                     schedules,
                     performances,
-                    performanceParticipants
+                    performanceContributors
                 )
             }
 
@@ -84,8 +84,8 @@ public extension OpenMusicEventSourcePatchConversion {
                 from: stages,
                 eventID: request.eventID
             )
-            sourceEvent.participants = try sourceEvent.sourceParticipantFiles(
-                from: participants,
+            sourceEvent.contributors = try sourceEvent.sourceContributorFiles(
+                from: contributors,
                 eventID: request.eventID
             )
             sourceEvent.posters = try sourceEvent.sourcePosterFiles(
@@ -95,7 +95,7 @@ public extension OpenMusicEventSourcePatchConversion {
             sourceEvent.schedules = try sourceEvent.sourceScheduleFiles(
                 from: schedules,
                 performances: performances,
-                performanceParticipants: performanceParticipants,
+                performanceContributors: performanceContributors,
                 eventTimeZone: event.timeZone
             )
             return sourceEvent
@@ -147,7 +147,7 @@ private extension OpenMusicEventSourceEvent {
     func sourceScheduleFiles(
         from schedules: [OME.Schedule],
         performances: [OME.Performance],
-        performanceParticipants: [OME.Performance.Participants],
+        performanceContributors: [OME.Performance.Contributors],
         eventTimeZone: TimeZone
     ) throws -> [FileContent<ScheduleDTO>]? {
         let schedulesByID = Dictionary(
@@ -162,8 +162,8 @@ private extension OpenMusicEventSourceEvent {
         .mapValues { pairs in
             pairs.map(\.1)
         }
-        let participantsByPerformanceID = Dictionary(
-            grouping: performanceParticipants,
+        let contributorsByPerformanceID = Dictionary(
+            grouping: performanceContributors,
             by: \.performanceID
         )
         var consumedScheduleIDs: Set<OME.ID<OME.Schedule>> = []
@@ -184,7 +184,7 @@ private extension OpenMusicEventSourceEvent {
                         performances: sourcePerformances(
                             scheduleID: scheduleID,
                             performances: performancesByScheduleID[scheduleID] ?? [],
-                            performanceParticipants: participantsByPerformanceID,
+                            performanceContributors: contributorsByPerformanceID,
                             sourceSchedule: sourceSchedule,
                             eventTimeZone: eventTimeZone
                         ),
@@ -216,7 +216,7 @@ private extension OpenMusicEventSourceEvent {
                         performances: sourcePerformances(
                             scheduleID: scheduleID,
                             performances: performancesByScheduleID[scheduleID] ?? [],
-                            performanceParticipants: participantsByPerformanceID,
+                            performanceContributors: contributorsByPerformanceID,
                             sourceSchedule: nil,
                             eventTimeZone: eventTimeZone
                         ),
@@ -345,61 +345,61 @@ private extension OpenMusicEventSourceEvent {
         return files.isEmpty ? nil : files
     }
 
-    func sourceParticipantFiles(
-        from participants: [OME.Participant],
+    func sourceContributorFiles(
+        from contributors: [OME.Contributor],
         eventID: OME.Event.ID
-    ) throws -> [FileContent<ParticipantDTO>]? {
-        let participantsByID = Dictionary(
-            uniqueKeysWithValues: participants.map { ($0.id.participantID, $0) }
+    ) throws -> [FileContent<ContributorDTO>]? {
+        let contributorsByID = Dictionary(
+            uniqueKeysWithValues: contributors.map { ($0.id.contributorID, $0) }
         )
-        var consumedParticipantIDs: Set<OME.ID<OME.Participant>> = []
-        var files: [FileContent<ParticipantDTO>] = []
+        var consumedContributorIDs: Set<OME.ID<OME.Contributor>> = []
+        var files: [FileContent<ContributorDTO>] = []
 
-        for file in self.participants ?? [] {
-            let participantID = file.sourceParticipantID
-            guard let participant = participantsByID[participantID] else {
+        for file in self.contributors ?? [] {
+            let contributorID = file.sourceContributorID
+            guard let contributor = contributorsByID[contributorID] else {
                 continue
             }
 
-            consumedParticipantIDs.insert(participantID)
+            consumedContributorIDs.insert(contributorID)
             files.append(
-                try file.map { sourceParticipant in
-                    ParticipantDTO(
-                        participant.sourceDraft(
-                            preservingSourceID: sourceParticipant.id
+                try file.map { sourceContributor in
+                    ContributorDTO(
+                        contributor.sourceDraft(
+                            preservingSourceID: sourceContributor.id
                         )
                     )
                     .preservingSourceImageReferences(
-                        from: sourceParticipant,
+                        from: sourceContributor,
                         context: SourceImageReferenceContext(
                             organizerID: eventID.organizerID,
                             eventID: eventID.eventID,
-                            parentKind: .participant,
-                            parentLocalID: participantID.rawValue.rawValue
+                            parentKind: .contributor,
+                            parentLocalID: contributorID.rawValue.rawValue
                         )
                     )
                 }
             )
         }
 
-        let additions = participants
-            .filter { !consumedParticipantIDs.contains($0.id.participantID) }
+        let additions = contributors
+            .filter { !consumedContributorIDs.contains($0.id.contributorID) }
             .filter {
-                !(event.usesScheduleParticipantListing
-                    && $0.isScheduleDerivedParticipant
+                !(event.usesScheduleContributorListing
+                    && $0.isScheduleDerivedContributor
                     && !$0.hasSourceProfileContent)
             }
             .sorted { lhs, rhs in
-                lhs.id.participantID.rawValue.rawValue < rhs.id.participantID.rawValue.rawValue
+                lhs.id.contributorID.rawValue.rawValue < rhs.id.contributorID.rawValue.rawValue
             }
 
-        for participant in additions {
+        for contributor in additions {
             files.append(
                 try FileContent(
-                    fileName: participant.id.participantID.rawValue.rawValue,
+                    fileName: contributor.id.contributorID.rawValue.rawValue,
                     fileType: "md",
-                    data: ParticipantDTO(
-                        participant.sourceDraft(preservingSourceID: nil)
+                    data: ContributorDTO(
+                        contributor.sourceDraft(preservingSourceID: nil)
                     )
                 )
             )
@@ -413,7 +413,7 @@ private enum SourceImageParentKind: String, Sendable {
     case calendar
     case event
     case stage
-    case participant
+    case contributor
     case poster
 }
 
@@ -472,9 +472,9 @@ private extension StageDTO {
     }
 }
 
-private extension ParticipantDTO {
+private extension ContributorDTO {
     func preservingSourceImageReferences(
-        from source: ParticipantDTO,
+        from source: ContributorDTO,
         context: SourceImageReferenceContext
     ) -> Self {
         var dto = self
@@ -621,7 +621,7 @@ private extension String {
 private func sourcePerformances(
     scheduleID: OME.ID<OME.Schedule>,
     performances: [OME.Performance],
-    performanceParticipants: [OME.ID<OME.Performance>: [OME.Performance.Participants]],
+    performanceContributors: [OME.ID<OME.Performance>: [OME.Performance.Contributors]],
     sourceSchedule: ScheduleDTO?,
     eventTimeZone: TimeZone
 ) -> [String: [ScheduleDTO.Performance]] {
@@ -658,7 +658,7 @@ private func sourcePerformances(
                         inferredID: inferredID,
                         preservingSource: sourcePerformance,
                         nextPerformance: nextPerformance,
-                        participants: performanceParticipants[performance.id.performanceID] ?? [],
+                        contributors: performanceContributors[performance.id.performanceID] ?? [],
                         eventTimeZone: eventTimeZone
                     )
                 }
@@ -670,9 +670,9 @@ private func sourcePerformances(
 private struct SourcePerformance {
     var id: OME.ID<OME.Performance>?
     var hasExplicitEndTime: Bool
-    var participantIDs: [OME.ID<OME.Participant>]?
-    var participantNames: [String]?
-    var participantActors: [OME.Participant.Actor]?
+    var contributorIDs: [OME.ID<OME.Contributor>]?
+    var contributorNames: [String]?
+    var contributorActors: [OME.Contributor.Actor]?
 }
 
 private extension ScheduleDTO {
@@ -691,9 +691,9 @@ private extension ScheduleDTO {
                         SourcePerformance(
                             id: performance.id,
                             hasExplicitEndTime: performance.endTime != nil,
-                            participantIDs: performance.participantIDs,
-                            participantNames: performance.participantNames,
-                            participantActors: performance.participantActors
+                            contributorIDs: performance.contributorIDs,
+                            contributorNames: performance.contributorNames,
+                            contributorActors: performance.contributorActors
                         )
                     )
                 }
@@ -720,9 +720,9 @@ private extension FileContent where Component == StageDTO {
     }
 }
 
-private extension FileContent where Component == ParticipantDTO {
-    var sourceParticipantID: OME.ID<OME.Participant> {
-        data.id?.participantID ?? OME.ID<OME.Participant>(.init(fileName))
+private extension FileContent where Component == ContributorDTO {
+    var sourceContributorID: OME.ID<OME.Contributor> {
+        data.id?.contributorID ?? OME.ID<OME.Contributor>(.init(fileName))
     }
 }
 
@@ -773,16 +773,16 @@ private extension OME.Performance {
         inferredID: OME.ID<OME.Performance>,
         preservingSource source: SourcePerformance?,
         nextPerformance: OME.Performance?,
-        participants: [OME.Performance.Participants],
+        contributors: [OME.Performance.Contributors],
         eventTimeZone: TimeZone
     ) -> ScheduleDTO.Performance {
-        let participantIDs = participants.compactMap { participant in
-            participant.anonymousName == nil && participant.participantActor == nil
-                ? participant.participantID
+        let contributorIDs = contributors.compactMap { contributor in
+            contributor.anonymousName == nil && contributor.contributorActor == nil
+                ? contributor.contributorID
                 : nil
         }
-        let participantNames = participants.compactMap(\.anonymousName)
-        let participantActors = participants.compactMap(\.participantActor)
+        let contributorNames = contributors.compactMap(\.anonymousName)
+        let contributorActors = contributors.compactMap(\.contributorActor)
         return ScheduleDTO.Performance(
             id: source?.id ?? (id.performanceID == inferredID ? nil : id.performanceID),
             title: title,
@@ -793,16 +793,16 @@ private extension OME.Performance {
                 nextPerformance: nextPerformance,
                 eventTimeZone: eventTimeZone
             ),
-            participantIDs: participantIDs.sourceOrdered(
-                preserving: source?.participantIDs,
+            contributorIDs: contributorIDs.sourceOrdered(
+                preserving: source?.contributorIDs,
                 by: { $0.rawValue.rawValue }
             ),
-            participantNames: participantNames.sourceOrdered(
-                preserving: source?.participantNames,
+            contributorNames: contributorNames.sourceOrdered(
+                preserving: source?.contributorNames,
                 by: { $0 }
             ),
-            participantActors: participantActors.sourceOrdered(
-                preserving: source?.participantActors,
+            contributorActors: contributorActors.sourceOrdered(
+                preserving: source?.contributorActors,
                 by: { $0.description }
             ),
             recordings: recordings.isEmpty ? nil : recordings
@@ -854,8 +854,8 @@ private extension Date {
 }
 
 private extension EventDTO {
-    var usesScheduleParticipantListing: Bool {
-        if case .known(.scheduleParticipants)? = policies?.participants?.listing {
+    var usesScheduleContributorListing: Bool {
+        if case .known(.scheduleContributors)? = policies?.contributors?.listing {
             return true
         }
         return false
@@ -892,7 +892,7 @@ private extension OME.Poster {
     }
 }
 
-private extension OME.Participant {
+private extension OME.Contributor {
     var hasSourceProfileContent: Bool {
         bio?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || images?.isEmpty == false
@@ -900,15 +900,15 @@ private extension OME.Participant {
             || links?.isEmpty == false
     }
 
-    var isScheduleDerivedParticipant: Bool {
-        id.participantID.rawValue.rawValue.hasPrefix("schedule-name-")
-            || id.participantID.rawValue.rawValue.hasPrefix("schedule-actor-")
+    var isScheduleDerivedContributor: Bool {
+        id.contributorID.rawValue.rawValue.hasPrefix("schedule-name-")
+            || id.contributorID.rawValue.rawValue.hasPrefix("schedule-actor-")
     }
 
     func sourceDraft(
-        preservingSourceID id: OME.Participant.ID?
-    ) -> OME.Participant.Draft {
-        OME.Participant.Draft(
+        preservingSourceID id: OME.Contributor.ID?
+    ) -> OME.Contributor.Draft {
+        OME.Contributor.Draft(
             id: id,
             name: name,
             bio: bio,

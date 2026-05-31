@@ -129,7 +129,7 @@ struct CalendarPersistenceTests {
             organizerID: organizerID,
             eventID: localID("archive-event")
         )
-        let owner = try #require(OME.Participant.Actor("gratefuldead.bsky.social"))
+        let owner = try #require(OME.Contributor.Actor("gratefuldead.bsky.social"))
         let timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
 
         try await database.write { db in
