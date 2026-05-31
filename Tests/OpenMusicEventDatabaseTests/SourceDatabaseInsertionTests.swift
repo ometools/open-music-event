@@ -285,6 +285,174 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func scheduleParticipantListingCreatesParticipantsFromNames() throws {
+        let source = try makeSourceRepository(
+            eventPolicies: scheduleParticipantListingPolicy(),
+            includeDefaultParticipant: false,
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("guest-set"),
+                        title: "Guest Set",
+                        startTime: "18:00",
+                        endTime: "19:00",
+                        participantNames: ["Guest Artist"]
+                    )
+                ]
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        expectNoDifference(
+            insertion.participants,
+            [
+                OME.Participant.Draft(
+                    id: participantID(
+                        "schedule-name-Guest%20Artist",
+                        eventID: "testival-source-testival-2026",
+                        organizerID: organizerID
+                    ),
+                    name: "Guest Artist",
+                    bio: nil,
+                    images: nil,
+                    kind: nil,
+                    links: nil
+                )
+            ]
+        )
+        expectNoDifference(
+            insertion.performanceParticipants,
+            [
+                OME.Performance.Participants.Draft(
+                    organizerID: organizerID,
+                    eventID: id("testival-source-testival-2026"),
+                    performanceID: id("guest-set"),
+                    participantID: id("schedule-name-Guest%20Artist"),
+                    anonymousName: "Guest Artist"
+                )
+            ]
+        )
+    }
+
+    @Test
+    func scheduleParticipantListingCreatesParticipantsFromActors() throws {
+        let actor = try #require(OME.Participant.Actor("ARTIST.BSKY.SOCIAL"))
+        let source = try makeSourceRepository(
+            eventPolicies: scheduleParticipantListingPolicy(),
+            includeDefaultParticipant: false,
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("actor-set"),
+                        title: "Actor Set",
+                        startTime: "18:00",
+                        endTime: "19:00",
+                        participantActors: [actor]
+                    )
+                ]
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        expectNoDifference(
+            insertion.participants,
+            [
+                OME.Participant.Draft(
+                    id: participantID(
+                        "schedule-actor-artist.bsky.social",
+                        eventID: "testival-source-testival-2026",
+                        organizerID: organizerID
+                    ),
+                    name: "artist.bsky.social",
+                    bio: nil,
+                    images: nil,
+                    kind: nil,
+                    links: nil
+                )
+            ]
+        )
+        expectNoDifference(
+            insertion.performanceParticipants,
+            [
+                OME.Performance.Participants.Draft(
+                    organizerID: organizerID,
+                    eventID: id("testival-source-testival-2026"),
+                    performanceID: id("actor-set"),
+                    participantID: id("schedule-actor-artist.bsky.social"),
+                    anonymousName: nil,
+                    participantActor: actor
+                )
+            ]
+        )
+    }
+
+    @Test
+    func explicitParticipantsWinOverScheduleParticipantListing() throws {
+        let source = try makeSourceRepository(
+            eventPolicies: scheduleParticipantListingPolicy(),
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("artist-set"),
+                        title: "Artist Set",
+                        startTime: "18:00",
+                        endTime: "19:00",
+                        participantNames: ["Artist One"]
+                    )
+                ]
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        expectNoDifference(
+            insertion.participants.map(\.id),
+            [
+                participantID(
+                    "artist-one",
+                    eventID: "testival-source-testival-2026",
+                    organizerID: organizerID
+                )
+            ]
+        )
+        expectNoDifference(
+            insertion.performanceParticipants,
+            [
+                OME.Performance.Participants.Draft(
+                    organizerID: organizerID,
+                    eventID: id("testival-source-testival-2026"),
+                    performanceID: id("artist-set"),
+                    participantID: id("artist-one"),
+                    anonymousName: "Artist One"
+                )
+            ]
+        )
+    }
+
+    @Test
     func sourceInsertionReplacesGeneratedDefaultCalendarEntries() async throws {
         let firstSource = try makeSourceRepository(
             eventDirectoryName: "first-event",
@@ -2366,9 +2534,11 @@ struct SourceDatabaseInsertionTests {
         eventDirectoryName: String = "testival-2026",
         eventName: String = "Testival 2026",
         explicitLocalEventID: OME.ID<OME.Event>? = nil,
+        eventPolicies: OME.Event.Policies? = nil,
         eventImages: [SourceImageAsset]? = nil,
         stageImages: [SourceImageAsset]? = nil,
         participantImages: [SourceImageAsset]? = nil,
+        includeDefaultParticipant: Bool = true,
         performances: [String: [ScheduleDTO.Performance]] = [
             "meadow": [
                 .init(
@@ -2421,7 +2591,8 @@ struct SourceDatabaseInsertionTests {
                             timeZone: timeZone,
                             images: eventImages,
                             contactNumbers: nil,
-                            categoryConfigs: nil
+                            categoryConfigs: nil,
+                            policies: eventPolicies
                         ),
                         stages: [
                             try FileContent(
@@ -2440,7 +2611,7 @@ struct SourceDatabaseInsertionTests {
                                 )
                             )
                         ],
-                        participants: [
+                        participants: includeDefaultParticipant ? [
                             try FileContent(
                                 fileName: "artist-one",
                                 fileType: nil,
@@ -2453,7 +2624,7 @@ struct SourceDatabaseInsertionTests {
                                     links: nil
                                 )
                             )
-                        ],
+                        ] : nil,
                         posters: [
                             try FileContent(
                                 fileName: "lineup",
@@ -2672,6 +2843,14 @@ private func performanceID(
         organizerID: organizerID,
         eventID: id(eventID),
         performanceID: id(performanceID)
+    )
+}
+
+private func scheduleParticipantListingPolicy() -> OME.Event.Policies {
+    OME.Event.Policies(
+        participants: .init(
+            listing: .known(.scheduleParticipants)
+        )
     )
 }
 

@@ -272,26 +272,34 @@ public extension OME {
                 } ?? []
             )
 
-            participants.append(
-                contentsOf: try sourceEvent.participants?.map { participant in
-                    var draft = participant.data.recordDraft
-                    let participantID = draft.id ?? .init(
-                        organizerID: organizerID,
-                        eventID: localEventID,
-                        participantID: Self.localID(participant.fileName)
-                    )
-                    draft.id = participantID
-                    draft.images = try resolve(
-                        participant.data.images,
-                        organizerID: organizerID,
-                        eventID: localEventID,
-                        parentKind: "participant",
-                        parentLocalID: participantID.participantID.rawValue.rawValue,
-                        sourceDirectoryURL: eventDirectoryURL
-                    )
-                    return draft
-                } ?? []
+            let explicitParticipants: [OME.Participant.Draft] = try sourceEvent.participants?.map { participant in
+                var draft = participant.data.recordDraft
+                let participantID = draft.id ?? .init(
+                    organizerID: organizerID,
+                    eventID: localEventID,
+                    participantID: Self.localID(participant.fileName)
+                )
+                draft.id = participantID
+                draft.images = try resolve(
+                    participant.data.images,
+                    organizerID: organizerID,
+                    eventID: localEventID,
+                    parentKind: "participant",
+                    parentLocalID: participantID.participantID.rawValue.rawValue,
+                    sourceDirectoryURL: eventDirectoryURL
+                )
+                return draft
+            } ?? []
+
+            participants.append(contentsOf: explicitParticipants)
+
+            let scheduleParticipantIndex = Self.scheduleParticipantIndex(
+                for: sourceEvent,
+                organizerID: organizerID,
+                eventID: localEventID,
+                explicitParticipants: explicitParticipants
             )
+            participants.append(contentsOf: scheduleParticipantIndex.generatedParticipants)
 
             channels.append(
                 contentsOf: sourceEvent.channels?.map { channel in
@@ -338,7 +346,8 @@ public extension OME {
                     scheduleFileName: schedule.fileName,
                     organizerID: organizerID,
                     eventID: localEventID,
-                    timeZone: event.timeZone
+                    timeZone: event.timeZone,
+                    scheduleParticipantIndex: scheduleParticipantIndex
                 )
             }
         }
@@ -348,7 +357,8 @@ public extension OME {
             scheduleFileName: String,
             organizerID: OME.Organizer.ID,
             eventID: OME.ID<OME.Event>,
-            timeZone: TimeZone
+            timeZone: TimeZone,
+            scheduleParticipantIndex: ScheduleParticipantIndex
         ) throws {
             let scheduleID = schedule.id ?? Self.localID(scheduleFileName)
             let scopedScheduleID = OME.Schedule.ID(
@@ -434,31 +444,167 @@ public extension OME {
                         }
                     )
                     performanceParticipants.append(
-                        contentsOf: (sourcePerformance.participantNames ?? []).map {
+                        contentsOf: (sourcePerformance.participantNames ?? []).map { name in
                             OME.Performance.Participants.Draft(
                                 organizerID: organizerID,
                                 eventID: eventID,
                                 performanceID: performanceID,
-                                participantID: nil,
-                                anonymousName: $0,
+                                participantID: scheduleParticipantIndex.participantID(forName: name),
+                                anonymousName: name,
                                 participantActor: nil
                             )
                         }
                     )
                     performanceParticipants.append(
-                        contentsOf: (sourcePerformance.participantActors ?? []).map {
+                        contentsOf: (sourcePerformance.participantActors ?? []).map { actor in
                             OME.Performance.Participants.Draft(
                                 organizerID: organizerID,
                                 eventID: eventID,
                                 performanceID: performanceID,
-                                participantID: nil,
+                                participantID: scheduleParticipantIndex.participantID(forActor: actor),
                                 anonymousName: nil,
-                                participantActor: $0
+                                participantActor: actor
                             )
                         }
                     )
                 }
             }
+        }
+
+        private struct ScheduleParticipantIndex {
+            static let disabled = Self()
+
+            var generatedParticipants: [OME.Participant.Draft] = []
+            var names: [String: OME.ID<OME.Participant>] = [:]
+            var actors: [OME.Participant.Actor: OME.ID<OME.Participant>] = [:]
+
+            func participantID(forName name: String) -> OME.ID<OME.Participant>? {
+                Self.nameKey(name).flatMap { names[$0] }
+            }
+
+            func participantID(forActor actor: OME.Participant.Actor) -> OME.ID<OME.Participant>? {
+                actors[actor]
+            }
+
+            static func nameKey(_ name: String) -> String? {
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed.lowercased()
+            }
+        }
+
+        private static func scheduleParticipantIndex(
+            for sourceEvent: OpenMusicEventSourceEvent,
+            organizerID: OME.Organizer.ID,
+            eventID: OME.ID<OME.Event>,
+            explicitParticipants: [OME.Participant.Draft]
+        ) -> ScheduleParticipantIndex {
+            guard sourceEvent.event.policies?.participants?.usesScheduleParticipantListing == true else {
+                return .disabled
+            }
+
+            var index = ScheduleParticipantIndex()
+            var usedParticipantIDs = Set(explicitParticipants.compactMap { $0.id?.participantID })
+
+            for participant in explicitParticipants {
+                guard let participantID = participant.id?.participantID,
+                      let key = ScheduleParticipantIndex.nameKey(participant.name),
+                      index.names[key] == nil
+                else { continue }
+
+                index.names[key] = participantID
+            }
+
+            for schedule in sourceEvent.schedules ?? [] {
+                for stageID in schedule.data.performances.keys.sorted() {
+                    for performance in schedule.data.performances[stageID] ?? [] {
+                        for name in performance.participantNames ?? [] {
+                            guard let displayName = scheduleParticipantDisplayName(forName: name),
+                                  let key = ScheduleParticipantIndex.nameKey(displayName),
+                                  index.names[key] == nil
+                            else { continue }
+
+                            let participantID = generatedScheduleParticipantID(
+                                prefix: "schedule-name",
+                                value: displayName,
+                                usedParticipantIDs: &usedParticipantIDs
+                            )
+                            index.names[key] = participantID
+                            index.generatedParticipants.append(
+                                OME.Participant.Draft(
+                                    id: .init(
+                                        organizerID: organizerID,
+                                        eventID: eventID,
+                                        participantID: participantID
+                                    ),
+                                    name: displayName,
+                                    bio: nil,
+                                    images: nil,
+                                    kind: nil,
+                                    links: nil
+                                )
+                            )
+                        }
+
+                        for actor in performance.participantActors ?? [] {
+                            guard index.actors[actor] == nil else { continue }
+
+                            let displayName = actor.description
+                            let participantID = generatedScheduleParticipantID(
+                                prefix: "schedule-actor",
+                                value: displayName,
+                                usedParticipantIDs: &usedParticipantIDs
+                            )
+                            index.actors[actor] = participantID
+                            index.generatedParticipants.append(
+                                OME.Participant.Draft(
+                                    id: .init(
+                                        organizerID: organizerID,
+                                        eventID: eventID,
+                                        participantID: participantID
+                                    ),
+                                    name: displayName,
+                                    bio: nil,
+                                    images: nil,
+                                    kind: nil,
+                                    links: nil
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            return index
+        }
+
+        private static func scheduleParticipantDisplayName(forName name: String) -> String? {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        private static func generatedScheduleParticipantID(
+            prefix: String,
+            value: String,
+            usedParticipantIDs: inout Set<OME.ID<OME.Participant>>
+        ) -> OME.ID<OME.Participant> {
+            let encodedValue = value.addingPercentEncoding(
+                withAllowedCharacters: generatedParticipantIDAllowedCharacters
+            ) ?? value
+            let baseID = "\(prefix)-\(encodedValue)"
+            var candidate = OME.ID<OME.Participant>(.init(baseID))
+            var suffix = 2
+
+            while usedParticipantIDs.contains(candidate) {
+                candidate = OME.ID<OME.Participant>(.init("\(baseID)-\(suffix)"))
+                suffix += 1
+            }
+
+            usedParticipantIDs.insert(candidate)
+            return candidate
+        }
+
+        private static var generatedParticipantIDAllowedCharacters: CharacterSet {
+            CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         }
 
         private mutating func resolve(
@@ -623,6 +769,15 @@ private extension Date {
             date = nextDate
         }
         return date
+    }
+}
+
+private extension OME.Event.ParticipantPolicies {
+    var usesScheduleParticipantListing: Bool {
+        if case .known(.scheduleParticipants)? = listing {
+            return true
+        }
+        return false
     }
 }
 

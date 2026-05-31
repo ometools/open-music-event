@@ -384,6 +384,11 @@ private extension OpenMusicEventSourceEvent {
 
         let additions = participants
             .filter { !consumedParticipantIDs.contains($0.id.participantID) }
+            .filter {
+                !(event.usesScheduleParticipantListing
+                    && $0.isScheduleDerivedParticipant
+                    && !$0.hasSourceProfileContent)
+            }
             .sorted { lhs, rhs in
                 lhs.id.participantID.rawValue.rawValue < rhs.id.participantID.rawValue.rawValue
             }
@@ -771,7 +776,11 @@ private extension OME.Performance {
         participants: [OME.Performance.Participants],
         eventTimeZone: TimeZone
     ) -> ScheduleDTO.Performance {
-        let participantIDs = participants.compactMap(\.participantID)
+        let participantIDs = participants.compactMap { participant in
+            participant.anonymousName == nil && participant.participantActor == nil
+                ? participant.participantID
+                : nil
+        }
         let participantNames = participants.compactMap(\.anonymousName)
         let participantActors = participants.compactMap(\.participantActor)
         return ScheduleDTO.Performance(
@@ -844,6 +853,15 @@ private extension Date {
     }
 }
 
+private extension EventDTO {
+    var usesScheduleParticipantListing: Bool {
+        if case .known(.scheduleParticipants)? = policies?.participants?.listing {
+            return true
+        }
+        return false
+    }
+}
+
 private extension OME.Stage {
     func sourceDraft(
         preservingSourceID id: OME.Stage.ID?
@@ -875,6 +893,18 @@ private extension OME.Poster {
 }
 
 private extension OME.Participant {
+    var hasSourceProfileContent: Bool {
+        bio?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || images?.isEmpty == false
+            || kind != nil
+            || links?.isEmpty == false
+    }
+
+    var isScheduleDerivedParticipant: Bool {
+        id.participantID.rawValue.rawValue.hasPrefix("schedule-name-")
+            || id.participantID.rawValue.rawValue.hasPrefix("schedule-actor-")
+    }
+
     func sourceDraft(
         preservingSourceID id: OME.Participant.ID?
     ) -> OME.Participant.Draft {

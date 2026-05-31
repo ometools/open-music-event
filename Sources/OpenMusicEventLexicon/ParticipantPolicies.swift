@@ -13,11 +13,20 @@ extension OpenMusicEvent.Event {
     }
 
     public struct ParticipantPolicies: Codable, Equatable, Sendable {
-        public init(profile: Open<ParticipantProfilePolicy>? = nil) {
+        public init(
+            listing: Open<ParticipantListingPolicy>? = nil,
+            profile: Open<ParticipantProfilePolicy>? = nil
+        ) {
+            self.listing = listing
             self.profile = profile
         }
 
+        public var listing: Open<ParticipantListingPolicy>?
         public var profile: Open<ParticipantProfilePolicy>?
+    }
+
+    public enum ParticipantListingPolicy: Equatable, Sendable {
+        case scheduleParticipants
     }
 
     public enum ParticipantProfilePolicy: Equatable, Sendable {
@@ -43,6 +52,48 @@ extension OpenMusicEvent.Event {
 
     public enum ParticipantProfileProvider: String, Codable, Equatable, Hashable, Sendable, OpenValue, SQLiteType {
         case bskyActorProfile = "app.bsky.actor.profile"
+    }
+}
+
+extension OpenMusicEvent.Event.ParticipantListingPolicy: OpenValue {
+    public static func decodeOpen(from decoder: any Decoder) throws -> Open<Self> {
+        let partialValue = try Open<Self>.PartialValue(from: decoder)
+        guard case let .object(object) = partialValue,
+              case let .string(type)? = object["type"]
+        else {
+            return .unknown(partialValue)
+        }
+
+        switch type {
+        case "scheduleParticipants":
+            return .known(.scheduleParticipants)
+
+        default:
+            return .unknown(partialValue)
+        }
+    }
+
+    public static func encodeOpen(_ value: Open<Self>, to encoder: any Encoder) throws {
+        switch value {
+        case let .known(policy):
+            try encodedPartialValue(for: policy).encode(to: encoder)
+
+        case let .unknown(partialValue):
+            try partialValue.encode(to: encoder)
+        }
+    }
+
+    private static func encodedPartialValue(for policy: Self) -> Open<Self>.PartialValue {
+        let type: String
+
+        switch policy {
+        case .scheduleParticipants:
+            type = "scheduleParticipants"
+        }
+
+        return .object([
+            "type": .string(type)
+        ])
     }
 }
 

@@ -312,6 +312,8 @@ struct OpenMusicEventSourceTests {
         timeZone: America/Denver
         policies:
           participants:
+            listing:
+              type: scheduleParticipants
             profile:
               type: actorProfiles
               providers:
@@ -359,6 +361,7 @@ struct OpenMusicEventSourceTests {
             event.event.policies,
             OME.Event.Policies(
                 participants: .init(
+                    listing: .known(.scheduleParticipants),
                     profile: .known(
                         .actorProfiles(
                             .init(
