@@ -27,6 +27,10 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
     @State var valueFrames: [PickerValue: CGRect] = [:]
 
     let circleSize: CGFloat = 70
+    let itemSpacing: CGFloat = 8
+    let itemWidth: CGFloat = 82
+    let labelHeight: CGFloat = 28
+    let scrollContentMargin: CGFloat = 20
 
     @Environment(\.labelsVisibility) var labelVisibility
 
@@ -40,15 +44,19 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
 
     public var body: some View {
         GlassEffectContainer(spacing: 20) {
-            pickerContent
-                .overlay(alignment: .leading) {
-                    draggableCapsule
+            Group(subviews: content) { subviews in
+                ViewThatFits(in: .horizontal) {
+                    fittedPicker(itemCount: subviews.count)
+                    scrollingPicker
                 }
+            }
+            .frame(height: scrollHeight)
         }
-        .coordinateSpace(coordinateSpace)
-        .gesture(dragGesture)
         .animation(.snappy, value: selection)
-        .padding(.horizontal)
+        .onChange(of: selection) { _, newValue in
+            guard capsuleState == .idle else { return }
+            beginSwitching()
+        }
     }
 
     enum CapsuleState {
@@ -58,57 +66,85 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
     }
 
     @ViewBuilder
-    private var pickerContent: some View {
-        HStack(alignment: .top) {
+    private func fittedPicker(itemCount: Int) -> some View {
+        ZStack(alignment: .leading) {
+            pickerContent(distributesItems: true)
+            draggableCapsule
+        }
+        .frame(minWidth: minimumPickerWidth(for: itemCount), maxWidth: .infinity)
+        .coordinateSpace(coordinateSpace)
+    }
+
+    @ViewBuilder
+    private var scrollingPicker: some View {
+        ScrollView(.horizontal) {
+            ZStack(alignment: .leading) {
+                pickerContent(distributesItems: false)
+                draggableCapsule
+            }
+            .coordinateSpace(coordinateSpace)
+        }
+        .scrollIndicators(.never, axes: .horizontal)
+        .scrollTargetBehavior(.viewAligned)
+        .contentMargins(.horizontal, scrollContentMargin, for: .scrollContent)
+        .scrollEdgeEffectStyle(.soft, for: [.leading, .trailing])
+        .scrollClipDisabled()
+    }
+
+    @ViewBuilder
+    private func pickerContent(distributesItems: Bool) -> some View {
+        HStack(alignment: .top, spacing: itemSpacing) {
             ForEach(subviews: content) { subview in
                 let tag = subview.containerValues.tag(for: PickerValue.self) ?? subview.id as? PickerValue
                 let itemColor = subview.containerValues.pickerItemColor
                 let idleSelected = tag == selection && capsuleState == .idle
 
-                VStack {
-                    if let tag {
-                        subview
-                            .labelStyle(.iconOnly)
-                            .padding(4)
-                            .frame(square: circleSize)
-                            .opacity(idleSelected ? 0.0 : 1.0)
-                            .foregroundStyle(itemColor)
-                            .background(frameReportingBackground(for: tag))
-                            .background(colorReportingBackground(for: tag, color: itemColor))
-                            .onTapGesture {
-                                handleTap(for: tag)
-                            }
-                            .background {
-                                if idleSelected {
-                                    Capsule()
-                                        .fill(itemColor)
+                itemContainer(tag, distributesItems: distributesItems) {
+                    VStack(spacing: 4) {
+                        if let tag {
+                            subview
+                                .labelStyle(.iconOnly)
+                                .padding(4)
+                                .frame(square: circleSize)
+                                .opacity(idleSelected ? 0.0 : 1.0)
+                                .foregroundStyle(itemColor)
+                                .background(frameReportingBackground(for: tag))
+                                .background(colorReportingBackground(for: tag, color: itemColor))
+                                .background {
+                                    if idleSelected {
+                                        Capsule()
+                                            .fill(itemColor)
+                                    }
                                 }
-                            }
-                    } else {
-                        subview
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(itemColor)
-                    }
+                        } else {
+                            subview
+                                .labelStyle(.iconOnly)
+                                .foregroundStyle(itemColor)
+                        }
 
-                    if labelVisibility != .hidden {
-                        subview
-                            .font(.caption)
-                            .multilineTextAlignment(.center)
-                            .labelStyle(.titleOnly)
+                        if labelVisibility != .hidden {
+                            subview
+                                .font(.caption)
+                                .multilineTextAlignment(.center)
+                                .labelStyle(.titleOnly)
+                        }
+                    }
+                    .frame(width: itemWidth)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if let tag {
+                            handleTap(for: tag)
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity)
             }
         }
-        .coordinateSpace(coordinateSpace)
+        .scrollTargetLayout()
         .onPreferenceChange(PickerFramesPreferenceKey.self) { frames in
             self.valueFrames = frames
         }
         .onPreferenceChange(PickerColorsPreferenceKey.self) { colors in
             self.valueColors = colors
-        }
-        .onChange(of: selection) { _, newValue in
-            handleTap(for: newValue)
         }
     }
 
@@ -135,10 +171,11 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
         .glassEffectID("capsule", in: namespace)
         .glassEffect(.clear.interactive(), in: .capsule)
         .placement(selectedFrame.offsetBy(dx: offset, dy: 0))
+        .gesture(dragGesture)
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: coordinateSpace)
+        DragGesture(minimumDistance: 8, coordinateSpace: coordinateSpace)
             .onChanged { value in
                 withAnimation {
                     if capsuleState != .dragging {
@@ -149,26 +186,77 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
                 updateHoveringItem(at: value.location)
             }
             .onEnded { _ in
-                withAnimation(.snappy) {
-                    offset = .zero
-                    selection = hoveringItem ?? selection
-                    hoveringItem = nil
-                    capsuleState = .idle
+                let newSelection = hoveringItem ?? selection
+                hoveringItem = nil
+
+                if newSelection == selection {
+                    withAnimation(.snappy) {
+                        offset = .zero
+                        capsuleState = .idle
+                    }
+                } else {
+                    withAnimation(.snappy) {
+                        offset = .zero
+                    }
+                    handleTap(for: newSelection)
                 }
             }
     }
 
     private func handleTap(for value: PickerValue) {
-        capsuleState = .switching
+        beginSwitching()
         withAnimation {
             selection = value
         }
+    }
 
+    private func minimumPickerWidth(for itemCount: Int) -> CGFloat {
+        guard itemCount > 0 else { return .zero }
+        return CGFloat(itemCount) * itemWidth + CGFloat(itemCount - 1) * itemSpacing
+    }
+
+    private var scrollHeight: CGFloat {
+        labelVisibility == .hidden ? circleSize : circleSize + labelHeight
+    }
+
+    private func beginSwitching() {
+        capsuleState = .switching
         Task { @MainActor in
             try await Task.sleep(for: .milliseconds(400))
             withAnimation(.snappy) {
                 capsuleState = .idle
             }
+        }
+    }
+
+    @ViewBuilder
+    private func itemContainer<ItemContent: View>(
+        _ tag: PickerValue?,
+        distributesItems: Bool,
+        @ViewBuilder content: () -> ItemContent
+    ) -> some View {
+        if let tag {
+            distributedItem(distributesItems) {
+                content()
+                    .id(tag)
+            }
+        } else {
+            distributedItem(distributesItems) {
+                content()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func distributedItem<ItemContent: View>(
+        _ distributesItems: Bool,
+        @ViewBuilder content: () -> ItemContent
+    ) -> some View {
+        if distributesItems {
+            content()
+                .frame(maxWidth: .infinity)
+        } else {
+            content()
         }
     }
 

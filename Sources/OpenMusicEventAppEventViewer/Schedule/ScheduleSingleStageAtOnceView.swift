@@ -14,8 +14,24 @@ struct ScheduleSingleStageAtOnceView: View {
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
 
     var body: some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *), !stages.isEmpty {
+            timeline
+                .safeAreaBar(edge: .top) {
+                    stageSelector
+                }
+                .scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            inlineBody
+        }
+        #else
+        inlineBody
+        #endif
+    }
+
+    var inlineBody: some View {
         VStack(spacing: 0) {
-            stageSelector
+            inlineStageSelector
             timeline
         }
     }
@@ -27,7 +43,13 @@ struct ScheduleSingleStageAtOnceView: View {
                 stages: stages,
                 selectedStageID: $selectedStageID
             )
+        }
+    }
 
+    @ViewBuilder
+    var inlineStageSelector: some View {
+        if !stages.isEmpty {
+            stageSelector
             Divider()
         }
     }
