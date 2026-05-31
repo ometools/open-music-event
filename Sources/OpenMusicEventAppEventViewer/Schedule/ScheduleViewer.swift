@@ -108,6 +108,15 @@ public struct ScheduleViewer {
             }
         }
 
+        public var showStageNameLabels: Bool {
+            get { scheduleViewerState.showStageNameLabels }
+            set {
+                $scheduleViewerState.withLock {
+                    $0.showStageNameLabels = newValue
+                }
+            }
+        }
+
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>? {
             get { scheduleViewerState.selectedStageID }
             set {
@@ -384,6 +393,7 @@ public struct ScheduleViewerView: View {
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
             PerformanceDetailView(store: detailStore)
         }
+        .environment(\.showStageNameLabels, store.showStageNameLabels)
     }
 }
 
@@ -392,15 +402,23 @@ struct ScheduleModeMenu: View {
 
     var body: some View {
         Menu {
-            ForEach(ScheduleViewer.ScheduleMode.allCases, id: \.self) { mode in
-                Button {
-                    store.send(.scheduleModeButtonTapped(mode))
-                } label: {
-                    Label {
-                        Text(mode.title)
-                    } icon: {
-                        Image(systemName: store.scheduleMode == mode ? "checkmark" : mode.systemImage)
+            Section("Mode") {
+                ForEach(ScheduleViewer.ScheduleMode.allCases, id: \.self) { mode in
+                    Button {
+                        store.send(.scheduleModeButtonTapped(mode))
+                    } label: {
+                        Label {
+                            Text(mode.title)
+                        } icon: {
+                            Image(systemName: store.scheduleMode == mode ? "checkmark" : mode.systemImage)
+                        }
                     }
+                }
+            }
+
+            Section("Display") {
+                Toggle(isOn: $store.showStageNameLabels.animation()) {
+                    Label("Show Stage Labels", systemImage: "tag")
                 }
             }
         } label: {

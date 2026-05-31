@@ -3,9 +3,22 @@ import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SwiftUI
 
+private enum ShowStageNameLabelsEnvironmentKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var showStageNameLabels: Bool {
+        get { self[ShowStageNameLabelsEnvironmentKey.self] }
+        set { self[ShowStageNameLabelsEnvironmentKey.self] = newValue }
+    }
+}
+
 struct OMEScheduleStageSelector: View {
     let stages: [OMERecord.Stage]
     @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+
+    @Environment(\.showStageNameLabels) var showStageNameLabels
 
     var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
         if let selectedStageID,
@@ -40,7 +53,7 @@ struct OMEScheduleStageSelector: View {
                 .tag(Optional(stage.id.stageID))
             }
         }
-        .labelsVisibility(.hidden)
+        .labelsVisibility(showStageNameLabels ? .visible : .hidden)
         .padding(.vertical, 8)
         .onAppear {
             selectedStageID = resolvedSelectedStageID
@@ -72,18 +85,23 @@ struct OMEScheduleStageSelector: View {
                                         )
                                 }
 
-                            Text(stage.name)
-                                .font(.caption2)
-                                .lineLimit(1)
-                                .foregroundStyle(
-                                    resolvedSelectedStageID == stage.id.stageID
-                                    ? stage.color.swiftUIColor
-                                    : .secondary
-                                )
+                            if showStageNameLabels {
+                                Text(stage.name)
+                                    .font(.caption2)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.78)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(
+                                        resolvedSelectedStageID == stage.id.stageID
+                                        ? stage.color.swiftUIColor
+                                        : .secondary
+                                    )
+                            }
                         }
-                        .frame(width: 76)
+                        .frame(width: showStageNameLabels ? 112 : 76)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(stage.name)
                 }
             }
             .padding(.horizontal)

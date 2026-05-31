@@ -27,9 +27,10 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
     @State var valueFrames: [PickerValue: CGRect] = [:]
 
     let circleSize: CGFloat = 70
+    let iconOnlyItemWidth: CGFloat = 82
     let itemSpacing: CGFloat = 8
-    let itemWidth: CGFloat = 82
-    let labelHeight: CGFloat = 28
+    let labeledItemWidth: CGFloat = 124
+    let labelHeight: CGFloat = 36
     let scrollContentMargin: CGFloat = 20
 
     @Environment(\.labelsVisibility) var labelVisibility
@@ -125,8 +126,11 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
                         if labelVisibility != .hidden {
                             subview
                                 .font(.caption)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.78)
                                 .multilineTextAlignment(.center)
                                 .labelStyle(.titleOnly)
+                                .frame(width: itemWidth, height: labelHeight, alignment: .top)
                         }
                     }
                     .frame(width: itemWidth)
@@ -215,8 +219,12 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
         return CGFloat(itemCount) * itemWidth + CGFloat(itemCount - 1) * itemSpacing
     }
 
+    private var itemWidth: CGFloat {
+        labelVisibility == .hidden ? iconOnlyItemWidth : labeledItemWidth
+    }
+
     private var scrollHeight: CGFloat {
-        labelVisibility == .hidden ? circleSize : circleSize + labelHeight
+        labelVisibility == .hidden ? circleSize : circleSize + itemSpacing / 2 + labelHeight
     }
 
     private func beginSwitching() {

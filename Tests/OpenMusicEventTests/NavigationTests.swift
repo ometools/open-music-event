@@ -1463,6 +1463,7 @@ struct NavigationTests {
         state.$scheduleViewerState.withLock {
             $0.scheduleMode = .list
             $0.selectedStageID = stageLocalID("main")
+            $0.showStageNameLabels = true
         }
         try await state.$scheduleViewerState.save()
 
@@ -1495,10 +1496,13 @@ struct NavigationTests {
 
         #expect(storedState.scheduleMode == .list)
         #expect(storedState.selectedStageID == stageLocalID("main"))
+        #expect(storedState.showStageNameLabels)
         #expect(restoredState.scheduleMode == .list)
         #expect(restoredState.selectedStageID == stageLocalID("main"))
+        #expect(restoredState.showStageNameLabels)
         #expect(workshopState.scheduleMode == .singleStageAtOnce)
         #expect(workshopState.selectedStageID == nil)
+        #expect(!workshopState.showStageNameLabels)
     }
 
     @Test

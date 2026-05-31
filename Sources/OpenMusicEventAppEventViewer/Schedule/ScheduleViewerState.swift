@@ -205,13 +205,31 @@ struct ScheduleViewerStateRequest: FetchKeyRequest {
     let scheduleDivision: ScheduleViewer.ScheduleDivision
 
     func fetch(_ db: Database) throws -> ScheduleViewerState {
-        try ScheduleViewerState
+        if let state = try ScheduleViewerState
             .rows(eventID: eventID, scheduleDivision: scheduleDivision)
             .fetchOne(db)
-        ?? ScheduleViewerState(
-            eventID: eventID,
-            scheduleDivision: scheduleDivision
+        {
+            return state
+        }
+
+        let showStageNameLabels = try defaultShowStageNameLabels(db)
+        return ScheduleViewerState(
+            id: ScheduleViewerState.ID(
+                eventID: eventID,
+                category: scheduleDivision.id
+            ),
+            showStageNameLabels: showStageNameLabels
         )
+    }
+
+    private func defaultShowStageNameLabels(_ db: Database) throws -> Bool {
+        guard let category = scheduleDivision.category else {
+            return false
+        }
+        let event = try OMERecord.Event
+            .where { $0.id.eq(eventID) }
+            .fetchOne(db)
+        return event?.categoryConfigs?[category]?.showStageNameLabels ?? false
     }
 }
 
