@@ -1,9 +1,11 @@
+import BlueskyActorCache
 import ComposableArchitecture2
 import ATProto
 import Dependencies
 import DebugSnapshots
 import Foundation
 import Observation
+import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import Sharing
@@ -71,6 +73,18 @@ private actor ObservationRecorder<Value: Sendable> {
 
     func record(_ value: Value) {
         recordedValues.append(value)
+    }
+}
+
+private actor BlueskyProfileRequestRecorder {
+    private var recordedActors: [String] = []
+
+    var actors: [String] {
+        recordedActors
+    }
+
+    func record(_ actor: String) {
+        recordedActors.append(actor)
     }
 }
 
@@ -1039,10 +1053,67 @@ struct NavigationTests {
         }
 
         let contributors = try await database.read { db in
-            try ContributorsViewer.contributorsQuery(eventID: selectedEventID).fetchAll(db)
+            try ContributorsViewer.contributorProfilesQuery(eventID: selectedEventID).fetchAll(db)
         }
 
         #expect(contributors.map(\.name) == ["Amy", "Zara"])
+    }
+
+    @Test
+    func contributorProfileUnhydratedDoesNotRequireActorCacheTables() async throws {
+        let database = try makeCoreDatabase()
+        let selectedEventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let date = try #require(LocalDate("2026-08-07"))
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: selectedEventID,
+                contributorID: "speaker-1",
+                name: "Alice"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                contributorID: "speaker-1",
+                contributorActor: actor
+            )
+        }
+
+        let profiles = try await database.read { db in
+            try ContributorProfile
+                .all(eventID: selectedEventID, hydration: .none)
+                .fetchAll(db)
+        }
+
+        let profile = try #require(profiles.first)
+        #expect(profile.name == "Alice")
+        #expect(profile.contributorActor == actor)
+        #expect(profile.handle == nil)
+
+        await #expect(throws: (any Error).self) {
+            try await database.read { db in
+                try ContributorProfile
+                    .all(eventID: selectedEventID, hydration: .bskyActorProfile)
+                    .fetchAll(db)
+            }
+        }
     }
 
     @Test
@@ -1174,6 +1245,261 @@ struct NavigationTests {
 
         #expect(rowContext.lineupOnlyStages.map(\.name) == ["Main"])
         #expect(rowContext.stages.map(\.name) == ["Main", "Meadow", "Tent"])
+    }
+
+    @Test
+    func contributorProfileUsesCachedBlueskyProfileDataForGeneratedActor() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let contributorID = contributorLocalID("schedule-actor-alice.bsky.social")
+        let date = try #require(LocalDate("2026-08-07"))
+        let profile = BlueskyActorProfile(
+            did: "did:plc:alice123",
+            handle: "alice.bsky.social",
+            displayName: "Alice Example",
+            description: "ATProto builder",
+            avatar: URL(string: "https://cdn.example/alice-avatar.jpg"),
+            banner: URL(string: "https://cdn.example/alice-banner.jpg")
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: selectedEventID,
+                contributorID: "schedule-actor-alice.bsky.social",
+                name: "alice.bsky.social"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                contributorID: "schedule-actor-alice.bsky.social",
+                contributorActor: actor
+            )
+            try BlueskyActorProfile.insert { profile }
+                .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: actor.description,
+                    did: profile.did,
+                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                )
+            }
+            .execute(db)
+        }
+
+        let row = try await database.read { db in
+            try #require(
+                ContributorsViewer.contributorRowsQuery(
+                    eventID: selectedEventID,
+                    hydration: .bskyActorProfile
+                )
+                    .fetchAll(db)
+                    .first { $0.contributorID == contributorID }
+            )
+        }
+        let contributorProfile = row.profile
+
+        #expect(contributorProfile.contributorActor == actor)
+        #expect(contributorProfile.usesActorProfileAsPrimary)
+        #expect(contributorProfile.name == "Alice Example")
+        #expect(contributorProfile.handle == "alice.bsky.social")
+        #expect(contributorProfile.subtitle == "@alice.bsky.social")
+        #expect(contributorProfile.bio == "ATProto builder")
+        #expect(contributorProfile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
+        #expect(contributorProfile.artworkCacheContext == nil)
+        #expect(row.matchesSearch("Alice Example"))
+        #expect(row.matchesSearch("alice.bsky.social"))
+    }
+
+    @Test
+    func contributorProfileKeepsExplicitContributorFieldsAheadOfCachedBlueskyProfileData() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let contributorID = contributorLocalID("speaker-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let explicitImageURL = try #require(URL(string: "https://example.com/explicit.jpg"))
+        let profile = BlueskyActorProfile(
+            did: "did:plc:alice123",
+            handle: "alice.bsky.social",
+            displayName: "Bluesky Alice",
+            description: "Bluesky bio",
+            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: selectedEventID,
+                contributorID: "speaker-1",
+                name: "Explicit Alice",
+                bio: "OME bio",
+                imageURL: explicitImageURL,
+                kind: OMERecord.Contributor.Kind("speaker")
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                contributorID: "speaker-1",
+                contributorActor: actor
+            )
+            try BlueskyActorProfile.insert { profile }
+                .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: actor.description,
+                    did: profile.did,
+                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                )
+            }
+            .execute(db)
+        }
+
+        let row = try await database.read { db in
+            try #require(
+                ContributorsViewer.contributorRowsQuery(
+                    eventID: selectedEventID,
+                    hydration: .bskyActorProfile
+                )
+                    .fetchAll(db)
+                    .first { $0.contributorID == contributorID }
+            )
+        }
+        let contributorProfile = row.profile
+
+        #expect(contributorProfile.contributorActor == actor)
+        #expect(!contributorProfile.usesActorProfileAsPrimary)
+        #expect(contributorProfile.name == "Explicit Alice")
+        #expect(contributorProfile.handle == "alice.bsky.social")
+        #expect(contributorProfile.subtitle == "@alice.bsky.social")
+        #expect(contributorProfile.kindDisplayName == "speaker")
+        #expect(contributorProfile.bio == "OME bio")
+        #expect(contributorProfile.artworkAsset?.url == explicitImageURL)
+        #expect(contributorProfile.artworkCacheContext == LocalImageCacheContext(contributorID: row.contributor.id))
+        #expect(row.matchesSearch("Explicit Alice"))
+        #expect(row.matchesSearch("alice.bsky.social"))
+        #expect(!row.matchesSearch("Bluesky Alice"))
+    }
+
+    @Test
+    func contributorsViewerRefreshesGeneratedActorProfilesForListRows() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let contributorID = contributorLocalID("schedule-actor-alice.bsky.social")
+        let date = try #require(LocalDate("2026-08-07"))
+        let profile = BlueskyActorProfile(
+            did: "did:plc:alice123",
+            handle: "alice.bsky.social",
+            displayName: "Alice Example",
+            description: "ATProto builder",
+            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
+        )
+        let requestRecorder = BlueskyProfileRequestRecorder()
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: selectedEventID,
+                contributorID: "schedule-actor-alice.bsky.social",
+                name: "alice.bsky.social"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                contributorID: "schedule-actor-alice.bsky.social",
+                contributorActor: actor
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { _ in nil },
+                refreshProfile: { requestedActor in
+                    await requestRecorder.record(requestedActor)
+                    return profile
+                },
+                refreshProfileIfNeeded: { requestedActor, _, _ in
+                    await requestRecorder.record(requestedActor)
+                    try await database.write { db in
+                        try BlueskyActorProfile.insert { profile }
+                            .execute(db)
+                        try BlueskyActorProfileCacheEntry.insert {
+                            BlueskyActorProfileCacheEntry(
+                                actor: requestedActor,
+                                did: profile.did,
+                                lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                                lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                            )
+                        }
+                        .execute(db)
+                    }
+                    return profile
+                }
+            )
+        } operation: {
+            Store(initialState: ContributorsViewer.State(eventID: selectedEventID)) {
+                ContributorsViewer()
+            }
+        }
+
+        try await waitForContributorListBlueskyProfile(in: store, contributorID: contributorID)
+
+        #expect(await requestRecorder.actors == [actor.description])
+        let row = try #require(store.contributorRows.first { $0.contributorID == contributorID })
+        #expect(row.profile.name == "Alice Example")
+        #expect(row.profile.subtitle == "@alice.bsky.social")
+        #expect(row.profile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
     }
 
     @Test
@@ -2097,6 +2423,243 @@ struct NavigationTests {
     }
 
     @Test
+    func contributorDetailDerivesActorFromMatchingPerformanceContributors() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let contributorID = contributorLocalID("speaker-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: eventID,
+                contributorID: "speaker-1",
+                name: "Alice"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "day-1",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                contributorID: "speaker-1",
+                contributorActor: actor
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: ContributorDetail.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorDetail()
+            }
+        }
+
+        #expect(store.contributorActor == actor)
+        #expect(store.actorProfileLoadRequest?.actor == actor)
+        #expect(!store.usesActorProfileAsPrimary)
+    }
+
+    @Test
+    func generatedActorContributorDisplayUsesBlueskyProfileData() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let contributorID = contributorLocalID("schedule-actor-alice.bsky.social")
+        let date = try #require(LocalDate("2026-08-07"))
+        let profile = BlueskyActorProfile(
+            did: "did:plc:alice123",
+            handle: "alice.bsky.social",
+            displayName: "Alice Example",
+            description: "ATProto builder",
+            avatar: URL(string: "https://cdn.example/alice-avatar.jpg"),
+            banner: URL(string: "https://cdn.example/alice-banner.jpg")
+        )
+        let requestRecorder = BlueskyProfileRequestRecorder()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: eventID,
+                contributorID: "schedule-actor-alice.bsky.social",
+                name: "alice.bsky.social"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "day-1",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                contributorID: "schedule-actor-alice.bsky.social",
+                contributorActor: actor
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { _ in nil },
+                refreshProfile: { requestedActor in
+                    await requestRecorder.record(requestedActor)
+                    return profile
+                },
+                refreshProfileIfNeeded: { requestedActor, _, _ in
+                    await requestRecorder.record(requestedActor)
+                    try await database.write { db in
+                        try BlueskyActorProfile.insert { profile }
+                            .execute(db)
+                        try BlueskyActorProfileCacheEntry.insert {
+                            BlueskyActorProfileCacheEntry(
+                                actor: requestedActor,
+                                did: profile.did,
+                                lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                                lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                            )
+                        }
+                        .execute(db)
+                    }
+                    return profile
+                }
+            )
+        } operation: {
+            Store(initialState: ContributorDetail.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorDetail()
+            }
+        }
+
+        try await waitForBlueskyProfile(in: store)
+
+        #expect(await requestRecorder.actors == [actor.description])
+        #expect(store.contributorActor == actor)
+        #expect(store.usesActorProfileAsPrimary)
+        let contributorProfile = try #require(store.profile)
+        #expect(contributorProfile.name == "Alice Example")
+        #expect(contributorProfile.bio == "ATProto builder")
+        #expect(contributorProfile.handle == "alice.bsky.social")
+        #expect(contributorProfile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
+        #expect(contributorProfile.artworkCacheContext == nil)
+    }
+
+    @Test
+    func explicitContributorDisplayDoesNotGetOverwrittenByBlueskyProfileData() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let contributorID = contributorLocalID("speaker-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let explicitImageURL = try #require(URL(string: "https://example.com/explicit.jpg"))
+        let profile = BlueskyActorProfile(
+            did: "did:plc:alice123",
+            handle: "alice.bsky.social",
+            displayName: "Alice Example",
+            description: "Bluesky bio",
+            avatar: URL(string: "https://cdn.example/alice-avatar.jpg"),
+            banner: URL(string: "https://cdn.example/alice-banner.jpg")
+        )
+        let requestRecorder = BlueskyProfileRequestRecorder()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: eventID,
+                contributorID: "speaker-1",
+                name: "Explicit Alice",
+                bio: "OME bio",
+                imageURL: explicitImageURL
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "day-1",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                contributorID: "speaker-1",
+                contributorActor: actor
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { _ in nil },
+                refreshProfile: { requestedActor in
+                    await requestRecorder.record(requestedActor)
+                    return profile
+                },
+                refreshProfileIfNeeded: { requestedActor, _, _ in
+                    await requestRecorder.record(requestedActor)
+                    try await database.write { db in
+                        try BlueskyActorProfile.insert { profile }
+                            .execute(db)
+                        try BlueskyActorProfileCacheEntry.insert {
+                            BlueskyActorProfileCacheEntry(
+                                actor: requestedActor,
+                                did: profile.did,
+                                lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                                lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                            )
+                        }
+                        .execute(db)
+                    }
+                    return profile
+                }
+            )
+        } operation: {
+            Store(initialState: ContributorDetail.State(contributorID: contributorID, eventID: eventID)) {
+                ContributorDetail()
+            }
+        }
+        try await waitForBlueskyProfile(in: store)
+
+        #expect(await requestRecorder.actors == [actor.description])
+        #expect(store.contributorActor == actor)
+        #expect(!store.usesActorProfileAsPrimary)
+        let contributorProfile = try #require(store.profile)
+        #expect(contributorProfile.name == "Explicit Alice")
+        #expect(contributorProfile.handle == "alice.bsky.social")
+        #expect(contributorProfile.bio == "OME bio")
+        #expect(contributorProfile.artworkAsset?.url == explicitImageURL)
+        #expect(contributorProfile.artworkCacheContext == LocalImageCacheContext(contributorID: contributorProfile.contributor.id))
+    }
+
+    @Test
     func createContributorSavesNewContributor() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -2406,6 +2969,14 @@ struct NavigationTests {
         }
     }
 
+    private func makeCoreDatabase() throws -> any DatabaseWriter {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OMERecord.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        return database
+    }
+
     private func makeSourceDetailStore(
         sourceBaselineID: SourceBaselineRecord.ID,
         database: any DatabaseWriter
@@ -2548,7 +3119,12 @@ struct NavigationTests {
         _ db: Database,
         eventID: OMERecord.Event.ID,
         contributorID: String,
-        name: String
+        name: String,
+        bio: String? = nil,
+        imageURL: URL? = nil,
+        logoURL: URL? = nil,
+        kind: OMERecord.Contributor.Kind? = nil,
+        links: [ExternalPlatform.Link]? = nil
     ) throws {
         try OMERecord.Contributor.insert {
             OMERecord.Contributor.Draft(
@@ -2558,11 +3134,11 @@ struct NavigationTests {
                     contributorID: contributorLocalID(contributorID)
                 ),
                 name: name,
-                bio: nil,
-                imageURL: nil,
-                logoURL: nil,
-                kind: nil,
-                links: nil
+                bio: bio,
+                imageURL: imageURL,
+                logoURL: logoURL,
+                kind: kind,
+                links: links
             )
         }
         .execute(db)
@@ -2603,7 +3179,8 @@ struct NavigationTests {
         _ db: Database,
         eventID: OMERecord.Event.ID,
         performanceID: String,
-        contributorID: String
+        contributorID: String,
+        contributorActor: OMERecord.Contributor.Actor? = nil
     ) throws {
         try OMERecord.Performance.Contributors.insert {
             OMERecord.Performance.Contributors.Draft(
@@ -2611,7 +3188,8 @@ struct NavigationTests {
                 eventID: eventID.eventID,
                 performanceID: performanceLocalID(performanceID),
                 contributorID: contributorLocalID(contributorID),
-                anonymousName: nil
+                anonymousName: nil,
+                contributorActor: contributorActor
             )
         }
         .execute(db)
@@ -2677,6 +3255,35 @@ struct NavigationTests {
             )
         }
         .execute(db)
+    }
+
+    private func waitForBlueskyProfile(
+        in store: StoreOf<ContributorDetail>
+    ) async throws {
+        for _ in 0..<100 {
+            if store.profile?.handle != nil { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(store.profile?.handle != nil)
+    }
+
+    private func waitForContributorListBlueskyProfile(
+        in store: StoreOf<ContributorsViewer>,
+        contributorID: OMERecord.ID<OMERecord.Contributor>
+    ) async throws {
+        for _ in 0..<100 {
+            if store.contributorRows.first(where: { $0.contributorID == contributorID })?
+                .profile.handle != nil {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(
+            store.contributorRows.first(where: { $0.contributorID == contributorID })?
+                .profile.handle != nil
+        )
     }
 
     private func makeRootHarnessStore(

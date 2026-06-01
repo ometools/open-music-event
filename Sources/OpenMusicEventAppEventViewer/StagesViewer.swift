@@ -1,3 +1,4 @@
+import BlueskyActorCache
 import ComposableForms
 import ComposableArchitecture2
 import Dependencies
@@ -216,7 +217,7 @@ public struct StageDetail {
         public var destination: Destination.State?
 
         @FetchOne public var stage: OMERecord.Stage?
-        @FetchAll public var contributors: [OMERecord.Contributor]
+        @FetchAll var contributors: [ContributorProfile]
 
         public init(
             stageID: OMERecord.ID<OMERecord.Stage>,
@@ -233,18 +234,25 @@ public struct StageDetail {
                 )
             )
             _contributors = FetchAll(
-                ContributorsViewer.contributorsQuery(eventID: self.eventID)
+                ContributorsViewer.contributorProfilesQuery(
+                    eventID: self.eventID,
+                    hydration: .bskyActorProfile
+                )
             )
         }
 
         public var id: OMERecord.ID<OMERecord.Stage> { stageID }
 
-        public var lineupContributors: [OMERecord.Contributor] {
+        var lineupContributors: [ContributorProfile] {
             guard let lineup = stage?.lineup, !lineup.isEmpty else { return [] }
             let contributorsByID = Dictionary(
-                uniqueKeysWithValues: contributors.map { ($0.id.contributorID, $0) }
+                uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
             )
             return lineup.compactMap { contributorsByID[$0] }
+        }
+
+        var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
+            lineupContributors.actorProfileLoadRequests
         }
     }
 
@@ -257,6 +265,8 @@ public struct StageDetail {
     public enum Destination {
         case editStage(Spawn<EditStage>)
     }
+
+    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
 
     static func stageQuery(
         stageID: OMERecord.ID<OMERecord.Stage>,
@@ -289,6 +299,24 @@ public struct StageDetail {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
+        }
+        .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
+            guard !requests.isEmpty else { return }
+
+            store.addTask {
+                for request in requests {
+                    do {
+                        _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                            request.actor.description,
+                            24 * 60 * 60,
+                            15 * 60
+                        )
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                    }
+                }
+            }
         }
     }
 }
@@ -333,7 +361,7 @@ public struct StageDetailView: View {
                     if !store.lineupContributors.isEmpty {
                         Section("Lineup") {
                             ForEach(store.lineupContributors) { contributor in
-                                ContributorsRowView(contributor: contributor)
+                                ContributorsRowView(profile: contributor)
                             }
                         }
                     }

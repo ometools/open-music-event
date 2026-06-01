@@ -1,37 +1,6 @@
 import Foundation
 import OpenMusicEventDatabase
-import SQLiteData
 import SwiftUI
-
-@Selection
-struct ContributorListRow: Identifiable, Sendable {
-    let contributor: OMERecord.Contributor
-    @Column(as: [OMERecord.Stage].JSONRepresentation.self)
-    let scheduledStages: [OMERecord.Stage]
-    @Column(as: [OMERecord.Stage].JSONRepresentation.self)
-    let eventStages: [OMERecord.Stage]
-
-    var id: OMERecord.Contributor.ID {
-        contributor.id
-    }
-
-    var contributorID: OMERecord.ID<OMERecord.Contributor> {
-        contributor.id.contributorID
-    }
-
-    var stageContext: ContributorStageContext {
-        ContributorStageContext(
-            contributorID: contributorID,
-            scheduledStages: scheduledStages,
-            stages: eventStages
-        )
-    }
-
-    func matchesSearch(_ query: String) -> Bool {
-        contributor.name.localizedStandardContains(query)
-            || contributor.kind?.rawValue.localizedStandardContains(query) == true
-    }
-}
 
 struct ContributorStageContext {
     let contributorID: OMERecord.ID<OMERecord.Contributor>

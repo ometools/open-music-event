@@ -1,3 +1,4 @@
+import BlueskyActorCache
 import ATProto
 import Dependencies
 import Foundation
@@ -81,6 +82,35 @@ struct SourcePatchInvalidationTests {
         ))
     }
 
+    @Test
+    func blueskyActorCacheWritesDoNotPublishSourceInvalidations() async throws {
+        let database = try makePreparedDatabase()
+        let invalidations = try installSourcePatchInvalidations(in: database)
+        let invalidationTask = nextInvalidationTask(from: invalidations.stream())
+
+        try await database.write { db in
+            try BlueskyActorProfile.insert {
+                BlueskyActorProfile(
+                    did: "did:plc:alice123",
+                    handle: "alice.bsky.social",
+                    displayName: "Alice Example"
+                )
+            }
+            .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: "alice.bsky.social",
+                    did: "did:plc:alice123",
+                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                )
+            }
+            .execute(db)
+        }
+
+        try await expectNoInvalidation(from: invalidationTask)
+    }
+
     private func installSourcePatchInvalidations(
         in database: any DatabaseWriter
     ) throws -> SourcePatchInvalidations {
@@ -98,6 +128,7 @@ struct SourcePatchInvalidationTests {
             let database = try SQLiteData.defaultDatabase()
             var migrator = DatabaseMigrator()
             OME.DatabaseMigrations.register(into: &migrator)
+            BlueskyActorCacheMigrations.register(into: &migrator)
             try migrator.migrate(database)
             return database
         }
@@ -196,6 +227,26 @@ private func nextInvalidation(
 }
 
 private struct SourcePatchInvalidationTimedOut: Error {}
+
+private func expectNoInvalidation(
+    from task: Task<SourcePatchInvalidation?, Never>
+) async throws {
+    try await withThrowingTaskGroup(of: SourcePatchInvalidation?.self) { group in
+        group.addTask {
+            await task.value
+        }
+        group.addTask {
+            try await Task.sleep(for: .milliseconds(100))
+            return nil
+        }
+
+        let result = try await group.next()
+        group.cancelAll()
+        task.cancel()
+        guard let invalidation = result else { return }
+        #expect(invalidation == nil)
+    }
+}
 
 private func localID<Record>(_ string: String) -> OME.ID<Record> {
     OME.ID<Record>(.init(string))

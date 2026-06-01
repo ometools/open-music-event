@@ -1,3 +1,4 @@
+import BlueskyActorCache
 import ComposableForms
 import ComposableArchitecture2
 import Dependencies
@@ -20,7 +21,10 @@ public struct ContributorsViewer {
             self.eventID = eventID
             self.destination = destination
             _contributorRows = FetchAll(
-                ContributorsViewer.contributorRowsQuery(eventID: eventID)
+                ContributorsViewer.contributorRowsQuery(
+                    eventID: eventID,
+                    hydration: .bskyActorProfile
+                )
             )
         }
 
@@ -37,6 +41,10 @@ public struct ContributorsViewer {
 
             return contributorRows.filter { $0.matchesSearch(query) }
         }
+
+        var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
+            contributorRows.map(\.profile).actorProfileLoadRequests
+        }
     }
 
     public enum Action {
@@ -51,81 +59,20 @@ public struct ContributorsViewer {
         case contributorDetail(Spawn<ContributorDetail>)
     }
 
-    static func contributorsQuery(
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Contributor> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { $0.name.collate(.nocase) }
+    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+
+    static func contributorProfilesQuery(
+        eventID: OMERecord.Event.ID,
+        hydration: ContributorProfile.Hydration = .none
+    ) -> some Statement<ContributorProfile> {
+        ContributorProfile.all(eventID: eventID, hydration: hydration)
     }
 
     static func contributorRowsQuery(
-        eventID: OMERecord.Event.ID
+        eventID: OMERecord.Event.ID,
+        hydration: ContributorProfile.Hydration = .none
     ) -> some Statement<ContributorListRow> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .order { $0.name.collate(.nocase) }
-            .leftJoin(OMERecord.Stage.all) { contributor, stage in
-                stage.id.organizerID.eq(eventID.organizerID)
-                    .and(stage.id.eventID.eq(eventID.eventID))
-            }
-            .group(by: { contributor, _ in
-                contributor.id
-            })
-            .select { (
-                contributor: OMERecord.Contributor.TableColumns,
-                stage: (OMERecord.Stage?).TableColumns
-            ) -> ContributorListRow.Columns in
-                let isScheduledStage = #sql(
-                    """
-                    EXISTS (
-                      SELECT 1
-                      FROM "performances"
-                      JOIN "performanceContributors"
-                        ON "performanceContributors"."organizerID" = "performances"."organizerID"
-                        AND "performanceContributors"."eventID" = "performances"."eventID"
-                        AND "performanceContributors"."performanceID" = "performances"."performanceID"
-                      WHERE "performances"."organizerID" = \(eventID.organizerID)
-                        AND "performances"."eventID" = \(eventID.eventID)
-                        AND "performances"."stageID" = "stages"."stageID"
-                        AND "performanceContributors"."contributorID" = "contributors"."contributorID"
-                    )
-                    """,
-                    as: Bool.self
-                )
-
-                let scheduledStages = stage.jsonGroupArray(
-                    distinct: true,
-                    filter: isScheduledStage
-                )
-                let eventStages = stage.jsonGroupArray(distinct: true)
-                return Self.contributorListRowColumns(
-                    contributor: contributor,
-                    scheduledStages: scheduledStages,
-                    eventStages: eventStages
-                )
-            }
-    }
-
-    private static func contributorListRowColumns<
-        ScheduledStages: QueryExpression,
-        EventStages: QueryExpression
-    >(
-        contributor: OMERecord.Contributor.TableColumns,
-        scheduledStages: ScheduledStages,
-        eventStages: EventStages
-    ) -> ContributorListRow.Columns
-    where
-        ScheduledStages.QueryValue == [OMERecord.Stage].JSONRepresentation,
-        EventStages.QueryValue == [OMERecord.Stage].JSONRepresentation
-    {
-        ContributorListRow.Columns(
-            contributor: contributor,
-            scheduledStages: scheduledStages,
-            eventStages: eventStages
-        )
+        ContributorListRow.all(eventID: eventID, hydration: hydration)
     }
 
     static func performanceContributorsQuery(
@@ -154,6 +101,24 @@ public struct ContributorsViewer {
                     state.destination = .contributorDetail(
                         Spawn(.init(contributorID: contributorID, eventID: state.eventID))
                     )
+                }
+            }
+        }
+        .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
+            guard !requests.isEmpty else { return }
+
+            store.addTask {
+                for request in requests {
+                    do {
+                        _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                            request.actor.description,
+                            24 * 60 * 60,
+                            15 * 60
+                        )
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                    }
                 }
             }
         }
@@ -229,7 +194,7 @@ struct ContributorListButton: View {
             contributorButtonTapped(row.contributorID)
         } label: {
             ContributorsRowView(
-                contributor: row.contributor,
+                profile: row.profile,
                 stageContext: row.stageContext
             )
         }
@@ -238,22 +203,30 @@ struct ContributorListButton: View {
 }
 
 struct ContributorsRowView: View {
-    let contributor: OMERecord.Contributor
+    let profile: ContributorProfile
     let stageContext: ContributorStageContext?
+
+    init(
+        profile: ContributorProfile,
+        stageContext: ContributorStageContext? = nil
+    ) {
+        self.profile = profile
+        self.stageContext = stageContext
+    }
 
     init(
         contributor: OMERecord.Contributor,
         stageContext: ContributorStageContext? = nil
     ) {
-        self.contributor = contributor
+        self.profile = ContributorProfile(contributor: contributor)
         self.stageContext = stageContext
     }
 
     var body: some View {
         HStack(spacing: 12) {
             ContributorArtworkView(
-                asset: contributor.preferredArtworkAsset,
-                cacheContext: .init(contributorID: contributor.id),
+                asset: profile.artworkAsset,
+                cacheContext: profile.artworkCacheContext,
                 size: 60
             )
 
@@ -265,11 +238,11 @@ struct ContributorsRowView: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(contributor.name)
+                Text(profile.name)
                     .lineLimit(1)
 
-                if let kind = contributor.kind?.displayName {
-                    Text(kind)
+                if let subtitle = profile.subtitle {
+                    Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -292,7 +265,7 @@ public struct ContributorDetail {
         public let eventID: OMERecord.Event.ID
         public var destination: Destination.State?
 
-        @FetchOne public var contributor: OMERecord.Contributor?
+        @FetchOne var profile: ContributorProfile?
 
         public init(
             contributorID: OMERecord.ID<OMERecord.Contributor>,
@@ -302,10 +275,11 @@ public struct ContributorDetail {
 
             self.contributorID = contributorID
             self.eventID = eventID ?? defaultEventID
-            _contributor = FetchOne(
-                ContributorDetail.contributorQuery(
+            _profile = FetchOne(
+                ContributorProfile.one(
                     contributorID: contributorID,
-                    eventID: self.eventID
+                    eventID: self.eventID,
+                    hydration: .bskyActorProfile
                 )
             )
             _performanceContributors = FetchAll(
@@ -325,6 +299,10 @@ public struct ContributorDetail {
         @FetchAll public var performances: [OMERecord.Performance]
         @FetchAll public var stages: [OMERecord.Stage]
 
+        var contributor: OMERecord.Contributor? {
+            profile?.contributor
+        }
+
         var stageContext: ContributorStageContext {
             ContributorStageContext(
                 contributorID: contributorID,
@@ -332,6 +310,18 @@ public struct ContributorDetail {
                 performances: performances,
                 stages: stages
             )
+        }
+
+        var actorProfileLoadRequest: ContributorProfile.ActorProfileLoadRequest? {
+            profile?.actorProfileLoadRequest
+        }
+
+        var contributorActor: OMERecord.Contributor.Actor? {
+            profile?.contributorActor
+        }
+
+        var usesActorProfileAsPrimary: Bool {
+            profile?.usesActorProfileAsPrimary ?? false
         }
     }
 
@@ -344,6 +334,8 @@ public struct ContributorDetail {
     public enum Destination {
         case editContributor(Spawn<EditContributor>)
     }
+
+    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
 
     static func contributorQuery(
         contributorID: OMERecord.ID<OMERecord.Contributor>,
@@ -374,6 +366,21 @@ public struct ContributorDetail {
                 }
             }
         }
+        .onChange(of: store.actorProfileLoadRequest, initial: true) { _, request, _ in
+            guard let request else { return }
+
+            store.addTask {
+                do {
+                    _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                        request.actor.description,
+                        24 * 60 * 60,
+                        15 * 60
+                    )
+                } catch is CancellationError {
+                } catch {
+                }
+            }
+        }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
         }
@@ -389,9 +396,9 @@ public struct ContributorDetailView: View {
 
     public var body: some View {
         Group {
-            if let contributor = store.contributor {
+            if let profile = store.profile {
                 ContributorDetailContentView(
-                    contributor: contributor,
+                    profile: profile,
                     stageContext: store.state.stageContext
                 ) {
                     store.send(.editButtonTapped)
@@ -1000,7 +1007,7 @@ public struct EditableContributorLink: Identifiable, Equatable {
 
 struct ContributorArtworkView: View {
     let asset: OMERecord.ImageAsset?
-    let cacheContext: LocalImageCacheContext
+    let cacheContext: LocalImageCacheContext?
     let size: CGFloat
 
     var body: some View {
@@ -1052,6 +1059,19 @@ extension OMERecord.Contributor {
     var displayBio: String? {
         let bio = bio?.trimmingCharacters(in: .whitespacesAndNewlines)
         return bio?.isEmpty == false ? bio : nil
+    }
+
+    func isGeneratedScheduleActorContributor(
+        actor: OMERecord.Contributor.Actor
+    ) -> Bool {
+        let hasImages = images?.isEmpty == false
+        let hasLinks = links?.isEmpty == false
+        return id.contributorID.rawValue.rawValue.hasPrefix("schedule-actor-")
+            && name == actor.description
+            && displayBio == nil
+            && !hasImages
+            && kind == nil
+            && !hasLinks
     }
 }
 

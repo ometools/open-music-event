@@ -1,3 +1,4 @@
+import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -474,7 +475,8 @@ public struct PerformanceDetail {
             _contributors = FetchAll(
                 PerformanceDetail.contributorsQuery(
                     performanceID: performanceID,
-                    eventID: self.eventID
+                    eventID: self.eventID,
+                    hydration: .bskyActorProfile
                 )
             )
             _performance = FetchOne(
@@ -491,7 +493,7 @@ public struct PerformanceDetail {
         public let eventID: OMERecord.Event.ID
         public let performanceID: OMERecord.ID<OMERecord.Performance>
 
-        @FetchAll public var contributors: [OMERecord.Contributor]
+        @FetchAll var contributors: [ContributorProfile]
         @FetchOne public var performance: OMERecord.Performance?
         @FetchAll public var stages: [OMERecord.Stage]
 
@@ -501,26 +503,26 @@ public struct PerformanceDetail {
             guard let performance else { return nil }
             return stages.first { $0.id.stageID == performance.stageID }
         }
+
+        var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
+            contributors.actorProfileLoadRequests
+        }
     }
 
     public enum Action {}
 
+    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+
     static func contributorsQuery(
         performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Contributor> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { contributor in
-                OMERecord.Performance.Contributors
-                    .where { $0.organizerID.eq(eventID.organizerID) }
-                    .where { $0.eventID.eq(eventID.eventID) }
-                    .where { $0.performanceID.eq(performanceID) }
-                    .where { $0.contributorID.eq(contributor.id.contributorID) }
-                    .exists()
-            }
-            .order { $0.name.collate(.nocase) }
+        eventID: OMERecord.Event.ID,
+        hydration: ContributorProfile.Hydration = .none
+    ) -> some Statement<ContributorProfile> {
+        ContributorProfile.forPerformance(
+            performanceID: performanceID,
+            eventID: eventID,
+            hydration: hydration
+        )
     }
 
     static func performanceQuery(
@@ -535,6 +537,24 @@ public struct PerformanceDetail {
 
     public var body: some Feature {
         Update { _, _ in }
+            .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
+                guard !requests.isEmpty else { return }
+
+                store.addTask {
+                    for request in requests {
+                        do {
+                            _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                                request.actor.description,
+                                24 * 60 * 60,
+                                15 * 60
+                            )
+                        } catch is CancellationError {
+                            return
+                        } catch {
+                        }
+                    }
+                }
+            }
     }
 }
 
@@ -563,7 +583,7 @@ public struct PerformanceDetailView: View {
                     if !store.contributors.isEmpty {
                         Section("Contributors") {
                             ForEach(store.contributors) { contributor in
-                                ContributorsRowView(contributor: contributor)
+                                ContributorsRowView(profile: contributor)
                             }
                         }
                     }

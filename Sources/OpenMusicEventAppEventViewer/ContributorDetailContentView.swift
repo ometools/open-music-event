@@ -3,20 +3,21 @@ import OpenMusicEventImages
 import SwiftUI
 
 struct ContributorDetailContentView: View {
-    let contributor: OMERecord.Contributor
+    let profile: ContributorProfile
     let stageContext: ContributorStageContext
     let editButtonTapped: () -> Void
 
     var body: some View {
         HeroImageList(
-            title: Text(contributor.name),
-            showsNavigationTitleBeforeScroll: logoAsset != nil
+            title: Text(profile.name),
+            showsNavigationTitleBeforeScroll: profile.logoAsset != nil
         ) {
             HeroImage(
-                title: Text(contributor.name),
-                asset: contributor.preferredArtworkAsset,
-                cacheContext: .init(contributorID: contributor.id),
-                logoAsset: logoAsset,
+                title: Text(profile.name),
+                asset: profile.artworkAsset,
+                cacheContext: profile.artworkCacheContext,
+                logoAsset: profile.logoAsset,
+                logoCacheContext: profile.logoCacheContext,
                 tint: stageContext.primaryStage?.color.swiftUIColor ?? .accentColor
             ) {
                 Image(systemName: "person.crop.square")
@@ -24,7 +25,8 @@ struct ContributorDetailContentView: View {
             }
         } content: {
             ContributorDetailSectionsView(
-                contributor: contributor,
+                bio: profile.bio,
+                contributor: profile.contributor,
                 stageContext: stageContext
             )
         }
@@ -34,13 +36,10 @@ struct ContributorDetailContentView: View {
             }
         }
     }
-
-    private var logoAsset: OMERecord.ImageAsset? {
-        contributor.images?.imageAsset(role: .logo)
-    }
 }
 
 struct ContributorDetailSectionsView: View {
+    let bio: String?
     let contributor: OMERecord.Contributor
     let stageContext: ContributorStageContext
 
@@ -54,7 +53,7 @@ struct ContributorDetailSectionsView: View {
         ContributorScheduleSection(stageContext: stageContext)
         ContributorStageLineupsSection(stages: stageContext.lineupOnlyStages)
 
-        if let bio = contributor.displayBio {
+        if let bio {
             Section("About") {
                 Text(bio)
             }

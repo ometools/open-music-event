@@ -1,3 +1,4 @@
+import BlueskyActorCache
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -55,6 +56,7 @@ extension DependencyValues {
         migrator.eraseDatabaseOnSchemaChange = true
         #endif
         OME.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
         registerOpenMusicEventAppMigrations(into: &migrator)
 
         try migrator.migrate(database)

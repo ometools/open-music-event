@@ -8,6 +8,7 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v15)],
     products: [
         .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
+        .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
         .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
         .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
@@ -58,6 +59,7 @@ let package = Package(
         .target(
             name: "OpenMusicEvent",
             dependencies: [
+                "BlueskyActorCache",
                 "ErrorHandling",
                 "OpenMusicEventAppEventViewer",
                 "OpenMusicEventAuthentication",
@@ -96,6 +98,7 @@ let package = Package(
         .target(
             name: "OpenMusicEventAppEventViewer",
             dependencies: [
+                "BlueskyActorCache",
                 "ErrorHandling",
                 "LiquidGlassSegmentedPicker",
                 "OpenMusicEventDatabase",
@@ -107,6 +110,7 @@ let package = Package(
                 "ScheduleComponents",
                 "SourceEditing",
                 "SwiftUITabFeatures",
+                .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ATProtoOAuth", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "ComposableForms", package: "tca26-forms"),
@@ -115,6 +119,7 @@ let package = Package(
                 .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
                 .product(name: "TCATProtoAuthentication", package: "tcatproto"),
+                .product(name: "XRPCClient", package: "tcatproto"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),
@@ -126,6 +131,15 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "BlueskyActorCache",
+            dependencies: [
+                .product(name: "ATProto", package: "tcatproto"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "XRPCClient", package: "tcatproto"),
+            ]
         ),
         .target(
             name: "ErrorHandling",
@@ -257,6 +271,18 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "BlueskyActorCacheTests",
+            dependencies: [
+                "BlueskyActorCache",
+                .product(name: "CustomDump", package: "swift-custom-dump"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "XRPCClient", package: "tcatproto"),
+            ]
+        ),
+        .testTarget(
             name: "OpenMusicEventCLITests",
             dependencies: [
                 "OpenMusicEventSourceClone",
@@ -289,6 +315,7 @@ let package = Package(
         .testTarget(
             name: "OpenMusicEventTests",
             dependencies: [
+                "BlueskyActorCache",
                 "ErrorHandling",
                 "OpenMusicEvent",
                 "OpenMusicEventAuthentication",
