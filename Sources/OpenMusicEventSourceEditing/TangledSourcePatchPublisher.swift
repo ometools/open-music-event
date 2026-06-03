@@ -44,7 +44,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         let createdAt = Self.iso8601String(createdAtDate)
         let patchText = try Self.formatPatchText(
             diffData: codec.format(preparedPatch.request.patch),
-            repositoryURL: preparedPatch.workingTree.originalRepositoryURL,
+            sourceRevision: commit.id.rawValue,
             title: defaultTitle,
             createdAt: createdAtDate
         )
@@ -52,7 +52,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         let patchBlob = try await uploadPatchBlob(patchData)
         let description = preparedPatch.request.description
         let record = TangledRepoPullRecord(
-            body: description,
+            body: description ?? "",
             createdAt: createdAt,
             patch: Self.legacyPatchText(patchText),
             patchBlob: patchBlob,
@@ -69,7 +69,7 @@ public struct TangledSourcePatchPublisher: Sendable {
             ),
             target: TangledRepoPullRecord.Target(
                 branch: targetBranch,
-                repo: targetRepository.recordURI,
+                repo: targetRepository.repoDID,
                 repoDID: targetRepository.repoDID
             ),
             title: defaultTitle
@@ -277,7 +277,7 @@ private extension TangledSourcePatchPublisher {
 
     static func formatPatchText(
         diffData: Data,
-        repositoryURL: URL,
+        sourceRevision: String,
         title: String,
         createdAt: Date
     ) throws -> String {
@@ -285,8 +285,6 @@ private extension TangledSourcePatchPublisher {
             throw SourcePatchGitPatchCodecError.binaryPatch
         }
 
-        let sourceRevision = gitHEADSHA(in: repositoryURL)
-            ?? "0000000000000000000000000000000000000000"
         let subject = title
             .replacingOccurrences(of: "\r", with: " ")
             .replacingOccurrences(of: "\n", with: " ")
@@ -322,70 +320,6 @@ private extension TangledSourcePatchPublisher {
 
     static func legacyPatchText(_ patchText: String) -> String? {
         patchText.utf8.count <= 256_000 ? patchText : nil
-    }
-
-    static func gitHEADSHA(in repositoryURL: URL) -> String? {
-        let fileManager = FileManager.default
-        let dotGitURL = repositoryURL.appending(path: ".git")
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: dotGitURL.path, isDirectory: &isDirectory) else {
-            return nil
-        }
-
-        let gitDirectoryURL: URL
-        if isDirectory.boolValue {
-            gitDirectoryURL = dotGitURL
-        } else if let contents = try? String(contentsOf: dotGitURL, encoding: .utf8),
-                  contents.hasPrefix("gitdir:") {
-            let path = contents
-                .dropFirst("gitdir:".count)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            gitDirectoryURL = URL(fileURLWithPath: path, relativeTo: repositoryURL)
-                .standardizedFileURL
-        } else {
-            return nil
-        }
-
-        guard let head = try? String(
-            contentsOf: gitDirectoryURL.appending(path: "HEAD"),
-            encoding: .utf8
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        else { return nil }
-
-        if isGitSHA(head) { return head }
-        guard head.hasPrefix("ref:") else { return nil }
-
-        let ref = head
-            .dropFirst("ref:".count)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let sha = try? String(
-            contentsOf: gitDirectoryURL.appending(path: ref),
-            encoding: .utf8
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines),
-           isGitSHA(sha) {
-            return sha
-        }
-
-        guard let packedRefs = try? String(
-            contentsOf: gitDirectoryURL.appending(path: "packed-refs"),
-            encoding: .utf8
-        ) else { return nil }
-        for line in packedRefs.split(separator: "\n") {
-            guard !line.hasPrefix("#"), !line.hasPrefix("^") else { continue }
-            let fields = line.split(separator: " ", maxSplits: 1).map(String.init)
-            if fields.count == 2, fields[1] == ref, isGitSHA(fields[0]) {
-                return fields[0]
-            }
-        }
-        return nil
-    }
-
-    static func isGitSHA(_ value: String) -> Bool {
-        value.utf8.count == 40 && value.utf8.allSatisfy { byte in
-            (48...57).contains(byte) || (97...102).contains(byte)
-        }
     }
 }
 

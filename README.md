@@ -1,51 +1,112 @@
 # OpenMusicEvent
 
-This is a [Skip](https://skip.dev) dual-platform app project.
+OpenMusicEvent is a native iOS and Android app for music-event calendars.
+It gives organizers and attendees a structured view of events, stages, schedules,
+performances, contributors, locations, images, and event-specific details.
 
+The app is built from one Swift codebase. The SwiftUI surface runs natively on
+iOS and is translated to Android with Skip. Event data is modeled in Swift,
+persisted locally, and can be imported from organizer-owned source repositories.
 
-<!-- TODO: add iOS screenshots to fastlane metadata
-## iPhone Screenshots
+> [!WARNING]
+> OpenMusicEvent is under active development. The app is already useful for
+> modeling events, browsing schedules, validating source repositories, and
+> experimenting with source-backed editing, but the source format and app
+> workflows are still settling.
 
-<img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/1_en-US.png" style="width: 18%" /> <img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/2_en-US.png" style="width: 18%" /> <img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/3_en-US.png" style="width: 18%" /> <img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/4_en-US.png" style="width: 18%" /> <img alt="iPhone Screenshot" src="Darwin/fastlane/screenshots/en-US/5_en-US.png" style="width: 18%" />
--->
+## Current Capabilities
 
-<!-- TODO: add Android screenshots to fastlane metadata
-## Android Screenshots
+- Browse calendars and event rows with event artwork.
+- Open an event into dedicated views for info, schedules, stages, contributors,
+  posters, location, communications, notifications, and settings.
+- Edit event details, stages, calendars, policies, images, and source-backed
+  proposals from inside the app.
+- Import and validate OpenMusicEvent source repositories, including Tangled
+  repository references.
+- Authenticate with ATProto OAuth and use ATProto/Tangled infrastructure where
+  it belongs: identity, source ownership, source download, and source publishing.
 
-<img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/1_en-US.png" style="width: 18%" /> <img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/2_en-US.png" style="width: 18%" /> <img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/3_en-US.png" style="width: 18%" /> <img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/4_en-US.png" style="width: 18%" /> <img alt="Android Screenshot" src="Android/fastlane/metadata/android/en-US/images/phoneScreenshots/5_en-US.png" style="width: 18%" />
--->
+## Repo Layout
 
-## Building
+- `Sources/OpenMusicEvent` contains the app root, routing, settings, source
+  download flow, and shared app dependency setup.
+- `Sources/OpenMusicEventAppEventViewer` contains the event viewer feature:
+  event info, schedules, stages, contributors, editing flows, and source proposal
+  UI.
+- `Sources/OpenMusicEventLexicon` defines the core domain records:
+  `Organizer`, `Calendar`, `Event`, `Stage`, `Schedule`, `Performance`,
+  `Contributor`, posters, channels, images, policies, and supporting value types.
+- `Sources/OpenMusicEventSource` parses and validates source repository files
+  into the domain model.
+- `Sources/OpenMusicEventDatabase` owns the local database layer, image storage,
+  source provenance, and import insertion.
+- `Sources/OpenMusicEventSourceEditing` and `Sources/SourceEditing` generate,
+  apply, and publish source patches.
+- `Sources/OpenMusicEventAuthentication` wires ATProto OAuth into the app.
+- `Sources/OpenMusicEventCLI` exposes the `ome` command-line tools.
 
-This project is both a stand-alone Swift Package Manager module,
-as well as an Xcode project that builds and translates the project
-into a Kotlin Gradle project for Android using the skipstone plugin.
+Smaller modules such as `ScheduleComponents`, `OpenMusicEventImages`,
+`OpenMusicEventTimeZones`, `SwiftUITabFeatures`, and `BlueskyActorCache` keep
+shared UI and infrastructure code out of the main app target.
 
 ## Running
 
-Xcode and Android Studio must be downloaded and installed in order to
-run the app in the iOS simulator / Android emulator.
-An Android emulator must already be running, which can be launched from
-Android Studio's Device Manager.
+Open the workspace:
 
-The project can be opened and run in Xcode from
-`Project.xcworkspace`, which also enabled parallel
-development of any Skip libary dependencies.
+```sh
+open /Users/woody/Developer/ometools/new/open-music-event/Project.xcworkspace
+```
 
-To run both the Swift and Kotlin apps simultaneously,
-launch the "OpenMusicEvent App" target from Xcode.
-A build phases runs the "Launch Android APK" script that
-will deploy the Skip app to a running Android emulator or connected device.
-Logging output for the iOS app can be viewed in the Xcode console, and in
-Android Studio's logcat tab for the transpiled Kotlin app, or
-using `adb logcat` from a terminal.
+Run the `OpenMusicEvent App` target from Xcode.
+
+For Android, have Android Studio installed and an emulator or device running.
+The Skip build phases translate and deploy the Android app from the shared Swift
+sources. iOS logs appear in Xcode; Android logs are available in Android Studio
+or with `adb logcat`.
+
+## CLI and Source Validation
+
+The package builds an `ome` executable for source repository workflows:
+
+```sh
+swift run ome source validate <source> --organizer-id <did> --verbose
+```
+
+`<source>` can be a local OpenMusicEvent source repository root or a supported
+Tangled repository reference. The validator parses the source tree, checks its
+event files, imports valid records into the default local database, and prints a
+summary.
 
 ## Testing
 
-The module can be tested using the standard `swift test` command
-or by running the test target for the macOS destination in Xcode,
-which will run the Swift tests as well as the transpiled
-Kotlin JUnit tests in the Robolectric Android simulation environment.
+Run the package test suite with:
 
-Parity testing can be performed with `skip test`,
-which will output a table of the test results for both platforms.
+```sh
+swift test
+```
+
+For narrower compile checks while working on a module, build a specific target:
+
+```sh
+swift build --target OpenMusicEventSource
+swift build --target OpenMusicEventAppEventViewer
+swift build --target SwiftUITabFeaturesTests
+```
+
+Skip parity checks can be run with:
+
+```sh
+skip test
+```
+
+## Development Notes
+
+The app favors direct Swift domain modeling, small feature modules, and explicit
+dependencies. Point-Free libraries are used where they carry their weight:
+ComposableArchitecture2 for feature state and actions, Dependencies for
+environment control, Sharing for shared state, SQLiteData/GRDB for persistence,
+and CustomDump for focused assertions.
+
+The first frame is the native app. ATProto, Tangled, source repositories, and
+Skip are supporting infrastructure for identity, distribution, editing, and
+cross-platform delivery.

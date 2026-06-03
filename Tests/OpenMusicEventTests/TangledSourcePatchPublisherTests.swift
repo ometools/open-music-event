@@ -1,5 +1,6 @@
 import ATProto
 import ATProtoOAuth
+import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import Foundation
@@ -44,7 +45,7 @@ struct TangledSourcePatchPublisherTests {
             ),
             target: TangledRepoPullRecord.Target(
                 branch: "main",
-                repo: "at://did:plc:owner123/sh.tangled.repo/3repo",
+                repo: "did:plc:targetrepo",
                 repoDID: "did:plc:targetrepo"
             ),
             title: "Update event source"
@@ -59,7 +60,12 @@ struct TangledSourcePatchPublisherTests {
         #expect(json["patch"] as? String == "diff --git a/event.yml b/event.yml\n")
         #expect(json["patchBlob"] != nil)
         let rounds = try #require(json["rounds"] as? [[String: Any]])
+        #expect(!rounds.isEmpty)
         #expect(rounds.first?["patchBlob"] != nil)
+        let target = try #require(json["target"] as? [String: Any])
+        let targetRepo = try #require(target["repo"] as? String)
+        expectNoDifference(targetRepo, "did:plc:targetrepo")
+        #expect(DID(targetRepo) != nil)
     }
 
     @Test
@@ -286,7 +292,7 @@ struct TangledSourcePatchPublisherTests {
         let uploadBody = try #require(uploadRequest.body)
         let uploadedPatch = String(decoding: try uploadBody.gunzipped(), as: UTF8.self)
         #expect(uploadedPatch.utf8.count > 256_000)
-        #expect(uploadedPatch.hasPrefix("From \(sourceSHA) Mon Sep 17 00:00:00 2001\n"))
+        #expect(uploadedPatch.hasPrefix("From \(commitID.rawValue) Mon Sep 17 00:00:00 2001\n"))
         #expect(uploadedPatch.contains("Subject: [PATCH] Update event source\n"))
         #expect(uploadedPatch.contains("diff --git a/events/2025/event.yml b/events/2025/event.yml\n"))
 
@@ -308,15 +314,19 @@ struct TangledSourcePatchPublisherTests {
         )
         let record = try #require(createRecordJSON["record"] as? [String: Any])
         #expect(record["$type"] as? String == "sh.tangled.repo.pull")
+        #expect(record["body"] as? String == "")
         #expect(record["patch"] == nil)
         #expect(record["targetBranch"] as? String == "main")
-        #expect(record["targetRepo"] as? String == "at://did:plc:owner123/sh.tangled.repo/3repo")
+        let legacyTargetRepo = try #require(record["targetRepo"] as? String)
+        expectNoDifference(legacyTargetRepo, "did:plc:targetrepo")
         #expect(record["pullId"] as? Int == 1_779_800_000_000)
         #expect(record["patchBlob"] != nil)
 
         let target = try #require(record["target"] as? [String: Any])
         #expect(target["branch"] as? String == "main")
-        #expect(target["repo"] as? String == "at://did:plc:owner123/sh.tangled.repo/3repo")
+        let targetRepo = try #require(target["repo"] as? String)
+        expectNoDifference(targetRepo, "did:plc:targetrepo")
+        #expect(DID(targetRepo) != nil)
         #expect(target["repoDid"] as? String == "did:plc:targetrepo")
 
         let source = try #require(record["source"] as? [String: Any])
@@ -324,6 +334,7 @@ struct TangledSourcePatchPublisherTests {
         #expect(source["sha"] as? String == commitID.rawValue)
 
         let rounds = try #require(record["rounds"] as? [[String: Any]])
+        #expect(!rounds.isEmpty)
         #expect(rounds.count == 1)
         #expect(rounds.first?["patchBlob"] != nil)
     }
@@ -381,7 +392,7 @@ struct TangledSourcePatchPublisherTests {
             ),
             target: TangledRepoPullRecord.Target(
                 branch: configuration.targetBranch,
-                repo: configuration.targetRepoURI.description,
+                repo: configuration.targetRepoDID,
                 repoDID: configuration.targetRepoDID
             ),
             title: "Live PDS readback smoke test"
@@ -419,7 +430,7 @@ struct TangledSourcePatchPublisherTests {
         #expect(readback.value.title == "Live PDS readback smoke test")
         #expect(readback.value.patch == patchText)
         #expect(readback.value.patchBlob.ref == patchBlob.ref)
-        #expect(readback.value.target.repo == configuration.targetRepoURI.description)
+        #expect(readback.value.target.repo == configuration.targetRepoDID)
         #expect(readback.value.target.repoDID == configuration.targetRepoDID)
         #expect(readback.value.source?.branch == sourceBranch)
         #expect(readback.value.source?.sha == sourceSHA)
@@ -647,7 +658,6 @@ private enum TestAccountClientFailure: Error {
 
 private struct LiveTangledPDSReadbackConfiguration {
     var session: OAuth.Session
-    var targetRepoURI: ATProto.URI
     var targetRepoDID: String
     var targetBranch: String
     var sourceBranch: String?
@@ -666,17 +676,8 @@ private struct LiveTangledPDSReadbackConfiguration {
         let sessionData = Data(base64Encoded: sessionValue) ?? Data(sessionValue.utf8)
         let session = try JSONDecoder().decode(OAuth.Session.self, from: sessionData)
 
-        let targetRepoURIValue = try requiredEnvironmentValue(
-            "OME_LIVE_TANGLED_TARGET_REPO_URI",
-            environment: environment
-        )
-        guard let targetRepoURI = ATProto.URI(targetRepoURIValue) else {
-            throw LiveTangledPDSReadbackConfigurationError.invalidURI(targetRepoURIValue)
-        }
-
         return Self(
             session: session,
-            targetRepoURI: targetRepoURI,
             targetRepoDID: try requiredEnvironmentValue(
                 "OME_LIVE_TANGLED_TARGET_REPO_DID",
                 environment: environment
@@ -714,14 +715,11 @@ private struct LiveTangledPDSReadbackConfiguration {
 
 private enum LiveTangledPDSReadbackConfigurationError: CustomStringConvertible, Error {
     case missingEnvironmentValue(String)
-    case invalidURI(String)
 
     var description: String {
         switch self {
         case .missingEnvironmentValue(let name):
             "\(name) is required when OME_LIVE_TANGLED_PROPOSAL_READBACK=1"
-        case .invalidURI(let value):
-            "\(value) is not a valid AT URI"
         }
     }
 }
