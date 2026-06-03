@@ -9,23 +9,9 @@ public extension FeatureProtocol {
         authFailureMessage: Shared<ErrorMessage?> = OpenMusicEventOAuth.authFailureMessage
     ) -> some FeatureProtocol<State, Action> {
         self
-            .transformDependency(\.getDefaultSession) { getDefaultSession in
-                getDefaultSession = {
-                    session.wrappedValue ?? .placeholder
-                }
-            }
-            .transformDependency(\.getOptionalDefaultSession) { getOptionalDefaultSession in
-                getOptionalDefaultSession = {
-                    session.wrappedValue
-                }
-            }
-            .transformDependency(\.errorInterceptors) {
-                $0.append(
-                    .tokenRefresh(
-                        session: session,
-                        authFailureMessage: authFailureMessage
-                    )
-                )
-            }
+            .authenticatedOAuthSession(
+                session: session,
+                authFailureMessage: authFailureMessage
+            )
     }
 }

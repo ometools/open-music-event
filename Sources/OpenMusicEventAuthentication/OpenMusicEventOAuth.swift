@@ -73,16 +73,22 @@ public enum OpenMusicEventOAuth {
         ]
     )
 
+    public static let storage = OAuthSessionStorage(
+        session: openMusicEventOAuthSession,
+        sessionStore: openMusicEventOAuthSessionStore,
+        authFailureMessage: openMusicEventAuthFailureMessage
+    )
+
     public static var authFailureMessage: Shared<ErrorMessage?> {
-        openMusicEventAuthFailureMessage
+        storage.authFailureMessage
     }
 
     public static var session: Shared<OAuth.Session?> {
-        openMusicEventOAuthSession
+        storage.session
     }
 
     public static var sessionStore: Shared<OAuth.SessionStore> {
-        openMusicEventOAuthSessionStore
+        storage.sessionStore
     }
 
     public static func prepareDependencies(_ dependencies: inout DependencyValues) {
@@ -121,14 +127,11 @@ public enum OpenMusicEventOAuth {
     }
 
     public static func resetStoredSession() {
-        session.withLock { $0 = nil }
-        sessionStore.withLock { $0 = OAuth.SessionStore() }
-        authFailureMessage.withLock { $0 = nil }
+        storage.reset()
     }
 
     public static func enforceStoredAuthenticationFreshness() async throws {
-        try await session.load()
-        try await sessionStore.load()
+        try await storage.enforceFreshness()
     }
 }
 

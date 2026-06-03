@@ -76,7 +76,10 @@ public struct ScheduleViewer {
             eventID: OMERecord.Event.ID,
             scheduleDivision: ScheduleDivision = .schedule
         ) {
+            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
+
             self.eventID = eventID
+            self.timeZone = defaultEventTimeZone
             self.scheduleDivision = scheduleDivision
             self._scheduleViewerState = Shared(
                 .scheduleViewerState(
@@ -84,8 +87,8 @@ public struct ScheduleViewer {
                     scheduleDivision: scheduleDivision
                 )
             )
-            _performances = FetchAll(
-                ScheduleViewer.eventPerformancesQuery(eventID: eventID)
+            _performanceRows = FetchAll(
+                PerformanceRow.all(eventID: eventID)
             )
             _schedules = FetchAll(
                 ScheduleViewer.schedulesQuery(eventID: eventID)
@@ -96,6 +99,8 @@ public struct ScheduleViewer {
         }
 
         public let eventID: OMERecord.Event.ID
+        @DebugSnapshotIgnored
+        public var timeZone: TimeZone
         public let scheduleDivision: ScheduleDivision
         public var destination: Destination.State?
         @Shared public var scheduleViewerState: ScheduleViewerState
@@ -127,9 +132,13 @@ public struct ScheduleViewer {
             }
         }
 
-        @FetchAll public var performances: [OMERecord.Performance]
+        @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
+
+        public var performances: [OMERecord.Performance] {
+            performanceRows.map(\.performance)
+        }
 
         public func selectedSchedule(
             selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
@@ -143,8 +152,15 @@ public struct ScheduleViewer {
         public func visiblePerformances(
             selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
         ) -> [OMERecord.Performance] {
+            visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
+                .map(\.performance)
+        }
+
+        func visiblePerformanceRows(
+            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+        ) -> [PerformanceRow] {
             ScheduleViewer.visiblePerformances(
-                performances: performances,
+                performanceRows: performanceRows,
                 scheduleID: resolvedSelectedScheduleID(selectedScheduleID),
                 stages: visibleStages
             )
@@ -256,6 +272,55 @@ public struct ScheduleViewer {
         return schedule.date.formatted(dateStyle: .full)
     }
 
+    static func performanceRowSubtitle(
+        for performance: OMERecord.Performance,
+        timeZone: TimeZone
+    ) -> String {
+        "\(performanceRowTimeRange(for: performance, timeZone: timeZone)) \(daySegment(for: performance.startTime, timeZone: timeZone))"
+    }
+
+    private static func performanceRowTimeRange(
+        for performance: OMERecord.Performance,
+        timeZone: TimeZone
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "h:mm a"
+        return "\(formatter.string(from: performance.startTime)) - \(formatter.string(from: performance.endTime))"
+    }
+
+    private static func daySegment(
+        for date: Date,
+        timeZone: TimeZone
+    ) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        var displayDate = date
+        let hour = calendar.component(.hour, from: date)
+        let segment: String
+
+        if hour < 6 {
+            segment = "Night"
+            displayDate = calendar.date(byAdding: .day, value: -1, to: date) ?? date
+        } else if hour < 12 {
+            segment = "Morning"
+        } else if hour < 17 {
+            segment = "Afternoon"
+        } else if hour < 20 {
+            segment = "Evening"
+        } else {
+            segment = "Night"
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "EEEE"
+        return "\(formatter.string(from: displayDate)) \(segment)"
+    }
+
     static func resolvedSelectedStageID(
         selectedStageID: OMERecord.ID<OMERecord.Stage>?,
         stages: [OMERecord.Stage]
@@ -282,14 +347,15 @@ public struct ScheduleViewer {
     }
 
     static func visiblePerformances(
-        performances: [OMERecord.Performance],
+        performanceRows: [PerformanceRow],
         scheduleID: OMERecord.ID<OMERecord.Schedule>?,
         stages: [OMERecord.Stage]
-    ) -> [OMERecord.Performance] {
+    ) -> [PerformanceRow] {
         guard let scheduleID else { return [] }
         let visibleStageIDs = Set(stages.map(\.id.stageID))
-        return performances.filter {
-            $0.scheduleID == scheduleID && visibleStageIDs.contains($0.stageID)
+        return performanceRows.filter {
+            $0.performance.scheduleID == scheduleID
+                && visibleStageIDs.contains($0.performance.stageID)
         }
     }
 
@@ -433,21 +499,24 @@ struct SchedulePerformanceListView: View {
     let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
 
     var body: some View {
-        let performances = store.state.visiblePerformances(selectedScheduleID: selectedScheduleID)
-        if performances.isEmpty {
+        let rows = store.state.visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
+        if rows.isEmpty {
             ViewerPlaceholderView(
                 title: store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID),
                 systemImage: "calendar",
                 description: "No performances have been added to this schedule division yet."
             )
         } else {
-            List(performances) { performance in
+            List(rows) { row in
                 Button {
-                    store.send(.performanceButtonTapped(performance.id.performanceID))
+                    store.send(.performanceButtonTapped(row.performanceID))
                 } label: {
                     SchedulePerformanceRow(
-                        performance: performance,
-                        stage: store.stagesByID[performance.stageID]
+                        row: row,
+                        subtitle: ScheduleViewer.performanceRowSubtitle(
+                            for: row.performance,
+                            timeZone: store.timeZone
+                        )
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -657,42 +726,48 @@ struct PerformanceRecordingRow: View {
 }
 
 struct SchedulePerformanceRow: View {
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage?
+    let row: PerformanceRow
+    let subtitle: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
-                .frame(width: 12, height: 12)
-                .padding(.top, 5)
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(row.stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
+                .frame(width: 5)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(performance.title)
-                    .font(.headline)
+            stageIcon
+                .frame(width: 60, height: 60)
+                .foregroundStyle(.primary)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.title)
                     .lineLimit(2)
 
-                HStack(spacing: 6) {
-                    Text(performance.timeRangeText)
-                    if let stage {
-                        Text(stage.name)
-                    }
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-                if let description = performance.displayDescription {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer()
         }
+        .frame(height: 60)
+        .padding(.horizontal, 5)
         .padding(.vertical, 4)
+        .foregroundStyle(.primary)
+    }
+
+    @ViewBuilder
+    private var stageIcon: some View {
+        if let stage = row.stage {
+            ScheduleStageIcon(stage: stage)
+        } else {
+            Image(systemName: "music.note")
+                .resizable()
+                .scaledToFit()
+                .padding(14)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

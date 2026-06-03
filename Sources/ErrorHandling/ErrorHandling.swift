@@ -1,6 +1,6 @@
 import ComposableArchitecture2
+import Dependencies
 import Foundation
-import IssueReporting
 
 public struct UserFacingText: Sendable {
     public var resource: LocalizedStringResource

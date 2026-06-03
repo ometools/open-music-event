@@ -109,7 +109,7 @@ public struct OpenMusicEventAppRoot {
                 case .openURL(let url):
                     if OpenMusicEventOAuth.isCallbackURL(url) {
                         store.addTask {
-                            try store.send(.authentication(.handleOpenURL(url)))
+                            try store.send(.authentication(.handleOpenURL(.init(url))))
                         }
                         return
                     }

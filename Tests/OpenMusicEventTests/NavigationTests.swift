@@ -1248,6 +1248,163 @@ struct NavigationTests {
     }
 
     @Test
+    func performanceRowScheduleQueryReturnsPerformanceAndStage() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "saturday", date: date)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "opening",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "Opening"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "next-day",
+                stageID: "meadow",
+                scheduleID: "saturday",
+                startTime: try #require(date.at(hour: 20, in: timeZone)),
+                endTime: try #require(date.at(hour: 21, in: timeZone)),
+                title: "Next Day"
+            )
+        }
+
+        let rows = try await database.read { db in
+            try PerformanceRow
+                .all(eventID: selectedEventID, scheduleID: scheduleLocalID("friday"))
+                .fetchAll(db)
+        }
+
+        #expect(rows.map(\.performanceID) == [performanceLocalID("opening")])
+        #expect(rows.map(\.title) == ["Opening"])
+        #expect(rows.first?.stage?.name == "Meadow")
+    }
+
+    @Test
+    func performanceRowContributorQueryReturnsContributorPerformancesAndStages() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let contributorID = contributorLocalID("artist")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertContributor(db, eventID: selectedEventID, contributorID: "artist", name: "Artist")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "tent", name: "Tent")
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "meadow-set",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "Meadow Set"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "tent-set",
+                stageID: "tent",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 20, in: timeZone)),
+                endTime: try #require(date.at(hour: 21, in: timeZone)),
+                title: "Tent Set"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "meadow-set",
+                contributorID: "artist"
+            )
+        }
+
+        let rows = try await database.read { db in
+            try PerformanceRow
+                .forContributor(contributorID: contributorID, eventID: selectedEventID)
+                .fetchAll(db)
+        }
+
+        #expect(rows.map(\.performanceID) == [performanceLocalID("meadow-set")])
+        #expect(rows.map(\.title) == ["Meadow Set"])
+        #expect(rows.first?.stage?.name == "Meadow")
+    }
+
+    @Test
+    func performanceRowSubtitleUsesEventTimeZoneAndLegacyDaySegment() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let friday = try #require(LocalDate("2026-08-07"))
+        let saturday = try #require(LocalDate("2026-08-08"))
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: friday)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "evening",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(friday.at(hour: 18, in: timeZone)),
+                endTime: try #require(friday.at(hour: 19, in: timeZone)),
+                title: "Evening Set"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "late-night",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(saturday.at(hour: 1, minute: 30, in: timeZone)),
+                endTime: try #require(saturday.at(hour: 2, minute: 30, in: timeZone)),
+                title: "Late Night"
+            )
+        }
+
+        let rows = try await database.read { db in
+            try PerformanceRow
+                .all(eventID: eventID, scheduleID: scheduleLocalID("friday"))
+                .fetchAll(db)
+        }
+        let eveningPerformance = try #require(rows.first?.performance)
+        let afterMidnightPerformance = try #require(rows.dropFirst().first?.performance)
+
+        #expect(
+            ScheduleViewer.performanceRowSubtitle(
+                for: eveningPerformance,
+                timeZone: timeZone
+            ) == "6:00 PM - 7:00 PM Friday Evening"
+        )
+        #expect(
+            ScheduleViewer.performanceRowSubtitle(
+                for: afterMidnightPerformance,
+                timeZone: timeZone
+            ) == "1:30 AM - 2:30 AM Friday Night"
+        )
+    }
+
+    @Test
     func contributorProfileUsesCachedBlueskyProfileDataForGeneratedActor() async throws {
         let database = try makePreparedDatabase()
         let selectedEventID = eventID("event-1")
@@ -1710,13 +1867,14 @@ struct NavigationTests {
             )
         }
 
-        let performances = try await database.read { db in
-            try ScheduleViewer.performancesQuery(
+        let performanceRows = try await database.read { db in
+            try PerformanceRow.all(
                 eventID: eventID,
                 scheduleID: scheduleLocalID("friday")
             )
             .fetchAll(db)
         }
+        let performances = performanceRows.map(\.performance)
         let cards = performances.map(SchedulePerformanceTimelineCard.init)
         let timeRange = try #require(
             ScheduleStageTimelinePage.timeRange(
@@ -1948,8 +2106,8 @@ struct NavigationTests {
         let stages = try await database.read { db in
             try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
         }
-        let performances = try await database.read { db in
-            try ScheduleViewer.performancesQuery(
+        let performanceRows = try await database.read { db in
+            try PerformanceRow.all(
                 eventID: eventID,
                 scheduleID: scheduleLocalID("friday")
             )
@@ -1960,7 +2118,7 @@ struct NavigationTests {
             division: workshopDivision
         )
         let visiblePerformances = ScheduleViewer.visiblePerformances(
-            performances: performances,
+            performanceRows: performanceRows,
             scheduleID: scheduleLocalID("friday"),
             stages: visibleStages
         )

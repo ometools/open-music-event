@@ -2,6 +2,7 @@ import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import Sharing
 import TCATProtoAuthentication
 import Testing
 
@@ -16,7 +17,7 @@ struct AuthenticationCoordinatorTests {
         let requirement = OAuth.AuthRequirement(
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
         )
-        let store = Store(initialState: AuthenticationCoordinator.State()) {
+        let store = Store(initialState: AuthenticationCoordinator.State.localTestState()) {
             AuthenticationCoordinator()
         }
 
@@ -37,7 +38,7 @@ struct AuthenticationCoordinatorTests {
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
         )
         let request = AuthorizationPresentationRequest(requirement: requirement)
-        let store = Store(initialState: AuthenticationCoordinator.State()) {
+        let store = Store(initialState: AuthenticationCoordinator.State.localTestState()) {
             AuthenticationCoordinator()
         }
 
@@ -52,7 +53,7 @@ struct AuthenticationCoordinatorTests {
     func successStoresSelectedSessionAndCompletesRequest() async {
         OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
-        var state = AuthenticationCoordinator.State()
+        var state = AuthenticationCoordinator.State.localTestState()
         state.authorization = AuthorizationFlow.State(
             requirement: OAuth.AuthRequirement(
                 permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
@@ -88,7 +89,7 @@ struct AuthenticationCoordinatorTests {
                 permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
             )
         )
-        var state = AuthenticationCoordinator.State()
+        var state = AuthenticationCoordinator.State.localTestState()
         state.routedAuthorizationRequest = request
         state.authorization = OpenMusicEventOAuth.authorizationFlowState(
             for: request,
@@ -125,7 +126,7 @@ struct AuthenticationCoordinatorTests {
     func cancelClearsAuthorizationAndCancelsRequest() async {
         OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
-        var state = AuthenticationCoordinator.State()
+        var state = AuthenticationCoordinator.State.localTestState()
         state.authorization = AuthorizationFlow.State(
             requirement: OAuth.AuthRequirement(
                 permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
@@ -155,7 +156,7 @@ struct AuthenticationCoordinatorTests {
                 permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
             )
         )
-        var state = AuthenticationCoordinator.State()
+        var state = AuthenticationCoordinator.State.localTestState()
         state.routedAuthorizationRequest = request
         state.authorization = OpenMusicEventOAuth.authorizationFlowState(
             for: request,
@@ -192,7 +193,7 @@ struct AuthenticationCoordinatorTests {
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
         )
         let failure = OAuth.AuthorizationRequired.signIn(requirement)
-        var state = AuthenticationCoordinator.State()
+        var state = AuthenticationCoordinator.State.localTestState()
         state.authorization = AuthorizationFlow.State(requirement: requirement)
         let store = withDependencies {
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
@@ -218,7 +219,7 @@ struct AuthenticationCoordinatorTests {
         )
         let failure = OAuth.AuthorizationRequired.signIn(requirement)
         let request = AuthorizationPresentationRequest(requirement: requirement)
-        var state = AuthenticationCoordinator.State()
+        var state = AuthenticationCoordinator.State.localTestState()
         state.routedAuthorizationRequest = request
         state.authorization = OpenMusicEventOAuth.authorizationFlowState(
             for: request,
@@ -250,13 +251,14 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func authenticatedDependencyModifierExposesStoredSession() {
-        OpenMusicEventOAuth.resetStoredSession()
-        OpenMusicEventOAuth.session.withLock {
-            $0 = .placeholder
-        }
+        let session = Shared<OAuth.Session?>(value: .placeholder)
+        let authFailureMessage = Shared<ErrorMessage?>(value: nil)
         let store = Store(initialState: SessionProbe.State()) {
             SessionProbe()
-                .openMusicEventAuthenticatedSession()
+                .openMusicEventAuthenticatedSession(
+                    session: session,
+                    authFailureMessage: authFailureMessage
+                )
         }
 
         store.send(.readSession)
@@ -284,6 +286,18 @@ private struct SessionProbe {
                 state.observedSession = getOptionalDefaultSession()
             }
         }
+    }
+}
+
+private extension OAuthAuthenticationCoordinator.State {
+    static func localTestState() -> Self {
+        Self(
+            storage: OAuthSessionStorage(
+                session: Shared<OAuth.Session?>(value: nil),
+                sessionStore: Shared<OAuth.SessionStore>(value: OAuth.SessionStore()),
+                authFailureMessage: Shared<ErrorMessage?>(value: nil)
+            )
+        )
     }
 }
 

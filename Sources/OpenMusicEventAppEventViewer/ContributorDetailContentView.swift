@@ -1,3 +1,4 @@
+import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SwiftUI
@@ -5,6 +6,8 @@ import SwiftUI
 struct ContributorDetailContentView: View {
     let profile: ContributorProfile
     let stageContext: ContributorStageContext
+    let performanceRows: [PerformanceRow]
+    let timeZone: TimeZone
     let editButtonTapped: () -> Void
 
     var body: some View {
@@ -27,7 +30,9 @@ struct ContributorDetailContentView: View {
             ContributorDetailSectionsView(
                 bio: profile.bio,
                 contributor: profile.contributor,
-                stageContext: stageContext
+                stageContext: stageContext,
+                performanceRows: performanceRows,
+                timeZone: timeZone
             )
         }
         .toolbar {
@@ -42,6 +47,8 @@ struct ContributorDetailSectionsView: View {
     let bio: String?
     let contributor: OMERecord.Contributor
     let stageContext: ContributorStageContext
+    let performanceRows: [PerformanceRow]
+    let timeZone: TimeZone
 
     var body: some View {
         if let kind = contributor.kind?.displayName {
@@ -50,7 +57,10 @@ struct ContributorDetailSectionsView: View {
             }
         }
 
-        ContributorScheduleSection(stageContext: stageContext)
+        ContributorScheduleSection(
+            performanceRows: performanceRows,
+            timeZone: timeZone
+        )
         ContributorStageLineupsSection(stages: stageContext.lineupOnlyStages)
 
         if let bio {
@@ -70,15 +80,19 @@ struct ContributorDetailSectionsView: View {
 }
 
 struct ContributorScheduleSection: View {
-    let stageContext: ContributorStageContext
+    let performanceRows: [PerformanceRow]
+    let timeZone: TimeZone
 
     var body: some View {
-        if !stageContext.scheduledPerformances.isEmpty {
+        if !performanceRows.isEmpty {
             Section("Schedule") {
-                ForEach(stageContext.scheduledPerformances) { performance in
+                ForEach(performanceRows) { row in
                     SchedulePerformanceRow(
-                        performance: performance,
-                        stage: stageContext.stage(for: performance)
+                        row: row,
+                        subtitle: ScheduleViewer.performanceRowSubtitle(
+                            for: row.performance,
+                            timeZone: timeZone
+                        )
                     )
                 }
             }

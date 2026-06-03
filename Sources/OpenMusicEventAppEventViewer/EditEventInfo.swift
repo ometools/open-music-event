@@ -1,7 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
-import IssueReporting
 import Lexicon
 import OpenMusicEventTimeZones
 import SQLiteData

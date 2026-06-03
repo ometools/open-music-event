@@ -1,6 +1,5 @@
 import ComposableArchitecture2
 import Dependencies
-import IssueReporting
 
 public extension FeatureStore {
     func withDependencies<T>(operation: () -> T) -> T? {

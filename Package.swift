@@ -53,7 +53,7 @@ let package = Package(
         .package(name: "swift-dependencies-source-control-client", path: "../../../swift-packages/swift-dependencies-source-control-client"),
 
 
-        .package(name: "tcatproto", path: "../../../composable-atmosphere/tcatproto"),
+        .package(name: "tcatproto", path: "../../../composable-atmosphere/tcatproto", traits: ["TCA26"]),
     ],
     targets: [
         .target(
@@ -146,7 +146,6 @@ let package = Package(
             dependencies: [
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
-                .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
             ]
         ),
         .target(

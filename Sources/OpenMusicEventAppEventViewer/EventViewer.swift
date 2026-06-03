@@ -10,7 +10,7 @@ import SwiftUITabFeatures
 import Tagged
 
 private enum DefaultEventIDKey: DependencyKey {
-    static let liveValue: OMERecord.Event.ID =
+    static var liveValue: OMERecord.Event.ID {
         unimplemented(
             "DependencyValues.defaultEventID",
             placeholder: .init(
@@ -18,12 +18,26 @@ private enum DefaultEventIDKey: DependencyKey {
                 eventID: .init("-1")
             )
         )
+    }
+}
+
+private enum DefaultEventTimeZoneKey: DependencyKey {
+    static var liveValue: TimeZone {
+        .current
+    }
+
+    static let testValue = TimeZone(secondsFromGMT: 0)!
 }
 
 extension DependencyValues {
     var defaultEventID: OMERecord.Event.ID {
         get { self[DefaultEventIDKey.self] }
         set { self[DefaultEventIDKey.self] = newValue }
+    }
+
+    var defaultEventTimeZone: TimeZone {
+        get { self[DefaultEventTimeZoneKey.self] }
+        set { self[DefaultEventTimeZoneKey.self] = newValue }
     }
 }
 
@@ -258,8 +272,13 @@ public struct EventViewer {
             features: [EventFeature]
         ) {
             let sourceEditingSession = try? SourceEditingSession.openMusicEvent(eventID: eventID)
+            let eventTimeZone = Self.eventTimeZone(
+                eventID: eventID,
+                sourceEditingSession: sourceEditingSession
+            )
 
             self.eventID = eventID
+            self.eventTimeZone = eventTimeZone
             self.sourceEditingSession = sourceEditingSession
             self._eventViewerState = Shared(.eventViewerState(eventID))
             self.installedFeatures = features
@@ -268,6 +287,7 @@ public struct EventViewer {
 
             withDependencies {
                 $0.defaultEventID = eventID
+                $0.defaultEventTimeZone = eventTimeZone
                 if let sourceEditingSession {
                     $0.defaultDatabase = sourceEditingSession.database
                     $0.sourceEditingSession = sourceEditingSession
@@ -324,6 +344,7 @@ public struct EventViewer {
         }
 
         public let eventID: OMERecord.Event.ID
+        public var eventTimeZone: TimeZone
         @DebugSnapshotIgnored
         public var sourceEditingSession: SourceEditingSession?
         @Shared public var eventViewerState: EventViewerState
@@ -437,9 +458,11 @@ public struct EventViewer {
 
         private func withEventDependencies<Value>(_ operation: () -> Value) -> Value {
             let eventID = self.eventID
+            let eventTimeZone = self.eventTimeZone
             let sourceEditingSession = self.sourceEditingSession
             return withDependencies {
                 $0.defaultEventID = eventID
+                $0.defaultEventTimeZone = eventTimeZone
                 if let sourceEditingSession {
                     $0.defaultDatabase = sourceEditingSession.database
                     $0.sourceEditingSession = sourceEditingSession
@@ -447,6 +470,22 @@ public struct EventViewer {
             } operation: {
                 operation()
             }
+        }
+
+        private static func eventTimeZone(
+            eventID: OMERecord.Event.ID,
+            sourceEditingSession: SourceEditingSession?
+        ) -> TimeZone {
+            @Dependency(\.defaultDatabase) var database
+            let activeDatabase = sourceEditingSession?.database ?? database
+            return (
+                try? activeDatabase.read { db in
+                    try OMERecord.Event
+                        .where { $0.id.eq(eventID) }
+                        .fetchOne(db)?
+                        .timeZone
+                }
+            ) ?? .current
         }
     }
 
@@ -511,6 +550,7 @@ public struct EventViewer {
             EventInfoViewer()
         }
         .dependency(\.defaultEventID, store.eventID)
+        .dependency(\.defaultEventTimeZone, store.eventTimeZone)
         .dependency(\.sourceEditingSession, store.sourceEditingSession)
         .dependency(\.defaultDatabase, store.sourceEditingSession?.database ?? database)
     }

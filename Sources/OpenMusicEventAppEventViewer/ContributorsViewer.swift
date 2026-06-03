@@ -272,9 +272,11 @@ public struct ContributorDetail {
             eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
+            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.contributorID = contributorID
             self.eventID = eventID ?? defaultEventID
+            self.timeZone = defaultEventTimeZone
             _profile = FetchOne(
                 ContributorProfile.one(
                     contributorID: contributorID,
@@ -284,6 +286,12 @@ public struct ContributorDetail {
             )
             _performanceContributors = FetchAll(
                 ContributorsViewer.performanceContributorsQuery(eventID: self.eventID)
+            )
+            _performanceRows = FetchAll(
+                PerformanceRow.forContributor(
+                    contributorID: contributorID,
+                    eventID: self.eventID
+                )
             )
             _performances = FetchAll(
                 ScheduleViewer.eventPerformancesQuery(eventID: self.eventID)
@@ -295,6 +303,8 @@ public struct ContributorDetail {
 
         public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
 
+        @DebugSnapshotIgnored public var timeZone: TimeZone
+        @FetchAll var performanceRows: [PerformanceRow]
         @FetchAll public var performanceContributors: [OMERecord.Performance.Contributors]
         @FetchAll public var performances: [OMERecord.Performance]
         @FetchAll public var stages: [OMERecord.Stage]
@@ -399,7 +409,9 @@ public struct ContributorDetailView: View {
             if let profile = store.profile {
                 ContributorDetailContentView(
                     profile: profile,
-                    stageContext: store.state.stageContext
+                    stageContext: store.state.stageContext,
+                    performanceRows: store.performanceRows,
+                    timeZone: store.timeZone
                 ) {
                     store.send(.editButtonTapped)
                 }
