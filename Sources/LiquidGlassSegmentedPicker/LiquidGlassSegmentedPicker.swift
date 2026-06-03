@@ -22,7 +22,9 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
     @State var capsuleState: CapsuleState = .idle
     @State var coordinateSpace = NamedCoordinateSpace.named("picker")
     @State var hoveringItem: PickerValue?
-    @State var offset: CGFloat = .zero
+    @State var releasedCapsuleFrame: CGRect?
+    @GestureState var dragState: CapsuleDragState = .inactive
+    @State var switchingGeneration = 0
     @State var valueColors: [PickerValue: Color] = [:]
     @State var valueFrames: [PickerValue: CGRect] = [:]
 
@@ -55,15 +57,34 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
         }
         .animation(.snappy, value: selection)
         .onChange(of: selection) { _, newValue in
-            guard capsuleState == .idle else { return }
+            guard capsuleState == .idle, !dragState.isActive else { return }
             beginSwitching()
+        }
+        .onChange(of: dragState.isActive) { _, isActive in
+            if isActive {
+                releasedCapsuleFrame = nil
+            } else {
+                hoveringItem = nil
+            }
         }
     }
 
     enum CapsuleState {
         case idle
-        case dragging
         case switching
+    }
+
+    struct CapsuleDragState {
+        var translation: CGSize
+        var location: CGPoint?
+
+        static var inactive: Self {
+            Self(translation: .zero, location: nil)
+        }
+
+        var isActive: Bool {
+            location != nil
+        }
     }
 
     @ViewBuilder
@@ -98,7 +119,10 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
             ForEach(subviews: content) { subview in
                 let tag = subview.containerValues.tag(for: PickerValue.self) ?? subview.id as? PickerValue
                 let itemColor = subview.containerValues.pickerItemColor
-                let idleSelected = tag == selection && capsuleState == .idle
+                let idleSelected = tag == selection
+                    && capsuleState == .idle
+                    && !dragState.isActive
+                    && releasedCapsuleFrame == nil
 
                 itemContainer(tag, distributesItems: distributesItems) {
                     VStack(spacing: 4) {
@@ -155,59 +179,79 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
     @ViewBuilder
     private var draggableCapsule: some View {
         let selectedFrame = valueFrames[selection] ?? .zero
+        let capsuleFrame = if dragState.isActive {
+            selectedFrame.offsetBy(dx: dragState.translation.width, dy: 0)
+        } else {
+            releasedCapsuleFrame ?? selectedFrame
+        }
+        let showsSelectedContent = capsuleState == .idle && !dragState.isActive && releasedCapsuleFrame == nil
 
-        Group {
-            if capsuleState == .idle {
-                ForEach(subviews: content) { subview in
-                    if subview.containerValues.tag(for: PickerValue.self) == selection {
-                        subview
-                            .padding(4)
-                            .frame(square: circleSize)
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(.white)
-                    }
+        ZStack {
+            Capsule()
+                .stroke(Color.black.opacity(0.01))
+
+            ForEach(subviews: content) { subview in
+                if subview.containerValues.tag(for: PickerValue.self) == selection {
+                    subview
+                        .padding(4)
+                        .frame(square: circleSize)
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.white)
+                        .opacity(showsSelectedContent ? 1.0 : 0.0)
                 }
-            } else {
-                Capsule()
-                    .stroke(Color.black.opacity(0.01))
             }
         }
         .glassEffectID("capsule", in: namespace)
         .glassEffect(.clear.interactive(), in: .capsule)
-        .placement(selectedFrame.offsetBy(dx: offset, dy: 0))
+        .placement(capsuleFrame)
         .gesture(dragGesture)
     }
 
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 8, coordinateSpace: coordinateSpace)
+            .updating($dragState) { value, state, _ in
+                state = CapsuleDragState(
+                    translation: value.translation,
+                    location: value.location
+                )
+            }
             .onChanged { value in
-                withAnimation {
-                    if capsuleState != .dragging {
-                        capsuleState = .dragging
-                    }
-                }
-                offset = value.translation.width
                 updateHoveringItem(at: value.location)
             }
-            .onEnded { _ in
-                let newSelection = hoveringItem ?? selection
+            .onEnded { value in
+                let newSelection = item(at: value.location) ?? hoveringItem ?? selection
+                let releasedFrame = valueFrames[newSelection]
+                    ?? (valueFrames[selection] ?? .zero).offsetBy(dx: value.translation.width, dy: 0)
                 hoveringItem = nil
 
                 if newSelection == selection {
                     withAnimation(.snappy) {
-                        offset = .zero
                         capsuleState = .idle
                     }
                 } else {
-                    withAnimation(.snappy) {
-                        offset = .zero
-                    }
-                    handleTap(for: newSelection)
+                    handleDrop(for: newSelection, releasedFrame: releasedFrame)
                 }
             }
     }
 
     private func handleTap(for value: PickerValue) {
+        hoveringItem = nil
+        releasedCapsuleFrame = nil
+        beginSwitching()
+        withAnimation {
+            selection = value
+        }
+    }
+
+    private func handleDrop(for value: PickerValue, releasedFrame: CGRect) {
+        hoveringItem = nil
+
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            releasedCapsuleFrame = releasedFrame
+        }
+
         beginSwitching()
         withAnimation {
             selection = value
@@ -228,11 +272,19 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
     }
 
     private func beginSwitching() {
+        switchingGeneration += 1
+        let generation = switchingGeneration
         capsuleState = .switching
         Task { @MainActor in
             try await Task.sleep(for: .milliseconds(400))
+            guard generation == switchingGeneration else { return }
             withAnimation(.snappy) {
                 capsuleState = .idle
+            }
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                releasedCapsuleFrame = nil
             }
         }
     }
@@ -288,10 +340,14 @@ public struct LiquidGlassSegmentedPicker<PickerValue: Hashable, Content: View>: 
             )
     }
 
-    private func updateHoveringItem(at location: CGPoint) {
-        let newHoveringItem = valueFrames.first { _, frame in
+    private func item(at location: CGPoint) -> PickerValue? {
+        valueFrames.first { _, frame in
             (frame.minX..<frame.maxX).contains(location.x)
         }?.key
+    }
+
+    private func updateHoveringItem(at location: CGPoint) {
+        let newHoveringItem = item(at: location)
 
         if newHoveringItem != hoveringItem {
             withAnimation(.snappy) {
