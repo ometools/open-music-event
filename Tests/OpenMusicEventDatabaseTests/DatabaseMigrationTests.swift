@@ -5,6 +5,74 @@ import Testing
 
 struct DatabaseMigrationTests {
     @Test
+    func eventSearchSchemaMigrationCreatesDocumentAndTextTables() async throws {
+        let database = try SQLiteData.defaultDatabase()
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        try await database.read { db in
+            #expect(try db.tableExists("eventSearchDocuments"))
+            #expect(try db.tableExists("eventSearchText"))
+
+            let documentColumns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('eventSearchDocuments')"#
+            )
+            #expect(
+                documentColumns == [
+                    "id",
+                    "stableID",
+                    "organizerID",
+                    "eventID",
+                    "kind",
+                    "title",
+                    "subtitle",
+                    "body",
+                    "keywords",
+                    "target",
+                    "baseRank",
+                ]
+            )
+
+            let ftsColumns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('eventSearchText')"#
+            )
+            #expect(ftsColumns == ["title", "keywords", "subtitle", "body"])
+        }
+    }
+
+    @Test
+    func eventSearchTextSupportsFTSMatching() async throws {
+        let database = try SQLiteData.defaultDatabase()
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        try await database.write { db in
+            try EventSearchText.insert {
+                EventSearchText(
+                    rowid: 1,
+                    title: "Meadow Stage",
+                    keywords: "main outdoor stage",
+                    subtitle: "Stage",
+                    body: "Late night music in the meadow."
+                )
+            }
+            .execute(db)
+
+            let matches = try EventSearchText
+                .where { $0.match("meadow") }
+                .fetchAll(db)
+
+            #expect(matches.map(\.id) == [1])
+        }
+    }
+
+    @Test
     func contributorSchemaMigrationCreatesTablesWithoutCopyingParticipantRows() async throws {
         let database = try SQLiteData.defaultDatabase()
 

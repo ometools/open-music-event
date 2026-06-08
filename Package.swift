@@ -51,6 +51,7 @@ let package = Package(
         .package(url: "https://github.com/kateinoigakukun/swift-tar", branch: "main"),
         .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
         .package(name: "swift-dependencies-source-control-client", path: "../../../swift-packages/swift-dependencies-source-control-client"),
+        .package(name: "swift-web-metadata", path: "../../../swift-packages/swift-web-metadata", traits: ["Dependencies"]),
 
 
         .package(name: "tcatproto", path: "../../../composable-atmosphere/tcatproto", traits: ["TCA26"]),
@@ -86,11 +87,14 @@ let package = Package(
             name: "OpenMusicEventAuthentication",
             dependencies: [
                 "OpenMusicEventSourceClone",
+                .product(name: "ATProto", package: "tcatproto"),
                 .product(name: "ATProtoOAuth", package: "tcatproto"),
+                .product(name: "ATProtoServer", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "TCATProtoAuthentication", package: "tcatproto"),
+                .product(name: "WebMetadataClient", package: "swift-web-metadata"),
                 .product(name: "XRPCClient", package: "tcatproto"),
             ],
             resources: [.process("Resources")]
@@ -309,6 +313,7 @@ let package = Package(
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
                 .product(name: "TCATProtoAuthentication", package: "tcatproto"),
+                .product(name: "WebMetadataClient", package: "swift-web-metadata"),
             ]
         ),
         .testTarget(

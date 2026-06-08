@@ -45,8 +45,10 @@ public struct SettingsFeatureView: View {
     }
 
     public var body: some View {
+        let accountStore = store.spawn(\.account)
+
         Form {
-            AccountView(store: store.spawn(\.account))
+            AccountView(store: accountStore)
 
             Section("Error Handling") {
                 Button {
@@ -56,6 +58,7 @@ public struct SettingsFeatureView: View {
                 }
             }
         }
+        .accountAuthenticationSheet(store: accountStore)
         .navigationTitle("Settings")
     }
 }

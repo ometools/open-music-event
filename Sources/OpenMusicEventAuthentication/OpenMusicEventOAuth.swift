@@ -4,6 +4,7 @@ import Foundation
 import OpenMusicEventSourceClone
 import Sharing
 import TCATProtoAuthentication
+import WebMetadataClient
 import XRPCClient
 
 private let openMusicEventOAuthSession = Shared<OAuth.Session?>(
@@ -57,44 +58,44 @@ public enum OpenMusicEventOAuth {
         permissions: [.atproto]
     )
 
-    private static func signUpServerFaviconURL(host: String) -> URL {
-        URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=128")!
+    public static var signUpServerConfiguration: OAuthSignUpServerConfiguration {
+        @Dependency(\.webMetadataClient) var webMetadataClient
+
+        return OAuthSignUpServerConfiguration(
+            defaultServerHost: "bsky.social",
+            options: [
+                OAuthSignUpServerOption(
+                    id: "ome",
+                    title: "Open Music Event",
+                    subtitle: "ome.social",
+                    description: "Open Music Event's own hosted account option.",
+                    imageURL: webMetadataClient.googleS2FaviconURL("openmusicevent.app", 128),
+                    metadataSource: "community-lexicon-enrichment",
+                    availability: .comingSoon
+                ),
+                OAuthSignUpServerOption(
+                    id: "bsky",
+                    title: "BlueSky",
+                    subtitle: "bsky.social",
+                    description: "The first, and largest hosted AT Protocol entryway, with bsky.social handles.",
+                    imageURL: webMetadataClient.googleS2FaviconURL("bsky.social", 128),
+                    metadataSource: "community-lexicon-enrichment",
+                    availability: .available(serverHost: "bsky.social")
+                ),
+                OAuthSignUpServerOption(
+                    id: "eurosky",
+                    title: "Eurosky",
+                    subtitle: "eurosky.social",
+                    description: "A Europe-focused AT Protocol community server using eurosky.social accounts.",
+                    imageURL: webMetadataClient.googleS2FaviconURL("eurosky.social", 128),
+                    metadataSource: "community-lexicon-enrichment",
+                    availability: .available(serverHost: "eurosky.social")
+                ),
+
+            ],
+            allowsCustomServerHost: true
+        )
     }
-
-    public static let signUpServerConfiguration = OAuthSignUpServerConfiguration(
-        defaultServerHost: "bsky.social",
-        options: [
-            OAuthSignUpServerOption(
-                id: "ome",
-                title: "Open Music Event",
-                subtitle: "ome.social",
-                description: "Open Music Event's own hosted account option.",
-                imageURL: signUpServerFaviconURL(host: "openmusicevent.app"),
-                metadataSource: "community-lexicon-enrichment",
-                availability: .comingSoon
-            ),
-            OAuthSignUpServerOption(
-                id: "bsky",
-                title: "BlueSky",
-                subtitle: "bsky.social",
-                description: "The first, and largest hosted AT Protocol entryway, with bsky.social handles.",
-                imageURL: signUpServerFaviconURL(host: "bsky.social"),
-                metadataSource: "community-lexicon-enrichment",
-                availability: .available(serverHost: "bsky.social")
-            ),
-            OAuthSignUpServerOption(
-                id: "eurosky",
-                title: "Eurosky",
-                subtitle: "eurosky.social",
-                description: "A Europe-focused AT Protocol community server using eurosky.social accounts.",
-                imageURL: signUpServerFaviconURL(host: "eurosky.social"),
-                metadataSource: "community-lexicon-enrichment",
-                availability: .available(serverHost: "eurosky.social")
-            ),
-
-        ],
-        allowsCustomServerHost: true
-    )
 
     public static let appConfiguration = OAuth.AppConfiguration(
         appID: OAuth.App.ID(clientMetadataURL),

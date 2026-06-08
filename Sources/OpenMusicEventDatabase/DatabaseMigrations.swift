@@ -389,6 +389,48 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Create OpenMusicEvent event search schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "eventSearchDocuments" (
+                      "id" INTEGER PRIMARY KEY NOT NULL,
+                      "stableID" TEXT NOT NULL,
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "kind" TEXT NOT NULL,
+                      "title" TEXT NOT NULL,
+                      "subtitle" TEXT,
+                      "body" TEXT,
+                      "keywords" TEXT NOT NULL,
+                      "target" TEXT NOT NULL,
+                      "baseRank" INTEGER NOT NULL DEFAULT 0,
+                      UNIQUE ("stableID"),
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE INDEX IF NOT EXISTS "eventSearchDocuments_event_kind_rank"
+                    ON "eventSearchDocuments" ("organizerID", "eventID", "kind", "baseRank")
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS "eventSearchText"
+                    USING fts5(
+                      "title",
+                      "keywords",
+                      "subtitle",
+                      "body",
+                      tokenize = 'unicode61',
+                      prefix = '2 3'
+                    )
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import DependenciesTestSupport
 import Foundation
 import TCATProtoAuthentication
 import Testing
+import WebMetadataClient
 
 @testable import OpenMusicEventAuthentication
 
@@ -72,6 +73,27 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
+    func signUpServerConfigurationUsesWebMetadataClient() {
+        withDependencies {
+            $0.webMetadataClient = WebMetadataClient(
+                fetchOEmbed: { _ in throw TestOEmbedFetch() },
+                googleS2FaviconURL: { host, size in
+                    URL(string: "https://metadata.example/\(host)?size=\(size)")!
+                },
+                directFaviconURL: { _ in nil }
+            )
+        } operation: {
+            let configuration = OpenMusicEventOAuth.signUpServerConfiguration
+
+            #expect(configuration.options.map(\.imageURL) == [
+                URL(string: "https://metadata.example/openmusicevent.app?size=128")!,
+                URL(string: "https://metadata.example/bsky.social?size=128")!,
+                URL(string: "https://metadata.example/eurosky.social?size=128")!,
+            ])
+        }
+    }
+
+    @Test
     func bundledMetadataMatchesManifest() throws {
         let bundled = try JSONDecoder().decode(
             OAuth.App.Metadata.self,
@@ -135,3 +157,5 @@ struct OpenMusicEventOAuthTests {
 private func signUpServerFaviconURL(host: String) -> URL {
     URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=128")!
 }
+
+private struct TestOEmbedFetch: Error {}
