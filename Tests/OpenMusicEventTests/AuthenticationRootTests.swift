@@ -10,6 +10,20 @@ import Testing
 @MainActor
 struct AuthenticationRootTests {
     @Test
+    func initialRootStateDoesNotPresentAuthorization() throws {
+        let database = try makePreparedDatabase()
+        let store = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
+            }
+        }
+
+        #expect(store.authentication.authorization == nil)
+    }
+
+    @Test
     func oauthCallbackURLIsConsumedByAuthentication() async throws {
         let database = try makePreparedDatabase()
         let store = withDependencies {

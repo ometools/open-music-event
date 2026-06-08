@@ -57,6 +57,41 @@ public enum OpenMusicEventOAuth {
         permissions: [.atproto]
     )
 
+    public static let signUpServerConfiguration = OAuthSignUpServerConfiguration(
+        defaultServerHost: "bsky.social",
+        options: [
+            OAuthSignUpServerOption(
+                id: "ome",
+                title: "Open Music Event",
+                subtitle: "ome.social",
+                description: "Open Music Event's own hosted account option.",
+                imageURL: URL(string: "https://ome.social/favicon.ico"),
+                metadataSource: "community-lexicon-enrichment",
+                availability: .comingSoon
+            ),
+            OAuthSignUpServerOption(
+                id: "bsky",
+                title: "BlueSky",
+                subtitle: "bsky.social",
+                description: "The first, and largest hosted AT Protocol entryway, with bsky.social handles.",
+                imageURL: URL(string: "https://bsky.social/favicon.ico"),
+                metadataSource: "community-lexicon-enrichment",
+                availability: .available(serverHost: "bsky.social")
+            ),
+            OAuthSignUpServerOption(
+                id: "eurosky",
+                title: "Eurosky",
+                subtitle: "eurosky.social",
+                description: "A Europe-focused AT Protocol community server using eurosky.social accounts.",
+                imageURL: URL(string: "https://eurosky.social/favicon.ico"),
+                metadataSource: "community-lexicon-enrichment",
+                availability: .available(serverHost: "eurosky.social")
+            ),
+
+        ],
+        allowsCustomServerHost: true
+    )
+
     public static let appConfiguration = OAuth.AppConfiguration(
         appID: OAuth.App.ID(clientMetadataURL),
         redirectURI: OAuth.App.RedirectURI(redirectURL)

@@ -7,7 +7,10 @@ public typealias AccountView = OAuthAccountView
 
 public extension OAuthAccount {
     init() {
-        self.init(baseAuthRequirement: OpenMusicEventOAuth.baseAuthRequirement)
+        self.init(
+            baseAuthRequirement: OpenMusicEventOAuth.baseAuthRequirement,
+            signUpServerConfiguration: OpenMusicEventOAuth.signUpServerConfiguration
+        )
     }
 }
 

@@ -32,6 +32,34 @@ struct AuthenticationCoordinatorTests {
     }
 
     @Test
+    func signUpAuthorizationRequestPresentsSelectorConfiguration() {
+        OpenMusicEventOAuth.resetStoredSession()
+        let store = Store(initialState: AuthenticationCoordinator.State.localTestState()) {
+            AuthenticationCoordinator()
+        }
+
+        store.send(
+            .authorizationRequestChanged(
+                AuthorizationRequestCenter.Request(
+                    id: UUID(1),
+                    mode: .signUp,
+                    signUpServerConfiguration: OpenMusicEventOAuth.signUpServerConfiguration,
+                    requirement: OpenMusicEventOAuth.baseAuthRequirement
+                )
+            )
+        )
+
+        #expect(store.authorization?.requirement == OpenMusicEventOAuth.baseAuthRequirement)
+        #expect(store.authorization?.mode == .signUp)
+        #expect(store.authorization?.serverHost == "bsky.social")
+        #expect(
+            store.authorization?.signUpServerConfiguration
+                == OpenMusicEventOAuth.signUpServerConfiguration
+        )
+        #expect(store.authorization?.selectedSignUpServerOptionID == "bsky")
+    }
+
+    @Test
     func routedAuthorizationRequestPresentsAuthorizationFlow() {
         OpenMusicEventOAuth.resetStoredSession()
         let requirement = OAuth.AuthRequirement(
@@ -324,6 +352,7 @@ private extension OpenMusicEventAuthorizationRequests {
                     continuation.finish()
                 }
             },
+            signUp: { _, _ in },
             succeed: {
                 await recorder.record(.succeed)
             },

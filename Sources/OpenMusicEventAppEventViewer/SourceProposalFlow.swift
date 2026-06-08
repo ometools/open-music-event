@@ -72,6 +72,7 @@ public struct SourceProposalFlow {
                         try store.send(.authorization(.present(request)))
                     }
                     store.addTask {
+                        await Task.yield()
                         do {
                             let location = try await sourcePatchLocationResolver.resolve(
                                 OpenMusicEventSourcePatchRequest(eventID: eventID)

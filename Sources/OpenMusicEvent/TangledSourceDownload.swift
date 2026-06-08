@@ -156,6 +156,7 @@ public struct TangledSourceDownload {
                     state.errorMessage = nil
 
                     store.addTask {
+                        await Task.yield()
                         let result = await store.withErrorHandling(
                             fallbackMessage: .sourceImportFailed,
                             operation: .sourceImport

@@ -2,6 +2,7 @@ import ATProtoOAuth
 import Dependencies
 import DependenciesTestSupport
 import Foundation
+import TCATProtoAuthentication
 import Testing
 
 @testable import OpenMusicEventAuthentication
@@ -31,6 +32,43 @@ struct OpenMusicEventOAuthTests {
         #expect(permissions.contains("repo:sh.tangled.publicKey?action=create"))
         #expect(permissions.contains("repo:sh.tangled.repo.pull?action=create"))
         #expect(permissions.contains("blob:text/x-patch"))
+    }
+
+    @Test
+    func signUpServerConfigurationIncludesAppCuratedProviders() {
+        let configuration = OpenMusicEventOAuth.signUpServerConfiguration
+
+        #expect(configuration.defaultServerHost == "bsky.social")
+        #expect(configuration.allowsCustomServerHost)
+        #expect(configuration.options == [
+            OAuthSignUpServerOption(
+                id: "bsky",
+                title: "Bsky",
+                subtitle: "bsky.social",
+                description: "The largest hosted AT Protocol entryway, with bsky.social handles and Bluesky app compatibility.",
+                imageURL: URL(string: "https://bsky.social/favicon.ico"),
+                metadataSource: "community-lexicon-enrichment",
+                availability: .available(serverHost: "bsky.social")
+            ),
+            OAuthSignUpServerOption(
+                id: "eurosky",
+                title: "Eurosky",
+                subtitle: "eurosky.social",
+                description: "A Europe-focused AT Protocol community server using eurosky.social accounts.",
+                imageURL: URL(string: "https://eurosky.social/favicon.ico"),
+                metadataSource: "community-lexicon-enrichment",
+                availability: .available(serverHost: "eurosky.social")
+            ),
+            OAuthSignUpServerOption(
+                id: "ome",
+                title: "OME",
+                subtitle: "ome.social",
+                description: "Open Music Event's own hosted account option.",
+                imageURL: URL(string: "https://ome.social/favicon.ico"),
+                metadataSource: "community-lexicon-enrichment",
+                availability: .comingSoon
+            ),
+        ])
     }
 
     @Test
