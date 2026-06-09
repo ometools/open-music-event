@@ -28,7 +28,7 @@ persisted locally, and can be imported from organizer-owned source repositories.
 
 ## Repo Layout
 
-- `Sources/OpenMusicEvent` contains the app root, routing, settings, source
+- `Sources/OpenMusicEventApp` contains the app root, routing, settings, source
   download flow, and shared app dependency setup.
 - `Sources/OpenMusicEventAppEventViewer` contains the event viewer feature:
   event info, schedules, stages, contributors, editing flows, and source proposal

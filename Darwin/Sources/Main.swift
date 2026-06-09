@@ -1,5 +1,5 @@
 import SwiftUI
-import OpenMusicEvent
+import OpenMusicEventApp
 import Dependencies
 
 #if canImport(UIKit)

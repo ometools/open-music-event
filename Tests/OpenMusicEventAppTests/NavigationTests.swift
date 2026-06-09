@@ -13,7 +13,7 @@ import SQLiteData
 import SwiftUI
 import Testing
 
-@testable import OpenMusicEvent
+@testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
 
 private let testOrganizerID = OMERecord.Organizer.ID("did:web:example.com")!

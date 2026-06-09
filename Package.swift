@@ -9,7 +9,7 @@ let package = Package(
     products: [
         .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
         .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
-        .library(name: "OpenMusicEvent", type: .dynamic, targets: ["OpenMusicEvent"]),
+        .library(name: "OpenMusicEventApp", type: .dynamic, targets: ["OpenMusicEventApp"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
         .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
         .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
@@ -58,7 +58,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "OpenMusicEvent",
+            name: "OpenMusicEventApp",
             dependencies: [
                 "BlueskyActorCache",
                 "ErrorHandling",
@@ -318,11 +318,11 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "OpenMusicEventTests",
+            name: "OpenMusicEventAppTests",
             dependencies: [
                 "BlueskyActorCache",
                 "ErrorHandling",
-                "OpenMusicEvent",
+                "OpenMusicEventApp",
                 "OpenMusicEventAuthentication",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSourceEditing",

@@ -1,4 +1,4 @@
-# Skip configuration for OpenMusicEvent module
+# Skip configuration for OpenMusicEventApp module
 #
 # Kotlin dependencies and Gradle build options for this module can be configured here
 #build:

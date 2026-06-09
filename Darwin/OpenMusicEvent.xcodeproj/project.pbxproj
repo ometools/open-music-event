@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		491F27822DA55B72004926EE /* OpenMusicEvent in Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEvent */; };
-		491F27832DA55B72004926EE /* OpenMusicEvent in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEvent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		491F27822DA55B72004926EE /* OpenMusicEventApp in Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEventApp */; };
+		491F27832DA55B72004926EE /* OpenMusicEventApp in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEventApp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		496BDBEE2B8A7E9C00C09264 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 496BDBED2B8A7E9C00C09264 /* Localizable.xcstrings */; };
 		499CD43B2AC5B799001AE8D8 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F90C2B2A52156200F06D93 /* Main.swift */; };
 		499CD4402AC5B799001AE8D8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 49F90C2F2A52156300F06D93 /* Assets.xcassets */; };
@@ -21,7 +21,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				491F27832DA55B72004926EE /* OpenMusicEvent in Embed Frameworks */,
+				491F27832DA55B72004926EE /* OpenMusicEventApp in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -32,7 +32,7 @@
 		4900101C2BACEA710000DE33 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		493609562A6B7EAE00C401E2 /* OpenMusicEvent */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = OpenMusicEvent; path = ..; sourceTree = "<group>"; };
 		496BDBEB2B89A47800C09264 /* OpenMusicEvent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMusicEvent.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		496BDBED2B8A7E9C00C09264 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = ../Sources/OpenMusicEvent/Resources/Localizable.xcstrings; sourceTree = "<group>"; };
+		496BDBED2B8A7E9C00C09264 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = ../Sources/OpenMusicEventApp/Resources/Localizable.xcstrings; sourceTree = "<group>"; };
 		496EB72F2A6AE4DE00C1253A /* Skip.env */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Skip.env; path = ../Skip.env; sourceTree = "<group>"; };
 		496EB72F2A6AE4DE00C1253B /* OpenMusicEvent.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = OpenMusicEvent.xcconfig; sourceTree = "<group>"; };
 		496EB72F2A6AE4DE00C1253C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = README.md; path = ../README.md; sourceTree = "<group>"; };
@@ -47,7 +47,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				491F27822DA55B72004926EE /* OpenMusicEvent in Frameworks */,
+				491F27822DA55B72004926EE /* OpenMusicEventApp in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -114,7 +114,7 @@
 			);
 			name = "OpenMusicEvent App";
 			packageProductDependencies = (
-				491F27812DA55B72004926EE /* OpenMusicEvent */,
+				491F27812DA55B72004926EE /* OpenMusicEventApp */,
 			);
 			productName = App;
 			productReference = 496BDBEB2B89A47800C09264 /* OpenMusicEvent.app */;
@@ -283,9 +283,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		491F27812DA55B72004926EE /* OpenMusicEvent */ = {
+		491F27812DA55B72004926EE /* OpenMusicEventApp */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = OpenMusicEvent;
+			productName = OpenMusicEventApp;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

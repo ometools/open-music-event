@@ -9,7 +9,7 @@ import SourceEditing
 import SQLiteData
 import Testing
 
-@testable import OpenMusicEvent
+@testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
 
 @MainActor

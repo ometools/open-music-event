@@ -18,7 +18,7 @@ import SQLiteData
 import Testing
 import XRPCClient
 
-@testable import OpenMusicEvent
+@testable import OpenMusicEventApp
 
 @MainActor
 struct TangledSourceDownloadFeatureTests {

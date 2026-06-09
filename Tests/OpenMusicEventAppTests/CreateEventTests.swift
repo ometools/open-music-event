@@ -4,7 +4,7 @@ import Foundation
 import SQLiteData
 import Testing
 
-@testable import OpenMusicEvent
+@testable import OpenMusicEventApp
 
 @MainActor
 struct CreateEventTests {

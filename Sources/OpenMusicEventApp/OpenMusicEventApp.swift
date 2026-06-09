@@ -11,8 +11,8 @@ import SourceControlClient
 import SourceControlClientGit
 import SourceEditing
 
-/// A logger for the OpenMusicEvent module.
-let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEvent")
+/// A logger for the OpenMusicEventApp module.
+let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEventApp")
 
 extension OME {
 
