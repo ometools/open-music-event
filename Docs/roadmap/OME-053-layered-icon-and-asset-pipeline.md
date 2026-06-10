@@ -17,7 +17,7 @@ created: "2026-06-10"
 ## Summary
 
 ```gpt-5
-Prepare the final designer-provided logo artwork for app icons, adaptive icons, Liquid Glass composition, dark/light variants, tint variants, and optional alternate icons.
+Prepare the final designer-provided logo artwork for app icons, launch screens, adaptive icons, Liquid Glass composition, dark/light variants, tint variants, and optional alternate icons.
 ```
 
 ## Why
@@ -31,10 +31,11 @@ The logo direction depends on depth, portal layers, light, and refraction. Those
 ```gpt-5
 - Do not modify the logo art as part of this card; start only after final source assets are delivered.
 - Preserve separated layers where available: background, O/E or wordmark, portal/M, beam, highlights, and masks.
-- Produce iOS layered icons, Android adaptive icons, dark/light/tint variants, store artwork, and any alternate user-selectable icons.
+- Produce iOS layered icons, Android adaptive icons, launch/splash assets, dark/light/tint variants, store artwork, and any alternate user-selectable icons.
+- Keep a polished generic OME launch-screen fallback when event or organization artwork is not available.
 - Validate small-size readability and monochrome/tinted survival.
 - Keep generated outputs under the existing platform asset locations.
-- Code pointers: `Darwin/Assets.xcassets`, `Android/app/src/main/res`, future documentation/release asset exports.
+- Code pointers: `Darwin/Assets.xcassets`, `Darwin`, `Android/app/src/main/res`, future documentation/release asset exports.
 ```
 
 ## Open Questions
@@ -42,6 +43,7 @@ The logo direction depends on depth, portal layers, light, and refraction. Those
 ```gpt-5
 - Which final file formats and separated layers will the designer deliver?
 - Which icon variants are required for launch versus nice-to-have alternates?
+- Which launch-screen assets are generic OME assets versus event/org-hydrated assets?
 - Should user-selectable app icons be included in v1 or saved for a later identity polish pass?
 ```
 

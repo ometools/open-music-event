@@ -31,6 +31,7 @@ The app should feel like a precise native tool first. Logo-derived visuals can m
 ```gpt-5
 - Audit primary shell surfaces: app root, event browser, event viewer, schedule viewer, settings, auth, and editing flows.
 - Standardize toolbar density, title behavior, icon use, search presentation, and sheet treatment.
+- Define polished underhydrated states for missing event art, missing org metadata, no imported events, offline data, and unavailable source details.
 - Keep event-specific identity inside content surfaces while OME chrome frames the experience.
 - Reuse existing controls where possible, especially the current segmented picker and navigation patterns.
 - Include Dynamic Type, reduced motion, and small-screen checks.
@@ -43,6 +44,7 @@ The app should feel like a precise native tool first. Logo-derived visuals can m
 - Which app-shell surfaces should be launch-blocking for Wicked Woods?
 - Should edit/maintainer flows share attendee chrome exactly, or get a slightly denser tool treatment?
 - Where should loading and offline chrome live so it can be reused across source import, event viewing, and auth?
+- Which fallback states should be generic OME chrome versus event/org-hydrated chrome?
 ```
 
 ## Next Step

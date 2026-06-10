@@ -30,6 +30,7 @@ The logo's rainbow direction avoids committing OME to one color. The product sho
 
 ```gpt-5
 - Model event theme inputs: event logo, poster/artwork, dominant colors, accent colors, and safe fallback colors.
+- Model organization-level chrome inputs separately from per-event theme inputs when they affect app-wide surfaces.
 - Apply theme accents to event headers, event rows, stage chips, badges, schedule markers, and selected high-emphasis controls.
 - Keep OME navigation, settings, and system surfaces mostly neutral.
 - Add contrast and legibility checks so imported event colors cannot break text or controls.
@@ -41,6 +42,7 @@ The logo's rainbow direction avoids committing OME to one color. The product sho
 
 ```gpt-5
 - Should event theme colors be explicit source data, derived from images, or both?
+- Which event/org chrome fields should live in source data versus white-label build configuration?
 - Which surfaces should theme in v1: event rows, event headers, schedule stages, or all three?
 - How much event identity should appear when multiple events are visible in the same list?
 ```

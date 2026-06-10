@@ -35,6 +35,7 @@ kanban-plugin: board
 - [ ] [[roadmap/OME-055-universal-links-and-deep-link-routing|OME-055: Universal Links and Deep-Link Routing]]
 - [ ] [[roadmap/OME-056-app-clip-and-android-instant-app-entry|OME-056: App Clip and Android Instant App Entry]]
 - [ ] [[roadmap/OME-057-on-site-qr-onboarding-system|OME-057: On-Site QR Onboarding System]]
+- [ ] [[roadmap/OME-058-about-team-and-trust-surface|OME-058: About, Team, and Trust Surface]]
 
 
 ## In Progress

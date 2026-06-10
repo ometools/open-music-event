@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		491F27822DA55B72004926EE /* OpenMusicEventApp in Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEventApp */; };
 		491F27832DA55B72004926EE /* OpenMusicEventApp in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEventApp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		496BDBEE2B8A7E9C00C09264 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 496BDBED2B8A7E9C00C09264 /* Localizable.xcstrings */; };
 		499CD43B2AC5B799001AE8D8 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F90C2B2A52156200F06D93 /* Main.swift */; };
@@ -47,7 +46,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				491F27822DA55B72004926EE /* OpenMusicEventApp in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -80,6 +78,7 @@
 				493609562A6B7EAE00C401E2 /* OpenMusicEvent */,
 				49F90C2A2A52156200F06D93 /* App */,
 				49AB54462B066A7E007B79B2 /* SkipStone */,
+				EF49DFF72FD9B4A9003C0BEE /* Frameworks */,
 				496BDBEC2B89A47800C09264 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -93,6 +92,13 @@
 				4900101C2BACEA710000DE33 /* Info.plist */,
 			);
 			name = App;
+			sourceTree = "<group>";
+		};
+		EF49DFF72FD9B4A9003C0BEE /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
