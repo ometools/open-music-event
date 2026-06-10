@@ -16,6 +16,7 @@ kanban-plugin: board
 - [ ] [[roadmap/OME-028-appview-indexing-service|OME-028: AppView / Indexing Service]]
 - [ ] [[roadmap/OME-029-organizer-collaboration-workflows|OME-029: Organizer Collaboration Workflows]]
 - [ ] [[roadmap/OME-030-attendee-facing-polish|OME-030: Attendee-Facing Polish]]
+- [ ] [[roadmap/OME-060-in-app-onboarding-and-permission-tour|OME-060: In-App Onboarding and Permission Tour]]
 - [ ] [[roadmap/OME-034-ci-tack-buildkite-pipeline|OME-034: CI / Tack Buildkite Pipeline]]
 - [ ] [[roadmap/OME-037-live-event-source-smoke-tests|OME-037: Live Event Source Smoke Tests]]
 - [ ] [[roadmap/OME-038-contributor-claim-flow|OME-038: Contributor Claim Flow]]

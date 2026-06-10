@@ -27,6 +27,7 @@ Community calendar records give OpenMusicEvent a useful interoperability path be
 - Use a mixed browse default: upcoming events are broadly visible, with prominent filters for followed, nearby, atmo.rsvp, OME-native, and has RSVPs.
 - Treat nearby as an opt-in device-location filter; the default browse page should still work without location permission.
 - Send geohash or equivalent coarse location buckets to the AppView for nearby queries, rather than precise coordinates.
+- Expose nearby filtering as coarse user-facing scopes such as nearby, region, and anywhere; map those scopes to geohash precision internally.
 - atmo.rsvp comparison: current public browsing appears to be upcoming/popular/search oriented; event creation uses manual Nominatim geocoding into address fields, not device-location nearby browsing.
 - Preserve atmo.rsvp public event URLs such as `/p/{actor}/e/{rkey}` as source enrichment when present, but use the AT URI as the durable event identity.
 - Keep the first slice read-only: no RSVP writes, no invite/private-space support, and no organizer-authority assumptions.
@@ -36,7 +37,7 @@ Community calendar records give OpenMusicEvent a useful interoperability path be
 
 - Should the first ingestion worker subscribe directly to Jetstream by NSID, or should it backfill through a smaller known-source crawl first?
 - How should the mixed browse default rank upcoming events before the user applies a filter?
-- What geohash precision should the first nearby filter use, and should the user be able to widen or narrow the radius?
+- What geohash precision should each coarse nearby scope use?
 - How should AppView derive location buckets from community records that provide only address fields, only geo coordinates, or H3 values?
 - What fallback should the nearby filter show before location permission is granted or after it is denied?
 - How should rows label source and trust provenance without making community events feel second-class?
