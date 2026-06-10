@@ -347,29 +347,27 @@ struct AccountAuthenticationSheetView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+
+                    switch store.selectedMode {
+                    case .signIn:
+                            Text(store.selectedMode.helperText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+
+                            TextField("Handle", text: $store.signInLoginHint)
+                                #if !os(macOS)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                #endif
+
+                    case .signUp:
+                            Text(store.selectedMode.helperText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+
+                    }
                 }
-
-                switch store.selectedMode {
-                case .signIn:
-                    Section("Sign In") {
-                        Text(store.selectedMode.helperText)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-
-                        TextField("Handle", text: $store.signInLoginHint)
-                            #if !os(macOS)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            #endif
-                    }
-
-                case .signUp:
-                    Section("Sign Up") {
-                        Text(store.selectedMode.helperText)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
+                if store.selectedMode == .signUp {
                     AccountSignUpServerFormView(store: store)
                 }
 

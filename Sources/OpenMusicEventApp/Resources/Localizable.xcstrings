@@ -458,9 +458,6 @@
         }
       }
     },
-    "OpenMusicEvent" : {
-
-    },
     "Powered by [Skip](https://skip.dev)" : {
       "comment" : "Link markdown text for the Powered by… label",
       "localizations" : {
