@@ -48,8 +48,12 @@ struct AccountTests {
 
     @Test
     func selectingEuroskyUpdatesSignUpServerHost() async {
-        let store = Store(initialState: Account.State.localTestState(selectedMode: .signUp)) {
-            Account()
+        let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
+        } operation: {
+            Store(initialState: Account.State.localTestState(selectedMode: .signUp)) {
+                Account()
+            }
         }
 
         let task = store.send(.signUpServerOptionTapped("eurosky"))
@@ -78,8 +82,12 @@ struct AccountTests {
 
     @Test
     func customSignUpServerClearsSelectedProviderAndRequiresHost() async {
-        let store = Store(initialState: Account.State.localTestState(selectedMode: .signUp)) {
-            Account()
+        let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
+        } operation: {
+            Store(initialState: Account.State.localTestState(selectedMode: .signUp)) {
+                Account()
+            }
         }
 
         let task = store.send(.customSignUpServerOptionTapped)
@@ -108,6 +116,7 @@ struct AccountTests {
         let accountAuthorization = AccountDirectAuthorizationRecorder()
         let authorizationRequests = AccountAuthorizationRecorder()
         let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
             $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
             $0.openMusicEventAuthorizationRequests = .recording(authorizationRequests)
         } operation: {
@@ -141,11 +150,12 @@ struct AccountTests {
     }
 
     @Test
-    func signInFormKeepsSheetPresentedWhileAuthorizationIsInFlight() async {
+    func signInFormKeepsSheetPresentedWhileAuthorizationIsInFlight() async throws {
         let accountAuthorization = AccountDirectAuthorizationRecorder(
             signInContinuation: .suspended
         )
         let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
             $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
         } operation: {
             Store(
@@ -159,6 +169,9 @@ struct AccountTests {
         }
 
         let task = store.send(.submitAuthenticationFormButtonTapped)
+        try await waitForCondition {
+            store.isLoginInProgress
+        }
 
         #expect(store.isAuthenticationSheetPresented)
         #expect(store.isLoginInProgress)
@@ -166,6 +179,9 @@ struct AccountTests {
 
         await accountAuthorization.resumeSignIn(returning: .placeholder)
         await task?.value
+        try await waitForCondition {
+            store.session == .placeholder
+        }
 
         #expect(store.isAuthenticationSheetPresented == false)
         #expect(store.isLoginInProgress == false)
@@ -173,11 +189,12 @@ struct AccountTests {
     }
 
     @Test
-    func signInCancellationClearsProgressWithoutError() async {
+    func signInCancellationClearsProgressWithoutError() async throws {
         let accountAuthorization = AccountDirectAuthorizationRecorder(
             signInContinuation: .suspended
         )
         let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
             $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
         } operation: {
             Store(
@@ -191,8 +208,14 @@ struct AccountTests {
         }
 
         let task = store.send(.submitAuthenticationFormButtonTapped)
+        try await waitForCondition {
+            store.isLoginInProgress
+        }
         await accountAuthorization.resumeSignIn(throwing: CancellationError())
         await task?.value
+        try await waitForCondition {
+            !store.isLoginInProgress
+        }
 
         #expect(store.isAuthenticationSheetPresented)
         #expect(store.isLoginInProgress == false)
@@ -205,6 +228,7 @@ struct AccountTests {
         let accountAuthorization = AccountDirectAuthorizationRecorder()
         let authorizationRequests = AccountAuthorizationRecorder()
         let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
             $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
             $0.openMusicEventAuthorizationRequests = .recording(authorizationRequests)
         } operation: {
@@ -239,10 +263,11 @@ struct AccountTests {
     }
 
     @Test
-    func signUpSuccessStoresSelectedSession() async {
+    func signUpSuccessStoresSelectedSession() async throws {
         let accountAuthorization = AccountDirectAuthorizationRecorder()
         let state = Account.State.localTestState(selectedMode: .signUp)
         let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
             $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
         } operation: {
             Store(initialState: state) {
@@ -252,6 +277,9 @@ struct AccountTests {
 
         let task = store.send(.submitAuthenticationFormButtonTapped)
         await task?.value
+        try await waitForCondition {
+            store.session == .placeholder
+        }
 
         #expect(store.session == .placeholder)
         #expect(store.isSignUpInProgress == false)
@@ -259,11 +287,12 @@ struct AccountTests {
     }
 
     @Test
-    func signUpCancellationClearsProgressWithoutError() async {
+    func signUpCancellationClearsProgressWithoutError() async throws {
         let accountAuthorization = AccountDirectAuthorizationRecorder(
             signUpContinuation: .suspended
         )
         let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
             $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
         } operation: {
             Store(
@@ -277,8 +306,14 @@ struct AccountTests {
         }
 
         let task = store.send(.submitAuthenticationFormButtonTapped)
+        try await waitForCondition {
+            store.isSignUpInProgress
+        }
         await accountAuthorization.resumeSignUp(throwing: CancellationError())
         await task?.value
+        try await waitForCondition {
+            !store.isSignUpInProgress
+        }
 
         #expect(store.isAuthenticationSheetPresented)
         #expect(store.isSignUpInProgress == false)
@@ -306,6 +341,17 @@ struct AccountTests {
         #expect(store.sessionStore.selectedSession == nil)
         #expect(await recorder.didCancel)
     }
+}
+
+@MainActor
+private func waitForCondition(
+    _ condition: @escaping @MainActor () -> Bool
+) async throws {
+    for _ in 0..<100 {
+        if condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(condition())
 }
 
 private extension Account.State {

@@ -29,6 +29,12 @@ Community calendar records give OpenMusicEvent a useful interoperability path be
 - Send geohash or equivalent coarse location buckets to the AppView for nearby queries, rather than precise coordinates.
 - Expose nearby filtering as coarse user-facing scopes such as nearby, region, and anywhere; map those scopes to geohash precision internally.
 - atmo.rsvp comparison: current public browsing appears to be upcoming/popular/search oriented; event creation uses manual Nominatim geocoding into address fields, not device-location nearby browsing.
+- Keep the base mixed browse ranking mostly chronological for upcoming events, with light boosts for followed, trusted, and nearby signals.
+- Plan explicit future surfaces for Featured and What's Hot rather than making the default browse order feel opaque or algorithmic.
+- Keep OME-native event rows unadorned; show a compact source tag on third-party/community-calendar rows such as atmo.rsvp or other producers.
+- Show possible duplicate events as separate rows in the first slice unless there is an explicit merge/link signal; avoid automatic matching by name/date/location alone.
+- Include RSVP counts in the AppView projection so the UI can surface them later, even if the first browse row only uses a `has RSVPs` filter.
+- Use `community.lexicon.calendar.rsvp` as the only attendance signal in this slice; ticketing is out of scope and should remain a future extension that does not overload RSVP records.
 - Preserve atmo.rsvp public event URLs such as `/p/{actor}/e/{rkey}` as source enrichment when present, but use the AT URI as the durable event identity.
 - Keep the first slice read-only: no RSVP writes, no invite/private-space support, and no organizer-authority assumptions.
 - Code pointers: `Docs/roadmap/OME-028-appview-indexing-service.md`, `Docs/roadmap/OME-042-appview-query-surface.md`, `Sources/OpenMusicEventLexicon/MusicEvent.swift`, and the AppView baseline workspace.
@@ -36,13 +42,13 @@ Community calendar records give OpenMusicEvent a useful interoperability path be
 ## Open Questions
 
 - Should the first ingestion worker subscribe directly to Jetstream by NSID, or should it backfill through a smaller known-source crawl first?
-- How should the mixed browse default rank upcoming events before the user applies a filter?
+- Which signals are allowed to boost default chronological ranking, and how should the app explain that order?
+- What data should eventually power Featured and What's Hot: editorial picks, follows, RSVP velocity, source trust, locality, or some mix?
 - What geohash precision should each coarse nearby scope use?
 - How should AppView derive location buckets from community records that provide only address fields, only geo coordinates, or H3 values?
 - What fallback should the nearby filter show before location permission is granted or after it is denied?
-- How should rows label source and trust provenance without making community events feel second-class?
-- How should duplicate events be reconciled when an OME-native event and a community calendar event point at the same real-world event?
-- Do RSVP counts belong in the first projection, or should they wait until event lookup is stable?
+- What exact source tags should third-party/community-calendar rows show, and should unknown producers be grouped as Community Calendar?
+- What explicit merge/link signal should allow OME-native and community-calendar records to collapse into one row later?
 
 ## Next Step
 

@@ -1,5 +1,6 @@
 import ATProtoOAuth
 import ComposableArchitecture2
+import ComposableForms
 import Dependencies
 import Sharing
 import SwiftUI
@@ -8,6 +9,26 @@ import TCATProtoAuthentication
 @Feature
 public struct Account {
     public init() {}
+
+    public struct SignInFormValue: Equatable, Sendable {
+        public init(handle: String = "") {
+            self.handle = handle
+        }
+
+        public var handle: String
+    }
+
+    public typealias SignInFormFeature = ComposableForms.Form<SignInFormValue>
+
+    public struct SignUpFormValue: Equatable, Sendable {
+        public init(serverHost: String = "") {
+            self.serverHost = serverHost
+        }
+
+        public var serverHost: String
+    }
+
+    public typealias SignUpFormFeature = ComposableForms.Form<SignUpFormValue>
 
     public enum Mode: String, CaseIterable, Equatable, Hashable, Sendable {
         case signIn
@@ -67,8 +88,12 @@ public struct Account {
             self.oauth = Spawn(OAuthAccount.State(storage: storage))
             self.selectedMode = selectedMode
             self.selectedSignUpServerOptionID = selectedSignUpServerOptionID
-            self.signInLoginHint = signInLoginHint
-            self.signUpServerHost = signUpServerHost
+            self.signInForm = SignInFormFeature.State(
+                value: SignInFormValue(handle: signInLoginHint)
+            )
+            self.signUpForm = SignUpFormFeature.State(
+                value: SignUpFormValue(serverHost: signUpServerHost)
+            )
             self.usesCustomSignUpServerHost =
                 !signUpServerConfiguration.options.isEmpty &&
                 signUpServerConfiguration.allowsCustomServerHost &&
@@ -79,7 +104,7 @@ public struct Account {
             isAuthenticationSheetPresented: Bool = false,
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
-            authFailureMessage: Shared<ErrorMessage?>,
+            authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
             session: Shared<OAuth.Session?>,
             sessionStore: Shared<OAuth.SessionStore>
         ) {
@@ -99,8 +124,8 @@ public struct Account {
         public var oauth: Spawn<OAuthAccount>
         public var selectedMode: Mode
         public var selectedSignUpServerOptionID: OAuthSignUpServerOption.ID?
-        public var signInLoginHint: String
-        public var signUpServerHost: String
+        public var signInForm: SignInFormFeature.State
+        public var signUpForm: SignUpFormFeature.State
         public var usesCustomSignUpServerHost: Bool
 
         public var accountIDDescription: String? {
@@ -127,9 +152,11 @@ public struct Account {
             if isWorking { return true }
             switch selectedMode {
             case .signIn:
-                return signInLoginHint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                return signInLoginHint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    !signInForm.canSubmit
             case .signUp:
-                return signUpServerHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                return signUpServerHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    !signUpForm.canSubmit
             }
         }
 
@@ -140,6 +167,16 @@ public struct Account {
         public var sessionStore: OAuth.SessionStore {
             oauth.state.sessionStore
         }
+
+        public var signInLoginHint: String {
+            get { signInForm.value.handle }
+            set { signInForm.value.handle = newValue }
+        }
+
+        public var signUpServerHost: String {
+            get { signUpForm.value.serverHost }
+            set { signUpForm.value.serverHost = newValue }
+        }
     }
 
     public enum Action {
@@ -148,6 +185,10 @@ public struct Account {
         case customSignUpServerOptionTapped
         case loginResponse(Result<OAuth.Session, OAuthAccount.LoginFailure>)
         case selectedModeChanged(Mode)
+        case signInForm(SignInFormFeature.Action)
+        case signInFormSubmitted(SignInFormValue)
+        case signUpForm(SignUpFormFeature.Action)
+        case signUpFormSubmitted(SignUpFormValue)
         case signUpResponse(Result<OAuth.Session, OAuthAccount.LoginFailure>)
         case signUpServerOptionTapped(OAuthSignUpServerOption.ID)
         case submitAuthenticationFormButtonTapped
@@ -156,78 +197,65 @@ public struct Account {
     @Dependency(\.openMusicEventAccountAuthorizationClient) var accountAuthorizationClient
 
     public var body: some Feature {
-        Update { state, action in
-            switch action {
-            case .accountButtonTapped:
-                state.isAuthenticationSheetPresented = true
+        Features {
+            Scope(\.signInForm, action: \.signInForm) {
+                SignInFormFeature()
+                    .onSubmit { value in
+                        try store.send(.signInFormSubmitted(value))
+                    }
+            }
+            Scope(\.signUpForm, action: \.signUpForm) {
+                SignUpFormFeature()
+                    .onSubmit { value in
+                        try store.send(.signUpFormSubmitted(value))
+                    }
+            }
+            Update { state, action in
+                switch action {
+                case .accountButtonTapped:
+                    state.isAuthenticationSheetPresented = true
 
-            case .authenticationSheetDismissed:
-                state.isAuthenticationSheetPresented = false
-
-            case .customSignUpServerOptionTapped:
-                guard OpenMusicEventOAuth.signUpServerConfiguration.allowsCustomServerHost else { return }
-                state.selectedSignUpServerOptionID = nil
-                state.usesCustomSignUpServerHost = true
-                state.signUpServerHost = ""
-
-            case .loginResponse(.success(let session)):
-                state.oauth.state.isLoginInProgress = false
-                state.oauth.state.errorMessage = nil
-                state.oauth.state.$sessionStore.withLock {
-                    $0.upsert(session)
-                }
-                state.oauth.state.$session.withLock {
-                    $0 = state.oauth.state.sessionStore.selectedSession
-                }
-                state.isAuthenticationSheetPresented = false
-
-            case .loginResponse(.failure(.cancelled)):
-                state.oauth.state.isLoginInProgress = false
-
-            case .loginResponse(.failure(.failed)):
-                state.oauth.state.isLoginInProgress = false
-                state.oauth.state.errorMessage = "Sign in failed."
-
-            case .selectedModeChanged(let mode):
-                state.selectedMode = mode
-
-            case .signUpResponse(.success(let session)):
-                state.oauth.state.isSignUpInProgress = false
-                state.oauth.state.errorMessage = nil
-                state.oauth.state.$sessionStore.withLock {
-                    $0.upsert(session)
-                }
-                state.oauth.state.$session.withLock {
-                    $0 = state.oauth.state.sessionStore.selectedSession
-                }
-                state.isAuthenticationSheetPresented = false
-
-            case .signUpResponse(.failure(.cancelled)):
-                state.oauth.state.isSignUpInProgress = false
-
-            case .signUpResponse(.failure(.failed)):
-                state.oauth.state.isSignUpInProgress = false
-                state.oauth.state.errorMessage = "Sign up failed."
-
-            case .signUpServerOptionTapped(let id):
-                guard let option = OpenMusicEventOAuth.signUpServerConfiguration.availableOption(id: id),
-                      let serverHost = option.serverHost
-                else { return }
-                state.selectedSignUpServerOptionID = option.id
-                state.usesCustomSignUpServerHost = false
-                state.signUpServerHost = serverHost
-
-            case .submitAuthenticationFormButtonTapped:
-                guard state.session == nil else {
+                case .authenticationSheetDismissed:
                     state.isAuthenticationSheetPresented = false
-                    return
-                }
-                guard !state.isAuthenticationFormSubmitDisabled else { return }
 
-                switch state.selectedMode {
-                case .signIn:
+                case .customSignUpServerOptionTapped:
+                    guard OpenMusicEventOAuth.signUpServerConfiguration.allowsCustomServerHost else { return }
+                    state.selectedSignUpServerOptionID = nil
+                    state.usesCustomSignUpServerHost = true
+                    state.signUpServerHost = ""
+
+                case .loginResponse(.success(let session)):
+                    state.oauth.state.isLoginInProgress = false
+                    state.oauth.state.errorMessage = nil
+                    state.oauth.state.$sessionStore.withLock {
+                        $0.upsert(session)
+                    }
+                    state.oauth.state.$session.withLock {
+                        $0 = state.oauth.state.sessionStore.selectedSession
+                    }
+                    state.isAuthenticationSheetPresented = false
+
+                case .loginResponse(.failure(.cancelled)):
+                    state.oauth.state.isLoginInProgress = false
+
+                case .loginResponse(.failure(.failed)):
+                    state.oauth.state.isLoginInProgress = false
+                    state.oauth.state.errorMessage = "Sign in failed."
+
+                case .selectedModeChanged(let mode):
+                    state.selectedMode = mode
+
+                case .signInForm:
+                    break
+
+                case .signInFormSubmitted(let value):
+                    guard state.session == nil else {
+                        state.isAuthenticationSheetPresented = false
+                        return
+                    }
                     guard !state.isSignUpInProgress else { return }
-                    let loginHint = state.signInLoginHint.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let loginHint = value.handle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !loginHint.isEmpty else { return }
                     let sessionStore = state.oauth.state.sessionStore
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = true
@@ -246,9 +274,17 @@ public struct Account {
                         }
                     }
 
-                case .signUp:
+                case .signUpForm:
+                    break
+
+                case .signUpFormSubmitted(let value):
+                    guard state.session == nil else {
+                        state.isAuthenticationSheetPresented = false
+                        return
+                    }
                     guard !state.isLoginInProgress else { return }
-                    let serverHost = state.signUpServerHost.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let serverHost = value.serverHost.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !serverHost.isEmpty else { return }
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isSignUpInProgress = true
                     store.addTask {
@@ -264,6 +300,53 @@ public struct Account {
                             try store.send(.signUpResponse(.failure(.failed(error.localizedDescription))))
                         }
                     }
+
+                case .signUpResponse(.success(let session)):
+                    state.oauth.state.isSignUpInProgress = false
+                    state.oauth.state.errorMessage = nil
+                    state.oauth.state.$sessionStore.withLock {
+                        $0.upsert(session)
+                    }
+                    state.oauth.state.$session.withLock {
+                        $0 = state.oauth.state.sessionStore.selectedSession
+                    }
+                    state.isAuthenticationSheetPresented = false
+
+                case .signUpResponse(.failure(.cancelled)):
+                    state.oauth.state.isSignUpInProgress = false
+
+                case .signUpResponse(.failure(.failed)):
+                    state.oauth.state.isSignUpInProgress = false
+                    state.oauth.state.errorMessage = "Sign up failed."
+
+                case .signUpServerOptionTapped(let id):
+                    guard let option = OpenMusicEventOAuth.signUpServerConfiguration.availableOption(id: id),
+                          let serverHost = option.serverHost
+                    else { return }
+                    state.selectedSignUpServerOptionID = option.id
+                    state.usesCustomSignUpServerHost = false
+                    state.signUpServerHost = serverHost
+
+                case .submitAuthenticationFormButtonTapped:
+                    guard state.session == nil else {
+                        state.isAuthenticationSheetPresented = false
+                        return
+                    }
+                    guard !state.isAuthenticationFormSubmitDisabled else { return }
+
+                    switch state.selectedMode {
+                    case .signIn:
+                        guard !state.isSignUpInProgress else { return }
+                        store.addTask {
+                            try store.send(.signInForm(.submittedForm))
+                        }
+
+                    case .signUp:
+                        guard !state.isLoginInProgress else { return }
+                        store.addTask {
+                            try store.send(.signUpForm(.submittedForm))
+                        }
+                    }
                 }
             }
         }
@@ -272,6 +355,30 @@ public struct Account {
                 baseAuthRequirement: OpenMusicEventOAuth.baseAuthRequirement,
                 signUpServerConfiguration: OpenMusicEventOAuth.signUpServerConfiguration
             )
+        }
+    }
+}
+
+private extension Account.SignInFormFeature {
+    init() {
+        self.init {
+            Self.Field(\.handle) {
+                Validation(error: "Enter your handle.") { value in
+                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+            }
+        }
+    }
+}
+
+private extension Account.SignUpFormFeature {
+    init() {
+        self.init {
+            Self.Field(\.serverHost) {
+                Validation(error: "Choose a provider or enter a server host.") { value in
+                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+            }
         }
     }
 }
@@ -325,7 +432,7 @@ struct AccountAuthenticationSheetView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            SwiftUI.Form {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Your Atmosphere account")
@@ -354,13 +461,15 @@ struct AccountAuthenticationSheetView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
 
-                            TextField("name.atmo.social", text: $store.signInLoginHint)
+                            TextField("name.atmo.social", text: $store.signInForm.value.handle)
                                 #if !os(macOS)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                                 #endif
 
-
+                            FormFieldValidationStatus(
+                                validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
+                            )
 
                     case .signUp:
                             Text(store.selectedMode.helperText)
@@ -575,14 +684,23 @@ struct AccountSignUpServerFormView: View {
         if store.usesCustomSignUpServerHost ||
             OpenMusicEventOAuth.signUpServerConfiguration.options.isEmpty {
             Section("Server") {
-                TextField("Server Host", text: $store.signUpServerHost)
+                TextField("Server Host", text: $store.signUpForm.value.serverHost)
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     #endif
+
+                FormFieldValidationStatus(
+                    validation: store.signUpForm.validation[AccountFormFieldID.signUpServerHost]
+                )
             }
         }
     }
+}
+
+private enum AccountFormFieldID {
+    static var signInHandle: AnyHashable { AnyHashable(\Account.SignInFormValue.handle) }
+    static var signUpServerHost: AnyHashable { AnyHashable(\Account.SignUpFormValue.serverHost) }
 }
 
 struct AccountSignUpServerOptionRow: View {
@@ -712,7 +830,7 @@ public extension OAuthAccount.State {
     }
 
     init(
-        authFailureMessage: Shared<ErrorMessage?>,
+        authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
         session: Shared<OAuth.Session?>,
         sessionStore: Shared<OAuth.SessionStore>
     ) {

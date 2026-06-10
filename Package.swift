@@ -92,6 +92,7 @@ let package = Package(
                 .product(name: "ATProtoOAuth", package: "tcatproto"),
                 .product(name: "ATProtoServer", package: "tcatproto"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "ComposableForms", package: "tca26-forms"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "TCATProtoAuthentication", package: "tcatproto"),
