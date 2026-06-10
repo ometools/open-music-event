@@ -16,9 +16,9 @@ public struct Account {
         var helperText: String {
             switch self {
             case .signIn:
-                "Already have one? Sign in with your handle, like name.bsky.social or your own domain."
+                "Sign in with your handle, like name.atmo.social or your own domain."
             case .signUp:
-                "Create an account with a provider. Bsky and Eurosky work today; ome.social accounts are coming soon."
+                "Choose a provider to create your Atmosphere account. Your provider hosts your account and data, and you can move later."
             }
         }
 
@@ -331,7 +331,7 @@ struct AccountAuthenticationSheetView: View {
                         Text("Your Atmosphere account")
                             .font(.headline)
                         Text(
-                            "An Atmosphere account is the portable social account used by Open Music Event, BlueSky, and other AT Protocol apps."
+                            "Use one portable social account across Open Music Event and other AT Protocol apps."
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -354,11 +354,13 @@ struct AccountAuthenticationSheetView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
 
-                            TextField("Handle", text: $store.signInLoginHint)
+                            TextField("name.atmo.social", text: $store.signInLoginHint)
                                 #if !os(macOS)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                                 #endif
+
+
 
                     case .signUp:
                             Text(store.selectedMode.helperText)
@@ -366,16 +368,14 @@ struct AccountAuthenticationSheetView: View {
                                 .foregroundStyle(.secondary)
 
                     }
-                }
-                if store.selectedMode == .signUp {
-                    AccountSignUpServerFormView(store: store)
-                }
 
-                if let errorMessage = store.errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
+                    if store.selectedMode == .signUp {
+                        AccountSignUpServerFormView(store: store)
                     }
+                } footer: {
+                    Text("Already use Bluesky? Your Bluesky handle works too.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Account")

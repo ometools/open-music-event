@@ -23,6 +23,7 @@ kanban-plugin: board
 - [ ] [[roadmap/OME-040-pds-account-provider-onboarding|OME-040: PDS / Account Provider Onboarding]]
 - [ ] [[roadmap/OME-041-appview-auth-and-scope-model|OME-041: AppView Auth and Scope Model]]
 - [ ] [[roadmap/OME-042-appview-query-surface|OME-042: AppView Query Surface]]
+- [ ] [[roadmap/OME-059-community-calendar-appview-ingestion|OME-059: Community Calendar AppView Ingestion]]
 - [ ] [[roadmap/OME-043-white-label-app-operations|OME-043: White-Label App Operations]]
 - [ ] [[roadmap/OME-044-testflight-trusted-tester-rollout|OME-044: TestFlight / Trusted Tester Rollout]]
 - [ ] [[roadmap/OME-045-store-metadata-and-screenshots|OME-045: Store Metadata and Screenshots]]
