@@ -7,6 +7,9 @@
 # macOS
 .DS_Store
 
+# Obsidian local vault settings/plugins
+.obsidian/
+
 # gradle properties
 local.properties
 .gradle/
