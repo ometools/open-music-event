@@ -20,6 +20,7 @@ These surfaces make the event useful beyond the schedule and give organizers a r
 ## Rough Shape
 
 - Keep event info, stages, posters, location, contact, and communications in the event viewer.
+- Split the higher-quality site map / wayfinding work into [[OME-062-site-map-and-wayfinding|Site Map and Wayfinding]].
 - Keep these views source-backed so edits can flow through the proposal pipeline.
 - Code pointers: `Sources/OpenMusicEventAppEventViewer/EventInfoViewer.swift`, `Sources/OpenMusicEventAppEventViewer/StagesViewer.swift`, `Sources/OpenMusicEventAppEventViewer/PostersViewer.swift`.
 

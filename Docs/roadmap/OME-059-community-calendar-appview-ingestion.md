@@ -11,11 +11,11 @@ created: "2026-06-10"
 
 ## Summary
 
-Plan AppView ingestion for public `community.lexicon.calendar.event` and `community.lexicon.calendar.rsvp` records, starting with atmo.rsvp as the first real integration target.
+Plan AppView ingestion for public `community.lexicon.calendar.event` and `community.lexicon.calendar.rsvp` records, starting with atmo.rsvp and Smoke Signal as real integration targets.
 
 ## Why
 
-Community calendar records give OpenMusicEvent a useful interoperability path before every event is published as an OME-native record. atmo.rsvp already exercises the shared calendar event and RSVP lexicons, so it is a good first source for proving AppView ingestion without making atmo.rsvp-specific behavior part of the core OME event contract.
+Community calendar records give OpenMusicEvent a useful interoperability path before every event is published as an OME-native record. atmo.rsvp and Smoke Signal already exercise the shared calendar event and RSVP lexicons, so they are good first sources for proving AppView ingestion without making any one producer's behavior part of the core OME event contract.
 
 ## Rough Shape
 
@@ -29,9 +29,10 @@ Community calendar records give OpenMusicEvent a useful interoperability path be
 - Send geohash or equivalent coarse location buckets to the AppView for nearby queries, rather than precise coordinates.
 - Expose nearby filtering as coarse user-facing scopes such as nearby, region, and anywhere; map those scopes to geohash precision internally.
 - atmo.rsvp comparison: current public browsing appears to be upcoming/popular/search oriented; event creation uses manual Nominatim geocoding into address fields, not device-location nearby browsing.
+- Smoke Signal comparison: public pages expose global activity, regional/my-location browsing concepts, event counts, and RSVP counts; its source documents support for `community.lexicon.calendar.event`, `community.lexicon.calendar.rsvp`, `community.lexicon.location`, and Smoke Signal-specific profile/acceptance records.
 - Keep the base mixed browse ranking mostly chronological for upcoming events, with light boosts for followed, trusted, and nearby signals.
 - Plan explicit future surfaces for Featured and What's Hot rather than making the default browse order feel opaque or algorithmic.
-- Keep OME-native event rows unadorned; show a compact source tag on third-party/community-calendar rows such as atmo.rsvp or other producers.
+- Keep OME-native event rows unadorned; show a compact source tag on third-party/community-calendar rows such as atmo.rsvp, Smoke Signal, or other producers.
 - Show possible duplicate events as separate rows in the first slice unless there is an explicit merge/link signal; avoid automatic matching by name/date/location alone.
 - Include RSVP counts in the AppView projection so the UI can surface them later, even if the first browse row only uses a `has RSVPs` filter.
 - Use `community.lexicon.calendar.rsvp` as the only attendance signal in this slice; ticketing is out of scope and should remain a future extension that does not overload RSVP records.
@@ -48,6 +49,7 @@ Community calendar records give OpenMusicEvent a useful interoperability path be
 - How should AppView derive location buckets from community records that provide only address fields, only geo coordinates, or H3 values?
 - What fallback should the nearby filter show before location permission is granted or after it is denied?
 - What exact source tags should third-party/community-calendar rows show, and should unknown producers be grouped as Community Calendar?
+- Should the first known-source backfill seed both atmo.rsvp and Smoke Signal, or should source tagging arrive only through generic NSID ingestion?
 - What explicit merge/link signal should allow OME-native and community-calendar records to collapse into one row later?
 
 ## Next Step
