@@ -692,7 +692,7 @@ public extension OME {
             OME.ID<Record>(.init(string))
         }
 
-        private static func inferredEventID(
+        public static func inferredEventID(
             eventDirectoryName: String,
             sourceProvenance: SourceProvenance?
         ) -> OME.ID<OME.Event> {

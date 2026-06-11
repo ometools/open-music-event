@@ -154,6 +154,49 @@ public extension OpenMusicEventCalendarSourcePatchLocationResolver {
 
 public extension SourcePatchGenerator where Request == OpenMusicEventSourcePatchRequest {
     static var openMusicEvent: Self {
+        Self { request in
+            @Dependency(\.openMusicEventSourcePatchLocationResolver) var resolver
+            @Dependency(\.openMusicEventSourcePatchConversion) var conversion
+            @Dependency(\.sourcePatchDiffer) var sourcePatchDiffer
+            @Dependency(\.sourceWorkingTreeMaterializer) var sourceWorkingTreeMaterializer
+
+            let location = try await resolver.resolve(request)
+            guard let eventRelativePath = location.relativePath else {
+                return try await Self.existingOpenMusicEvent.generate(request)
+            }
+            let existingEventURL = try location.repositoryURL.appendingValidatedRelativePath(eventRelativePath)
+
+            guard !FileManager.default.fileExists(atPath: existingEventURL.path) else {
+                return try await Self.existingOpenMusicEvent.generate(request)
+            }
+
+            let workingTree = try sourceWorkingTreeMaterializer.materialize(
+                location.repositoryURL,
+                nil
+            )
+            defer {
+                try? FileManager.default.removeItem(at: workingTree.workingRepositoryURL)
+            }
+
+            let workingEventURL = try workingTree.workingRepositoryURL
+                .appendingValidatedRelativePath(eventRelativePath)
+            try FileManager.default.createDirectory(
+                at: workingEventURL,
+                withIntermediateDirectories: true
+            )
+            let sourceEvent = try await conversion.update(.emptyForNewSourcePatch, request)
+            _ = try OpenMusicEventSourceEventFileTree()
+                .rewrite(sourceEvent, at: workingEventURL)
+
+            return try sourcePatchDiffer.diff(
+                workingTree.originalURL,
+                workingTree.workingURL,
+                workingTree.originalRepositoryURL
+            )
+        }
+    }
+
+    private static var existingOpenMusicEvent: Self {
         .live(
             resolveLocation: { request in
                 @Dependency(\.openMusicEventSourcePatchLocationResolver) var resolver
@@ -261,5 +304,50 @@ private enum OpenMusicEventCalendarSourcePatchConversionKey: DependencyKey {
 
     static var testValue: OpenMusicEventCalendarSourcePatchConversion {
         .identity
+    }
+}
+
+private extension OpenMusicEventSourceEvent {
+    static var emptyForNewSourcePatch: Self {
+        OpenMusicEventSourceEvent(
+            event: EventDTO(
+                id: nil,
+                name: "",
+                description: nil,
+                startDate: nil,
+                endDate: nil,
+                status: nil,
+                mode: nil,
+                locations: nil,
+                uris: nil,
+                timeZone: TimeZone(secondsFromGMT: 0)!,
+                images: nil,
+                contactNumbers: nil,
+                categoryConfigs: nil
+            )
+        )
+    }
+}
+
+private extension URL {
+    func appendingValidatedRelativePath(_ relativePath: String) throws -> URL {
+        guard !relativePath.hasPrefix("/") else {
+            throw SourceWorkingTreeMaterializerError.invalidRelativePath(relativePath)
+        }
+
+        let components = relativePath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        guard !components.isEmpty,
+              !components.contains("."),
+              !components.contains("..")
+        else {
+            throw SourceWorkingTreeMaterializerError.invalidRelativePath(relativePath)
+        }
+
+        return components.reduce(self.standardizedFileURL) { url, component in
+            url.appending(path: component)
+        }
+        .standardizedFileURL
     }
 }

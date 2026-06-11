@@ -764,6 +764,7 @@ public struct SourceDetail {
         }
 
         var editCalendar: EditCalendar.State?
+        var destination: Destination.State?
 
         @DebugSnapshotIgnored
         @FetchOne
@@ -793,6 +794,10 @@ public struct SourceDetail {
             editableCalendarID != nil
         }
 
+        var canAddEvent: Bool {
+            sourceBaseline != nil && editableCalendarID != nil && organizer != nil
+        }
+
         var editableCalendarID: OMERecord.Calendar.ID? {
             if let calendar {
                 return calendar.id
@@ -805,10 +810,17 @@ public struct SourceDetail {
     }
 
     public enum Action {
+        case addEventButtonTapped
+        case destination(Destination.Action)
         case editButtonTapped
         case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case task
+    }
+
+    @Feature
+    public enum Destination {
+        case createEvent(Spawn<CreateEvent>)
     }
 
     static func sourceBaselineQuery(
@@ -916,6 +928,28 @@ public struct SourceDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .addEventButtonTapped:
+                guard let calendarID = state.editableCalendarID,
+                      let organizer = state.organizer,
+                      let sourceBaseline = state.sourceBaseline
+                else { return }
+                state.destination = .createEvent(
+                    Spawn(
+                        CreateEvent.State(
+                            organizerID: organizer.id,
+                            eventOrganizerID: organizer.id,
+                            sourceContext: CreateEvent.State.SourceContext(
+                                sourceBaseline: sourceBaseline,
+                                calendarID: calendarID,
+                                sourceEventDirectory: "2026"
+                            )
+                        )
+                    )
+                )
+
+            case .destination:
+                return
+
             case .editButtonTapped:
                 guard let calendarID = state.editableCalendarID else {
                     return
@@ -936,6 +970,9 @@ public struct SourceDetail {
             case .task:
                 break
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
         .ifLet(\.editCalendar, action: \.editCalendar) {
             EditCalendar()
@@ -1025,7 +1062,17 @@ public struct SourceDetailView: View {
                 EditCalendarView(store: editStore)
             }
         }
+        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
+            NavigationStack {
+                CreateEventView(store: createEventStore)
+            }
+        }
         .toolbar {
+            if store.canAddEvent {
+                Button("Add Event", systemImage: "plus") {
+                    store.send(.addEventButtonTapped)
+                }
+            }
             if store.canEditCalendar {
                 Button("Edit Calendar", systemImage: "pencil") {
                     store.send(.editButtonTapped)

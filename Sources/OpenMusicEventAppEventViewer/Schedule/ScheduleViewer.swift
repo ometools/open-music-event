@@ -216,6 +216,8 @@ public struct ScheduleViewer {
     }
 
     public enum Action {
+        case addPerformanceButtonTapped(OMERecord.ID<OMERecord.Schedule>?)
+        case addScheduleButtonTapped
         case destination(Destination.Action)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case scheduleModeButtonTapped(ScheduleMode)
@@ -223,6 +225,8 @@ public struct ScheduleViewer {
 
     @Feature
     public enum Destination {
+        case editPerformance(Spawn<EditPerformance>)
+        case editSchedule(Spawn<EditSchedule>)
         case performanceDetail(Spawn<PerformanceDetail>)
     }
 
@@ -366,9 +370,45 @@ public struct ScheduleViewer {
         stages.filter { $0.category == division.category }
     }
 
+    static func canAddPerformance(
+        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
+        schedules: [OMERecord.Schedule],
+        stages: [OMERecord.Stage]
+    ) -> Bool {
+        !stages.isEmpty
+            && schedules.contains { $0.id.scheduleID == selectedScheduleID }
+    }
+
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case let .addPerformanceButtonTapped(selectedScheduleID):
+                guard let schedule = state.selectedSchedule(
+                    selectedScheduleID: selectedScheduleID
+                ),
+                      !state.stages.isEmpty
+                else { return }
+                state.destination = .editPerformance(
+                    Spawn(
+                        EditPerformance.State(
+                            eventID: state.eventID,
+                            schedule: schedule,
+                            stages: state.stages,
+                            timeZone: state.timeZone
+                        )
+                    )
+                )
+
+            case .addScheduleButtonTapped:
+                state.destination = .editSchedule(
+                    Spawn(
+                        EditSchedule.State(
+                            eventID: state.eventID,
+                            timeZone: state.timeZone
+                        )
+                    )
+                )
+
             case .destination:
                 break
 
@@ -442,6 +482,12 @@ public struct ScheduleViewerView: View {
         )
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                ScheduleAddMenu(
+                    store: store,
+                    selectedScheduleID: selectedScheduleID
+                )
+            }
+            ToolbarItem(placement: .primaryAction) {
                 ScheduleModeMenu(store: store)
             }
         }
@@ -457,10 +503,50 @@ public struct ScheduleViewerView: View {
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .sheet(item: $store.scope(\.destination, action: \.destination).editSchedule) { editStore in
+            NavigationStack {
+                EditScheduleView(store: editStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).editPerformance) { editStore in
+            NavigationStack {
+                EditPerformanceView(store: editStore)
+            }
+        }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
             PerformanceDetailView(store: detailStore)
         }
         .environment(\.showStageNameLabels, store.showStageNameLabels)
+    }
+}
+
+struct ScheduleAddMenu: View {
+    @Bindable var store: StoreOf<ScheduleViewer>
+    let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+
+    var body: some View {
+        Menu {
+            Button {
+                store.send(.addScheduleButtonTapped)
+            } label: {
+                Label("Add Schedule", systemImage: "calendar.badge.plus")
+            }
+
+            Button {
+                store.send(.addPerformanceButtonTapped(selectedScheduleID))
+            } label: {
+                Label("Add Performance", systemImage: "music.mic")
+            }
+            .disabled(
+                !ScheduleViewer.canAddPerformance(
+                    selectedScheduleID: selectedScheduleID,
+                    schedules: store.schedules,
+                    stages: store.stages
+                )
+            )
+        } label: {
+            Label("Add", systemImage: "plus")
+        }
     }
 }
 
