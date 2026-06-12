@@ -88,6 +88,18 @@ private actor BlueskyProfileRequestRecorder {
     }
 }
 
+private actor SourceRefreshRecorder {
+    private var recordedSourceBaselineIDs: [SourceBaselineRecord.ID] = []
+
+    var sourceBaselineIDs: [SourceBaselineRecord.ID] {
+        recordedSourceBaselineIDs
+    }
+
+    func record(_ sourceBaselineID: SourceBaselineRecord.ID) {
+        recordedSourceBaselineIDs.append(sourceBaselineID)
+    }
+}
+
 @MainActor
 struct NavigationTests {
     @Test(
@@ -612,6 +624,164 @@ struct NavigationTests {
             $0.lastRequest = .event(eventID, nil)
         }
         #expect(store.state.lastRequest == .event(eventID, nil))
+    }
+
+    @Test
+    func eventInfoPullToRefreshPostsSourceDataRefreshRequest() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("refresh-source-event")
+        let sourceProvenance = sourceProvenance("refresh-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Refresh Source Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 0)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: EventInfoRefreshHarness.State(eventID: eventID)) {
+                EventInfoRefreshHarness()
+            }
+        }
+
+        await store.send(.eventInfo(.didPullToRefresh))?.value
+        #expect(
+            store.state.lastRefreshRequest == SourceDataRefreshRequest(
+                eventID: eventID,
+                sourceBaselineID: sourceBaselineID
+            )
+        )
+    }
+
+    @Test
+    func eventInfoPullToRefreshNoOpsForNonSourceEvent() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("plain-event")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Plain Event")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: EventInfoRefreshHarness.State(eventID: eventID)) {
+                EventInfoRefreshHarness()
+            }
+        }
+
+        await store.send(.eventInfo(.didPullToRefresh))?.value
+        #expect(store.state.lastRefreshRequest == nil)
+    }
+
+    @Test
+    func eventViewerRefreshesSourceDataFromAboutPull() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("viewer-refresh-event")
+        let sourceProvenance = sourceProvenance("viewer-refresh-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let recorder = SourceRefreshRecorder()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Viewer Refresh Event")
+            try Self.insertEventOrganizer(db, eventID: eventID, organizerID: testOrganizerID)
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 0)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.exhaustivity = .off
+            $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+            }
+        } operation: {
+            var initialState = EventViewerHarness.State(eventID: eventID)
+            initialState.eventViewer.selectedFeature = .about
+            return TestStore(initialState: initialState) {
+                EventViewerHarness()
+            }
+        }
+
+        await store.send(
+            to: \EventViewerHarness.State.eventInfoViewer,
+            EventInfoViewer.Action.didPullToRefresh
+        )?.value
+        #expect(await recorder.sourceBaselineIDs == [sourceBaselineID])
+        #expect(store.state.eventViewer.selectedFeature == .about)
+    }
+
+    @Test
+    func eventViewerIgnoresSourceRefreshForDifferentEvent() async throws {
+        let database = try makePreparedDatabase()
+        let viewerEventID = eventID("viewer-refresh-event")
+        let otherEventID = eventID("other-refresh-event")
+        let sourceProvenance = sourceProvenance("other-refresh-source")
+        let recorder = SourceRefreshRecorder()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: viewerEventID, name: "Viewer Refresh Event")
+            try Self.insertEvent(db, id: otherEventID, name: "Other Refresh Event")
+            try Self.insertEventOrganizer(db, eventID: viewerEventID, organizerID: testOrganizerID)
+            try Self.insertEventOrganizer(db, eventID: otherEventID, organizerID: testOrganizerID)
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 0)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: otherEventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = viewerEventID
+            $0.exhaustivity = .off
+            $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+            }
+        } operation: {
+            var initialState = EventViewerHarness.State(eventID: viewerEventID)
+            initialState.eventViewer.eventInfoViewer?.state = EventInfoViewer.State(eventID: otherEventID)
+            return TestStore(initialState: initialState) {
+                EventViewerHarness()
+            }
+        }
+
+        await store.send(
+            to: \EventViewerHarness.State.eventInfoViewer,
+            EventInfoViewer.Action.didPullToRefresh
+        )?.value
+        #expect(await recorder.sourceBaselineIDs == [])
     }
 
     @Test
@@ -3542,6 +3712,32 @@ private struct SourceDetailHarness {
 }
 
 @Feature
+private struct EventInfoRefreshHarness {
+    struct State {
+        init(eventID: OMERecord.Event.ID) {
+            self.eventInfo = EventInfoViewer.State(eventID: eventID)
+        }
+
+        @DebugSnapshotIgnored
+        var eventInfo: EventInfoViewer.State
+        var lastRefreshRequest: SourceDataRefreshRequest?
+    }
+
+    enum Action {
+        case eventInfo(EventInfoViewer.Action)
+    }
+
+    var body: some Feature {
+        Scope(\.eventInfo, action: \.eventInfo) {
+            EventInfoViewer()
+        }
+        .onEvent(SourceDataRefreshRequested.self) { request, state in
+            state.lastRefreshRequest = request
+        }
+    }
+}
+
+@Feature
 private struct EventViewerHarness {
     struct State {
         init(eventID: OMERecord.Event.ID = eventID("event-1")) {
@@ -3554,6 +3750,11 @@ private struct EventViewerHarness {
         var lastRequest: NavigationRequest?
         @DebugSnapshotIgnored
         var eventViewer: EventViewer.State
+
+        var eventInfoViewer: Spawn<EventInfoViewer> {
+            get { eventViewer.eventInfoViewer! }
+            set { eventViewer.eventInfoViewer = newValue }
+        }
     }
 
     enum Action {

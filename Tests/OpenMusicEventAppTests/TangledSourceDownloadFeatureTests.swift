@@ -10,10 +10,12 @@ import HTTPClient
 import HTTPTypes
 import IssueReporting
 import OpenMusicEventAuthentication
+import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+import SourceEditing
 import SQLiteData
 import Testing
 import XRPCClient
@@ -275,6 +277,67 @@ struct TangledSourceDownloadFeatureTests {
                 )
             ]
         )
+    }
+
+    @Test
+    func sourceDataRefreshImportsSourceBaselineUsingBaseContext() async throws {
+        let recorder = SourceDataRefreshImportRecorder()
+        let sourceProvenance = tangledSourceProvenance(
+            "refresh-source",
+            ref: "main"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let result = try validationResult()
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appending(path: "source-data-refresh-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: temporaryURL.appending(path: "working.sqlite").path(),
+            baselineDatabasePath: temporaryURL.appending(path: "baseline.sqlite").path()
+        )
+
+        try await withDependencies {
+            $0.context = .test
+            try OME.prepareDependencies(&$0)
+            $0.sourceEditingSession = sourceEditingSession
+            $0.tangledSourceImport = TangledSourceImportClient { request in
+                @Dependency(\.sourceEditingSession) var sourceEditingSession
+                await recorder.record(
+                    request,
+                    sourceEditingSessionIsNil: sourceEditingSession == nil
+                )
+                return result
+            }
+        } operation: {
+            @Dependency(\.defaultDatabase) var database
+            @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+            try await database.write { db in
+                try SourceBaselineRecord.insert {
+                    SourceBaselineRecord(
+                        source: sourceProvenance,
+                        databaseFileName: "baseline.sqlite",
+                        importedAt: Date(timeIntervalSince1970: 0)
+                    )
+                }
+                .execute(db)
+            }
+
+            try await sourceDataRefresh.refresh(sourceBaselineID)
+        }
+
+        let requests = await recorder.requests
+        let sourceEditingSessionIsNilValues = await recorder.sourceEditingSessionIsNilValues
+        expectNoDifference(
+            requests,
+            [
+                OpenMusicEventSourceValidationRequest(
+                    source: sourceProvenance.reference,
+                    ref: "main"
+                )
+            ]
+        )
+        expectNoDifference(sourceEditingSessionIsNilValues, [true])
     }
 
     @Test
@@ -972,6 +1035,27 @@ private actor ImportRecorder {
 
     func record(_ request: OpenMusicEventSourceValidationRequest) {
         requests.append(request)
+    }
+}
+
+private actor SourceDataRefreshImportRecorder {
+    private var recordedRequests: [OpenMusicEventSourceValidationRequest] = []
+    private var recordedSourceEditingSessionIsNilValues: [Bool] = []
+
+    var requests: [OpenMusicEventSourceValidationRequest] {
+        recordedRequests
+    }
+
+    var sourceEditingSessionIsNilValues: [Bool] {
+        recordedSourceEditingSessionIsNilValues
+    }
+
+    func record(
+        _ request: OpenMusicEventSourceValidationRequest,
+        sourceEditingSessionIsNil: Bool
+    ) {
+        recordedRequests.append(request)
+        recordedSourceEditingSessionIsNilValues.append(sourceEditingSessionIsNil)
     }
 }
 

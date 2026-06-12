@@ -13,6 +13,7 @@ public struct EventInfoViewer {
     public struct State {
         public let eventID: OMERecord.Event.ID
         @FetchOne public var event: OMERecord.Event?
+        @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
         public var destination: Destination.State?
 
         public init(
@@ -24,11 +25,15 @@ public struct EventInfoViewer {
             _event = FetchOne(
                 OMERecord.Event.where { $0.id.eq(eventID) }
             )
+            _sourceProvenance = FetchOne(
+                EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
+            )
         }
     }
 
     public enum Action {
         case destination(Destination.Action)
+        case didPullToRefresh
         case editButtonTapped
     }
 
@@ -43,6 +48,18 @@ public struct EventInfoViewer {
             switch action {
             case .destination:
                 break
+
+            case .didPullToRefresh:
+                guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
+                    return
+                }
+                let request = SourceDataRefreshRequest(
+                    eventID: state.eventID,
+                    sourceBaselineID: sourceBaselineID
+                )
+                store.addTask {
+                    try store.post(key: SourceDataRefreshRequested.self, value: request)
+                }
 
             case .editButtonTapped:
                 store.withDependencies {
@@ -127,6 +144,9 @@ public struct EventInfoViewerView: View {
                             store.send(.editButtonTapped)
                         }
                     }
+                }
+                .refreshable {
+                    store.send(.didPullToRefresh)
                 }
             } else {
                 ViewerPlaceholderView(

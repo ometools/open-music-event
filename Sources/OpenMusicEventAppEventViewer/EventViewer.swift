@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import ErrorHandling
 import Sharing
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
@@ -53,6 +54,8 @@ public struct EventViewer {
     public init() {}
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @StoreTaskID var sourceDataRefreshTask
 
     public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeatureValue {
         case schedule(ScheduleViewer.ScheduleDivision)
@@ -284,16 +287,25 @@ public struct EventViewer {
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
             self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
+            self.installFeatureStores(features)
+        }
 
-            withDependencies {
-                $0.defaultEventID = eventID
-                $0.defaultEventTimeZone = eventTimeZone
-                if let sourceEditingSession {
-                    $0.defaultDatabase = sourceEditingSession.database
-                    $0.sourceEditingSession = sourceEditingSession
-                }
-            } operation: {
+        private mutating func installFeatureStores(_ features: [EventFeature]) {
+            self.scheduleViewers = []
+            self.contributorsViewer = nil
+            self.stagesViewer = nil
+            self.communicationsViewer = nil
+            self.contactInfoViewer = nil
+            self.locationViewer = nil
+            self.siteMapViewer = nil
+            self.postersViewer = nil
+            self.notificationsViewer = nil
+            self.eventSettings = nil
+            self.editEvent = nil
+            self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
+            self.eventInfoViewer = nil
 
+            withEventDependencies {
                 for feature in features {
                     switch feature {
                     case let .schedule(division):
@@ -332,6 +344,23 @@ public struct EventViewer {
                     }
                 }
             }
+        }
+
+        mutating func reloadAfterSourceDataRefresh() {
+            let selectedFeature = self.selectedFeature
+            self.sourceEditingSession = try? SourceEditingSession.openMusicEvent(eventID: eventID)
+            self.eventTimeZone = Self.eventTimeZone(
+                eventID: eventID,
+                sourceEditingSession: sourceEditingSession
+            )
+            let features = withEventDependencies {
+                EventFeature.features(eventID: eventID)
+            }
+            self.installedFeatures = features
+            self.selectedFeature = features.contains(selectedFeature)
+                ? selectedFeature
+                : features.first ?? .schedule(.schedule)
+            self.installFeatureStores(features)
         }
 
         public static func route(
@@ -509,6 +538,21 @@ public struct EventViewer {
         .onEvent(NavigationRequested.self) { request, state in
             guard case let .event(eventID, target) = request, eventID == state.eventID else { return }
             state.navigate(to: target)
+        }
+        .onEvent(SourceDataRefreshRequested.self) { request, state in
+            guard request.eventID == state.eventID else { return }
+            store.addTask(id: sourceDataRefreshTask) {
+                let result: Void? = await store.withErrorHandling(
+                    fallbackMessage: .sourceDataRefreshFailed,
+                    operation: .sourceDataRefresh
+                ) {
+                    try await sourceDataRefresh.refresh(request.sourceBaselineID)
+                }
+                guard result != nil else { return }
+                try store.modify {
+                    $0.reloadAfterSourceDataRefresh()
+                }
+            }
         }
         .forEach(\.scheduleViewers) {
             ScheduleViewer()

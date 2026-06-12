@@ -4,7 +4,9 @@ import SwiftUI
 import Dependencies
 import SQLiteData
 import ComposableArchitecture2
+import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
+import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SourceControlClient
@@ -23,8 +25,36 @@ extension OME {
         dependencies.tangledSourceCheckout = .git
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
         dependencies.sourcePatchPublisher = .openMusicEventTangled
+        let baseDatabase = dependencies.defaultDatabase
+        dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
+            try await withDependencies {
+                $0.defaultDatabase = baseDatabase
+                $0.sourceEditingSession = nil
+            } operation: {
+                @Dependency(\.defaultDatabase) var database
+                @Dependency(\.tangledSourceImport) var tangledSourceImport
+                let sourceBaseline = try await database.read { db in
+                    try SourceBaselineRecord
+                        .where { $0.id.eq(sourceBaselineID) }
+                        .fetchOne(db)
+                }
+                guard let sourceBaseline else {
+                    throw SourceDataRefreshError.sourceBaselineNotFound(sourceBaselineID)
+                }
+                _ = try await tangledSourceImport.importSource(
+                    OpenMusicEventSourceValidationRequest(
+                        source: sourceBaseline.sourceReference,
+                        ref: sourceBaseline.ref ?? "HEAD"
+                    )
+                )
+            }
+        }
     }
 
+}
+
+private enum SourceDataRefreshError: Error, Equatable, Sendable {
+    case sourceBaselineNotFound(SourceBaselineRecord.ID)
 }
 
 /// The shared top-level view for the app, loaded from the platform-specific App delegates below.
