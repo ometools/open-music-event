@@ -940,8 +940,7 @@ public struct SourceDetail {
                             eventOrganizerID: organizer.id,
                             sourceContext: CreateEvent.State.SourceContext(
                                 sourceBaseline: sourceBaseline,
-                                calendarID: calendarID,
-                                sourceEventDirectory: "2026"
+                                calendarID: calendarID
                             )
                         )
                     )

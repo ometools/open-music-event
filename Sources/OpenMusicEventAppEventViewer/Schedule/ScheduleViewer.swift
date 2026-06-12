@@ -273,7 +273,7 @@ public struct ScheduleViewer {
            !customTitle.isEmpty {
             return customTitle
         }
-        return schedule.date.formatted(dateStyle: .full)
+        return schedule.date.formatted(dateFormat: "EEEE")
     }
 
     static func performanceRowSubtitle(
@@ -872,6 +872,13 @@ extension OMERecord.Performance {
 }
 
 private extension LocalDate {
+    func formatted(dateFormat: String) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = dateFormat
+        formatter.timeZone = .current
+        return formatter.string(from: atStartOfDay(in: .current))
+    }
+
     func formatted(dateStyle: DateFormatter.Style) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = dateStyle

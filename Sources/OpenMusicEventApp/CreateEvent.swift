@@ -6,6 +6,7 @@
 //
 
 import ComposableArchitecture2
+import ComposableForms
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
@@ -36,6 +37,27 @@ public struct CreateEvent {
     @Dependency(\.date) var date
     @Dependency(\.uuid) var uuid
 
+    public struct FormValue: Equatable {
+        var endDateSelection: Date
+        var eventName = ""
+        var hasEndDate = false
+        var hasStartDate = false
+        var sourceEventDirectory: String?
+        var startDateSelection: Date
+        var timeZone: TimeZone = .current
+
+        init(
+            now: Date,
+            sourceEventDirectory: String? = nil
+        ) {
+            self.endDateSelection = now
+            self.sourceEventDirectory = sourceEventDirectory
+            self.startDateSelection = now
+        }
+    }
+
+    public typealias FormFeature = ComposableForms.Form<FormValue>
+
     public struct State {
         public struct SourceContext: Equatable, Sendable {
             public init(
@@ -44,7 +66,7 @@ public struct CreateEvent {
                 sourceReference: String,
                 ref: String?,
                 calendarID: OMERecord.Calendar.ID,
-                sourceEventDirectory: String = "2026"
+                sourceEventDirectory: String = ""
             ) {
                 self.sourceBaselineID = sourceBaselineID
                 self.sourceKind = sourceKind
@@ -57,7 +79,7 @@ public struct CreateEvent {
             public init(
                 sourceBaseline: SourceBaselineRecord,
                 calendarID: OMERecord.Calendar.ID,
-                sourceEventDirectory: String = "2026"
+                sourceEventDirectory: String = ""
             ) {
                 self.init(
                     sourceBaselineID: sourceBaseline.id,
@@ -100,26 +122,29 @@ public struct CreateEvent {
             self.organizerID = organizerID ?? appEventOrganizerID
             self.eventOrganizerID = eventOrganizerID
             self.sourceContext = sourceContext
-            self.startDateSelection = now
-            self.endDateSelection = now
+            self.form = FormFeature.State(
+                value: FormValue(
+                    now: now,
+                    sourceEventDirectory: sourceContext.map(\.sourceEventDirectory)
+                )
+            )
         }
 
         var organizerID: OMERecord.Organizer.ID
         var eventOrganizerID: OMERecord.Organizer.ID?
         var sourceContext: SourceContext?
 
-        var eventName = ""
-        var hasStartDate = false
-        var startDateSelection: Date
-        var hasEndDate = false
-        var endDateSelection: Date
-        var timeZone: TimeZone = .current
-
         var isSaving = false
         var errorMessage: String?
+        var form: FormFeature.State
 
         var trimmedEventName: String {
             eventName.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var endDateSelection: Date {
+            get { form.value.endDateSelection }
+            set { form.value.endDateSelection = newValue }
         }
 
         var startDate: LocalDate? {
@@ -130,13 +155,38 @@ public struct CreateEvent {
             hasEndDate ? LocalDate(endDateSelection, in: timeZone) : nil
         }
 
+        var eventName: String {
+            get { form.value.eventName }
+            set { form.value.eventName = newValue }
+        }
+
+        var hasEndDate: Bool {
+            get { form.value.hasEndDate }
+            set { form.value.hasEndDate = newValue }
+        }
+
+        var hasStartDate: Bool {
+            get { form.value.hasStartDate }
+            set { form.value.hasStartDate = newValue }
+        }
+
         var sourceEventDirectory: String {
-            get { sourceContext?.sourceEventDirectory ?? "" }
-            set { sourceContext?.sourceEventDirectory = newValue }
+            get { form.value.sourceEventDirectory ?? "" }
+            set { form.value.sourceEventDirectory = newValue }
+        }
+
+        var startDateSelection: Date {
+            get { form.value.startDateSelection }
+            set { form.value.startDateSelection = newValue }
         }
 
         var trimmedSourceEventDirectory: String {
-            sourceContext?.trimmedSourceEventDirectory ?? ""
+            sourceEventDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var timeZone: TimeZone {
+            get { form.value.timeZone }
+            set { form.value.timeZone = newValue }
         }
 
         var timeZoneSelection: TimeZone {
@@ -164,43 +214,53 @@ public struct CreateEvent {
             }
             if sourceContext != nil {
                 if trimmedSourceEventDirectory.isEmpty {
-                    return "Enter a source directory."
+                    return "Enter a source slug."
                 }
                 if !CreateEvent.isValidSourceEventDirectory(trimmedSourceEventDirectory) {
-                    return "Use a single source directory name like 2026."
+                    return "Use a single source slug like 2026-pre-party-kelowna."
                 }
             }
             return nil
         }
 
+        var submitValidationMessage: String? {
+            if trimmedEventName.isEmpty {
+                return "Enter an event name."
+            }
+            return validationMessage
+        }
+
         var canSubmit: Bool {
             !isSaving
+                && form.canSubmit
                 && !trimmedEventName.isEmpty
                 && validationMessage == nil
         }
     }
 
     public enum Action {
+        case form(FormFeature.Action)
+        case formSubmitted(FormValue)
         case saveButtonTapped
     }
 
-
     public var body: some Feature {
+        Scope(\.form, action: \.form) {
+            FormFeature()
+                .onSubmit { value in
+                    try store.send(.formSubmitted(value))
+                }
+        }
         Update { state, action in
-            switch action {
-            case .saveButtonTapped:
+            func submit(_ state: inout State) {
                 guard !state.isSaving else { return }
 
-                guard !state.trimmedEventName.isEmpty else {
-                    state.errorMessage = "Enter an event name."
-                    return
-                }
-
-                guard let validationMessage = state.validationMessage else {
+                guard let validationMessage = state.submitValidationMessage else {
                     let sourceContext = state.sourceContext
+                    let sourceEventDirectory = state.trimmedSourceEventDirectory
                     let localEventID = sourceContext.map {
                         OMERecord.SourceDatabaseInsertion.inferredEventID(
-                            eventDirectoryName: $0.trimmedSourceEventDirectory,
+                            eventDirectoryName: sourceEventDirectory,
                             sourceProvenance: $0.sourceProvenance
                         )
                     } ?? Self.makeLocalEventID(from: uuid())
@@ -228,7 +288,7 @@ public struct CreateEvent {
                                 if let sourceContext {
                                     let duplicateCount = try EventSourceProvenanceRecord
                                         .where { $0.sourceBaselineID.eq(sourceContext.sourceBaselineID) }
-                                        .where { $0.sourceEventDirectory.eq(sourceContext.trimmedSourceEventDirectory) }
+                                        .where { $0.sourceEventDirectory.eq(sourceEventDirectory) }
                                         .fetchCount(db)
                                     guard duplicateCount == 0 else {
                                         throw SaveError.duplicateSourceEventDirectory
@@ -285,7 +345,7 @@ public struct CreateEvent {
                                             sourceReference: sourceContext.sourceReference,
                                             ref: sourceContext.ref,
                                             eventIDOrigin: .inferred,
-                                            sourceEventDirectory: sourceContext.trimmedSourceEventDirectory
+                                            sourceEventDirectory: sourceEventDirectory
                                         )
                                     }
                                     .execute(db)
@@ -294,7 +354,6 @@ public struct CreateEvent {
                             try store.modify {
                                 $0.errorMessage = nil
                                 $0.isSaving = false
-
                             }
                             try store.post(
                                 key: NavigationRequested.self,
@@ -303,7 +362,7 @@ public struct CreateEvent {
                             try store.dismiss()
                         } catch SaveError.duplicateSourceEventDirectory {
                             try store.modify {
-                                $0.errorMessage = "An event already uses that source directory."
+                                $0.errorMessage = "An event already uses that source slug."
                                 $0.isSaving = false
                             }
                         } catch {
@@ -314,12 +373,30 @@ public struct CreateEvent {
                         }
 
                     }
-                    
+
                     return
                 }
 
                 state.errorMessage = validationMessage
+            }
 
+            switch action {
+            case .form:
+                break
+
+            case let .formSubmitted(value):
+                guard !state.isSaving else { return }
+                state.form.value = value
+
+                guard state.form.canSubmit else {
+                    state.errorMessage = state.submitValidationMessage ?? "Fix the highlighted fields."
+                    return
+                }
+
+                submit(&state)
+
+            case .saveButtonTapped:
+                submit(&state)
 
             }
         }
@@ -383,13 +460,49 @@ public struct CreateEvent {
     }
 }
 
+private enum CreateEventFormFieldID {
+    static var eventName: AnyHashable { AnyHashable(\CreateEvent.FormValue.eventName) }
+    static var sourceEventDirectory: AnyHashable { AnyHashable(\CreateEvent.FormValue.sourceEventDirectory) }
+}
+
+private extension CreateEvent.FormFeature {
+    init() {
+        self.init {
+            Self.Field(\.eventName) {
+                Validation(error: "Enter an event name.") { value in
+                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+            }
+
+            Self.Field(\.sourceEventDirectory) {
+                Validation { value -> ValidationResult in
+                    guard let value else { return .valid }
+
+                    let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmedValue.isEmpty else {
+                        return .invalid(LocalizedStringResource(stringLiteral: "Enter a source slug."))
+                    }
+                    guard CreateEvent.isValidSourceEventDirectory(trimmedValue) else {
+                        return .invalid(
+                            LocalizedStringResource(
+                                stringLiteral: "Use a single source slug like 2026-pre-party-kelowna."
+                            )
+                        )
+                    }
+                    return .valid
+                }
+            }
+        }
+    }
+}
+
 struct CreateEventView: View {
     @Environment(\.dismiss) var dismiss
     @Bindable var store: StoreOf<CreateEvent>
     @State var isTimeZonePickerPresented = false
 
     var body: some View {
-        Form {
+        SwiftUI.Form {
             Section {
                 Text("Start with the basics. This creates the event now so you can come back and fill in artwork, schedule, locations, and the rest later")
                     .font(.subheadline)
@@ -397,46 +510,50 @@ struct CreateEventView: View {
             }
 
             Section("Event Name") {
-                TextField("Event Name", text: $store.eventName, prompt: Text("Testival 2026"))
+                TextField("Event Name", text: $store.form.value.eventName, prompt: Text("Testival 2026"))
 
-                if let validationMessage = store.validationMessage {
-                    Text(validationMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
+                FormFieldValidationStatus(validation: store.form.validation[CreateEventFormFieldID.eventName])
             }
 
             if store.sourceContext != nil {
                 Section {
-                    TextField("Directory", text: $store.sourceEventDirectory, prompt: Text("2026"))
+                    TextField(
+                        "Slug",
+                        text: $store.sourceEventDirectory,
+                        prompt: Text("2026-pre-party-kelowna")
+                    )
                         #if !os(macOS)
                         .textInputAutocapitalization(.never)
                         #endif
                         .autocorrectionDisabled()
+
+                    FormFieldValidationStatus(
+                        validation: store.form.validation[CreateEventFormFieldID.sourceEventDirectory]
+                    )
                 } header: {
                     Text("Source")
                 } footer: {
-                    Text("The proposal will add this event under events/\(store.trimmedSourceEventDirectory.isEmpty ? "2026" : store.trimmedSourceEventDirectory).")
+                    Text("The proposal will add this event under events/\(store.trimmedSourceEventDirectory.isEmpty ? "slug" : store.trimmedSourceEventDirectory).")
                 }
             }
 
             Section {
-                Toggle("Start Date", isOn: $store.hasStartDate.animation())
+                Toggle("Start Date", isOn: $store.form.value.hasStartDate.animation())
                 if store.hasStartDate {
                     DatePicker(
                         "Start Date",
-                        selection: $store.startDateSelection,
+                        selection: $store.form.value.startDateSelection,
                         displayedComponents: .date
                     )
                     .labelsHidden()
                     .environment(\.timeZone, store.timeZone)
                 }
 
-                Toggle("Add End Date", isOn: $store.hasEndDate.animation())
+                Toggle("Add End Date", isOn: $store.form.value.hasEndDate.animation())
                 if store.hasEndDate {
                     DatePicker(
                         "End Date",
-                        selection: $store.endDateSelection,
+                        selection: $store.form.value.endDateSelection,
                         displayedComponents: .date
                     )
                     .labelsHidden()
@@ -458,6 +575,14 @@ struct CreateEventView: View {
                 Text("Dates")
             } footer: {
                 Text("Dates are saved as local calendar dates in \(store.timeZone.identifier).")
+            }
+
+            if let validationMessage = store.validationMessage {
+                Section {
+                    Text(validationMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
             }
 
             if let errorMessage = store.errorMessage {

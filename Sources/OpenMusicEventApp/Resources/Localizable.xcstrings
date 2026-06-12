@@ -43,7 +43,7 @@
         }
       }
     },
-    "2026" : {
+    "2026-pre-party-kelowna" : {
 
     },
     "About" : {
@@ -221,9 +221,6 @@
     "Dates are saved as local calendar dates in %@." : {
 
     },
-    "Directory" : {
-
-    },
     "Downloaded Sources" : {
 
     },
@@ -233,6 +230,9 @@
     "End Date" : {
 
     },
+    "Enter a source slug." : {
+
+    },
     "Enter a Tangled repository, not a local source path." : {
 
     },
@@ -240,6 +240,9 @@
 
     },
     "Enter a valid Tangled repository." : {
+
+    },
+    "Enter an event name." : {
 
     },
     "Error Handling" : {
@@ -575,6 +578,9 @@
         }
       }
     },
+    "Slug" : {
+
+    },
     "Source" : {
 
     },
@@ -703,6 +709,9 @@
 
     },
     "Upcoming Events" : {
+
+    },
+    "Use a single source slug like 2026-pre-party-kelowna." : {
 
     },
     "Version %@ (%@)" : {

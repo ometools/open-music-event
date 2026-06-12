@@ -230,13 +230,13 @@ struct CreateEventTests {
     }
 
     @Test
-    func rejectsInvalidSourceDirectoriesBeforeWritingEventRows() async throws {
+    func rejectsInvalidSourceSlugsBeforeWritingEventRows() async throws {
         let invalidCases = [
-            (" ", "Enter a source directory."),
-            (".", "Use a single source directory name like 2026."),
-            ("..", "Use a single source directory name like 2026."),
-            ("events/2026", "Use a single source directory name like 2026."),
-            (#"events\2026"#, "Use a single source directory name like 2026."),
+            (" ", "Enter a source slug."),
+            (".", "Use a single source slug like 2026-pre-party-kelowna."),
+            ("..", "Use a single source slug like 2026-pre-party-kelowna."),
+            ("events/2026", "Use a single source slug like 2026-pre-party-kelowna."),
+            (#"events\2026"#, "Use a single source slug like 2026-pre-party-kelowna."),
         ]
 
         for (sourceEventDirectory, expectedMessage) in invalidCases {
@@ -354,11 +354,11 @@ struct CreateEventTests {
         )
 
         await store.send(.saveButtonTapped) {
-            $0.errorMessage = "An event already uses that source directory."
+            $0.errorMessage = "An event already uses that source slug."
         }?.value
 
         #expect(store.state.isSaving == false)
-        #expect(store.state.errorMessage == "An event already uses that source directory.")
+        #expect(store.state.errorMessage == "An event already uses that source slug.")
         #expect(store.isPresented == true)
 
         let events = try await database.read { db in

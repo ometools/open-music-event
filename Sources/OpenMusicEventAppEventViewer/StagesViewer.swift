@@ -37,6 +37,10 @@ public struct StagesViewer {
 
         @FetchAll public var stages: [OMERecord.Stage]
 
+        public var canCopyStagesFromOtherEvent: Bool {
+            stages.isEmpty
+        }
+
         public var filteredStages: [OMERecord.Stage] {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else { return stages }
@@ -52,11 +56,13 @@ public struct StagesViewer {
         case addButtonTapped
         case deleteStages([OMERecord.ID<OMERecord.Stage>])
         case destination(Destination.Action)
+        case fromOtherEventButtonTapped
         case stageButtonTapped(OMERecord.ID<OMERecord.Stage>)
     }
 
     @Feature
     public enum Destination {
+        case copyStagesFromEvent(Spawn<CopyStagesFromEvent>)
         case createStage(Spawn<EditStage>)
         case stageDetail(Spawn<StageDetail>)
     }
@@ -109,6 +115,19 @@ public struct StagesViewer {
             case .destination:
                 break
 
+            case .fromOtherEventButtonTapped:
+                guard state.stages.isEmpty else {
+                    state.errorMessage = "This event already has stages."
+                    return
+                }
+
+                state.errorMessage = nil
+                store.withDependencies {
+                    state.destination = .copyStagesFromEvent(
+                        Spawn(CopyStagesFromEvent.State(eventID: state.eventID))
+                    )
+                }
+
             case let .stageButtonTapped(stageID):
                 store.withDependencies {
                     state.destination = .stageDetail(
@@ -119,6 +138,356 @@ public struct StagesViewer {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
+        }
+    }
+
+    static func duplicateStageDraft(
+        _ stage: OMERecord.Stage,
+        to eventID: OMERecord.Event.ID
+    ) -> OMERecord.Stage.Draft {
+        OMERecord.Stage.Draft(
+            id: OMERecord.Stage.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                stageID: stage.id.stageID
+            ),
+            name: stage.name,
+            color: stage.color,
+            category: stage.category,
+            sortIndex: stage.sortIndex,
+            images: duplicateStageImages(stage.images),
+            systemIconName: stage.systemIconName,
+            iconShortCode: stage.iconShortCode,
+            lineup: nil
+        )
+    }
+
+    private static func duplicateStageImages(
+        _ images: [OMERecord.ImageAsset]?
+    ) -> [OMERecord.ImageAsset]? {
+        let images = images?.compactMap { image -> OMERecord.ImageAsset? in
+            if case let .url(url) = image.source, url.isFileURL {
+                return nil
+            }
+
+            var image = image
+            image.assetKey = nil
+            return image
+        }
+        return images?.isEmpty == false ? images : nil
+    }
+}
+
+@Feature
+public struct CopyStagesFromEvent {
+    public init() {}
+
+    public struct SourceEventOption: Equatable, Identifiable, Sendable {
+        public var endDate: LocalDate?
+        public var id: OMERecord.Event.ID
+        public var name: String
+        public var stageCount: Int
+        public var startDate: LocalDate?
+
+        var subtitle: String {
+            let stageText = stageCount == 1 ? "1 stage" : "\(stageCount) stages"
+            guard let dateText else { return stageText }
+            return "\(dateText) - \(stageText)"
+        }
+
+        private var dateText: String? {
+            switch (startDate, endDate) {
+            case let (.some(startDate), .some(endDate)) where endDate != startDate:
+                "\(startDate) - \(endDate)"
+            case let (.some(startDate), _):
+                startDate.description
+            case let (_, .some(endDate)):
+                endDate.description
+            case (.none, .none):
+                nil
+            }
+        }
+    }
+
+    public struct State {
+        public init(eventID: OMERecord.Event.ID) {
+            self.eventID = eventID
+        }
+
+        public let eventID: OMERecord.Event.ID
+        public var errorMessage: String?
+        public var isCopying = false
+        public var isLoading = false
+        public var selectedSourceEventID: OMERecord.Event.ID?
+        public var selectedStageIDs: Set<OMERecord.ID<OMERecord.Stage>> = []
+        public var sourceEvents: [SourceEventOption] = []
+        public var sourceStages: [OMERecord.Stage] = []
+
+        var canCopy: Bool {
+            !isCopying
+                && !isLoading
+                && selectedSourceEventID != nil
+                && !selectedStageIDs.isEmpty
+        }
+
+        var isEveryStageSelected: Bool {
+            !sourceStages.isEmpty
+                && selectedStageIDs == Set(sourceStages.map(\.id.stageID))
+        }
+
+        var selectAllButtonTitle: String {
+            isEveryStageSelected ? "Clear" : "Select All"
+        }
+    }
+
+    public enum Action {
+        case copyButtonTapped
+        case selectAllStagesButtonTapped
+        case sourceEventButtonTapped(OMERecord.Event.ID)
+        case stageButtonTapped(OMERecord.ID<OMERecord.Stage>)
+        case task
+    }
+
+    @Dependency(\.defaultDatabase) var database
+
+    public var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .copyButtonTapped:
+                guard let selectedSourceEventID = state.selectedSourceEventID else {
+                    state.errorMessage = "Choose an event."
+                    return
+                }
+                guard !state.selectedStageIDs.isEmpty else {
+                    state.errorMessage = "Choose at least one stage."
+                    return
+                }
+                guard !state.isCopying else { return }
+
+                let destinationEventID = state.eventID
+                let selectedStageIDs = state.selectedStageIDs
+                state.errorMessage = nil
+                state.isCopying = true
+                store.addTask {
+                    do {
+                        _ = try database.write { db in
+                            try Self.copyStages(
+                                from: selectedSourceEventID,
+                                stageIDs: selectedStageIDs,
+                                to: destinationEventID,
+                                in: db
+                            )
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                            $0.isCopying = false
+                        }
+                        try store.dismiss()
+                    } catch let error as CopyStagesFromEventError {
+                        try store.modify {
+                            $0.errorMessage = error.message
+                            $0.isCopying = false
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to copy stages."
+                            $0.isCopying = false
+                        }
+                    }
+                }
+
+            case .selectAllStagesButtonTapped:
+                if state.isEveryStageSelected {
+                    state.selectedStageIDs = []
+                } else {
+                    state.selectedStageIDs = Set(state.sourceStages.map(\.id.stageID))
+                }
+                state.errorMessage = nil
+
+            case let .sourceEventButtonTapped(sourceEventID):
+                guard state.sourceEvents.contains(where: { $0.id == sourceEventID }) else {
+                    return
+                }
+                guard state.selectedSourceEventID != sourceEventID else { return }
+
+                state.errorMessage = nil
+                state.isLoading = true
+                state.selectedSourceEventID = sourceEventID
+                state.selectedStageIDs = []
+                state.sourceStages = []
+                store.addTask {
+                    do {
+                        let sourceStages = try database.read { db in
+                            try Self.sourceStages(
+                                eventID: sourceEventID,
+                                in: db
+                            )
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                            $0.isLoading = false
+                            $0.selectedStageIDs = Set(sourceStages.map(\.id.stageID))
+                            $0.sourceStages = sourceStages
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to load stages."
+                            $0.isLoading = false
+                        }
+                    }
+                }
+
+            case let .stageButtonTapped(stageID):
+                guard state.sourceStages.contains(where: { $0.id.stageID == stageID }) else {
+                    return
+                }
+                if state.selectedStageIDs.contains(stageID) {
+                    state.selectedStageIDs.remove(stageID)
+                } else {
+                    state.selectedStageIDs.insert(stageID)
+                }
+                state.errorMessage = nil
+
+            case .task:
+                guard !state.isLoading else { return }
+
+                let eventID = state.eventID
+                state.errorMessage = nil
+                state.isLoading = true
+                store.addTask {
+                    do {
+                        let sourceEvents = try database.read { db in
+                            try Self.sourceEventOptions(
+                                for: eventID,
+                                in: db
+                            )
+                        }
+                        let selectedSourceEventID = sourceEvents.first?.id
+                        let sourceStages = try database.read { db in
+                            try selectedSourceEventID.map {
+                                try Self.sourceStages(eventID: $0, in: db)
+                            } ?? []
+                        }
+                        try store.modify {
+                            $0.errorMessage = sourceEvents.isEmpty
+                                ? "No other events have stages to copy."
+                                : nil
+                            $0.isLoading = false
+                            $0.selectedSourceEventID = selectedSourceEventID
+                            $0.selectedStageIDs = Set(sourceStages.map(\.id.stageID))
+                            $0.sourceEvents = sourceEvents
+                            $0.sourceStages = sourceStages
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to load events."
+                            $0.isLoading = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    enum CopyStagesFromEventError: Error, Equatable, Sendable {
+        case selectedStagesAlreadyExist
+        case selectedStagesNotFound
+
+        var message: String {
+            switch self {
+            case .selectedStagesAlreadyExist:
+                "One or more selected stages already exist in this event."
+            case .selectedStagesNotFound:
+                "Choose at least one stage."
+            }
+        }
+    }
+
+    static func copyStages(
+        from sourceEventID: OMERecord.Event.ID,
+        stageIDs: Set<OMERecord.ID<OMERecord.Stage>>,
+        to destinationEventID: OMERecord.Event.ID,
+        in db: Database
+    ) throws -> Int {
+        let sourceStages = try sourceStages(eventID: sourceEventID, in: db)
+            .filter { stageIDs.contains($0.id.stageID) }
+        guard !sourceStages.isEmpty else {
+            throw CopyStagesFromEventError.selectedStagesNotFound
+        }
+
+        let destinationStageIDs = Set(
+            try StagesViewer
+                .stagesQuery(eventID: destinationEventID)
+                .fetchAll(db)
+                .map(\.id.stageID)
+        )
+        guard !sourceStages.contains(where: { destinationStageIDs.contains($0.id.stageID) }) else {
+            throw CopyStagesFromEventError.selectedStagesAlreadyExist
+        }
+
+        try OMERecord.Stage.insert {
+            sourceStages.map { stage in
+                StagesViewer.duplicateStageDraft(stage, to: destinationEventID)
+            }
+        }
+        .execute(db)
+
+        return sourceStages.count
+    }
+
+    static func sourceEventOptions(
+        for eventID: OMERecord.Event.ID,
+        in db: Database
+    ) throws -> [SourceEventOption] {
+        let events = try OMERecord.Event
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .fetchAll(db)
+        let stages = try OMERecord.Stage
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .fetchAll(db)
+        let stageCounts = Dictionary(
+            grouping: stages,
+            by: \.id.eventID
+        )
+        .mapValues(\.count)
+
+        return events
+            .filter { $0.id != eventID }
+            .compactMap { event -> SourceEventOption? in
+                let stageCount = stageCounts[event.id.eventID] ?? 0
+                guard stageCount > 0 else { return nil }
+                return SourceEventOption(
+                    endDate: event.endDate,
+                    id: event.id,
+                    name: event.name,
+                    stageCount: stageCount,
+                    startDate: event.startDate
+                )
+            }
+            .sorted(by: SourceEventOption.sort)
+    }
+
+    static func sourceStages(
+        eventID: OMERecord.Event.ID,
+        in db: Database
+    ) throws -> [OMERecord.Stage] {
+        try StagesViewer
+            .stagesQuery(eventID: eventID)
+            .fetchAll(db)
+    }
+}
+
+private extension CopyStagesFromEvent.SourceEventOption {
+    static func sort(lhs: Self, rhs: Self) -> Bool {
+        switch (lhs.startDate, rhs.startDate) {
+        case let (.some(lhsDate), .some(rhsDate)) where lhsDate != rhsDate:
+            lhsDate > rhsDate
+        case (.some, .none):
+            true
+        case (.none, .some):
+            false
+        default:
+            lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
     }
 }
@@ -133,10 +502,14 @@ public struct StagesViewerView: View {
     public var body: some View {
         Group {
             if store.stages.isEmpty {
-                ViewerPlaceholderView(
-                    title: "Stages",
-                    systemImage: "square.grid.2x2",
-                    description: "No stages have been added to this event yet."
+                EmptyStagesView(
+                    errorMessage: store.errorMessage,
+                    onAddStage: {
+                        store.send(.addButtonTapped)
+                    },
+                    onCopyFromOtherEvent: {
+                        store.send(.fromOtherEventButtonTapped)
+                    }
                 )
             } else if store.filteredStages.isEmpty {
                 ViewerPlaceholderView(
@@ -187,6 +560,11 @@ public struct StagesViewerView: View {
                 }
             }
         }
+        .sheet(item: $store.scope(\.destination, action: \.destination).copyStagesFromEvent) { copyStore in
+            NavigationStack {
+                CopyStagesFromEventView(store: copyStore)
+            }
+        }
         .sheet(item: $store.scope(\.destination, action: \.destination).createStage) { createStore in
             NavigationStack {
                 EditStageView(store: createStore)
@@ -204,6 +582,186 @@ public struct StagesViewerView: View {
                 : nil
         }
         store.send(.deleteStages(stageIDs))
+    }
+}
+
+struct EmptyStagesView: View {
+    var errorMessage: String?
+    var onAddStage: () -> Void
+    var onCopyFromOtherEvent: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 52))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text("Stages")
+                    .font(.title2.weight(.semibold))
+                Text("No stages have been added to this event yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 10) {
+                Button {
+                    onCopyFromOtherEvent()
+                } label: {
+                    Label("From Other Event", systemImage: "square.on.square")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    onAddStage()
+                } label: {
+                    Label("Add Stage", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+        .navigationTitle("Stages")
+    }
+}
+
+public struct CopyStagesFromEventView: View {
+    @Environment(\.dismiss) var dismiss
+    @Bindable var store: StoreOf<CopyStagesFromEvent>
+
+    public init(store: StoreOf<CopyStagesFromEvent>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        List {
+            if let errorMessage = store.errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section("Event") {
+                if store.isLoading && store.sourceEvents.isEmpty {
+                    ProgressView()
+                } else if store.sourceEvents.isEmpty {
+                    ContentUnavailableView(
+                        "No Events",
+                        systemImage: "calendar.badge.exclamationmark"
+                    )
+                } else {
+                    ForEach(store.sourceEvents) { sourceEvent in
+                        Button {
+                            store.send(.sourceEventButtonTapped(sourceEvent.id))
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(sourceEvent.name)
+                                        .lineLimit(1)
+                                    Text(sourceEvent.subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                if store.selectedSourceEventID == sourceEvent.id {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            if !store.sourceStages.isEmpty {
+                Section {
+                    ForEach(store.sourceStages) { stage in
+                        Button {
+                            store.send(.stageButtonTapped(stage.id.stageID))
+                        } label: {
+                            HStack(spacing: 12) {
+                                StageArtworkView(stage: stage, size: 34)
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(stage.name)
+                                        .lineLimit(1)
+
+                                    if let category = stage.category?.displayName {
+                                        Text(category)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+
+                                Spacer()
+
+                                Image(
+                                    systemName: store.selectedStageIDs.contains(stage.id.stageID)
+                                        ? "checkmark.circle.fill"
+                                        : "circle"
+                                )
+                                .foregroundStyle(
+                                    store.selectedStageIDs.contains(stage.id.stageID)
+                                        ? Color.accentColor
+                                        : Color.secondary
+                                )
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    HStack {
+                        Text("Stages")
+                        Spacer()
+                        Button(store.selectAllButtonTitle) {
+                            store.send(.selectAllStagesButtonTapped)
+                        }
+                        .font(.caption)
+                    }
+                }
+            }
+        }
+        .disabled(store.isCopying)
+        .navigationTitle("From Other Event")
+        .task {
+            await store.send(.task)?.value
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Copy") {
+                    store.send(.copyButtonTapped)
+                }
+                .disabled(!store.canCopy)
+            }
+        }
     }
 }
 
