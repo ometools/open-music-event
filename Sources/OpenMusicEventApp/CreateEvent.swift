@@ -235,16 +235,10 @@ public struct CreateEvent {
                                     }
                                 }
 
-                                try OMERecord.Organizer.insert {
-                                    OMERecord.Organizer.Draft(id: organizerID)
-                                }
-                                .execute(db)
+                                try Self.insertOrganizerIfNeeded(organizerID, in: db)
 
                                 if let eventOrganizerID, eventOrganizerID != organizerID {
-                                    try OMERecord.Organizer.insert {
-                                        OMERecord.Organizer.Draft(id: eventOrganizerID)
-                                    }
-                                    .execute(db)
+                                    try Self.insertOrganizerIfNeeded(eventOrganizerID, in: db)
                                 }
 
                                 try OMERecord.Event.insert {
@@ -345,6 +339,21 @@ public struct CreateEvent {
 
     static func makeLocalEventID(from uuid: UUID) -> OMERecord.ID<OMERecord.Event> {
         OMERecord.ID<OMERecord.Event>(.init(uuid.uuidString.lowercased()))
+    }
+
+    static func insertOrganizerIfNeeded(
+        _ organizerID: OMERecord.Organizer.ID,
+        in db: Database
+    ) throws {
+        let exists = try OMERecord.Organizer
+            .where { $0.id.eq(organizerID) }
+            .fetchOne(db) != nil
+        guard !exists else { return }
+
+        try OMERecord.Organizer.insert {
+            OMERecord.Organizer.Draft(id: organizerID)
+        }
+        .execute(db)
     }
 
     static func makeEventDraft(

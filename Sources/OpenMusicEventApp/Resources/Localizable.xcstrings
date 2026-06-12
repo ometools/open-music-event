@@ -43,6 +43,9 @@
         }
       }
     },
+    "2026" : {
+
+    },
     "About" : {
 
     },
@@ -216,6 +219,9 @@
 
     },
     "Dates are saved as local calendar dates in %@." : {
+
+    },
+    "Directory" : {
 
     },
     "Downloaded Sources" : {
@@ -617,6 +623,9 @@
 
     },
     "Testival 2026" : {
+
+    },
+    "The proposal will add this event under events/%@." : {
 
     },
     "The repository owner did not resolve to a valid organizer." : {

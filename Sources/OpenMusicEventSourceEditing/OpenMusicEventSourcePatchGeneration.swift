@@ -186,7 +186,7 @@ public extension SourcePatchGenerator where Request == OpenMusicEventSourcePatch
             )
             let sourceEvent = try await conversion.update(.emptyForNewSourcePatch, request)
             _ = try OpenMusicEventSourceEventFileTree()
-                .rewrite(sourceEvent, at: workingEventURL)
+                .write(sourceEvent, to: workingEventURL)
 
             return try sourcePatchDiffer.diff(
                 workingTree.originalURL,
