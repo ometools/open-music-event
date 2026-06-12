@@ -43,7 +43,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         let createdAtDate = Self.now()
         let createdAt = Self.iso8601String(createdAtDate)
         let patchText = try Self.formatPatchText(
-            diffData: codec.format(preparedPatch.request.patch),
+            diffData: codec.formatReviewPatch(preparedPatch.request.patch),
             sourceRevision: commit.id.rawValue,
             title: defaultTitle,
             createdAt: createdAtDate

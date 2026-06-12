@@ -88,6 +88,60 @@ struct SourcePatchGitPatchCodecTests {
     }
 
     @Test
+    func reviewPatchPrintsTextHunksAndBinarySummaries() throws {
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/test/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                ),
+                SourcePatchFileChange(
+                    path: "events/test/images/added.png",
+                    kind: .added,
+                    newContents: Data([0xff, 0xfe, 0xfd])
+                ),
+                SourcePatchFileChange(
+                    path: "events/test/images/deleted.png",
+                    kind: .deleted,
+                    oldContents: Data([0xff, 0xfe, 0xfd])
+                ),
+                SourcePatchFileChange(
+                    path: "events/test/images/modified.png",
+                    kind: .modified,
+                    oldContents: Data([0xff, 0xfe, 0xfd]),
+                    newContents: Data([0xfd, 0xfe, 0xff])
+                ),
+            ]
+        )
+
+        let data = try SourcePatchGitPatchCodec().formatReviewPatch(patch)
+        let text = try #require(String(data: data, encoding: .utf8))
+
+        expectNoDifference(
+            text,
+            """
+            diff --git a/events/test/event.yml b/events/test/event.yml
+            --- a/events/test/event.yml
+            +++ b/events/test/event.yml
+            @@ -1 +1 @@
+            -name: Old
+            +name: New
+            diff --git a/events/test/images/added.png b/events/test/images/added.png
+            new file mode 100644
+            Binary files /dev/null and b/events/test/images/added.png differ
+            diff --git a/events/test/images/deleted.png b/events/test/images/deleted.png
+            deleted file mode 100644
+            Binary files a/events/test/images/deleted.png and /dev/null differ
+            diff --git a/events/test/images/modified.png b/events/test/images/modified.png
+            Binary files a/events/test/images/modified.png and b/events/test/images/modified.png differ
+
+            """
+        )
+    }
+
+    @Test
     func rejectsUnsupportedPatchShapes() throws {
         let patch = """
         diff --git a/events/test/event.yml b/events/test/event.yml

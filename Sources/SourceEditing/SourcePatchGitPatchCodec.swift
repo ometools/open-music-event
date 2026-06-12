@@ -9,6 +9,11 @@ public struct SourcePatchGitPatchCodec: Sendable {
         return Data(text.utf8)
     }
 
+    public func formatReviewPatch(_ patch: SourcePatch) throws -> Data {
+        let text = try Self.parser.printReviewPatch(patch)
+        return Data(text.utf8)
+    }
+
     public func parse(_ data: Data) throws -> SourcePatch {
         guard let text = String(data: data, encoding: .utf8) else {
             throw SourcePatchGitPatchCodecError.binaryPatch
@@ -50,6 +55,44 @@ private struct CanonicalSourcePatchParser: ParserPrinter {
             .map(Self.printFileChange)
             .joined()
         input.prepend(contentsOf: text)
+    }
+
+    func printReviewPatch(_ patch: SourcePatch) throws -> String {
+        try patch.fileChanges
+            .map(Self.printReviewFileChange)
+            .joined()
+    }
+
+    private static func printReviewFileChange(_ change: SourcePatchFileChange) throws -> String {
+        switch change.kind {
+        case .added:
+            guard let newContents = change.newContents else {
+                throw SourcePatchGitPatchCodecError.missingContents(change.path)
+            }
+            guard isText(newContents) else {
+                return printBinaryFileChange(change)
+            }
+
+        case .deleted:
+            guard let oldContents = change.oldContents else {
+                throw SourcePatchGitPatchCodecError.missingContents(change.path)
+            }
+            guard isText(oldContents) else {
+                return printBinaryFileChange(change)
+            }
+
+        case .modified:
+            guard let oldContents = change.oldContents,
+                  let newContents = change.newContents
+            else {
+                throw SourcePatchGitPatchCodecError.missingContents(change.path)
+            }
+            guard isText(oldContents), isText(newContents) else {
+                return printBinaryFileChange(change)
+            }
+        }
+
+        return try printFileChange(change)
     }
 
     private static func printFileChange(_ change: SourcePatchFileChange) throws -> String {
@@ -95,6 +138,37 @@ private struct CanonicalSourcePatchParser: ParserPrinter {
             + "\n"
             + printHunk(old: oldText, new: newText)
         }
+    }
+
+    private static func printBinaryFileChange(_ change: SourcePatchFileChange) -> String {
+        switch change.kind {
+        case .added:
+            return """
+            diff --git \(gitPath("a", change.path)) \(gitPath("b", change.path))
+            new file mode 100644
+            Binary files /dev/null and \(gitPath("b", change.path)) differ
+            """
+            + "\n"
+
+        case .deleted:
+            return """
+            diff --git \(gitPath("a", change.path)) \(gitPath("b", change.path))
+            deleted file mode 100644
+            Binary files \(gitPath("a", change.path)) and /dev/null differ
+            """
+            + "\n"
+
+        case .modified:
+            return """
+            diff --git \(gitPath("a", change.path)) \(gitPath("b", change.path))
+            Binary files \(gitPath("a", change.path)) and \(gitPath("b", change.path)) differ
+            """
+            + "\n"
+        }
+    }
+
+    private static func isText(_ data: Data) -> Bool {
+        String(data: data, encoding: .utf8) != nil
     }
 
     private static func text(_ data: Data, path: String) throws -> String {

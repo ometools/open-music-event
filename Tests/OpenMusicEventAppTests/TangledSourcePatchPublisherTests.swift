@@ -250,6 +250,11 @@ struct TangledSourcePatchPublisherTests {
                                     kind: .modified,
                                     oldContents: Data("name: Old\n".utf8),
                                     newContents: Data(largeEventContents.utf8)
+                                ),
+                                SourcePatchFileChange(
+                                    path: "events/2025/images/lineup.png",
+                                    kind: .added,
+                                    newContents: Data([0xff, 0xfe, 0xfd])
                                 )
                             ]
                         )
@@ -272,7 +277,7 @@ struct TangledSourcePatchPublisherTests {
         #expect(createBranchRequest.startPoint == "HEAD")
         #expect(createBranchRequest.checkout)
         let stageRequest = try #require(stageRequests.withLock { $0.first })
-        #expect(stageRequest.paths == ["events/2025/event.yml"])
+        #expect(stageRequest.paths == ["events/2025/event.yml", "events/2025/images/lineup.png"])
         let commitRequest = try #require(commitRequests.withLock { $0.first })
         #expect(commitRequest.message == "Update event source")
         #expect(commitRequest.author.name == "Open Music Event")
@@ -295,6 +300,7 @@ struct TangledSourcePatchPublisherTests {
         #expect(uploadedPatch.hasPrefix("From \(commitID.rawValue) Mon Sep 17 00:00:00 2001\n"))
         #expect(uploadedPatch.contains("Subject: [PATCH] Update event source\n"))
         #expect(uploadedPatch.contains("diff --git a/events/2025/event.yml b/events/2025/event.yml\n"))
+        #expect(uploadedPatch.contains("Binary files /dev/null and b/events/2025/images/lineup.png differ\n"))
 
         let createRecordRequest = try #require(
             requests.first { $0.url?.path.hasSuffix("/com.atproto.repo.createRecord") == true }
