@@ -77,7 +77,7 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
                 in: db,
                 baselineSchemaName: sourceEditingSession.baselineSchemaName,
                 recordTypes: OME.sourceRecordTypes,
-                scope: eventScope
+                scope: .openMusicEvent(eventID: eventID)
             )
         } else {
             @Dependency(\.defaultBaselineDatabase) var baselineDatabase
@@ -85,7 +85,7 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
                 in: db,
                 baselineDatabase: baselineDatabase,
                 recordTypes: OME.sourceRecordTypes,
-                scope: eventScope
+                scope: .openMusicEvent(eventID: eventID)
             )
         }
 
@@ -104,20 +104,5 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
                 groups: []
             )
         }
-    }
-
-    private var eventScope: SourceRecordScope {
-        SourceRecordScope(
-            filters: [
-                SourceRecordScope.Filter(
-                    columnName: "organizerID",
-                    value: eventID.organizerID.queryBinding
-                ),
-                SourceRecordScope.Filter(
-                    columnName: "eventID",
-                    value: eventID.eventID.rawValue.rawValue.queryBinding
-                ),
-            ]
-        )
     }
 }

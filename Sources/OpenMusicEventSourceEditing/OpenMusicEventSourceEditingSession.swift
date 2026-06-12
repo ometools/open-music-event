@@ -4,6 +4,18 @@ import OpenMusicEventLexicon
 import SQLiteData
 import SourceEditing
 
+public enum OpenMusicEventEditResetError: Error, Equatable, Sendable {
+    case missingSourceEditingSession
+}
+
+public struct OpenMusicEventEditResetter: Sendable {
+    public var reset: @Sendable (OME.Event.ID) throws -> Void
+
+    public init(reset: @escaping @Sendable (OME.Event.ID) throws -> Void) {
+        self.reset = reset
+    }
+}
+
 public extension SourceEditingSession {
     static func openMusicEvent(eventID: OME.Event.ID) throws -> Self? {
         @Dependency(\.defaultDatabase) var database
@@ -68,5 +80,54 @@ public extension SourceEditingSession {
             try sourcePatchInvalidations.installTriggers(db)
         }
         return session
+    }
+
+    func resetOpenMusicEventEdits(eventID: OME.Event.ID) throws {
+        try reset(
+            descriptors: OME.sourceTableDescriptors,
+            scope: .openMusicEvent(eventID: eventID)
+        )
+    }
+}
+
+public extension SourceRecordScope {
+    static func openMusicEvent(eventID: OME.Event.ID) -> Self {
+        SourceRecordScope(
+            filters: [
+                SourceRecordScope.Filter(
+                    columnName: "organizerID",
+                    value: eventID.organizerID.queryBinding
+                ),
+                SourceRecordScope.Filter(
+                    columnName: "eventID",
+                    value: eventID.eventID.rawValue.rawValue.queryBinding
+                ),
+            ]
+        )
+    }
+}
+
+public extension DependencyValues {
+    var openMusicEventEditResetter: OpenMusicEventEditResetter {
+        get { self[OpenMusicEventEditResetterKey.self] }
+        set { self[OpenMusicEventEditResetterKey.self] = newValue }
+    }
+}
+
+private enum OpenMusicEventEditResetterKey: DependencyKey {
+    static var liveValue: OpenMusicEventEditResetter {
+        OpenMusicEventEditResetter { eventID in
+            @Dependency(\.sourceEditingSession) var sourceEditingSession
+            guard let sourceEditingSession else {
+                throw OpenMusicEventEditResetError.missingSourceEditingSession
+            }
+            try sourceEditingSession.resetOpenMusicEventEdits(eventID: eventID)
+        }
+    }
+
+    static var testValue: OpenMusicEventEditResetter {
+        OpenMusicEventEditResetter { _ in
+            throw OpenMusicEventEditResetError.missingSourceEditingSession
+        }
     }
 }

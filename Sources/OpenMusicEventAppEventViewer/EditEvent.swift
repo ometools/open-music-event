@@ -48,6 +48,18 @@ public struct EditEvent {
         }
     }
 
+    public struct ResetEditsFailure: Equatable, Error, Sendable {
+        public var message: String
+
+        public init(_ error: any Error) {
+            self.message = String(describing: error)
+        }
+    }
+
+    public struct ResetEditsSuccess: Equatable, Sendable {
+        public init() {}
+    }
+
     public struct State {
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
@@ -64,6 +76,8 @@ public struct EditEvent {
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
         @Fetch public var editSummary: EventEditSummary
+        public var isResettingEdits = false
+        public var resetEditsFailure: ResetEditsFailure?
         public var selectedChangeView: ChangeView = .database
         public var sourcePatchStatus: SourcePatchStatus = .notGenerated
         public var sourceProposalStatus: SourceProposalStatus = .idle
@@ -78,12 +92,15 @@ public struct EditEvent {
     public enum Action {
         case generateSourcePatchButtonTapped
         case proposeChangeButtonTapped
+        case resetEditsButtonTapped
+        case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
         case sourceProposal(SourceProposalFlow.Action)
         case sourceProposalDismissed
     }
 
+    @Dependency(\.openMusicEventEditResetter) var editResetter
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var sourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     public var body: some Feature {
@@ -113,6 +130,36 @@ public struct EditEvent {
             switch action {
             case .generateSourcePatchButtonTapped:
                 generateSourcePatch(eventID: state.eventID, state: &state)
+
+            case .resetEditsButtonTapped:
+                guard !state.isResettingEdits else { return }
+                let editResetter = editResetter
+                let eventID = state.eventID
+                state.isResettingEdits = true
+                state.resetEditsFailure = nil
+                store.addTask {
+                    do {
+                        try editResetter.reset(eventID)
+                        try store.send(.resetEditsResponse(.success(ResetEditsSuccess())))
+                    } catch {
+                        try store.send(
+                            .resetEditsResponse(
+                                .failure(ResetEditsFailure(error))
+                            )
+                        )
+                    }
+                }
+
+            case .resetEditsResponse(.success):
+                state.isResettingEdits = false
+                state.resetEditsFailure = nil
+                state.sourcePatchStatus = .generated(SourcePatch())
+                state.sourceProposal = nil
+                state.sourceProposalStatus = .idle
+
+            case let .resetEditsResponse(.failure(failure)):
+                state.isResettingEdits = false
+                state.resetEditsFailure = failure
 
             case .sourceProposal(.delegate(.dismissed)), .sourceProposalDismissed:
                 state.sourceProposal = nil
@@ -249,6 +296,8 @@ public struct EditEventView: View {
                 ForEach(store.editSummary.groups.filter { !$0.records.isEmpty }) { group in
                     SourceChangeGroupSections(group: group)
                 }
+
+                resetEditsSection
             }
 
         case .missingBaseline:
@@ -314,6 +363,8 @@ public struct EditEventView: View {
                     SourceProposalStatusView(status: store.sourceProposalStatus)
                 }
 
+                resetEditsSection
+
                 if case let .generated(patch) = store.sourcePatchStatus {
                     if !patch.isEmpty {
                         SourceProposalSummarySections(summary: store.editSummary)
@@ -335,6 +386,37 @@ public struct EditEventView: View {
 
         case let .unavailable(reason):
             SourceChangeUnavailableView(reason: reason)
+        }
+    }
+
+    @ViewBuilder
+    private var resetEditsSection: some View {
+        if store.canResetEdits || store.isResettingEdits || store.resetEditsFailure != nil {
+            Section {
+                if store.isResettingEdits {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Resetting edits")
+                    }
+                } else {
+                    Button(role: .destructive) {
+                        store.send(.resetEditsButtonTapped)
+                    } label: {
+                        Label("Reset Edits", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(!store.canResetEdits)
+                }
+
+                if let failure = store.resetEditsFailure {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Edits could not be reset")
+                        Text(failure.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
         }
     }
 }
@@ -554,6 +636,14 @@ private extension SourcePatchInvalidation.Operation {
 }
 
 private extension EditEvent.State {
+    var canResetEdits: Bool {
+        guard !isResettingEdits,
+              editSummary.totalCount > 0,
+              case .available = editSummary.availability
+        else { return false }
+        return true
+    }
+
     var canCreateSourceProposal: Bool {
         guard case let .generated(patch) = sourcePatchStatus,
               !patch.isEmpty,

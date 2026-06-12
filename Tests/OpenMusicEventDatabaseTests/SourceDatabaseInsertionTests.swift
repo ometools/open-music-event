@@ -799,6 +799,92 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func resetOpenMusicEventEditsRestoresRealSchemaRows() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appendingPathComponent("baseline.sqlite").path
+        )
+        let database = try makeCoreDatabase(path: workingDatabasePath)
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let session = try withDependencies {
+            $0.defaultDatabase = database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceEditingWorkingDatabasePath = workingDatabasePath
+        } operation: {
+            try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
+        }
+
+        try await session.database.write { db in
+            try OME.Event
+                .find(openedEventID)
+                .update { $0.name = "Changed Event" }
+                .execute(db)
+            try OME.Stage
+                .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
+                .update { $0.name = "Changed Stage" }
+                .execute(db)
+        }
+
+        let changedSummary = try await withDependencies {
+            $0.defaultDatabase = session.database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceEditingSession = session
+        } operation: {
+            try await session.database.read { db in
+                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            }
+        }
+        #expect(changedSummary.availability == .available)
+        #expect(changedSummary.totalCount == 2)
+
+        try session.resetOpenMusicEventEdits(eventID: openedEventID)
+
+        let resetSummary = try await withDependencies {
+            $0.defaultDatabase = session.database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceEditingSession = session
+        } operation: {
+            try await session.database.read { db in
+                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            }
+        }
+        #expect(resetSummary.availability == .available)
+        #expect(resetSummary.totalCount == 0)
+
+        let restoredRows = try await session.database.read { db in
+            let event = try #require(try OME.Event.find(openedEventID).fetchOne(db))
+            let stage = try #require(
+                try OME.Stage
+                    .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
+                    .fetchOne(db)
+            )
+            return (event, stage)
+        }
+        #expect(restoredRows.0.name == "Testival 2026")
+        #expect(restoredRows.1.name == "Meadow")
+    }
+
+    @Test
     func sourceEditingSessionPrefersSourceLocalReferenceDatabase() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))

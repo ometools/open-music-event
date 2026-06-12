@@ -7,6 +7,7 @@ import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import SourceEditing
 import SQLiteData
+import Synchronization
 import Testing
 
 @testable import OpenMusicEventApp
@@ -349,6 +350,101 @@ struct EditEventSourcePatchInvalidationTests {
     }
 
     @Test
+    func resetEditsButtonResetsDraftAndClearsProposalState() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let resetRequests = Mutex([OME.Event.ID]())
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
+        let proposalFailure = EditEvent.SourceProposalFailure(SourceProposalTestError.failed)
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.openMusicEventEditResetter = OpenMusicEventEditResetter { eventID in
+                resetRequests.withLock { $0.append(eventID) }
+            }
+        } operation: {
+            var state = EditEvent.State(eventID: eventID)
+            state.sourcePatchStatus = .generated(patch)
+            state.sourceProposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            state.sourceProposalStatus = .failed(proposalFailure)
+            return TestStore(initialState: state) {
+                EditEvent()
+            }
+        }
+
+        let task = store.send(.resetEditsButtonTapped) {
+            $0.isResettingEdits = true
+        }
+        await store.receive(
+            \.resetEditsResponse,
+            .equals(
+                Result<EditEvent.ResetEditsSuccess, EditEvent.ResetEditsFailure>
+                    .success(EditEvent.ResetEditsSuccess())
+            ),
+            timeout: .seconds(1)
+        ) {
+            $0.isResettingEdits = false
+            $0.sourcePatchStatus = .generated(SourcePatch())
+            $0.sourceProposalStatus = .idle
+        }
+        await task?.value
+
+        #expect(store.state.sourceProposal == nil)
+        #expect(resetRequests.withLock { $0 } == [eventID])
+        await store.dismount()
+    }
+
+    @Test
+    func resetEditsButtonShowsFailure() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let failure = EditEvent.ResetEditsFailure(ResetEditsTestError.failed)
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.openMusicEventEditResetter = OpenMusicEventEditResetter { _ in
+                throw ResetEditsTestError.failed
+            }
+        } operation: {
+            var state = EditEvent.State(eventID: eventID)
+            state.resetEditsFailure = EditEvent.ResetEditsFailure(
+                ResetEditsTestError.previousFailure
+            )
+            return TestStore(initialState: state) {
+                EditEvent()
+            }
+        }
+
+        let task = store.send(.resetEditsButtonTapped) {
+            $0.isResettingEdits = true
+            $0.resetEditsFailure = nil
+        }
+        await store.receive(
+            \.resetEditsResponse,
+            .equals(
+                Result<EditEvent.ResetEditsSuccess, EditEvent.ResetEditsFailure>
+                    .failure(failure)
+            ),
+            timeout: .seconds(1)
+        ) {
+            $0.isResettingEdits = false
+            $0.resetEditsFailure = failure
+        }
+        await task?.value
+
+        await store.dismount()
+    }
+
+    @Test
     func selectingSourceChangeViewGeneratesPatch() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
@@ -540,6 +636,11 @@ private func testEventID(_ string: String) -> OME.Event.ID {
 
 private enum SourceProposalTestError: Equatable, Error {
     case failed
+}
+
+private enum ResetEditsTestError: Equatable, Error {
+    case failed
+    case previousFailure
 }
 
 @MainActor

@@ -18,10 +18,10 @@ public extension SourceEditableTable {
 
     static var sourceDescriptor: SourceTableDescriptor {
         let primaryKeyColumns = columns.primaryKey._names
+        let resetColumnNames = TableColumns.writableColumns.flatMap(\._names)
 
         let excludedColumns = Set(primaryKeyColumns).union(sourceIgnoredColumnNames)
-        let comparedColumns = TableColumns.writableColumns
-            .flatMap(\._names)
+        let comparedColumns = resetColumnNames
             .filter { !excludedColumns.contains($0) }
 
         return SourceTableDescriptor(
@@ -29,6 +29,7 @@ public extension SourceEditableTable {
             tableName: tableName,
             primaryKeyColumns: primaryKeyColumns,
             comparedColumns: comparedColumns,
+            resetColumnNames: resetColumnNames,
             displayName: sourceDisplayName
         )
     }
@@ -173,6 +174,7 @@ public struct SourceTableDescriptor: Equatable, Hashable, Sendable, Identifiable
     public var tableName: String
     public var primaryKeyColumns: [String]
     public var comparedColumns: [String]
+    public var resetColumnNames: [String]
     public var displayName: String
 
     public init(
@@ -180,12 +182,14 @@ public struct SourceTableDescriptor: Equatable, Hashable, Sendable, Identifiable
         tableName: String,
         primaryKeyColumns: [String],
         comparedColumns: [String],
+        resetColumnNames: [String]? = nil,
         displayName: String
     ) {
         self.id = id
         self.tableName = tableName
         self.primaryKeyColumns = primaryKeyColumns
         self.comparedColumns = comparedColumns
+        self.resetColumnNames = resetColumnNames ?? primaryKeyColumns + comparedColumns
         self.displayName = displayName
     }
 }
@@ -329,6 +333,42 @@ public struct SourceChangeSummary: Equatable, Hashable, Sendable {
 
     public var totalCount: Int {
         groups.reduce(0) { $0 + $1.totalCount }
+    }
+}
+
+public extension SourceEditingSession {
+    func reset(
+        descriptors: [SourceTableDescriptor],
+        scope: SourceRecordScope = .all
+    ) throws {
+        try database.write { db in
+            for descriptor in descriptors.reversed() {
+                try deleteAddedRows(
+                    descriptor: descriptor,
+                    baselineSchemaName: baselineSchemaName,
+                    scope: scope,
+                    in: db
+                )
+            }
+
+            for descriptor in descriptors {
+                try insertDeletedRows(
+                    descriptor: descriptor,
+                    baselineSchemaName: baselineSchemaName,
+                    scope: scope,
+                    in: db
+                )
+            }
+
+            for descriptor in descriptors {
+                try resetModifiedRows(
+                    descriptor: descriptor,
+                    baselineSchemaName: baselineSchemaName,
+                    scope: scope,
+                    in: db
+                )
+            }
+        }
     }
 }
 
@@ -833,6 +873,56 @@ private func deletedRowsQuery(
     )
 }
 
+private func deleteAddedRows(
+    descriptor: SourceTableDescriptor,
+    baselineSchemaName: String,
+    scope: SourceRecordScope,
+    in db: Database
+) throws {
+    let workingAlias = descriptor.tableName
+    let baselineAlias = "baseline"
+
+    try #sql(
+        """
+        DELETE FROM \(qualifiedTable(descriptor.tableName))
+        WHERE \(scopePredicate(scope, alias: workingAlias))
+        AND NOT EXISTS (
+          SELECT 1
+          FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
+          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
+          AND \(scopePredicate(scope, alias: baselineAlias))
+        )
+        """
+    )
+    .execute(db)
+}
+
+private func insertDeletedRows(
+    descriptor: SourceTableDescriptor,
+    baselineSchemaName: String,
+    scope: SourceRecordScope,
+    in db: Database
+) throws {
+    let workingAlias = "working"
+    let baselineAlias = "baseline"
+
+    try #sql(
+        """
+        INSERT INTO \(qualifiedTable(descriptor.tableName)) (\(columnNames(descriptor.resetColumnNames)))
+        SELECT \(columnSelections(descriptor.resetColumnNames, tableAlias: baselineAlias))
+        FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
+        WHERE \(scopePredicate(scope, alias: baselineAlias))
+        AND NOT EXISTS (
+          SELECT 1
+          FROM \(qualifiedTable(descriptor.tableName)) AS \(quote: workingAlias)
+          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
+          AND \(scopePredicate(scope, alias: workingAlias))
+        )
+        """
+    )
+    .execute(db)
+}
+
 private func modifiedRowsQuery(
     descriptor: SourceTableDescriptor,
     baselineSchemaName: String,
@@ -867,6 +957,83 @@ private func modifiedRowsQuery(
         """,
         as: Int.self
     )
+}
+
+private func resetModifiedRows(
+    descriptor: SourceTableDescriptor,
+    baselineSchemaName: String,
+    scope: SourceRecordScope,
+    in db: Database
+) throws {
+    guard !descriptor.comparedColumns.isEmpty else { return }
+
+    let workingAlias = descriptor.tableName
+    let baselineAlias = "baseline"
+
+    try #sql(
+        """
+        UPDATE \(qualifiedTable(descriptor.tableName))
+        SET \(resetAssignments(
+            descriptor.comparedColumns,
+            descriptor: descriptor,
+            baselineSchemaName: baselineSchemaName,
+            scope: scope
+        ))
+        WHERE \(scopePredicate(scope, alias: workingAlias))
+        AND EXISTS (
+          SELECT 1
+          FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
+          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
+          AND \(scopePredicate(scope, alias: baselineAlias))
+        )
+        """
+    )
+    .execute(db)
+}
+
+private func resetAssignments(
+    _ columnNames: [String],
+    descriptor: SourceTableDescriptor,
+    baselineSchemaName: String,
+    scope: SourceRecordScope
+) -> QueryFragment {
+    columnNames
+        .map { columnName -> QueryFragment in
+            let value = baselineValueSubquery(
+                columnName,
+                descriptor: descriptor,
+                baselineSchemaName: baselineSchemaName,
+                scope: scope
+            )
+            return "\(quote: columnName) = \(value)"
+        }
+        .joined(separator: ", ")
+}
+
+private func baselineValueSubquery(
+    _ columnName: String,
+    descriptor: SourceTableDescriptor,
+    baselineSchemaName: String,
+    scope: SourceRecordScope
+) -> QueryFragment {
+    let workingAlias = descriptor.tableName
+    let baselineAlias = "baseline"
+
+    return """
+        (
+          SELECT \(quote: baselineAlias).\(quote: columnName)
+          FROM \(qualifiedTable(descriptor.tableName, schemaName: baselineSchemaName)) AS \(quote: baselineAlias)
+          WHERE \(primaryKeyPredicate(descriptor.primaryKeyColumns, workingAlias: workingAlias, baselineAlias: baselineAlias))
+          AND \(scopePredicate(scope, alias: baselineAlias))
+          LIMIT 1
+        )
+        """
+}
+
+private func columnNames(_ columnNames: [String]) -> QueryFragment {
+    columnNames
+        .map { "\(quote: $0)" }
+        .joined(separator: ", ")
 }
 
 private func columnSelections(

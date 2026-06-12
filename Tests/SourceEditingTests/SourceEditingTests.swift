@@ -45,6 +45,7 @@ struct SourceEditingTests {
                 tableName: "todos",
                 primaryKeyColumns: ["id"],
                 comparedColumns: ["listID", "title", "note"],
+                resetColumnNames: ["id", "listID", "title", "note", "localCache"],
                 displayName: "Todo"
             )
         )
@@ -318,6 +319,85 @@ struct SourceEditingTests {
                     )
                 ]
             )
+        )
+    }
+
+    @Test
+    func sessionResetRestoresScopedChangesFromBaseline() throws {
+        let fixture = try SourceEditingFixture()
+        let session = try SourceEditingSession(
+            workingDatabasePath: fixture.workingDatabasePath,
+            baselineDatabasePath: fixture.baselineDatabase.path
+        )
+
+        try fixture.updateWorking(id: 2, title: "Changed through session")
+        try fixture.deleteWorking(id: 3)
+        try fixture.updateWorking(id: 4, localCache: "new local cache")
+        try fixture.updateWorking(id: 5, title: "Other list changed")
+        try fixture.insertWorking(
+            Todo(
+                id: 6,
+                listID: "list-1",
+                title: "Added",
+                note: nil,
+                localCache: "added local cache"
+            )
+        )
+
+        try session.reset(
+            descriptors: [Todo.sourceDescriptor],
+            scope: listScope("list-1")
+        )
+
+        let summary = try withDependencies {
+            $0.defaultDatabase = session.database
+            $0.sourceEditingSession = session
+        } operation: {
+            try SourceEditingComparer().summary(
+                descriptors: [Todo.sourceDescriptor],
+                scope: listScope("list-1")
+            )
+        }
+        expectNoDifference(
+            summary,
+            SourceChangeSummary(
+                availability: .available,
+                groups: [
+                    SourceChangeGroup(
+                        id: "todos",
+                        displayName: "Todo",
+                        added: 0,
+                        modified: 0,
+                        deleted: 0
+                    )
+                ]
+            )
+        )
+
+        let listOneRecords = try session.database.read { db in
+            try Todo
+                .where { $0.listID.eq("list-1") }
+                .fetchAll(db)
+                .sorted { $0.id < $1.id }
+        }
+        expectNoDifference(
+            listOneRecords,
+            [
+                Todo(id: 1, listID: "list-1", title: "Title", note: nil, localCache: nil),
+                Todo(id: 2, listID: "list-1", title: "Old title", note: nil, localCache: nil),
+                Todo(id: 3, listID: "list-1", title: "Deleted candidate", note: nil, localCache: nil),
+                Todo(id: 4, listID: "list-1", title: "Ignored cache", note: nil, localCache: "new local cache"),
+            ]
+        )
+
+        let otherListRecord = try #require(
+            try session.database.read { db in
+                try Todo.find(5).fetchOne(db)
+            }
+        )
+        expectNoDifference(
+            otherListRecord,
+            Todo(id: 5, listID: "list-2", title: "Other list changed", note: nil, localCache: nil)
         )
     }
 }
