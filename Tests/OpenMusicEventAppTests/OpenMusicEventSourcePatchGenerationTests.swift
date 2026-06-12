@@ -678,7 +678,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
     }
 
     @Test
-    func calendarGeneratorOmitsLocalOnlyBinaryImageFiles() async throws {
+    func calendarGeneratorMaterializesLocalOnlyBinaryImageFiles() async throws {
         let fixture = try OpenMusicEventSourcePatchGenerationFixture()
         defer { fixture.cleanUp() }
         try fixture.writeFile(
@@ -697,6 +697,8 @@ struct OpenMusicEventSourcePatchGenerationTests {
         )
         let localImageURL = fixture.rootURL
             .appending(path: "local-image-cache/imported-hero.png")
+        let imageData = Data([0xff, 0xfe, 0xfd])
+        try fixture.writeRootFile("local-image-cache/imported-hero.png", data: imageData)
         let source = localSourceProvenance(repositoryURL: fixture.repositoryURL)
         let sourceBaselineID = SourceBaselineRecord.ID(source: source)
         let workingRootURL = fixture.rootURL
@@ -755,16 +757,25 @@ struct OpenMusicEventSourcePatchGenerationTests {
             )
         }
 
-        let change = try #require(patch.fileChanges.first)
-        #expect(patch.fileChanges.count == 1)
-        #expect(change.path == "calendar.yml")
-        let newContents = try #require(change.newContents)
+        let changesByPath = Dictionary(
+            uniqueKeysWithValues: patch.fileChanges.map { ($0.path, $0) }
+        )
+        #expect(patch.fileChanges.map(\.path).sorted() == [
+            "calendar.yml",
+            "images/calendar-hero.png",
+        ])
+        let calendarChange = try #require(changesByPath["calendar.yml"])
+        #expect(calendarChange.kind == .modified)
+        let newContents = try #require(calendarChange.newContents)
         let newText = String(decoding: newContents, as: UTF8.self)
         #expect(newText.contains("name: New Calendar"))
-        #expect(!newText.contains("images:"))
-        #expect(!newText.contains("file:"))
+        #expect(newText.contains("file: images/calendar-hero.png"))
+        #expect(!newText.contains("assetKey:"))
         #expect(!newText.contains("file://"))
         #expect(!newText.contains("local-image-cache"))
+        let imageChange = try #require(changesByPath["images/calendar-hero.png"])
+        #expect(imageChange.kind == .added)
+        #expect(imageChange.newContents == imageData)
     }
 
     @Test
@@ -1155,6 +1166,126 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(!newText.contains("assetKey:"))
         #expect(!newText.contains("url:"))
         #expect(!newText.contains("local-image-cache"))
+    }
+
+    @Test
+    func liveConversionMaterializesLocalStageImageFiles() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "events/test-event/event.yml",
+            contents: "name: Test Event\ntimeZone: GMT\n"
+        )
+        try fixture.writeFile(
+            "events/test-event/stages/meadow.yml",
+            contents: "name: Meadow\ncolor: 43758\n"
+        )
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("test-event")
+        let stageID = OME.Stage.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            stageID: localID("meadow")
+        )
+        let localImageURL = fixture.rootURL
+            .appending(path: "local-image-cache/meadow-logo.png")
+        let imageData = Data([0xff, 0xfe, 0xfd])
+        try fixture.writeRootFile("local-image-cache/meadow-logo.png", data: imageData)
+        let repositoryURL = fixture.repositoryURL
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Test Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: TimeZone(identifier: "GMT")!,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try OME.Stage.insert {
+                OME.Stage.Draft(
+                    id: stageID,
+                    name: "Main Meadow",
+                    color: 0x00aaee,
+                    images: [
+                        OME.ImageAsset(
+                            assetKey: sourceImageAssetKey(
+                                eventID: eventID,
+                                parentKind: "stage",
+                                parentLocalID: "meadow",
+                                role: .logo
+                            ),
+                            source: .url(localImageURL),
+                            role: .logo,
+                            renderKind: .transparent,
+                            materializationPolicy: .lazy
+                        )
+                    ]
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .local,
+                    sourceReference: repositoryURL.path,
+                    ref: nil,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "test-event"
+                )
+            }
+            .execute(db)
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventSourcePatchRequest(eventID: eventID)
+            )
+        }
+
+        let changesByPath = Dictionary(
+            uniqueKeysWithValues: patch.fileChanges.map { ($0.path, $0) }
+        )
+        #expect(patch.fileChanges.map(\.path).sorted() == [
+            "events/test-event/images/meadow-logo.png",
+            "events/test-event/stages/meadow.yml",
+        ])
+        let stageChange = try #require(changesByPath["events/test-event/stages/meadow.yml"])
+        #expect(stageChange.kind == .modified)
+        let newContents = try #require(stageChange.newContents)
+        let newText = String(decoding: newContents, as: UTF8.self)
+        #expect(newText.contains("name: Main Meadow"))
+        #expect(newText.contains("file: images/meadow-logo.png"))
+        #expect(!newText.contains("assetKey:"))
+        #expect(!newText.contains("url:"))
+        #expect(!newText.contains("local-image-cache"))
+        let imageChange = try #require(changesByPath["events/test-event/images/meadow-logo.png"])
+        #expect(imageChange.kind == .added)
+        #expect(imageChange.newContents == imageData)
     }
 
     @Test
@@ -1626,6 +1757,15 @@ private final class OpenMusicEventSourcePatchGenerationFixture {
             withIntermediateDirectories: true
         )
         try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    func writeRootFile(_ path: String, data: Data) throws {
+        let url = rootURL.appending(path: path)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url, options: .atomic)
     }
 }
 

@@ -129,7 +129,6 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
                         parentLocalID: request.calendarID.calendarID.rawValue.rawValue
                     )
                 )
-                .removingLocalFileURLImages()
             return sourceRepository
         }
     }

@@ -185,8 +185,10 @@ public extension SourcePatchGenerator where Request == OpenMusicEventSourcePatch
                 withIntermediateDirectories: true
             )
             let sourceEvent = try await conversion.update(.emptyForNewSourcePatch, request)
+            let materializedSourceEvent = try sourceEvent
+                .materializingLocalImageFiles(at: workingEventURL)
             _ = try OpenMusicEventSourceEventFileTree()
-                .write(sourceEvent, to: workingEventURL)
+                .write(materializedSourceEvent, to: workingEventURL)
 
             return try sourcePatchDiffer.diff(
                 workingTree.originalURL,
@@ -213,8 +215,10 @@ public extension SourcePatchGenerator where Request == OpenMusicEventSourcePatch
                 return try await conversion.update(sourceEvent, request)
             },
             rewrite: { sourceEvent, workingURL in
+                let materializedSourceEvent = try sourceEvent
+                    .materializingLocalImageFiles(at: workingURL)
                 _ = try OpenMusicEventSourceEventFileTree()
-                    .rewrite(sourceEvent, at: workingURL)
+                    .rewrite(materializedSourceEvent, at: workingURL)
             }
         )
     }
@@ -238,8 +242,10 @@ public extension SourcePatchGenerator where Request == OpenMusicEventCalendarSou
                 return try await conversion.update(sourceRepository, request)
             },
             rewrite: { sourceRepository, workingURL in
+                let materializedSourceRepository = try sourceRepository
+                    .materializingLocalImageFiles(at: workingURL)
                 _ = try OpenMusicEventSourceRepositoryFileTree()
-                    .rewrite(sourceRepository, at: workingURL)
+                    .rewrite(materializedSourceRepository, at: workingURL)
             }
         )
     }
