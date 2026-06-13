@@ -165,7 +165,7 @@ public struct PostersViewer {
             }
 
             if !blobs.isEmpty {
-                try LocalImageBlob.insert { blobs }.execute(db)
+                try LocalImageBlob.upsert { blobs }.execute(db)
             }
         }
     }
@@ -398,13 +398,13 @@ public struct EditPoster {
                             try store.dismiss()
                         } catch {
                             try store.modify {
-                                $0.errorMessage = "Unable to save poster."
+                                $0.errorMessage = editPosterErrorMessage(error)
                                 $0.isSaving = false
                             }
                         }
                     }
                 } catch {
-                    state.errorMessage = "Unable to save poster."
+                    state.errorMessage = editPosterErrorMessage(error)
                 }
             }
         }
@@ -440,6 +440,15 @@ public struct EditPoster {
 }
 
 private struct EditPosterSaveError: Error {}
+
+private func editPosterErrorMessage(_ error: any Error) -> String {
+    let description = error.localizedDescription
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !description.isEmpty else {
+        return "Unable to save poster."
+    }
+    return "Unable to save poster: \(description)"
+}
 
 public struct EditPosterView: View {
     @Bindable var store: StoreOf<EditPoster>

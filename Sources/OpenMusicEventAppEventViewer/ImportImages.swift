@@ -132,7 +132,7 @@ public struct ImportImages {
                         try store.dismiss()
                     } catch {
                         try store.modify {
-                            $0.errorMessage = "Unable to import images."
+                            $0.errorMessage = imageImportErrorMessage(error)
                             $0.isSaving = false
                         }
                     }
@@ -371,6 +371,15 @@ public extension ImportImages {
             )
         }
     }
+}
+
+private func imageImportErrorMessage(_ error: any Error) -> String {
+    let description = error.localizedDescription
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !description.isEmpty else {
+        return "Unable to import images."
+    }
+    return "Unable to import images: \(description)"
 }
 
 public struct ImportImagesView: View {

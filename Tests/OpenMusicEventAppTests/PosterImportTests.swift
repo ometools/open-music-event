@@ -2,10 +2,10 @@ import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import Foundation
-import OpenMusicEventDatabase
 import SQLiteData
 import Testing
 
+@testable import OpenMusicEventDatabase
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
 
@@ -71,6 +71,8 @@ struct PosterImportTests {
         let importedPosters = posters.filter { $0.id.posterID.rawValue.rawValue != "lineup" }
 
         #expect(store.spawn(\.importImages) == nil)
+        await waitUntil { store.posters.count == 3 }
+        #expect(Set(store.posters.map { $0.id.posterID.rawValue.rawValue }) == ["lineup", "lineup-2", "lineup-3"])
         #expect(Set(posters.map { $0.id.posterID.rawValue.rawValue }) == ["lineup", "lineup-2", "lineup-3"])
         #expect(importedPosters.count == 2)
         #expect(Set(importedPosters.compactMap(\.title)) == ["Lineup"])
@@ -98,6 +100,87 @@ struct PosterImportTests {
         expectNoDifference(configuration.allowedMaterializationPolicies, [.lazy])
         #expect(configuration.allowsAppearance)
         #expect(!configuration.allowsMaterializationPolicy)
+    }
+
+    @Test
+    func importingPosterImageReplacesExistingLocalBlob() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let sourceURL = URL(fileURLWithPath: "/tmp/lineup.png")
+        let image = ImportImages.Configuration.posters.importedImage(
+            title: "Lineup",
+            sourceName: "lineup.png",
+            sourceURL: sourceURL,
+            mimeType: "image/png",
+            data: Data("new-poster".utf8)
+        )
+        let orphanedBlobKey = LocalImageBlob.assetKey(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            parentKind: .poster,
+            parentLocalID: "lineup-2",
+            role: .poster
+        )
+
+        try await seedEvent(eventID, in: database)
+        try await seedPoster(
+            posterID: "lineup",
+            title: "Existing Lineup",
+            eventID: eventID,
+            in: database
+        )
+        try await database.write { db in
+            let blobs = [
+                LocalImageBlob(
+                    assetKey: orphanedBlobKey,
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    parentKind: .poster,
+                    parentLocalID: "lineup-2",
+                    role: .poster,
+                    renderKind: .fullImage,
+                    mimeType: "image/png",
+                    data: Data("old-poster".utf8),
+                    sourceURL: nil,
+                    lastFetchedAt: Date(timeIntervalSince1970: 1)
+                )
+            ]
+            try LocalImageBlob.insert {
+                blobs
+            }
+            .execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.date.now = Date(timeIntervalSince1970: 2)
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+        } operation: {
+            Store(initialState: PostersViewer.State(eventID: eventID)) {
+                PostersViewer()
+            }
+        }
+
+        store.send(.addButtonTapped)
+        let importStore = try #require(store.spawn(\.importImages))
+        importStore.send(.imagesImported([image]))
+        await importStore.send(.saveButtonTapped)?.value
+
+        let poster = try #require(await database.read { db in
+            try OMERecord.Poster
+                .where { $0.id.posterID.eq(Self.localPosterID("lineup-2")) }
+                .fetchOne(db)
+        })
+        let blob = try #require(await database.read { db in
+            try LocalImageBlob.find(orphanedBlobKey).fetchOne(db)
+        })
+
+        #expect(poster.title == "Lineup")
+        expectNoDifference(blob.data, Data("new-poster".utf8))
+        expectNoDifference(blob.sourceURL, sourceURL)
     }
 
     @Test
@@ -294,6 +377,44 @@ struct PosterImportTests {
     }
 
     @Test
+    func mountedEditPosterLoadsAndSavesDraft() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+
+        try await seedEvent(eventID, in: database)
+        try await seedPoster(
+            posterID: "lineup",
+            title: "Lineup",
+            eventID: eventID,
+            in: database
+        )
+
+        let poster = try #require(await database.read { db in
+            try OMERecord.Poster.fetchOne(db)
+        })
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: EditPoster.State(posterID: poster.id)) {
+                EditPoster()
+            }
+        }
+
+        await waitUntil { store.hasLoadedDraft }
+        #expect(store.title == "Lineup")
+
+        await store.send(.saveButtonTapped)?.value
+
+        let updatedPoster = try #require(await database.read { db in
+            try OMERecord.Poster.fetchOne(db)
+        })
+        expectNoDifference(updatedPoster.title, "Lineup")
+        #expect(store.isPresented == false)
+    }
+
+    @Test
     func importImagesDoesNotSaveWithoutImages() {
         let store = Store(initialState: ImportImages.State(configuration: .posters)) {
             ImportImages { _ in }
@@ -302,6 +423,32 @@ struct PosterImportTests {
         #expect(store.canSave == false)
         store.send(.saveButtonTapped)
         #expect(store.canSave == false)
+    }
+
+    @Test
+    func importImagesSaveShowsUnderlyingError() async throws {
+        let image = ImportImages.Configuration.posters.importedImage(
+            title: "Lineup",
+            sourceName: "lineup.png",
+            sourceURL: URL(fileURLWithPath: "/tmp/lineup.png"),
+            mimeType: "image/png",
+            data: Data("poster".utf8)
+        )
+        let store = Store(
+            initialState: ImportImages.State(
+                configuration: .posters,
+                images: [image]
+            )
+        ) {
+            ImportImages { _ in
+                throw PosterImportSaveError.failed
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.errorMessage == "Unable to import images: Test poster import save failed.")
+        #expect(store.isSaving == false)
     }
 
     private func makePreparedDatabase() throws -> any DatabaseWriter {
@@ -397,6 +544,25 @@ struct PosterImportTests {
             try data.write(to: fileURL, options: .atomic)
             return fileURL
         }
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async {
+        for _ in 0..<100 {
+            if condition() { return }
+            await Task.yield()
+        }
+        Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
+    }
+}
+
+private enum PosterImportSaveError: LocalizedError {
+    case failed
+
+    var errorDescription: String? {
+        "Test poster import save failed."
     }
 }
 
