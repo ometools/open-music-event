@@ -132,7 +132,7 @@ struct EditEventSourcePatchInvalidationTests {
     }
 
     @Test
-    func sourceProposalDescriptionCanBeUpdated() async throws {
+    func sourceProposalTitleAndDescriptionCanBeUpdated() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let patch = SourcePatch(
@@ -157,6 +157,10 @@ struct EditEventSourcePatchInvalidationTests {
             ) {
                 SourceProposalFlow()
             }
+        }
+
+        store.send(.sourceProposalTitleChanged("Update the event name")) {
+            $0.sourceProposalTitle = "Update the event name"
         }
 
         store.send(.sourceProposalDescriptionChanged("Updated the event name.")) {
@@ -200,7 +204,8 @@ struct EditEventSourcePatchInvalidationTests {
                     request == SourcePatchPublishRequest(
                         description: "Updated the event name.",
                         location: location,
-                        patch: patch
+                        patch: patch,
+                        title: "Update the event name"
                     )
                 )
                 return publication
@@ -208,6 +213,7 @@ struct EditEventSourcePatchInvalidationTests {
         } operation: {
             var state = SourceProposalFlow.State(eventID: eventID, patch: patch)
             state.sourceProposalDescription = "Updated the event name."
+            state.sourceProposalTitle = "Update the event name"
             return TestStore(initialState: state) {
                 SourceProposalFlow()
             }

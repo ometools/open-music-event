@@ -509,6 +509,12 @@ struct SourceProposalComposerView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section("Title") {
+                    TextField("Title", text: $store.sourceProposalTitle)
+                        .onChange(of: store.sourceProposalTitle) { _, title in
+                            store.send(.sourceProposalTitleChanged(title))
+                        }
+                }
 
                 Section("Description") {
                     TextField(

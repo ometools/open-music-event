@@ -5,15 +5,18 @@ public struct SourcePatchPublishRequest: Equatable, Sendable {
     public var description: String?
     public var location: SourcePatchLocation
     public var patch: SourcePatch
+    public var title: String?
 
     public init(
         description: String? = nil,
         location: SourcePatchLocation,
-        patch: SourcePatch
+        patch: SourcePatch,
+        title: String? = nil
     ) {
         self.description = description
         self.location = location
         self.patch = patch
+        self.title = title
     }
 }
 

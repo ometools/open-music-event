@@ -42,10 +42,11 @@ public struct TangledSourcePatchPublisher: Sendable {
         )
         let createdAtDate = Self.now()
         let createdAt = Self.iso8601String(createdAtDate)
+        let title = preparedPatch.request.title?.sourcePatchTitleValue ?? defaultTitle
         let patchText = try Self.formatPatchText(
             diffData: codec.formatReviewPatch(preparedPatch.request.patch),
             sourceRevision: commit.id.rawValue,
-            title: defaultTitle,
+            title: title,
             createdAt: createdAtDate
         )
         let patchData = Data(patchText.utf8)
@@ -72,7 +73,7 @@ public struct TangledSourcePatchPublisher: Sendable {
                 repo: targetRepository.repoDID,
                 repoDID: targetRepository.repoDID
             ),
-            title: defaultTitle
+            title: title
         )
 
         @Dependency(\.getDefaultSession) var getDefaultSession
@@ -223,7 +224,10 @@ private extension TangledSourcePatchPublisher {
         let commit = try await sourceControl.commit(
             CommitRequest(
                 repository: repository,
-                message: CommitMessage(rawValue: defaultTitle),
+                message: CommitMessage(
+                    rawValue: preparedPatch.request.title?.sourcePatchTitleValue
+                        ?? defaultTitle
+                ),
                 author: Author(
                     name: PersonName(rawValue: "Open Music Event"),
                     email: EmailAddress(rawValue: "noreply@openmusicevent.app")
@@ -385,6 +389,11 @@ private extension TangledRepositoryReference {
 }
 
 private extension String {
+    var sourcePatchTitleValue: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     var tangledSourcePatchPercentEncodedPathComponent: String {
         addingPercentEncoding(withAllowedCharacters: .tangledSourcePatchPathComponentAllowed)
             ?? self

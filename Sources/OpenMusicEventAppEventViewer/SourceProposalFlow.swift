@@ -33,6 +33,7 @@ public struct SourceProposalFlow {
         public var editSummary: EventEditSummary
         public var sourceProposalDescription = ""
         public var sourceProposalStatus: EditEvent.SourceProposalStatus = .composing
+        public var sourceProposalTitle = "Update event source"
     }
 
     @CasePathable
@@ -44,6 +45,7 @@ public struct SourceProposalFlow {
         case sourceProposalCancelled
         case sourceProposalDescriptionChanged(String)
         case sourceProposalResponse(Result<SourcePatchPublication, EditEvent.SourceProposalFailure>)
+        case sourceProposalTitleChanged(String)
     }
 
     public enum Delegate: Equatable, Sendable {
@@ -63,7 +65,8 @@ public struct SourceProposalFlow {
                 func createSourceProposal(
                     eventID: OMERecord.Event.ID,
                     patch: SourcePatch,
-                    description: String?
+                    description: String?,
+                    title: String?
                 ) {
                     let sourcePatchLocationResolver = sourcePatchLocationResolver
                     let sourcePatchPublisher = sourcePatchPublisher
@@ -84,7 +87,8 @@ public struct SourceProposalFlow {
                                     SourcePatchPublishRequest(
                                         description: description,
                                         location: location,
-                                        patch: patch
+                                        patch: patch,
+                                        title: title
                                     )
                                 )
                             }
@@ -113,11 +117,13 @@ public struct SourceProposalFlow {
                           state.sourceProposalStatus.canCreateProposal
                     else { return }
                     let description = state.sourceProposalDescription.sourceProposalDescriptionValue
+                    let title = state.sourceProposalTitle.sourceProposalTitleValue
                     state.sourceProposalStatus = .proposing
                     createSourceProposal(
                         eventID: state.eventID,
                         patch: state.patch,
-                        description: description
+                        description: description,
+                        title: title
                     )
 
                 case .delegate:
@@ -141,6 +147,9 @@ public struct SourceProposalFlow {
                 case let .sourceProposalResponse(.failure(failure)):
                     let status = EditEvent.SourceProposalStatus.failed(failure)
                     state.sourceProposalStatus = status
+
+                case let .sourceProposalTitleChanged(title):
+                    state.sourceProposalTitle = title
                 }
             }
         }
@@ -155,6 +164,11 @@ extension SourceProposalFlow.State {
 
 private extension String {
     var sourceProposalDescriptionValue: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var sourceProposalTitleValue: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }

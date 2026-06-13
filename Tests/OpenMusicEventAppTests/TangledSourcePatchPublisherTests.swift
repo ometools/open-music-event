@@ -136,6 +136,7 @@ struct TangledSourcePatchPublisherTests {
         let pushRequests = Mutex([PushRequest]())
         let largeEventContents = "name: New\n"
             + String(repeating: "description: A long proposal patch line.\n", count: 8_000)
+        let proposalTitle = "Update Wicked Woods 2025 source"
 
         let publication = try await withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 1_779_800_000)
@@ -257,7 +258,8 @@ struct TangledSourcePatchPublisherTests {
                                     newContents: Data([0xff, 0xfe, 0xfd])
                                 )
                             ]
-                        )
+                        ),
+                        title: proposalTitle
                     ),
                     workingTree: SourceWorkingTree(
                         originalRepositoryURL: repositoryURL,
@@ -279,7 +281,7 @@ struct TangledSourcePatchPublisherTests {
         let stageRequest = try #require(stageRequests.withLock { $0.first })
         #expect(stageRequest.paths == ["events/2025/event.yml", "events/2025/images/lineup.png"])
         let commitRequest = try #require(commitRequests.withLock { $0.first })
-        #expect(commitRequest.message == "Update event source")
+        #expect(commitRequest.message == CommitMessage(rawValue: proposalTitle))
         #expect(commitRequest.author.name == "Open Music Event")
         #expect(commitRequest.author.email == "noreply@openmusicevent.app")
         let pushRequest = try #require(pushRequests.withLock { $0.first })
@@ -298,7 +300,7 @@ struct TangledSourcePatchPublisherTests {
         let uploadedPatch = String(decoding: try uploadBody.gunzipped(), as: UTF8.self)
         #expect(uploadedPatch.utf8.count > 256_000)
         #expect(uploadedPatch.hasPrefix("From \(commitID.rawValue) Mon Sep 17 00:00:00 2001\n"))
-        #expect(uploadedPatch.contains("Subject: [PATCH] Update event source\n"))
+        #expect(uploadedPatch.contains("Subject: [PATCH] \(proposalTitle)\n"))
         #expect(uploadedPatch.contains("diff --git a/events/2025/event.yml b/events/2025/event.yml\n"))
         #expect(uploadedPatch.contains("Binary files /dev/null and b/events/2025/images/lineup.png differ\n"))
 
@@ -321,6 +323,7 @@ struct TangledSourcePatchPublisherTests {
         let record = try #require(createRecordJSON["record"] as? [String: Any])
         #expect(record["$type"] as? String == "sh.tangled.repo.pull")
         #expect(record["body"] as? String == "")
+        #expect(record["title"] as? String == proposalTitle)
         #expect(record["patch"] == nil)
         #expect(record["targetBranch"] as? String == "main")
         let legacyTargetRepo = try #require(record["targetRepo"] as? String)
