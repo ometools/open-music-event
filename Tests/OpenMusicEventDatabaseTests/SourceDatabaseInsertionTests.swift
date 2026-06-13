@@ -528,6 +528,7 @@ struct SourceDatabaseInsertionTests {
                 ObjectIdentifier(OME.Stage.self),
                 ObjectIdentifier(OME.Contributor.self),
                 ObjectIdentifier(OME.Schedule.self),
+                ObjectIdentifier(OME.Performance.self),
                 ObjectIdentifier(OME.Channel.self),
                 ObjectIdentifier(OME.Poster.self),
             ]
@@ -795,6 +796,102 @@ struct SourceDatabaseInsertionTests {
                     workingValue: "Changed through session".databaseValue
                 )
             ]
+        )
+    }
+
+    @Test
+    func eventEditSummaryCountsAddedPerformanceInSourceEditingSession() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appendingPathComponent("baseline.sqlite").path
+        )
+        let database = try makeCoreDatabase(path: workingDatabasePath)
+        let scheduleDate = try #require(LocalDate("2026-08-01"))
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let session = try withDependencies {
+            $0.defaultDatabase = database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceEditingWorkingDatabasePath = workingDatabasePath
+        } operation: {
+            try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
+        }
+
+        let startTime = try localDate(scheduleDate, atHour: 21, in: timeZone)
+        let endTime = try localDate(scheduleDate, atHour: 22, in: timeZone)
+        try await session.database.write { db in
+            try OME.Performance.insert {
+                OME.Performance.Draft(
+                    id: performanceID(
+                        "late-addition",
+                        eventID: "testival-source-testival-2026",
+                        organizerID: organizerID
+                    ),
+                    stageID: id("meadow"),
+                    scheduleID: id("saturday"),
+                    startTime: startTime,
+                    endTime: endTime,
+                    title: "Late Addition",
+                    description: "Added from the schedule editor.",
+                    recordings: []
+                )
+            }
+            .execute(db)
+        }
+
+        let summary = try await withDependencies {
+            $0.defaultDatabase = session.database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceEditingSession = session
+        } operation: {
+            try await session.database.read { db in
+                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            }
+        }
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 1)
+        #expect(summary.badgeCount == 1)
+        let performanceGroup = try #require(
+            summary.groups.first { $0.id == OME.Performance.tableName }
+        )
+        #expect(performanceGroup.displayName == "Performance")
+        #expect(performanceGroup.added == 1)
+        #expect(performanceGroup.modified == 0)
+        #expect(performanceGroup.deleted == 0)
+        let performanceRecord = try #require(performanceGroup.records.first)
+        #expect(performanceRecord.kind == .added)
+        #expect(performanceRecord.recordDiff?.contains("Late Addition") == true)
+        let titleChange = try #require(
+            performanceRecord.fieldChanges.first { $0.columnName == "title" }
+        )
+        expectNoDifference(
+            titleChange,
+            SourceFieldChange(
+                columnName: "title",
+                baselineValue: nil,
+                workingValue: "Late Addition".databaseValue
+            )
         )
     }
 

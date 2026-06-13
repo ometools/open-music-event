@@ -11,6 +11,7 @@ public extension OME {
             Stage.self,
             Contributor.self,
             Schedule.self,
+            Performance.self,
             Channel.self,
             Poster.self,
         ]
@@ -40,6 +41,7 @@ public extension OME {
                 }
             ),
             Schedule.sourceRecordType,
+            Performance.sourceRecordType,
             Channel.sourceRecordType,
             Poster.sourceRecordType(
                 projection: SourceComparablePoster.init,
@@ -60,6 +62,7 @@ extension OME.Event: SourceEditableTable {}
 extension OME.Stage: SourceEditableTable {}
 extension OME.Contributor: SourceEditableTable {}
 extension OME.Schedule: SourceEditableTable {}
+extension OME.Performance: SourceEditableTable {}
 extension OME.Channel: SourceEditableTable {}
 extension OME.Poster: SourceEditableTable {}
 
