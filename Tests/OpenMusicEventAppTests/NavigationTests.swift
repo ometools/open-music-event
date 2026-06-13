@@ -1,6 +1,7 @@
 import BlueskyActorCache
 import ComposableArchitecture2
 import ATProto
+import CustomDump
 import Dependencies
 import DebugSnapshots
 import Foundation
@@ -2096,6 +2097,45 @@ struct NavigationTests {
         store.send(.scheduleModeButtonTapped(.list))
 
         #expect(store.state.scheduleMode == .list)
+    }
+
+    @Test
+    func addScheduleDefaultsToEventStartDate() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let eventStartDate = try #require(LocalDate("2026-08-07"))
+        let today = try #require(LocalDate("2026-06-01"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let now = try #require(today.at(hour: 12, in: timeZone))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(
+                db,
+                id: eventID,
+                name: "Event One",
+                startDate: eventStartDate,
+                timeZone: timeZone
+            )
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.date = .constant(now)
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+                ScheduleViewer()
+            }
+        }
+
+        store.send(.addScheduleButtonTapped)
+
+        let editSchedule = try #require(store.state.destination?.editSchedule)
+        expectNoDifference(editSchedule.scheduleDate, eventStartDate)
+        expectNoDifference(editSchedule.customTitle, "Friday")
+        expectNoDifference(editSchedule.sourceFileName, "friday")
     }
 
     @Test

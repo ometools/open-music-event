@@ -87,6 +87,9 @@ public struct ScheduleViewer {
                     scheduleDivision: scheduleDivision
                 )
             )
+            _event = FetchOne(
+                OMERecord.Event.where { $0.id.eq(eventID) }
+            )
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
             )
@@ -105,6 +108,7 @@ public struct ScheduleViewer {
         public var destination: Destination.State?
         @Shared public var scheduleViewerState: ScheduleViewerState
 
+        @FetchOne public var event: OMERecord.Event?
         public var scheduleMode: ScheduleMode {
             get { scheduleViewerState.scheduleMode }
             set {
@@ -404,6 +408,7 @@ public struct ScheduleViewer {
                     Spawn(
                         EditSchedule.State(
                             eventID: state.eventID,
+                            initialDate: state.event?.startDate,
                             timeZone: state.timeZone
                         )
                     )

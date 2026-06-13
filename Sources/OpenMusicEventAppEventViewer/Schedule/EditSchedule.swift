@@ -11,13 +11,21 @@ public struct EditSchedule {
     @Dependency(\.defaultDatabase) var database
 
     public struct State: Identifiable {
-        public init(eventID: OMERecord.Event.ID, timeZone: TimeZone) {
+        public init(
+            eventID: OMERecord.Event.ID,
+            initialDate: LocalDate? = nil,
+            timeZone: TimeZone
+        ) {
             @Dependency(\.date) var date
 
-            let now = date()
-            self.dateSelection = now
+            let dateSelection = initialDate?.atStartOfDay(in: timeZone) ?? date()
+            let scheduleDate = LocalDate(dateSelection, in: timeZone)
+            let defaults = Self.defaults(for: scheduleDate, in: timeZone)
+            self.dateSelection = dateSelection
             self.eventID = eventID
-            self.sourceFileName = LocalDate(now, in: timeZone).description
+            self.generatedScheduleDate = scheduleDate
+            self.customTitle = defaults.customTitle
+            self.sourceFileName = defaults.sourceFileName
             self.timeZone = timeZone
         }
 
@@ -30,6 +38,7 @@ public struct EditSchedule {
         public var errorMessage: String?
         public var isSaving = false
         public var sourceFileName: String
+        private var generatedScheduleDate: LocalDate
 
         public var id: OMERecord.Event.ID { eventID }
 
@@ -57,6 +66,21 @@ public struct EditSchedule {
                 return "Use a file name like friday or 2026-08-01."
             }
             return nil
+        }
+
+        mutating func dateSelectionChanged() {
+            let newScheduleDate = scheduleDate
+            guard generatedScheduleDate != newScheduleDate else { return }
+
+            let oldDefaults = Self.defaults(for: generatedScheduleDate, in: timeZone)
+            let newDefaults = Self.defaults(for: newScheduleDate, in: timeZone)
+            if customTitle == oldDefaults.customTitle {
+                customTitle = newDefaults.customTitle
+            }
+            if sourceFileName == oldDefaults.sourceFileName {
+                sourceFileName = newDefaults.sourceFileName
+            }
+            generatedScheduleDate = newScheduleDate
         }
 
         fileprivate struct SaveRequest: Sendable {
@@ -120,6 +144,33 @@ public struct EditSchedule {
         private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Schedule> {
             OMERecord.ID<OMERecord.Schedule>(.init(string))
         }
+
+        private struct Defaults: Equatable {
+            var customTitle: String
+            var sourceFileName: String
+        }
+
+        private static func defaults(
+            for scheduleDate: LocalDate,
+            in timeZone: TimeZone
+        ) -> Defaults {
+            let customTitle = weekdayTitle(for: scheduleDate, in: timeZone)
+            return Defaults(
+                customTitle: customTitle,
+                sourceFileName: customTitle.lowercased()
+            )
+        }
+
+        private static func weekdayTitle(
+            for scheduleDate: LocalDate,
+            in timeZone: TimeZone
+        ) -> String {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = timeZone
+            formatter.dateFormat = "EEEE"
+            return formatter.string(from: scheduleDate.atStartOfDay(in: timeZone))
+        }
     }
 
     public enum Action {
@@ -158,6 +209,9 @@ public struct EditSchedule {
 
                 state.errorMessage = validationMessage
             }
+        }
+        .onChange(of: store.dateSelection) { state in
+            state.dateSelectionChanged()
         }
     }
 }

@@ -89,6 +89,64 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
+    func dateSelectionUpdatesGeneratedTitleAndSourceFileName() throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let eventID = OMERecord.Event.ID(
+            organizerID: OMERecord.Organizer.ID("did:web:wickedwoods.example")!,
+            eventID: eventLocalID("wicked-woods-2026")
+        )
+        let friday = try #require(LocalDate("2026-08-07"))
+        let saturday = try #require(LocalDate("2026-08-08"))
+        let saturdaySelection = try #require(saturday.at(hour: 12, in: timeZone))
+        let store = makeScheduleStore(
+            database: database,
+            eventID: eventID,
+            timeZone: timeZone,
+            now: try #require(friday.at(hour: 12, in: timeZone))
+        ) { _ in }
+
+        expectNoDifference(store.state.customTitle, "Friday")
+        expectNoDifference(store.state.sourceFileName, "friday")
+
+        store.modify {
+            $0.dateSelection = saturdaySelection
+        } changes: {
+            $0.customTitle = "Saturday"
+            $0.sourceFileName = "saturday"
+        }
+    }
+
+    @Test
+    func dateSelectionKeepsEditedTitleAndSourceFileName() throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let eventID = OMERecord.Event.ID(
+            organizerID: OMERecord.Organizer.ID("did:web:wickedwoods.example")!,
+            eventID: eventLocalID("wicked-woods-2026")
+        )
+        let friday = try #require(LocalDate("2026-08-07"))
+        let saturday = try #require(LocalDate("2026-08-08"))
+        let saturdaySelection = try #require(saturday.at(hour: 12, in: timeZone))
+        let store = makeScheduleStore(
+            database: database,
+            eventID: eventID,
+            timeZone: timeZone,
+            now: try #require(friday.at(hour: 12, in: timeZone))
+        ) {
+            $0.customTitle = "Opening Workshops"
+            $0.sourceFileName = "opening-workshops"
+        }
+
+        store.modify {
+            $0.dateSelection = saturdaySelection
+        }
+
+        expectNoDifference(store.state.customTitle, "Opening Workshops")
+        expectNoDifference(store.state.sourceFileName, "opening-workshops")
+    }
+
+    @Test
     func createsPerformanceRowWithLinkedContributor() async throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
