@@ -3,6 +3,7 @@ import CustomDump
 import Dependencies
 import Foundation
 import SQLiteData
+import SwiftUI
 import Testing
 
 @testable import OpenMusicEventDatabase
@@ -290,6 +291,60 @@ struct PosterImportTests {
     }
 
     @Test
+    func deletingPosterFromDetailDismissesDetail() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+
+        try await seedEvent(eventID, in: database)
+        try await seedPoster(
+            posterID: "lineup",
+            title: "Lineup",
+            eventID: eventID,
+            in: database
+        )
+
+        let poster = try #require(await database.read { db in
+            try OMERecord.Poster.fetchOne(db)
+        })
+        let blobKey = try await seedLocalImageBlob(
+            posterID: poster.id,
+            data: Data("poster".utf8),
+            in: database
+        )
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: PostersViewer.State(eventID: eventID)) {
+                PostersViewer()
+            }
+        }
+
+        await waitUntil { store.posters.count == 1 }
+        store.send(.posterButtonTapped(poster.id))
+        let detail = try #require(
+            $store.scope(\.destination, action: \.destination).posterDetail.wrappedValue
+        )
+        @Bindable var detailStore = detail
+        detailStore.send(.editButtonTapped)
+        let editStore = try #require(
+            $detailStore.scope(\.destination, action: \.destination).editPoster.wrappedValue
+        )
+
+        await waitUntil { editStore.hasLoadedDraft }
+        editStore.send(.deleteButtonTapped)
+        await editStore.send(.destination(.deleteConfirmation(.deleteButtonTapped)))?.value
+        await waitUntil { store.destination == nil }
+        await waitUntil { store.posters.isEmpty }
+
+        let deletedBlob = try await database.read { db in
+            try LocalImageBlob.find(blobKey).fetchOne(db)
+        }
+        #expect(deletedBlob == nil)
+    }
+
+    @Test
     func editPosterImageInfoUpdatesDraftAsset() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -415,6 +470,68 @@ struct PosterImportTests {
     }
 
     @Test
+    func deletingPosterRemovesPosterAndLocalBlob() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+
+        try await seedEvent(eventID, in: database)
+        try await seedPoster(
+            posterID: "lineup",
+            title: "Lineup",
+            eventID: eventID,
+            in: database
+        )
+
+        let poster = try #require(await database.read { db in
+            try OMERecord.Poster.fetchOne(db)
+        })
+        let blobKey = try await seedLocalImageBlob(
+            posterID: poster.id,
+            data: Data("poster".utf8),
+            in: database
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            var state = EditPoster.State(posterID: poster.id)
+            state.title = "Lineup"
+            state.imageInfo = Spawn(
+                ImageInfo.State(
+                    asset: poster.image,
+                    configuration: .posters,
+                    sourceLabel: "Lineup"
+                )
+            )
+            state.hasLoadedDraft = true
+
+            return Store(initialState: state) {
+                EditPoster()
+            }
+        }
+
+        store.send(.deleteButtonTapped)
+
+        #expect(store.destination?.deleteConfirmation != nil)
+
+        await store.send(.destination(.deleteConfirmation(.deleteButtonTapped)))?.value
+
+        let deletedPoster = try await database.read { db in
+            try PostersViewer.posterQuery(posterID: poster.id)
+                .fetchOne(db)
+        }
+        let deletedBlob = try await database.read { db in
+            try LocalImageBlob.find(blobKey).fetchOne(db)
+        }
+        #expect(deletedPoster == nil)
+        #expect(deletedBlob == nil)
+        #expect(store.errorMessage == nil)
+        #expect(store.isDeleting == false)
+        #expect(store.isPresented == false)
+    }
+
+    @Test
     func importImagesDoesNotSaveWithoutImages() {
         let store = Store(initialState: ImportImages.State(configuration: .posters)) {
             ImportImages { _ in }
@@ -515,6 +632,41 @@ struct PosterImportTests {
             }
             .execute(db)
         }
+    }
+
+    private func seedLocalImageBlob(
+        posterID: OMERecord.Poster.ID,
+        data: Data,
+        in database: any DatabaseWriter
+    ) async throws -> String {
+        let assetKey = LocalImageBlob.assetKey(
+            organizerID: posterID.organizerID,
+            eventID: posterID.eventID,
+            parentKind: .poster,
+            parentLocalID: posterID.posterID.rawValue.rawValue,
+            role: .poster
+        )
+        try await database.write { db in
+            try LocalImageBlob.insert {
+                [
+                    LocalImageBlob(
+                        assetKey: assetKey,
+                        organizerID: posterID.organizerID,
+                        eventID: posterID.eventID,
+                        parentKind: .poster,
+                        parentLocalID: posterID.posterID.rawValue.rawValue,
+                        role: .poster,
+                        renderKind: .fullImage,
+                        mimeType: "image/png",
+                        data: data,
+                        sourceURL: URL(fileURLWithPath: "/tmp/\(posterID.posterID.rawValue.rawValue).png"),
+                        lastFetchedAt: Date(timeIntervalSince1970: 1)
+                    )
+                ]
+            }
+            .execute(db)
+        }
+        return assetKey
     }
 
     private func eventID(_ string: String) -> OMERecord.Event.ID {
