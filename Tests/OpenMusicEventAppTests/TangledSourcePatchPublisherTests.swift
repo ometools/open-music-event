@@ -133,10 +133,30 @@ struct TangledSourcePatchPublisherTests {
         let createBranchRequests = Mutex([CreateBranchRequest]())
         let stageRequests = Mutex([StageRequest]())
         let commitRequests = Mutex([CommitRequest]())
+        let formatPatchRequests = Mutex([FormatPatchRequest]())
         let pushRequests = Mutex([PushRequest]())
         let largeEventContents = "name: New\n"
             + String(repeating: "description: A long proposal patch line.\n", count: 8_000)
         let proposalTitle = "Update Wicked Woods 2025 source"
+        let formattedPatchText = """
+            diff --git a/events/2025/event.yml b/events/2025/event.yml
+            --- a/events/2025/event.yml
+            +++ b/events/2025/event.yml
+            @@ -1 +1,8001 @@
+            -name: Old
+            """
+        + largeEventContents.split(separator: "\n").map { "+\($0)\n" }.joined()
+        +
+            """
+            diff --git a/events/2025/images/lineup.png b/events/2025/images/lineup.png
+            new file mode 100644
+            index 0000000..e69de29
+            GIT binary patch
+            literal 3
+            KcmZQzU|?Vb0RR91
+
+            """
+        let formattedPatchData = Data(formattedPatchText.utf8)
 
         let publication = try await withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 1_779_800_000)
@@ -225,6 +245,10 @@ struct TangledSourcePatchPublisherTests {
                     commitRequests.withLock { $0.append(request) }
                     return Commit(id: commitID)
                 },
+                formatPatch: { request in
+                    formatPatchRequests.withLock { $0.append(request) }
+                    return formattedPatchData
+                },
                 push: { request in
                     pushRequests.withLock { $0.append(request) }
                 }
@@ -284,6 +308,9 @@ struct TangledSourcePatchPublisherTests {
         #expect(commitRequest.message == CommitMessage(rawValue: proposalTitle))
         #expect(commitRequest.author.name == "Open Music Event")
         #expect(commitRequest.author.email == "noreply@openmusicevent.app")
+        let formatPatchRequest = try #require(formatPatchRequests.withLock { $0.first })
+        #expect(formatPatchRequest.repository == Repository(url: repositoryURL))
+        #expect(formatPatchRequest.commit == commitID)
         let pushRequest = try #require(pushRequests.withLock { $0.first })
         #expect(pushRequest.localBranch == branchName)
         #expect(pushRequest.remoteBranch == branchName)
@@ -302,7 +329,8 @@ struct TangledSourcePatchPublisherTests {
         #expect(uploadedPatch.hasPrefix("From \(commitID.rawValue) Mon Sep 17 00:00:00 2001\n"))
         #expect(uploadedPatch.contains("Subject: [PATCH] \(proposalTitle)\n"))
         #expect(uploadedPatch.contains("diff --git a/events/2025/event.yml b/events/2025/event.yml\n"))
-        #expect(uploadedPatch.contains("Binary files /dev/null and b/events/2025/images/lineup.png differ\n"))
+        #expect(uploadedPatch.contains("GIT binary patch\n"))
+        #expect(!uploadedPatch.contains("Binary files /dev/null and b/events/2025/images/lineup.png differ\n"))
 
         let createRecordRequest = try #require(
             requests.first { $0.url?.path.hasSuffix("/com.atproto.repo.createRecord") == true }
@@ -615,6 +643,7 @@ struct TangledSourcePatchPublisherTests {
                     status: { _ in [] },
                     stage: { _ in },
                     commit: { _ in Commit(id: "unexpected") },
+                    formatPatch: { _ in Data() },
                     push: { _ in }
                 )
             } operation: {

@@ -43,8 +43,15 @@ public struct TangledSourcePatchPublisher: Sendable {
         let createdAtDate = Self.now()
         let createdAt = Self.iso8601String(createdAtDate)
         let title = preparedPatch.request.title?.sourcePatchTitleValue ?? defaultTitle
+        @Dependency(\.sourceControl) var sourceControl
+        let diffData = try await sourceControl.formatPatch(
+            FormatPatchRequest(
+                repository: Repository(url: preparedPatch.workingTree.workingRepositoryURL),
+                commit: commit.id
+            )
+        )
         let patchText = try Self.formatPatchText(
-            diffData: codec.formatReviewPatch(preparedPatch.request.patch),
+            diffData: diffData,
             sourceRevision: commit.id.rawValue,
             title: title,
             createdAt: createdAtDate
