@@ -40,6 +40,27 @@ public struct EditPerformance {
             self.timeZone = timeZone
         }
 
+        public init(
+            eventID: OMERecord.Event.ID,
+            schedule: OMERecord.Schedule,
+            stages: [OMERecord.Stage],
+            timeZone: TimeZone,
+            performance: OMERecord.Performance
+        ) {
+            self.init(
+                eventID: eventID,
+                schedule: schedule,
+                stages: stages,
+                timeZone: timeZone
+            )
+            self.description = performance.description ?? ""
+            self.endTimeSelection = performance.endTime
+            self.performanceID = performance.id.performanceID
+            self.selectedStageID = performance.stageID
+            self.startTimeSelection = performance.startTime
+            self.title = performance.title
+        }
+
         public let eventID: OMERecord.Event.ID
         public let schedule: OMERecord.Schedule
         public let stageOptions: [StageOption]
@@ -52,14 +73,35 @@ public struct EditPerformance {
         public var endTimeSelection: Date
         public var errorMessage: String?
         public var isSaving = false
+        public var performanceID: OMERecord.ID<OMERecord.Performance>?
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
         public var startTimeSelection: Date
         public var title = ""
 
-        public var id: OMERecord.Schedule.ID { schedule.id }
+        public var id: String {
+            [
+                schedule.id.organizerID.description,
+                schedule.id.eventID.rawValue.rawValue,
+                schedule.id.scheduleID.rawValue.rawValue,
+                performanceID?.rawValue.rawValue ?? "new",
+            ]
+            .joined(separator: ":")
+        }
 
         public var canSubmit: Bool {
             !isSaving && validationMessage == nil
+        }
+
+        public var isCreating: Bool {
+            performanceID == nil
+        }
+
+        public var navigationTitle: String {
+            isCreating ? "New Performance" : "Edit Performance"
+        }
+
+        public var submitButtonTitle: String {
+            isCreating ? "Create" : "Save"
         }
 
         public var trimmedAnonymousContributorName: String {
@@ -88,7 +130,8 @@ public struct EditPerformance {
             if endTimeSelection <= startTimeSelection {
                 return "End time must be after the start time."
             }
-            if !trimmedContributorIDString.isEmpty,
+            if isCreating,
+               !trimmedContributorIDString.isEmpty,
                !Self.isValidLocalID(trimmedContributorIDString) {
                 return "Use a contributor ID like artist-name."
             }
@@ -129,7 +172,7 @@ public struct EditPerformance {
                     store.addTask {
                         do {
                             try database.write { db in
-                                try EditPerformanceDrafts.insert(request, in: db)
+                                try EditPerformanceDrafts.save(request, in: db)
                             }
                             try store.modify {
                                 $0.errorMessage = nil
@@ -138,7 +181,7 @@ public struct EditPerformance {
                             try store.dismiss()
                         } catch {
                             try store.modify {
-                                $0.errorMessage = "Unable to create performance."
+                                $0.errorMessage = request.errorMessage
                                 $0.isSaving = false
                             }
                         }
@@ -158,6 +201,7 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
     var description: String?
     var endTime: Date
     var eventID: OMERecord.Event.ID
+    var performanceID: OMERecord.ID<OMERecord.Performance>?
     var scheduleID: OMERecord.ID<OMERecord.Schedule>
     var stageID: OMERecord.ID<OMERecord.Stage>
     var startTime: Date
@@ -169,14 +213,29 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
         self.description = state.trimmedDescription.nilIfEmpty
         self.endTime = state.endTimeSelection
         self.eventID = state.eventID
+        self.performanceID = state.performanceID
         self.scheduleID = state.schedule.id.scheduleID
         self.stageID = stageID
         self.startTime = state.startTimeSelection
         self.title = state.trimmedTitle
     }
+
+    var errorMessage: String {
+        performanceID == nil
+            ? "Unable to create performance."
+            : "Unable to save performance."
+    }
 }
 
 fileprivate enum EditPerformanceDrafts {
+    static func save(_ request: EditPerformanceSaveRequest, in db: Database) throws {
+        if let performanceID = request.performanceID {
+            try update(request, performanceID: performanceID, in: db)
+        } else {
+            try insert(request, in: db)
+        }
+    }
+
     static func insert(_ request: EditPerformanceSaveRequest, in db: Database) throws {
         let performanceID = try performanceID(for: request, in: db)
         try OMERecord.Performance.insert {
@@ -197,6 +256,33 @@ fileprivate enum EditPerformanceDrafts {
             }
             .execute(db)
         }
+    }
+
+    static func update(
+        _ request: EditPerformanceSaveRequest,
+        performanceID: OMERecord.ID<OMERecord.Performance>,
+        in db: Database
+    ) throws {
+        let id = OMERecord.Performance.ID(
+            organizerID: request.eventID.organizerID,
+            eventID: request.eventID.eventID,
+            performanceID: performanceID
+        )
+        guard try OMERecord.Performance.find(id).fetchOne(db) != nil else {
+            throw EditPerformanceSaveError()
+        }
+
+        try OMERecord.Performance
+            .find(id)
+            .update {
+                $0.description = #bind(request.description)
+                $0.endTime = #bind(request.endTime)
+                $0.scheduleID = #bind(request.scheduleID)
+                $0.stageID = #bind(request.stageID)
+                $0.startTime = #bind(request.startTime)
+                $0.title = #bind(request.title)
+            }
+            .execute(db)
     }
 
     static func performanceID(
@@ -296,6 +382,8 @@ fileprivate enum EditPerformanceDrafts {
     }
 }
 
+private struct EditPerformanceSaveError: Error {}
+
 public struct EditPerformanceView: View {
     @Environment(\.dismiss) var dismiss
     @Bindable var store: StoreOf<EditPerformance>
@@ -309,11 +397,13 @@ public struct EditPerformanceView: View {
             performanceSection
             stageSection
             timeSection
-            contributorSection
+            if store.isCreating {
+                contributorSection
+            }
             messages
         }
         .disabled(store.isSaving)
-        .navigationTitle("New Performance")
+        .navigationTitle(store.navigationTitle)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -324,7 +414,7 @@ public struct EditPerformanceView: View {
                 if store.isSaving {
                     ProgressView()
                 } else {
-                    Button("Create") {
+                    Button(store.submitButtonTitle) {
                         store.send(.saveButtonTapped)
                     }
                     .disabled(!store.canSubmit)

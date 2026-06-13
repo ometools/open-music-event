@@ -266,6 +266,132 @@ struct ScheduleAuthoringTests {
         #expect(contributor.contributorActor == nil)
     }
 
+    @Test
+    func editsPerformanceRowWithoutDroppingContributors() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let performance = try await seedPerformance(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        )
+        let updatedStartTime = try #require(fixture.schedule.date.at(hour: 21, in: timeZone))
+        let updatedEndTime = try #require(fixture.schedule.date.at(hour: 22, in: timeZone))
+        let store = makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone,
+            performance: performance
+        ) {
+            #expect($0.title == "Opening Set")
+            #expect($0.description == "Original description.")
+            #expect($0.selectedStageID == fixture.stage.id.stageID)
+            $0.title = "Updated Set"
+            $0.description = "Updated description."
+            $0.startTimeSelection = updatedStartTime
+            $0.endTimeSelection = updatedEndTime
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+
+        let rows = try await database.read { db in
+            (
+                performance: try #require(OMERecord.Performance.fetchAll(db).first),
+                contributors: try OMERecord.Performance.Contributors.fetchAll(db)
+            )
+        }
+        #expect(rows.performance.id.performanceID == performance.id.performanceID)
+        #expect(rows.performance.title == "Updated Set")
+        #expect(rows.performance.description == "Updated description.")
+        #expect(rows.performance.startTime == updatedStartTime)
+        #expect(rows.performance.endTime == updatedEndTime)
+        #expect(rows.contributors.count == 1)
+        #expect(rows.contributors.first?.performanceID == performance.id.performanceID)
+        #expect(rows.contributors.first?.contributorID == fixture.contributor.id.contributorID)
+    }
+
+    @Test
+    func scheduleViewerPerformanceEditActionPresentsEditor() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let performance = try await seedPerformance(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        )
+        let store = makeScheduleViewerStore(
+            database: database,
+            eventID: fixture.eventID,
+            timeZone: timeZone
+        )
+
+        store.send(.editPerformanceButtonTapped(performance.id.performanceID))
+
+        let editPerformance = try #require(store.state.destination?.editPerformance)
+        #expect(editPerformance.performanceID == performance.id.performanceID)
+        #expect(editPerformance.title == "Opening Set")
+        #expect(editPerformance.description == "Original description.")
+        #expect(editPerformance.startTimeSelection == performance.startTime)
+        #expect(editPerformance.endTimeSelection == performance.endTime)
+        #expect(editPerformance.selectedStageID == fixture.stage.id.stageID)
+    }
+
+    @Test
+    func scheduleViewerDeletesPerformanceAfterConfirmation() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let performance = try await seedPerformance(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        )
+        let store = makeScheduleViewerStore(
+            database: database,
+            eventID: fixture.eventID,
+            timeZone: timeZone
+        )
+
+        store.send(.deletePerformanceButtonTapped(performance.id.performanceID))
+
+        #expect(
+            store.state.destination?.deletePerformanceConfirmation?.performanceID
+                == performance.id.performanceID
+        )
+
+        await store.send(
+            .destination(
+                .deletePerformanceConfirmation(
+                    .deleteButtonTapped(performance.id.performanceID)
+                )
+            )
+        )?.value
+
+        let rows = try await database.read { db in
+            (
+                performances: try OMERecord.Performance.fetchAll(db),
+                contributors: try OMERecord.Performance.Contributors.fetchAll(db)
+            )
+        }
+        #expect(rows.performances.isEmpty)
+        #expect(rows.contributors.isEmpty)
+    }
+
     private func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test
@@ -300,21 +426,50 @@ struct ScheduleAuthoringTests {
         database: any DatabaseWriter,
         fixture: ScheduleAuthoringFixture,
         timeZone: TimeZone,
+        performance: OMERecord.Performance? = nil,
         update: (inout EditPerformance.State) throws -> Void
     ) rethrows -> TestStore<EditPerformance> {
         try withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            var state = EditPerformance.State(
-                eventID: fixture.eventID,
-                schedule: fixture.schedule,
-                stages: [fixture.stage],
-                timeZone: timeZone
-            )
+            var state: EditPerformance.State
+            if let performance {
+                state = EditPerformance.State(
+                    eventID: fixture.eventID,
+                    schedule: fixture.schedule,
+                    stages: [fixture.stage],
+                    timeZone: timeZone,
+                    performance: performance
+                )
+            } else {
+                state = EditPerformance.State(
+                    eventID: fixture.eventID,
+                    schedule: fixture.schedule,
+                    stages: [fixture.stage],
+                    timeZone: timeZone
+                )
+            }
             try update(&state)
             return TestStore(initialState: state) {
                 EditPerformance()
+            }
+        }
+    }
+
+    private func makeScheduleViewerStore(
+        database: any DatabaseWriter,
+        eventID: OMERecord.Event.ID,
+        timeZone: TimeZone
+    ) -> TestStore<ScheduleViewer> {
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventTimeZone = timeZone
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+                ScheduleViewer()
             }
         }
     }
@@ -427,6 +582,53 @@ struct ScheduleAuthoringTests {
             )
         }
     }
+
+    private func seedPerformance(
+        database: any DatabaseWriter,
+        fixture: ScheduleAuthoringFixture,
+        timeZone: TimeZone
+    ) async throws -> OMERecord.Performance {
+        let startTime = try #require(fixture.schedule.date.at(hour: 20, in: timeZone))
+        let endTime = try #require(fixture.schedule.date.at(hour: 21, in: timeZone))
+        let performanceID = OMERecord.Performance.ID(
+            organizerID: fixture.eventID.organizerID,
+            eventID: fixture.eventID.eventID,
+            performanceID: performanceLocalID("opening-set")
+        )
+        try await database.write { db in
+            try OMERecord.Performance.insert {
+                OMERecord.Performance.Draft(
+                    id: performanceID,
+                    stageID: fixture.stage.id.stageID,
+                    scheduleID: fixture.schedule.id.scheduleID,
+                    startTime: startTime,
+                    endTime: endTime,
+                    title: "Opening Set",
+                    description: "Original description.",
+                    recordings: []
+                )
+            }
+            .execute(db)
+            try OMERecord.Performance.Contributors.insert {
+                OMERecord.Performance.Contributors.Draft(
+                    organizerID: fixture.eventID.organizerID,
+                    eventID: fixture.eventID.eventID,
+                    performanceID: performanceID.performanceID,
+                    contributorID: fixture.contributor.id.contributorID,
+                    anonymousName: nil,
+                    contributorActor: nil
+                )
+            }
+            .execute(db)
+        }
+        return try await database.read { db in
+            try #require(
+                try OMERecord.Performance
+                    .where { $0.id.eq(performanceID) }
+                    .fetchOne(db)
+            )
+        }
+    }
 }
 
 private struct ScheduleAuthoringFixture {
@@ -442,6 +644,10 @@ private func eventLocalID(_ string: String) -> OMERecord.ID<OMERecord.Event> {
 
 private func scheduleLocalID(_ string: String) -> OMERecord.ID<OMERecord.Schedule> {
     OMERecord.ID<OMERecord.Schedule>(.init(string))
+}
+
+private func performanceLocalID(_ string: String) -> OMERecord.ID<OMERecord.Performance> {
+    OMERecord.ID<OMERecord.Performance>(.init(string))
 }
 
 private func stageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {

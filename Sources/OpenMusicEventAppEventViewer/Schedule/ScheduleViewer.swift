@@ -222,17 +222,38 @@ public struct ScheduleViewer {
     public enum Action {
         case addPerformanceButtonTapped(OMERecord.ID<OMERecord.Schedule>?)
         case addScheduleButtonTapped
+        case deletePerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case destination(Destination.Action)
+        case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case scheduleModeButtonTapped(ScheduleMode)
     }
 
     @Feature
     public enum Destination {
+        case deletePerformanceConfirmation(DeletePerformanceConfirmation)
         case editPerformance(Spawn<EditPerformance>)
         case editSchedule(Spawn<EditSchedule>)
         case performanceDetail(Spawn<PerformanceDetail>)
     }
+
+    @Feature
+    public struct DeletePerformanceConfirmation: Prompt {
+        public struct State: Identifiable {
+            public init(performanceID: OMERecord.ID<OMERecord.Performance>) {
+                self.performanceID = performanceID
+            }
+
+            public var performanceID: OMERecord.ID<OMERecord.Performance>
+            public var id: OMERecord.ID<OMERecord.Performance> { performanceID }
+        }
+
+        public enum Action {
+            case deleteButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        }
+    }
+
+    @Dependency(\.defaultDatabase) var database
 
     static func eventPerformancesQuery(
         eventID: OMERecord.Event.ID
@@ -414,8 +435,46 @@ public struct ScheduleViewer {
                     )
                 )
 
+            case let .deletePerformanceButtonTapped(performanceID):
+                state.destination = .deletePerformanceConfirmation(
+                    DeletePerformanceConfirmation.State(performanceID: performanceID)
+                )
+
+            case let .destination(.deletePerformanceConfirmation(.deleteButtonTapped(performanceID))):
+                let eventID = state.eventID
+                store.addTask {
+                    do {
+                        try await Self.deletePerformance(
+                            performanceID: performanceID,
+                            eventID: eventID,
+                            database: database
+                        )
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
+
             case .destination:
                 break
+
+            case let .editPerformanceButtonTapped(performanceID):
+                guard
+                    let row = state.performanceRows.first(where: { $0.performanceID == performanceID }),
+                    let scheduleID = row.performance.scheduleID,
+                    let schedule = state.schedules.first(where: { $0.id.scheduleID == scheduleID })
+                else { return }
+
+                state.destination = .editPerformance(
+                    Spawn(
+                        EditPerformance.State(
+                            eventID: state.eventID,
+                            schedule: schedule,
+                            stages: state.stages,
+                            timeZone: state.timeZone,
+                            performance: row.performance
+                        )
+                    )
+                )
 
             case let .performanceButtonTapped(performanceID):
                 store.withDependencies {
@@ -437,7 +496,30 @@ public struct ScheduleViewer {
             Destination.body
         }
     }
+
+    private static func deletePerformance(
+        performanceID: OMERecord.ID<OMERecord.Performance>,
+        eventID: OMERecord.Event.ID,
+        database: any DatabaseWriter
+    ) async throws {
+        try await database.write { db in
+            let id = OMERecord.Performance.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                performanceID: performanceID
+            )
+            guard try OMERecord.Performance.find(id).fetchOne(db) != nil else {
+                throw DeletePerformanceError()
+            }
+            try OMERecord.Performance
+                .find(id)
+                .delete()
+                .execute(db)
+        }
+    }
 }
+
+private struct DeletePerformanceError: Error {}
 
 public struct ScheduleViewerView: View {
     @Bindable var store: StoreOf<ScheduleViewer>
@@ -469,10 +551,17 @@ public struct ScheduleViewerView: View {
                         performances: store.state.visiblePerformances(
                             selectedScheduleID: selectedScheduleID
                         ),
-                        selectedStageID: $store.selectedStageID
-                    ) { performanceID in
-                        store.send(.performanceButtonTapped(performanceID))
-                    }
+                        selectedStageID: $store.selectedStageID,
+                        onEditPerformanceTapped: { performanceID in
+                            store.send(.editPerformanceButtonTapped(performanceID))
+                        },
+                        onDeletePerformanceTapped: { performanceID in
+                            store.send(.deletePerformanceButtonTapped(performanceID))
+                        },
+                        onPerformanceTapped: { performanceID in
+                            store.send(.performanceButtonTapped(performanceID))
+                        }
+                    )
 
                 case .list:
                     SchedulePerformanceListView(
@@ -517,6 +606,26 @@ public struct ScheduleViewerView: View {
             NavigationStack {
                 EditPerformanceView(store: editStore)
             }
+        }
+        .confirmationDialog(
+            "Delete Performance?",
+            isPresented: $store.scope(\.destination, action: \.destination).deletePerformanceConfirmation.isPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Performance", role: .destructive) {
+                if let performanceID = store.destination?.deletePerformanceConfirmation?.performanceID {
+                    store.send(
+                        .destination(
+                            .deletePerformanceConfirmation(
+                                .deleteButtonTapped(performanceID)
+                            )
+                        )
+                    )
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the performance from this schedule.")
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
             PerformanceDetailView(store: detailStore)

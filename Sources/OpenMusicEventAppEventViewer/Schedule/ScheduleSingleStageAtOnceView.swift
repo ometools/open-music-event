@@ -8,6 +8,8 @@ struct ScheduleSingleStageAtOnceView: View {
     let stages: [OMERecord.Stage]
     let performances: [OMERecord.Performance]
     @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+    let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
@@ -68,10 +70,17 @@ struct ScheduleSingleStageAtOnceView: View {
                 stages: stages,
                 performances: performances,
                 timeRange: timeRange,
-                pageHeight: scheduleHeight(for: timeRange)
-            ) { performanceID in
-                onPerformanceTapped(performanceID)
-            }
+                pageHeight: scheduleHeight(for: timeRange),
+                onEditPerformanceTapped: { performanceID in
+                    onEditPerformanceTapped(performanceID)
+                },
+                onDeletePerformanceTapped: { performanceID in
+                    onDeletePerformanceTapped(performanceID)
+                },
+                onPerformanceTapped: { performanceID in
+                    onPerformanceTapped(performanceID)
+                }
+            )
         } else {
             ContentUnavailableView(
                 selectedStage?.name ?? scheduleDivisionTitle,
@@ -103,6 +112,8 @@ struct ScheduleStageTimelinePager: View {
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
     let pageHeight: CGFloat
+    let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     var body: some View {
@@ -113,10 +124,17 @@ struct ScheduleStageTimelinePager: View {
                         ScheduleStageTimelinePage(
                             stage: stage,
                             performances: performances(for: stage),
-                            timeRange: timeRange
-                        ) { performanceID in
-                            onPerformanceTapped(performanceID)
-                        }
+                            timeRange: timeRange,
+                            onEditPerformanceTapped: { performanceID in
+                                onEditPerformanceTapped(performanceID)
+                            },
+                            onDeletePerformanceTapped: { performanceID in
+                                onDeletePerformanceTapped(performanceID)
+                            },
+                            onPerformanceTapped: { performanceID in
+                                onPerformanceTapped(performanceID)
+                            }
+                        )
                         .id(stage.id.stageID)
                         .tag(Optional(stage.id.stageID))
                         .frame(width: geometry.size.width)
@@ -138,16 +156,25 @@ struct ScheduleStageTimelinePage: View {
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
+    let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     var body: some View {
         SchedulePageView(timelineCards) { card in
             ScheduleTimelineCardView(
                 performance: card.item.performance,
-                stage: stage
-            ) {
-                onPerformanceTapped(card.item.id)
-            }
+                stage: stage,
+                editAction: {
+                    onEditPerformanceTapped(card.item.id)
+                },
+                deleteAction: {
+                    onDeletePerformanceTapped(card.item.id)
+                },
+                action: {
+                    onPerformanceTapped(card.item.id)
+                }
+            )
         } emptyContent: {
             ContentUnavailableView(
                 stage.name,

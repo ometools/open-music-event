@@ -14,53 +14,72 @@ struct SchedulePerformanceTimelineCard: DateIntervalRepresentable, Equatable, Id
 struct ScheduleTimelineCardView: View {
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage
+    let editAction: () -> Void
+    let deleteAction: () -> Void
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(performance.title)
-                        .font(.headline)
-                        .lineLimit(2)
-
-                    Spacer(minLength: 0)
-
-                    if !performance.recordings.isEmpty {
-                        Image(systemName: "play.circle.fill")
-                            .font(.caption)
-                            .accessibilityLabel("Has recordings")
-                    }
-                }
-
-                HStack(spacing: 6) {
-                    Text(performance.timeRangeText)
-
-                    Text(stage.name)
-                        .lineLimit(1)
-                }
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundStyle(.white.opacity(0.86))
-
-                if let description = performance.displayDescription {
-                    Text(description)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.8))
-                        .lineLimit(2)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(8)
-            .foregroundStyle(.white)
-            .background {
-                ScheduleTimelineCardBackground(stageColor: stage.color.swiftUIColor)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            cardContent
         }
         .buttonStyle(.plain)
         .accessibilityLabel(performance.title)
         .accessibilityHint(performance.timeRangeText)
+        .contextMenu {
+            Button {
+                editAction()
+            } label: {
+                Label("Edit Performance", systemImage: "pencil")
+            }
+
+            Button(role: .destructive) {
+                deleteAction()
+            } label: {
+                Label("Delete Performance", systemImage: "trash")
+            }
+        }
+    }
+
+    private var cardContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(performance.title)
+                    .font(.headline)
+                    .lineLimit(2)
+
+                Spacer(minLength: 0)
+
+                if !performance.recordings.isEmpty {
+                    Image(systemName: "play.circle.fill")
+                        .font(.caption)
+                        .accessibilityLabel("Has recordings")
+                }
+            }
+
+            HStack(spacing: 6) {
+                Text(performance.timeRangeText)
+
+                Text(stage.name)
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .fontWeight(.medium)
+            .foregroundStyle(.white.opacity(0.86))
+
+            if let description = performance.displayDescription {
+                Text(description)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(8)
+        .foregroundStyle(.white)
+        .background {
+            ScheduleTimelineCardBackground(stageColor: stage.color.swiftUIColor)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
