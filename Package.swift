@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
         .library(name: "OpenMusicEventSourceEditing", targets: ["OpenMusicEventSourceEditing"]),
         .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
+        .library(name: "OpenMusicEventWhiteLabel", targets: ["OpenMusicEventWhiteLabel"]),
         .library(name: "ErrorHandling", targets: ["ErrorHandling"]),
         .library(name: "SourceEditing", targets: ["SourceEditing"]),
         .library(name: "LiquidGlassSegmentedPicker", targets: ["LiquidGlassSegmentedPicker"]),
@@ -180,6 +181,22 @@ let package = Package(
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),
+        .target(
+            name: "OpenMusicEventWhiteLabel",
+            dependencies: [
+                "OpenMusicEventAppEventViewer",
+                "OpenMusicEventDatabase",
+                "OpenMusicEventLexicon",
+                "OpenMusicEventSource",
+                "OpenMusicEventSourceClone",
+                "OpenMusicEventSourceEditing",
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
+            ],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
 
         .target(
             name: "OpenMusicEventLexicon",
@@ -337,6 +354,14 @@ let package = Package(
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
                 .product(name: "XRPCClient", package: "tcatproto"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventWhiteLabelTests",
+            dependencies: [
+                "OpenMusicEventAppEventViewer",
+                "OpenMusicEventWhiteLabel",
+                .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
             ]
         ),
         .testTarget(
