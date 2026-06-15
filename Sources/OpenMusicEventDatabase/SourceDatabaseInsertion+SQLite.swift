@@ -5,6 +5,14 @@ import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SQLiteData
 
+public extension SourceReferenceDatabaseMigrator {
+    static let openMusicEvent = Self { database in
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database.database)
+    }
+}
+
 public extension OME.SourceDatabaseInsertion {
     func migrateAndInsertIntoDefaultDatabase() async throws {
         @Dependency(\.defaultDatabase) var database
@@ -23,26 +31,47 @@ public extension OME.SourceDatabaseInsertion {
             try validateEventSourceProvenanceConflicts(in: db)
         }
 
-        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+        let sourceReferenceDatabases = try sourceReferenceDatabasesByBaselineID(
+            sourceReferenceDatabase: sourceReferenceDatabase
+        )
+        let baselineDatabaseFileNamesByID = Dictionary(
+            uniqueKeysWithValues: sourceReferenceDatabases.map { baselineID, database in
+                (
+                    baselineID,
+                    URL(fileURLWithPath: database.path).lastPathComponent
+                )
+            }
+        )
         let prepared = try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
-            baselineDatabaseFileName: URL(fileURLWithPath: baselineDatabase.path).lastPathComponent,
+            baselineDatabaseFileNamesByID: baselineDatabaseFileNamesByID,
             importedAt: Date()
         )
 
-        if !prepared.sourceBaselines.isEmpty {
-            var migrator = DatabaseMigrator()
-            OME.DatabaseMigrations.register(into: &migrator)
-            try migrator.migrate(baselineDatabase.database)
-
-            try baselineDatabase.write { db in
-                try prepared.insert(into: db)
+        if !sourceReferenceDatabases.isEmpty {
+            for sourceReferenceDatabase in sourceReferenceDatabases.values {
+                try sourceReferenceDatabase.write { db in
+                    try prepared.insert(into: db)
+                }
             }
         }
 
         try await database.write { db in
             try prepared.insert(into: db)
         }
+    }
+
+    private func sourceReferenceDatabasesByBaselineID(
+        sourceReferenceDatabase: SourceReferenceDatabaseClient
+    ) throws -> [SourceBaselineRecord.ID: SourceBaselineDatabase] {
+        var databases: [SourceBaselineRecord.ID: SourceBaselineDatabase] = [:]
+        for sourceProvenance in eventSourceProvenances.map(\.source).uniquedSourceProvenances() {
+            let database = try sourceReferenceDatabase.prepareForImport(sourceProvenance)
+            try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(database)
+            databases[SourceBaselineRecord.ID(source: sourceProvenance)] = database
+        }
+        return databases
     }
 
     private func validateEventSourceProvenanceConflicts(in db: Database) throws {
@@ -84,17 +113,30 @@ public extension OME.SourceDatabaseInsertion {
     }
 }
 
-public extension OpenMusicEventSourceValidator {
-    func validateAndInsertIntoDefaultDatabase() async throws -> OpenMusicEventSourceValidationResult {
-        @Dependency(\.defaultDatabase) var database
-        return try await validateAndInsert(into: database)
+private extension OME.SourceDatabaseInsertion.SourceProvenance {
+    var stableStorageKey: String {
+        [
+            kind.rawValue,
+            reference,
+            ref ?? "",
+        ]
+        .joined(separator: "\u{1F}")
     }
+}
 
-    func validateAndInsert(into database: any DatabaseWriter) async throws -> OpenMusicEventSourceValidationResult {
-        let result = try await validate()
-        try await result.insertion.migrateAndInsert(into: database)
+private extension Sequence where Element == OME.SourceDatabaseInsertion.SourceProvenance {
+    func uniquedSourceProvenances() -> [Element] {
+        var seen: Set<String> = []
+        var result: [Element] = []
+        for element in self where seen.insert(element.stableStorageKey).inserted {
+            result.append(element)
+        }
         return result
     }
+}
+
+private enum PreparedSourceDatabaseInsertionError: Error {
+    case missingSourceReferenceDatabase(SourceBaselineRecord.ID)
 }
 
 private struct PreparedSourceDatabaseInsertion {
@@ -116,16 +158,20 @@ private struct PreparedSourceDatabaseInsertion {
 
     init(
         sourceInsertion: OME.SourceDatabaseInsertion,
-        baselineDatabaseFileName: String,
+        baselineDatabaseFileNamesByID: [SourceBaselineRecord.ID: String],
         importedAt: Date
     ) async throws {
         @Dependency(\.localImageFileStore) var localImageFileStore
 
         var sourceBaselinesByID: [SourceBaselineRecord.ID: SourceBaselineRecord] = [:]
-        self.eventSourceProvenances = sourceInsertion.eventSourceProvenances.map { provenance in
+        self.eventSourceProvenances = try sourceInsertion.eventSourceProvenances.map { provenance in
+            let baselineID = SourceBaselineRecord.ID(source: provenance.source)
+            guard let databaseFileName = baselineDatabaseFileNamesByID[baselineID] else {
+                throw PreparedSourceDatabaseInsertionError.missingSourceReferenceDatabase(baselineID)
+            }
             let baseline = SourceBaselineRecord(
                 source: provenance.source,
-                databaseFileName: baselineDatabaseFileName,
+                databaseFileName: databaseFileName,
                 importedAt: importedAt
             )
             sourceBaselinesByID[baseline.id] = baseline
@@ -297,6 +343,19 @@ private struct PreparedSourceDatabaseInsertion {
         if !localImageBlobs.isEmpty {
             try LocalImageBlob.insert { localImageBlobs }.execute(db)
         }
+    }
+}
+
+public extension OpenMusicEventSourceValidator {
+    func validateAndInsertIntoDefaultDatabase() async throws -> OpenMusicEventSourceValidationResult {
+        @Dependency(\.defaultDatabase) var database
+        return try await validateAndInsert(into: database)
+    }
+
+    func validateAndInsert(into database: any DatabaseWriter) async throws -> OpenMusicEventSourceValidationResult {
+        let result = try await validate()
+        try await result.insertion.migrateAndInsert(into: database)
+        return result
     }
 }
 

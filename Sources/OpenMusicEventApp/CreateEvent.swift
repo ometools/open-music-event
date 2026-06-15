@@ -480,14 +480,10 @@ private extension CreateEvent.FormFeature {
 
                     let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmedValue.isEmpty else {
-                        return .invalid(LocalizedStringResource(stringLiteral: "Enter a source slug."))
+                        return .invalid("Enter a source slug.")
                     }
                     guard CreateEvent.isValidSourceEventDirectory(trimmedValue) else {
-                        return .invalid(
-                            LocalizedStringResource(
-                                stringLiteral: "Use a single source slug like 2026-pre-party-kelowna."
-                            )
-                        )
+                        return .invalid("Use a single source slug like 2026-pre-party-kelowna.")
                     }
                     return .valid
                 }

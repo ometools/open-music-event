@@ -849,7 +849,7 @@ private extension EditContributor.FormFeature {
                     guard let message = links.compactMap(\.validationMessage).first else {
                         return .valid
                     }
-                    return .invalid(LocalizedStringResource(stringLiteral: message))
+                    return .invalid(message)
                 }
             }
         }

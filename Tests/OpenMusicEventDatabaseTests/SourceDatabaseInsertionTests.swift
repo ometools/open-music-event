@@ -610,6 +610,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
@@ -649,6 +650,7 @@ struct SourceDatabaseInsertionTests {
 
         let available = try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
                 try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
@@ -689,6 +691,7 @@ struct SourceDatabaseInsertionTests {
 
         let withContributorChange = try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
                 try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
@@ -745,6 +748,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
@@ -752,6 +756,7 @@ struct SourceDatabaseInsertionTests {
         let session = try withDependencies {
             $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
             $0.sourceEditingWorkingDatabasePath = workingDatabasePath
         } operation: {
             try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
@@ -767,6 +772,7 @@ struct SourceDatabaseInsertionTests {
         let summary = try await withDependencies {
             $0.defaultDatabase = session.database
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
             $0.sourceEditingSession = session
         } operation: {
             try await session.database.read { db in
@@ -825,6 +831,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
@@ -832,6 +839,7 @@ struct SourceDatabaseInsertionTests {
         let session = try withDependencies {
             $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
             $0.sourceEditingWorkingDatabasePath = workingDatabasePath
         } operation: {
             try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
@@ -862,6 +870,7 @@ struct SourceDatabaseInsertionTests {
         let summary = try await withDependencies {
             $0.defaultDatabase = session.database
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
             $0.sourceEditingSession = session
         } operation: {
             try await session.database.read { db in
@@ -919,6 +928,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
@@ -926,6 +936,7 @@ struct SourceDatabaseInsertionTests {
         let session = try withDependencies {
             $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
             $0.sourceEditingWorkingDatabasePath = workingDatabasePath
         } operation: {
             try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
@@ -945,6 +956,7 @@ struct SourceDatabaseInsertionTests {
         let changedSummary = try await withDependencies {
             $0.defaultDatabase = session.database
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
             $0.sourceEditingSession = session
         } operation: {
             try await session.database.read { db in
@@ -959,6 +971,7 @@ struct SourceDatabaseInsertionTests {
         let resetSummary = try await withDependencies {
             $0.defaultDatabase = session.database
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
             $0.sourceEditingSession = session
         } operation: {
             try await session.database.read { db in
@@ -1004,27 +1017,20 @@ struct SourceDatabaseInsertionTests {
         )
         let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
         let database = try makeCoreDatabase(path: workingDatabasePath)
-        let appBaselineDatabase = try defaultBaselineDatabase(
-            path: directoryURL.appendingPathComponent("app-baseline.sqlite").path
+        let sourceReferenceDatabaseURL = try SourceReferenceDatabaseClient.referenceDatabaseURL(
+            repositoryURL: repositoryURL
         )
-        let sourceReferenceDatabase = try SourceReferenceDatabaseClient.live
-            .prepareForImport(sourceProvenance)
 
-        try await withDependencies {
-            $0.defaultBaselineDatabase = sourceReferenceDatabase
-        } operation: {
-            try await insertion.insert(into: database)
-        }
+        try await insertion.insert(into: database)
 
         let session = try withDependencies {
             $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = appBaselineDatabase
             $0.sourceEditingWorkingDatabasePath = workingDatabasePath
         } operation: {
             try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
         }
 
-        #expect(session.baselineDatabasePath == sourceReferenceDatabase.path)
+        #expect(session.baselineDatabasePath == sourceReferenceDatabaseURL.path)
         #expect(
             FileManager.default.fileExists(
                 atPath: repositoryURL.appending(path: ".ome/reference.sqlite").path()
@@ -1080,6 +1086,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
             $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
         } operation: {
             try await insertion.insert(into: database)
@@ -1152,6 +1159,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
@@ -1211,6 +1219,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
@@ -1266,6 +1275,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
@@ -1330,6 +1340,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
@@ -1610,6 +1621,7 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await firstInsertion.insert(into: database)
             try await secondInsertion.insert(into: database)
@@ -1654,12 +1666,14 @@ struct SourceDatabaseInsertionTests {
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await insertion.insert(into: database)
         }
 
         let deletion = try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.write { db in
                 try OME.deleteDownloadedOrganizerSourceData(
@@ -2863,6 +2877,7 @@ struct SourceDatabaseInsertionTests {
     ) async throws -> EventEditSummary {
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
                 try EventEditSummaryRequest(eventID: eventID).fetch(db)
@@ -2910,6 +2925,16 @@ private func testLocalImageFileStore(directory: URL) -> LocalImageFileStoreClien
 
 private func testLocalImageFileURL(directory: URL, assetKey: String) -> URL {
     directory.appending(path: assetKey.replacingOccurrences(of: "|", with: "-"))
+}
+
+private extension SourceReferenceDatabaseClient {
+    static func test(database: SourceBaselineDatabase) -> Self {
+        Self(
+            url: { _ in URL(fileURLWithPath: database.path) },
+            prepareForImport: { _ in database },
+            existing: { _ in database }
+        )
+    }
 }
 
 private func id<Record>(_ string: String) -> OME.ID<Record> {

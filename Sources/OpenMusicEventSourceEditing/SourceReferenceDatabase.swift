@@ -20,6 +20,20 @@ public struct SourceReferenceDatabaseClient: Sendable {
     }
 }
 
+public struct SourceReferenceDatabaseMigrator: Sendable {
+    public var migrate: @Sendable (SourceBaselineDatabase) throws -> Void
+
+    public init(
+        migrate: @escaping @Sendable (SourceBaselineDatabase) throws -> Void
+    ) {
+        self.migrate = migrate
+    }
+}
+
+public extension SourceReferenceDatabaseMigrator {
+    static let noop = Self { _ in }
+}
+
 public extension SourceReferenceDatabaseClient {
     static let relativePath = ".ome/reference.sqlite"
     static let gitignoreEntry = ".ome/reference.sqlite"
@@ -34,22 +48,28 @@ public extension SourceReferenceDatabaseClient {
             },
             prepareForImport: { provenance in
                 @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
+                @Dependency(\.sourceReferenceDatabaseMigrator) var migrator
                 let repositoryURL = try sourceRepositoryStorage.repositoryURL(provenance)
                 let referenceDatabaseURL = try referenceDatabaseURL(repositoryURL: repositoryURL)
                 try prepareReferenceDirectory(for: referenceDatabaseURL)
                 try ensureReferenceDatabaseIgnored(in: repositoryURL)
                 try removeSQLiteDatabase(at: referenceDatabaseURL)
-                return try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+                let database = try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+                try migrator.migrate(database)
+                return database
             },
             existing: { provenance in
                 @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
+                @Dependency(\.sourceReferenceDatabaseMigrator) var migrator
                 let referenceDatabaseURL = try referenceDatabaseURL(
                     repositoryURL: sourceRepositoryStorage.repositoryURL(provenance)
                 )
                 guard FileManager.default.fileExists(atPath: referenceDatabaseURL.path) else {
                     return nil
                 }
-                return try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+                let database = try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+                try migrator.migrate(database)
+                return database
             }
         )
     }
@@ -130,6 +150,11 @@ public extension DependencyValues {
         get { self[SourceReferenceDatabaseClientKey.self] }
         set { self[SourceReferenceDatabaseClientKey.self] = newValue }
     }
+
+    var sourceReferenceDatabaseMigrator: SourceReferenceDatabaseMigrator {
+        get { self[SourceReferenceDatabaseMigratorKey.self] }
+        set { self[SourceReferenceDatabaseMigratorKey.self] = newValue }
+    }
 }
 
 private enum SourceReferenceDatabaseClientKey: DependencyKey {
@@ -140,6 +165,11 @@ private enum SourceReferenceDatabaseClientKey: DependencyKey {
     static var testValue: SourceReferenceDatabaseClient {
         .live
     }
+}
+
+private enum SourceReferenceDatabaseMigratorKey: DependencyKey {
+    static let liveValue = SourceReferenceDatabaseMigrator.noop
+    static let testValue = SourceReferenceDatabaseMigrator.noop
 }
 
 private extension Error {

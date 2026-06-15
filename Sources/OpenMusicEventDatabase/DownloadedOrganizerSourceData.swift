@@ -33,24 +33,26 @@ public extension OME {
             return DeletedOrganizerSourceData(sourceProvenances: [])
         }
 
-        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(baselineDatabase.database)
-
-        try baselineDatabase.write { baselineDB in
-            try EventSourceProvenanceRecord
-                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                .delete()
-                .execute(baselineDB)
-            try SourceBaselineRecord
-                .where { $0.id.eq(sourceBaselineID) }
-                .delete()
-                .execute(baselineDB)
-            try deleteOrganizersWithNoRemainingSourceLinks(
-                eventIDs.map(\.organizerID),
-                in: baselineDB
-            )
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+        for sourceProvenance in sourceProvenances {
+            guard let referenceDatabase = try sourceReferenceDatabase.existing(sourceProvenance) else {
+                continue
+            }
+            try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(referenceDatabase)
+            try referenceDatabase.write { baselineDB in
+                try EventSourceProvenanceRecord
+                    .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                    .delete()
+                    .execute(baselineDB)
+                try SourceBaselineRecord
+                    .where { $0.id.eq(sourceBaselineID) }
+                    .delete()
+                    .execute(baselineDB)
+                try deleteOrganizersWithNoRemainingSourceLinks(
+                    eventIDs.map(\.organizerID),
+                    in: baselineDB
+                )
+            }
         }
 
         try SourceBaselineRecord
@@ -84,26 +86,28 @@ public extension OME {
             return DeletedOrganizerSourceData(sourceProvenances: [])
         }
 
-        @Dependency(\.defaultBaselineDatabase) var baselineDatabase
-        var migrator = DatabaseMigrator()
-        OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(baselineDatabase.database)
-
-        try baselineDatabase.write { baselineDB in
-            try EventSourceProvenanceRecord
-                .where { $0.id.organizerID.eq(organizerID) }
-                .delete()
-                .execute(baselineDB)
-            try OME.Organizer
-                .where { $0.id.eq(organizerID) }
-                .delete()
-                .execute(baselineDB)
-
-            for sourceBaselineID in sourceBaselineIDs {
-                try SourceBaselineRecord
-                    .where { $0.id.eq(sourceBaselineID) }
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+        for sourceProvenance in sourceProvenances {
+            guard let referenceDatabase = try sourceReferenceDatabase.existing(sourceProvenance) else {
+                continue
+            }
+            try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(referenceDatabase)
+            try referenceDatabase.write { baselineDB in
+                try EventSourceProvenanceRecord
+                    .where { $0.id.organizerID.eq(organizerID) }
                     .delete()
                     .execute(baselineDB)
+                try OME.Organizer
+                    .where { $0.id.eq(organizerID) }
+                    .delete()
+                    .execute(baselineDB)
+
+                for sourceBaselineID in sourceBaselineIDs {
+                    try SourceBaselineRecord
+                        .where { $0.id.eq(sourceBaselineID) }
+                        .delete()
+                        .execute(baselineDB)
+                }
             }
         }
 

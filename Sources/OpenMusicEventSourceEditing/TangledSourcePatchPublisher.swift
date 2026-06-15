@@ -212,14 +212,6 @@ private extension TangledSourcePatchPublisher {
         let repository = try await sourceControl.open(
             preparedPatch.workingTree.workingRepositoryURL
         )
-        let branch = try await sourceControl.createBranch(
-            CreateBranchRequest(
-                repository: repository,
-                name: branchName,
-                startPoint: "HEAD",
-                checkout: true
-            )
-        )
         try await sourceControl.stage(
             StageRequest(
                 repository: repository,
@@ -239,6 +231,14 @@ private extension TangledSourcePatchPublisher {
                     name: PersonName(rawValue: "Open Music Event"),
                     email: EmailAddress(rawValue: "noreply@openmusicevent.app")
                 )
+            )
+        )
+        let branch = try await sourceControl.createBranch(
+            CreateBranchRequest(
+                repository: repository,
+                name: branchName,
+                startPoint: RefName(rawValue: commit.id.rawValue),
+                checkout: false
             )
         )
         try await sourceControl.push(

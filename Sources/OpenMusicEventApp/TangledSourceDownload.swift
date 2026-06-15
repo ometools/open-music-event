@@ -36,7 +36,6 @@ extension TangledSourceImportClient {
         Self { request in
             @Dependency(\.defaultDatabase) var database
             @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
-            @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
             var request = request
             if request.outputURL == nil,
                let sourceProvenance = try request.tangledSourceProvenance() {
@@ -51,13 +50,7 @@ extension TangledSourceImportClient {
                         temporaryOutputURL,
                         sourceProvenance
                     )
-                    let referenceDatabase = try sourceReferenceDatabase
-                        .prepareForImport(sourceProvenance)
-                    try await withDependencies {
-                        $0.defaultBaselineDatabase = referenceDatabase
-                    } operation: {
-                        try await result.insertion.migrateAndInsert(into: database)
-                    }
+                    try await result.insertion.migrateAndInsert(into: database)
                     return result
                 } catch {
                     try? FileManager.default.removeItem(at: temporaryOutputURL)

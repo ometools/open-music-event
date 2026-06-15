@@ -568,8 +568,6 @@ struct TangledSourceDownloadFeatureTests {
     @Test
     func liveImportReplacesExistingStoredRepositoryAfterSuccessfulImport() async throws {
         let database = try makePreparedDatabase()
-        let baselineDatabase = try defaultBaselineDatabase()
-        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
 
         let targetURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-source-repository-\(UUID().uuidString)")
@@ -596,7 +594,6 @@ struct TangledSourceDownloadFeatureTests {
         let result = try await withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
             $0.uuid = .constant(uuid)
             $0.httpClient = .testClient { _, _, _ in
                 Data("archive".utf8)
@@ -658,12 +655,8 @@ struct TangledSourceDownloadFeatureTests {
         let sourceReferenceBaselineCount = try sourceReferenceDatabase.read { db in
             try SourceBaselineRecord.fetchCount(db)
         }
-        let appBaselineCount = (try? baselineDatabase.read { db in
-            try SourceBaselineRecord.fetchCount(db)
-        }) ?? 0
 
         #expect(sourceReferenceBaselineCount == 1)
-        #expect(appBaselineCount == 0)
     }
 
     @Test

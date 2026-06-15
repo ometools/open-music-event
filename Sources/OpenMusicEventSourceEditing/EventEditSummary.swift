@@ -80,7 +80,14 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
                 scope: .openMusicEvent(eventID: eventID)
             )
         } else {
-            @Dependency(\.defaultBaselineDatabase) var baselineDatabase
+            @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+            guard let baselineDatabase = try sourceReferenceDatabase.existing(provenance.sourceProvenance) else {
+                return EventEditSummary(
+                    eventID: eventID,
+                    availability: .missingBaseline,
+                    groups: []
+                )
+            }
             sourceSummary = try SourceEditingComparer().summary(
                 in: db,
                 baselineDatabase: baselineDatabase,

@@ -19,7 +19,6 @@ public struct OpenMusicEventEditResetter: Sendable {
 public extension SourceEditingSession {
     static func openMusicEvent(eventID: OME.Event.ID) throws -> Self? {
         @Dependency(\.defaultDatabase) var database
-        @Dependency(\.defaultBaselineDatabase) var defaultBaselineDatabase
         @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
         @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
         @Dependency(\.sourceEditingWorkingDatabasePath) var workingDatabasePath
@@ -58,22 +57,15 @@ public extension SourceEditingSession {
         configuration.busyMode = .timeout(5)
         configuration.foreignKeysEnabled = true
 
-        let baselineDatabasePath: String
-        if let sourceLocalDatabase = try sourceReferenceDatabase.existing(sourceContext.provenance.sourceProvenance) {
-            baselineDatabasePath = sourceLocalDatabase.path
-        } else {
-            let fallbackURL = URL(fileURLWithPath: defaultBaselineDatabase.path)
-                .deletingLastPathComponent()
-                .appendingPathComponent(sourceContext.baseline.databaseFileName)
-            guard FileManager.default.fileExists(atPath: fallbackURL.path) else {
-                return nil
-            }
-            baselineDatabasePath = fallbackURL.path
+        guard let sourceLocalDatabase = try sourceReferenceDatabase.existing(
+            sourceContext.provenance.sourceProvenance
+        ) else {
+            return nil
         }
 
         let session = try Self(
             workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: baselineDatabasePath,
+            baselineDatabasePath: sourceLocalDatabase.path,
             configuration: configuration
         )
         try session.database.write { db in

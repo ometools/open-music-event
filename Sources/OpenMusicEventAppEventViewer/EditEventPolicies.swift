@@ -425,7 +425,7 @@ private extension EditEventPolicies.State {
         let message = "Choose at least one profile provider."
         self.errorMessage = message
         self.form.validation[EditEventPoliciesFormFieldID.profileProviders] = .invalid(
-            .init(message: LocalizedStringResource(stringLiteral: message))
+            .init(message:  message)
         )
     }
 }

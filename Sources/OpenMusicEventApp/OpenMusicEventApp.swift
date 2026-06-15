@@ -6,6 +6,7 @@ import SQLiteData
 import ComposableArchitecture2
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
+import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
@@ -25,6 +26,7 @@ extension OME {
         dependencies.tangledSourceCheckout = .git
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
         dependencies.sourcePatchPublisher = .openMusicEventTangled
+        dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
         let baseDatabase = dependencies.defaultDatabase
         dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
             try await withDependencies {
