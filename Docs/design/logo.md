@@ -6,6 +6,26 @@ These samples are close-to-final drafts, not canonical final artwork. Do not tre
 
 Designer reference: [xcrunchy](https://www.xcrunchy.com/)
 
+## Final Mark Snapshot
+
+![OME final mark](assets/ome-logo-final-mark-2026-06.png)
+
+- `assets/ome-logo-final-mark-2026-06.png`
+  - Current final mark snapshot for planning.
+  - Size: 2000 x 2000.
+  - Added from the supplied final mark image on 2026-06-15.
+  - Use as the current visual reference for motion-system planning.
+  - Still need final layered source files before production asset slicing.
+
+Visual features to preserve:
+
+- Center portal/M shape as the primary standalone identity.
+- Left `O` loop and right `E` beam lockup around the portal.
+- Horizontal light beam crossing through the mark.
+- Circular refraction rings around the portal.
+- Spectral blue, violet, rose, and gold gradients over a black field.
+- Wide-spaced `OPEN MUSIC EVENT` wordmark as a supporting lockup, not required for every app surface.
+
 ## Current Samples
 
 ![OME logo sample mark](assets/ome-logo-sample-mark-2026-05.jpg)
@@ -73,9 +93,34 @@ Constraints:
 - Include reduced-motion and reduced-transparency fallbacks.
 - Avoid making the everyday UI feel like a neon theme.
 
+## TouchDesigner Motion Planning
+
+Start with TouchDesigner as a small external motion lab, not the app implementation. The goal is to learn the motion language from the final mark, then translate only the useful pieces into app-native animation later.
+
+Expect a 3D model to be part of this system, likely authored in Blender. Blender should be the source for any dimensional logo geometry, materials, camera moves, and model cleanup; TouchDesigner can then ingest the model or rendered passes for procedural motion, compositing, audio-reactive experiments, and export studies.
+
+Small prototype shape:
+
+- Build the mark as separated layers: portal/M matte, `O` and `E` forms, beam, refraction rings, gradient pass, glow/bloom, and wordmark.
+- Build or request a rough Blender model with separated portal/M geometry, side letterforms, beam volume, refraction rings, and optional wordmark geometry.
+- Make one short loop or state transition first: beam wakes up, portal opens, rings pulse once, spectral color breathes, then the mark resolves to stillness.
+- Keep parameters explicit: beam intensity, ring radius, ring decay, gradient phase, portal aperture, blur, bloom, and final hold time.
+- Treat audio-reactive behavior as optional exploration, not a requirement for the first pass.
+- Export reference clips and still frames for review; keep notes on the model, material, camera, and parameter values that feel reusable.
+- Later app translation can be SwiftUI/Liquid Glass first, with custom rendering only where the system materials cannot carry the effect.
+
+Open questions:
+
+- Is TouchDesigner only a sketching tool, or should it also render event-specific visual assets?
+- Is Blender the canonical 3D asset source, or only a rough model for motion exploration?
+- Who owns the first Blender model: designer-provided layered/source artwork, or an internal rough rebuild for prototyping?
+- Which single app moment should inherit the first motion idea: launch, event open, import/sync, auth handoff, or QR entry?
+- Should the portal react to real audio or schedule state later, or stay purely state-driven?
+
 ## Asset Needs
 
 - Final layered source artwork.
+- Blender model or source geometry for the dimensional mark.
 - Standalone mark.
 - Full wordmark.
 - App icon layers for iOS.
