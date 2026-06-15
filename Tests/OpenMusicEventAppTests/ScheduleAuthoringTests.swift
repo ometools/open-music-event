@@ -388,6 +388,46 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
+    func performanceDetailEditActionPresentsEditor() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let performance = try await seedPerformance(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventTimeZone = timeZone
+            $0.exhaustivity = .off
+        } operation: {
+            TestStore(
+                initialState: PerformanceDetail.State(
+                    performanceID: performance.id.performanceID,
+                    eventID: fixture.eventID
+                )
+            ) {
+                PerformanceDetail()
+            }
+        }
+
+        store.send(.editButtonTapped)
+
+        let editPerformance = try #require(store.state.destination?.editPerformance)
+        #expect(editPerformance.performanceID == performance.id.performanceID)
+        #expect(editPerformance.title == "Opening Set")
+        #expect(editPerformance.description == "Original description.")
+        #expect(editPerformance.startTimeSelection == performance.startTime)
+        #expect(editPerformance.endTimeSelection == performance.endTime)
+        #expect(editPerformance.selectedStageID == fixture.stage.id.stageID)
+    }
+
+    @Test
     func scheduleViewerDeletesPerformanceAfterConfirmation() async throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))

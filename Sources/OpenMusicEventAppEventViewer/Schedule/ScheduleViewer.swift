@@ -739,12 +739,16 @@ public struct PerformanceDetail {
     public struct State: Identifiable {
         public init(
             performanceID: OMERecord.ID<OMERecord.Performance>,
-            eventID: OMERecord.Event.ID? = nil
+            eventID: OMERecord.Event.ID? = nil,
+            destination: Destination.State? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
+            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.eventID = eventID ?? defaultEventID
             self.performanceID = performanceID
+            self.destination = destination
+            self.timeZone = defaultEventTimeZone
             _contributors = FetchAll(
                 PerformanceDetail.contributorsQuery(
                     performanceID: performanceID,
@@ -758,6 +762,9 @@ public struct PerformanceDetail {
                     eventID: self.eventID
                 )
             )
+            _schedules = FetchAll(
+                ScheduleViewer.schedulesQuery(eventID: self.eventID)
+            )
             _stages = FetchAll(
                 ScheduleViewer.stagesQuery(eventID: self.eventID)
             )
@@ -765,12 +772,25 @@ public struct PerformanceDetail {
 
         public let eventID: OMERecord.Event.ID
         public let performanceID: OMERecord.ID<OMERecord.Performance>
+        public var destination: Destination.State?
+        @DebugSnapshotIgnored
+        public let timeZone: TimeZone
 
         @FetchAll var contributors: [ContributorProfile]
         @FetchOne public var performance: OMERecord.Performance?
+        @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
 
         public var id: OMERecord.ID<OMERecord.Performance> { performanceID }
+
+        public var canEditPerformance: Bool {
+            performance != nil && schedule != nil
+        }
+
+        public var schedule: OMERecord.Schedule? {
+            guard let scheduleID = performance?.scheduleID else { return nil }
+            return schedules.first { $0.id.scheduleID == scheduleID }
+        }
 
         public var stage: OMERecord.Stage? {
             guard let performance else { return nil }
@@ -782,7 +802,15 @@ public struct PerformanceDetail {
         }
     }
 
-    public enum Action {}
+    public enum Action {
+        case destination(Destination.Action)
+        case editButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case editPerformance(Spawn<EditPerformance>)
+    }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
 
@@ -809,25 +837,52 @@ public struct PerformanceDetail {
     }
 
     public var body: some Feature {
-        Update { _, _ in }
-            .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
-                guard !requests.isEmpty else { return }
+        Update { state, action in
+            switch action {
+            case .destination:
+                break
 
-                store.addTask {
-                    for request in requests {
-                        do {
-                            _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
-                                request.actor.description,
-                                24 * 60 * 60,
-                                15 * 60
+            case .editButtonTapped:
+                guard let performance = state.performance,
+                      let schedule = state.schedule
+                else { return }
+
+                store.withDependencies {
+                    state.destination = .editPerformance(
+                        Spawn(
+                            EditPerformance.State(
+                                eventID: state.eventID,
+                                schedule: schedule,
+                                stages: state.stages,
+                                timeZone: state.timeZone,
+                                performance: performance
                             )
-                        } catch is CancellationError {
-                            return
-                        } catch {
-                        }
+                        )
+                    )
+                }
+            }
+        }
+        .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
+            guard !requests.isEmpty else { return }
+
+            store.addTask {
+                for request in requests {
+                    do {
+                        _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                            request.actor.description,
+                            24 * 60 * 60,
+                            15 * 60
+                        )
+                    } catch is CancellationError {
+                        return
+                    } catch {
                     }
                 }
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
     }
 }
 
@@ -870,6 +925,16 @@ public struct PerformanceDetailView: View {
                     }
                 }
                 .navigationTitle(performance.title)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            store.send(.editButtonTapped)
+                        } label: {
+                            Label("Edit Performance", systemImage: "pencil")
+                        }
+                        .disabled(!store.canEditPerformance)
+                    }
+                }
             } else {
                 ContentUnavailableView(
                     "Performance",
@@ -877,6 +942,11 @@ public struct PerformanceDetailView: View {
                     description: Text(verbatim: store.performanceID.rawValue.rawValue)
                 )
                 .navigationTitle("Performance")
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).editPerformance) { editStore in
+            NavigationStack {
+                EditPerformanceView(store: editStore)
             }
         }
     }
