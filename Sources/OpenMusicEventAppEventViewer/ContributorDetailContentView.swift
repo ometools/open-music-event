@@ -1,6 +1,7 @@
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+import ScheduleComponents
 import SwiftUI
 
 struct ContributorDetailContentView: View {
@@ -80,6 +81,7 @@ struct ContributorDetailSectionsView: View {
 }
 
 struct ContributorScheduleSection: View {
+    @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     let performanceRows: [PerformanceRow]
     let timeZone: TimeZone
 
@@ -91,7 +93,8 @@ struct ContributorScheduleSection: View {
                         row: row,
                         subtitle: ScheduleViewer.performanceRowSubtitle(
                             for: row.performance,
-                            timeZone: timeZone
+                            timeZone: timeZone,
+                            policy: dateTimeRangeResolutionPolicy
                         )
                     )
                 }

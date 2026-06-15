@@ -303,9 +303,10 @@ public struct ScheduleViewer {
 
     static func performanceRowSubtitle(
         for performance: OMERecord.Performance,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        policy: DateTimeRangeResolutionPolicy = .default
     ) -> String {
-        "\(performanceRowTimeRange(for: performance, timeZone: timeZone)) \(daySegment(for: performance.startTime, timeZone: timeZone))"
+        "\(performanceRowTimeRange(for: performance, timeZone: timeZone)) \(daySegment(for: performance.startTime, timeZone: timeZone, policy: policy))"
     }
 
     private static func performanceRowTimeRange(
@@ -321,7 +322,8 @@ public struct ScheduleViewer {
 
     private static func daySegment(
         for date: Date,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        policy: DateTimeRangeResolutionPolicy
     ) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -330,7 +332,7 @@ public struct ScheduleViewer {
         let hour = calendar.component(.hour, from: date)
         let segment: String
 
-        if hour < 6 {
+        if hour < policy.rolloverHour {
             segment = "Night"
             displayDate = calendar.date(byAdding: .day, value: -1, to: date) ?? date
         } else if hour < 12 {
@@ -695,6 +697,7 @@ struct ScheduleModeMenu: View {
 }
 
 struct SchedulePerformanceListView: View {
+    @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     @Bindable var store: StoreOf<ScheduleViewer>
     let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
 
@@ -715,7 +718,8 @@ struct SchedulePerformanceListView: View {
                         row: row,
                         subtitle: ScheduleViewer.performanceRowSubtitle(
                             for: row.performance,
-                            timeZone: store.timeZone
+                            timeZone: store.timeZone,
+                            policy: dateTimeRangeResolutionPolicy
                         )
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)

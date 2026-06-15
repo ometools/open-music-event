@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import ScheduleComponents
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -29,14 +30,21 @@ public struct EditPerformance {
             stages: [OMERecord.Stage],
             timeZone: TimeZone
         ) {
-            self.endTimeSelection = schedule.date.at(hour: 13, in: timeZone)
+            let startTime = schedule.date.at(hour: 12, in: timeZone)
+                ?? schedule.date.atStartOfDay(in: timeZone)
+            let endTime = schedule.date.at(hour: 13, in: timeZone)
                 ?? schedule.date.atStartOfDay(in: timeZone)
             self.eventID = eventID
             self.schedule = schedule
             self.selectedStageID = stages.first?.id.stageID
             self.stageOptions = stages.map(StageOption.init)
-            self.startTimeSelection = schedule.date.at(hour: 12, in: timeZone)
-                ?? schedule.date.atStartOfDay(in: timeZone)
+            self.timeRangeSelection = DateTimeRangeSelection(
+                start: startTime,
+                end: endTime,
+                timeZone: timeZone,
+                anchorDate: schedule.date.atStartOfDay(in: timeZone),
+                preferredWindow: Self.preferredWindow(for: schedule)
+            )
             self.timeZone = timeZone
         }
 
@@ -54,10 +62,10 @@ public struct EditPerformance {
                 timeZone: timeZone
             )
             self.description = performance.description ?? ""
-            self.endTimeSelection = performance.endTime
             self.performanceID = performance.id.performanceID
             self.selectedStageID = performance.stageID
-            self.startTimeSelection = performance.startTime
+            self.timeRangeSelection.end = performance.endTime
+            self.timeRangeSelection.start = performance.startTime
             self.title = performance.title
         }
 
@@ -70,12 +78,11 @@ public struct EditPerformance {
         public var anonymousContributorName = ""
         public var contributorIDString = ""
         public var description = ""
-        public var endTimeSelection: Date
         public var errorMessage: String?
         public var isSaving = false
         public var performanceID: OMERecord.ID<OMERecord.Performance>?
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
-        public var startTimeSelection: Date
+        public var timeRangeSelection: DateTimeRangeSelection
         public var title = ""
 
         public var id: String {
@@ -102,6 +109,16 @@ public struct EditPerformance {
 
         public var submitButtonTitle: String {
             isCreating ? "Create" : "Save"
+        }
+
+        public var endTimeSelection: Date {
+            get { timeRangeSelection.end }
+            set { timeRangeSelection.end = newValue }
+        }
+
+        public var startTimeSelection: Date {
+            get { timeRangeSelection.start }
+            set { timeRangeSelection.start = newValue }
         }
 
         public var trimmedAnonymousContributorName: String {
@@ -144,6 +161,14 @@ public struct EditPerformance {
                 && value != ".."
                 && !value.contains("/")
                 && !value.contains("\\")
+        }
+
+        private static func preferredWindow(for schedule: OMERecord.Schedule) -> DateInterval? {
+            guard let startsAt = schedule.startsAt,
+                  let endsAt = schedule.endsAt,
+                  endsAt > startsAt
+            else { return nil }
+            return DateInterval(start: startsAt, end: endsAt)
         }
     }
 
@@ -443,19 +468,7 @@ public struct EditPerformanceView: View {
 
     private var timeSection: some View {
         Section("Time") {
-            DatePicker(
-                "Starts",
-                selection: $store.startTimeSelection,
-                displayedComponents: .hourAndMinute
-            )
-            .environment(\.timeZone, store.timeZone)
-
-            DatePicker(
-                "Ends",
-                selection: $store.endTimeSelection,
-                displayedComponents: .hourAndMinute
-            )
-            .environment(\.timeZone, store.timeZone)
+            DateTimeRangePicker(selection: $store.timeRangeSelection)
         }
     }
 

@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import Foundation
+import ScheduleComponents
 import SQLiteData
 import Testing
 
@@ -225,6 +226,44 @@ struct ScheduleAuthoringTests {
             try OMERecord.Performance.fetchCount(db)
         }
         #expect(performanceCount == 0)
+    }
+
+    @Test
+    func createsOvernightPerformanceRow() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let scheduleDate = fixture.schedule.date
+        let startTime = try #require(scheduleDate.at(hour: 23, minute: 30, in: timeZone))
+        let endClockTime = try #require(scheduleDate.at(hour: 1, minute: 15, in: timeZone))
+        let expectedEndTime = try localDate(
+            scheduleDate,
+            atHour: 1,
+            minute: 15,
+            dayOffset: 1,
+            in: timeZone
+        )
+        let store = makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        ) {
+            $0.title = "Late Night Set"
+            $0.startTimeSelection = startTime
+            $0.timeRangeSelection.endClockTimeSelection = endClockTime
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let performance = try await database.read { db in
+            try #require(OMERecord.Performance.fetchAll(db).first)
+        }
+        #expect(performance.startTime == startTime)
+        #expect(performance.endTime == expectedEndTime)
+        #expect(performance.title == "Late Night Set")
     }
 
     @Test
@@ -656,4 +695,18 @@ private func stageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
 
 private func contributorLocalID(_ string: String) -> OMERecord.ID<OMERecord.Contributor> {
     OMERecord.ID<OMERecord.Contributor>(.init(string))
+}
+
+private func localDate(
+    _ date: LocalDate,
+    atHour hour: Int,
+    minute: Int = 0,
+    dayOffset: Int = 0,
+    in timeZone: TimeZone
+) throws -> Date {
+    let resolvedDate = try #require(date.at(hour: hour, minute: minute, in: timeZone))
+    guard dayOffset != 0 else { return resolvedDate }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    return try #require(calendar.date(byAdding: .day, value: dayOffset, to: resolvedDate))
 }

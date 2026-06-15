@@ -16,11 +16,20 @@ private enum ScheduleTimeRangeKey: EnvironmentKey {
     static let defaultValue: DateInterval? = nil
 }
 
+private enum DateTimeRangeResolutionPolicyKey: EnvironmentKey {
+    static let defaultValue = DateTimeRangeResolutionPolicy.default
+}
+
 private enum ShowTimeIndicatorEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
 }
 
 public extension EnvironmentValues {
+    var dateTimeRangeResolutionPolicy: DateTimeRangeResolutionPolicy {
+        get { self[DateTimeRangeResolutionPolicyKey.self] }
+        set { self[DateTimeRangeResolutionPolicyKey.self] = newValue }
+    }
+
     var scheduleHeight: CGFloat {
         get { self[ScheduleHeightEnvironmentKey.self] }
         set { self[ScheduleHeightEnvironmentKey.self] = newValue }
