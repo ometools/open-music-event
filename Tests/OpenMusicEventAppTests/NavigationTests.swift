@@ -738,6 +738,54 @@ struct NavigationTests {
     }
 
     @Test
+    func eventViewerRefreshesSourceDataFromSourceTabRefresh() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("viewer-source-refresh-event")
+        let sourceProvenance = sourceProvenance("viewer-source-refresh-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let recorder = SourceRefreshRecorder()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Viewer Source Refresh Event")
+            try Self.insertEventOrganizer(db, eventID: eventID, organizerID: testOrganizerID)
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 0)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.exhaustivity = .off
+            $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+            }
+        } operation: {
+            var initialState = EventViewerHarness.State(eventID: eventID)
+            initialState.eventViewer.selectedFeature = .edit
+            return TestStore(initialState: initialState) {
+                EventViewerHarness()
+            }
+        }
+
+        await store.send(
+            to: \EventViewerHarness.State.editEvent,
+            EditEvent.Action.refreshSourceButtonTapped
+        )?.value
+        let sourceBaselineIDs = await recorder.sourceBaselineIDs
+        expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
+        expectNoDifference(store.state.eventViewer.selectedFeature, .edit)
+    }
+
+    @Test
     func eventViewerIgnoresSourceRefreshForDifferentEvent() async throws {
         let database = try makePreparedDatabase()
         let viewerEventID = eventID("viewer-refresh-event")
@@ -3794,6 +3842,11 @@ private struct EventViewerHarness {
         var eventInfoViewer: Spawn<EventInfoViewer> {
             get { eventViewer.eventInfoViewer! }
             set { eventViewer.eventInfoViewer = newValue }
+        }
+
+        var editEvent: Spawn<EditEvent> {
+            get { eventViewer.editEvent! }
+            set { eventViewer.editEvent = newValue }
         }
     }
 

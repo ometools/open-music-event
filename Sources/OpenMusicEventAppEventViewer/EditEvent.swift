@@ -71,6 +71,9 @@ public struct EditEvent {
                 ),
                 EventEditSummaryRequest(eventID: eventID)
             )
+            self._sourceProvenance = FetchOne(
+                EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
+            )
         }
 
         public let eventID: OMERecord.Event.ID
@@ -83,6 +86,7 @@ public struct EditEvent {
         public var sourceProposalStatus: SourceProposalStatus = .idle
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
+        @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
 
         public var changeCount: Int? {
             editSummary.badgeCount
@@ -92,6 +96,7 @@ public struct EditEvent {
     public enum Action {
         case generateSourcePatchButtonTapped
         case proposeChangeButtonTapped
+        case refreshSourceButtonTapped
         case resetEditsButtonTapped
         case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
@@ -130,6 +135,18 @@ public struct EditEvent {
             switch action {
             case .generateSourcePatchButtonTapped:
                 generateSourcePatch(eventID: state.eventID, state: &state)
+
+            case .refreshSourceButtonTapped:
+                guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
+                    return
+                }
+                let request = SourceDataRefreshRequest(
+                    eventID: state.eventID,
+                    sourceBaselineID: sourceBaselineID
+                )
+                store.addTask {
+                    try store.post(key: SourceDataRefreshRequested.self, value: request)
+                }
 
             case .resetEditsButtonTapped:
                 guard !state.isResettingEdits else { return }
@@ -322,6 +339,8 @@ public struct EditEventView: View {
         switch store.editSummary.availability {
         case .available:
             List {
+                sourceSection
+
                 Section {
                     HStack {
                         Label("Proposal", systemImage: "doc.text")
@@ -390,6 +409,22 @@ public struct EditEventView: View {
     }
 
     @ViewBuilder
+    private var sourceSection: some View {
+        if let sourceProvenance = store.sourceProvenance {
+            Section("Source") {
+                SourceIndicatorView(sourceProvenance: sourceProvenance)
+
+                Button {
+                    store.send(.refreshSourceButtonTapped)
+                } label: {
+                    Label("Refresh Source", systemImage: "arrow.clockwise")
+                }
+                .disabled(sourceProvenance.sourceBaselineID == nil)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var resetEditsSection: some View {
         if store.canResetEdits || store.isResettingEdits || store.resetEditsFailure != nil {
             Section {
@@ -418,6 +453,31 @@ public struct EditEventView: View {
                 }
             }
         }
+    }
+}
+
+struct SourceIndicatorView: View {
+    let sourceProvenance: EventSourceProvenanceRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(sourceProvenance.sourceKind.sourceIndicatorTitle, systemImage: "folder")
+
+            Text(sourceProvenance.sourceReference)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sourceProvenance.sourceRefTitle)
+                Text("events/\(sourceProvenance.sourceEventDirectory)")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -638,6 +698,23 @@ private extension SourcePatchInvalidation.Operation {
         case .update:
             "Updated"
         }
+    }
+}
+
+private extension OMERecord.SourceDatabaseInsertion.SourceKind {
+    var sourceIndicatorTitle: String {
+        switch self {
+        case .local:
+            "Local Source"
+        case .tangled:
+            "Tangled Source"
+        }
+    }
+}
+
+private extension EventSourceProvenanceRecord {
+    var sourceRefTitle: String {
+        ref ?? "default ref"
     }
 }
 
