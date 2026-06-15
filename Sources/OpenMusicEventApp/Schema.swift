@@ -62,6 +62,9 @@ extension DependencyValues {
 
         try migrator.migrate(database)
         try database.write { db in
+            try EventSearchTextTriggers.install(in: db)
+            try EventSearchSources.installTriggers(in: db)
+            try EventSearchSources.rebuild(in: db)
             try sourcePatchInvalidations.installTriggers(db)
         }
         defaultDatabase = database
