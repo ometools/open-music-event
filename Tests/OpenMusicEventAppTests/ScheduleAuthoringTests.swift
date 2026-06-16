@@ -404,7 +404,6 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventTimeZone = timeZone
-            $0.exhaustivity = .off
         } operation: {
             TestStore(
                 initialState: PerformanceDetail.State(
@@ -545,7 +544,6 @@ struct ScheduleAuthoringTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventTimeZone = timeZone
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()

@@ -1,6 +1,7 @@
 import BlueskyActorCache
-import ComposableArchitecture2
 import ATProto
+import Clocks
+import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import DebugSnapshots
@@ -363,7 +364,6 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: MyEventsEventHarness.State()) {
                 MyEventsEventHarness()
@@ -651,7 +651,6 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: EventInfoRefreshHarness.State(eventID: eventID)) {
                 EventInfoRefreshHarness()
@@ -679,7 +678,6 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: EventInfoRefreshHarness.State(eventID: eventID)) {
                 EventInfoRefreshHarness()
@@ -717,7 +715,6 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.exhaustivity = .off
             $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
                 await recorder.record(sourceBaselineID)
             }
@@ -764,7 +761,6 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.exhaustivity = .off
             $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
                 await recorder.record(sourceBaselineID)
             }
@@ -814,7 +810,6 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = viewerEventID
-            $0.exhaustivity = .off
             $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
                 await recorder.record(sourceBaselineID)
             }
@@ -978,7 +973,6 @@ struct NavigationTests {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: CalendarDetail.State(calendarID: calendarID)) {
                 CalendarDetail()
@@ -1019,7 +1013,6 @@ struct NavigationTests {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             var state = EditCalendar.State(calendarID: calendarID)
             state.hasLoadedDraft = true
@@ -1083,7 +1076,6 @@ struct NavigationTests {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: EditCalendar.State(calendarID: calendarID)) {
                 EditCalendar()
@@ -1113,7 +1105,6 @@ struct NavigationTests {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             var state = EditCalendar.State(calendarID: calendarID)
             state.hasLoadedDraft = true
@@ -2135,7 +2126,6 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
@@ -2171,7 +2161,6 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.defaultEventTimeZone = timeZone
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
@@ -2518,7 +2507,6 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
@@ -2611,7 +2599,6 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
             state.hasLoadedDraft = true
@@ -2664,7 +2651,6 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
             state.hasLoadedDraft = true
@@ -3087,7 +3073,6 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             var state = EditContributor.State(eventID: eventID)
             state.form.value.name = " New Contributor "
@@ -3136,7 +3121,6 @@ struct NavigationTests {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: StageDetail.State(stageID: stageID, eventID: eventID)) {
                 StageDetail()
@@ -3182,7 +3166,6 @@ struct NavigationTests {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             var state = EditStage.State(stageID: stageID, eventID: eventID)
             state.hasLoadedDraft = true
@@ -3245,7 +3228,6 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: StagesViewer.State(eventID: eventID)) {
                 StagesViewer()
@@ -3272,7 +3254,6 @@ struct NavigationTests {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             var state = EditStage.State(eventID: eventID)
             state.draft.name = " New Meadow "
@@ -3331,7 +3312,6 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: StagesViewer.State(eventID: eventID)) {
                 StagesViewer()
@@ -3401,7 +3381,6 @@ struct NavigationTests {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
                 SourceDetail()

@@ -1,3 +1,4 @@
+import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -8,6 +9,7 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+import SourceEditing
 import SQLiteData
 import SwiftUI
 
@@ -254,6 +256,62 @@ public enum WhiteLabelDatabaseMigrations {
                 """)
                 .execute(db)
         }
+    }
+}
+
+public enum WhiteLabelDependencies {
+    public static func prepare(_ dependencies: inout DependencyValues) throws {
+        try dependencies.bootstrapWhiteLabelDatabase()
+        dependencies.tangledSourceCheckout = .archive
+        dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
+        dependencies.sourcePatchPublisher = .preparedWorkingTree
+        dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
+    }
+}
+
+private extension DependencyValues {
+    mutating func bootstrapWhiteLabelDatabase() throws {
+        @Dependency(\.context) var context
+        @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
+
+        var configuration = Configuration()
+        configuration.busyMode = .timeout(5)
+        configuration.foreignKeysEnabled = true
+
+        let path: String?
+        if context == .live {
+            let applicationSupportURL = try FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            try FileManager.default.createDirectory(
+                at: applicationSupportURL,
+                withIntermediateDirectories: true
+            )
+            let databaseURL = applicationSupportURL.appendingPathComponent("open-music-event.sqlite")
+            path = databaseURL.path
+        } else {
+            path = nil
+        }
+
+        let database = try SQLiteData.defaultDatabase(path: path, configuration: configuration)
+        sourceEditingWorkingDatabasePath = path
+
+        var migrator = DatabaseMigrator()
+        #if DEBUG
+        migrator.eraseDatabaseOnSchemaChange = true
+        #endif
+        OMERecord.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        WhiteLabelDatabaseMigrations.register(into: &migrator)
+
+        try migrator.migrate(database)
+        try database.write { db in
+            try sourcePatchInvalidations.installTriggers(db)
+        }
+        defaultDatabase = database
     }
 }
 

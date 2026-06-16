@@ -1,5 +1,6 @@
 import ATProto
 import ATProtoOAuth
+import Clocks
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
@@ -30,7 +31,6 @@ struct TangledSourceDownloadFeatureTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: MyEvents.State()) {
                 MyEvents()
@@ -160,7 +160,6 @@ struct TangledSourceDownloadFeatureTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
             $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
                 store: { repositoryURL, _ in repositoryURL },
                 remove: { sourceRepositoryRemovals.record($0) }
@@ -247,7 +246,6 @@ struct TangledSourceDownloadFeatureTests {
 
         let store = withDependencies {
             $0.context = .test
-            $0.exhaustivity = .off
             $0.tangledSourceImport = TangledSourceImportClient { request in
                 await recorder.record(request)
                 return result
@@ -348,7 +346,6 @@ struct TangledSourceDownloadFeatureTests {
 
         let store = withDependencies {
             $0.context = .test
-            $0.exhaustivity = .off
             $0.tangledSourceImport = TangledSourceImportClient { _ in
                 @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 try await authorizationBroker.authorize(requirement)
@@ -397,7 +394,6 @@ struct TangledSourceDownloadFeatureTests {
         let store = withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 1_700_000_000))
-            $0.exhaustivity = .off
             $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
             $0.p256Sign = { _, _ in Data(repeating: 0xAB, count: 64) }
             $0.uuid = .constant(UUID(uuidString: "12345678-1234-1234-1234-123456789abc")!)
@@ -452,7 +448,6 @@ struct TangledSourceDownloadFeatureTests {
 
         let store = withDependencies {
             $0.context = .test
-            $0.exhaustivity = .off
             $0.tangledSourceImport = TangledSourceImportClient { request in
                 await recorder.record(request)
                 return try validationResult()
@@ -477,7 +472,6 @@ struct TangledSourceDownloadFeatureTests {
         let store = withDependencies {
             $0.context = .test
             $0.continuousClock = clock
-            $0.exhaustivity = .off
             $0.tangledSourceImport = TangledSourceImportClient { _ in
                 throw ImportFailure()
             }
@@ -816,7 +810,6 @@ struct TangledSourceDownloadFeatureTests {
     ) async -> HandledError? {
         let store = withDependencies {
             $0.context = .test
-            $0.exhaustivity = .off
             $0.tangledSourceImport = TangledSourceImportClient { _ in
                 throw SourceImportFailure(description: failureDescription)
             }

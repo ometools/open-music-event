@@ -19,7 +19,7 @@ created: "2026-06-10"
 ## Summary
 
 ```gpt-5
-Build the install-light attendee entry point for QR scans: an iOS App Clip and an Android Instant App or equivalent Android fallback that opens the event quickly without making people start with the full app install.
+Build the install-light attendee entry points for QR scans: `OpenMusicEventAppClip`, `OpenMusicEventWhiteLabelAppClip`, and an Android Instant App or equivalent Android fallback that opens the event quickly without making people start with the full app install.
 ```
 
 ## Why
@@ -28,6 +28,8 @@ Build the install-light attendee entry point for QR scans: an iOS App Clip and a
 QR onboarding only works if the first scan feels immediate. People standing at a gate, stage, poster, or merch table should get the event schedule, map, and basic context without needing to understand Open Music Event, ATProto, source repositories, account providers, or app-store installation first.
 
 The full app can remain the durable experience for saved plans, richer media, authenticated contribution, and offline use. The lightweight entry point should be optimized for a first anonymous attendee scan on a busy cellular network.
+
+The App Clip is also a packaging budget, not just a smaller launch screen. CI needs to validate size and linked dependencies early because it will be easy for the full editor, authentication, source-control, image-import, or publishing stack to creep back in through shared viewer code.
 ```
 
 ## Rough Shape
@@ -48,12 +50,28 @@ The full app can remain the durable experience for saved plans, richer media, au
   - contributor claiming
   - organizer settings
   - broad media import
+- Target split:
+  - `OpenMusicEventAppClip` is the generic Open Music Event App Clip.
+  - `OpenMusicEventWhiteLabelAppClip` is the shared white-label App Clip entry point.
+  - `OpenMusicEventWhiteLabelApp` is the full white-label app entry point name; keep `OpenMusicEventWhiteLabel` as the reusable library/module name.
+  - App Clip roots depend on a small read-only event entry surface, not on the full `OpenMusicEventApp` root.
+- Compile-time event-viewer gating:
+  - extract an attendee-safe read-only viewer/core boundary before creating real App Clip targets
+  - keep schedule, stages, contributors, communications, contact info, location, site map, posters, search, and about available only when their dependencies stay light
+  - keep `edit`, `settings`, source proposal, source refresh, authentication, source-control, broad image import, and publishing flows out of the App Clip target graph
+  - split or parameterize surfaces that currently spawn edit destinations from viewer screens, including schedule, location, contact info, posters, and performance detail
+  - make `/edit` and `/settings` links reject or degrade to an install/open-full-app handoff in App Clip builds
 - iOS App Clip work:
-  - create an App Clip target under `Darwin`
+  - create App Clip targets under `Darwin` for `OpenMusicEventAppClip` and `OpenMusicEventWhiteLabelAppClip`
   - configure Associated Domains and invocation URLs
-  - decide whether the App Clip shares Swift package modules with the full app or uses a trimmed read-only shell
+  - decide whether the App Clip shares a trimmed Swift package module with the full app or uses a dedicated read-only shell target
   - keep binary size, launch time, images, and dependencies within App Clip constraints
   - configure App Store Connect App Clip experiences for QR / NFC / Safari invocation
+- CI packaging gates:
+  - archive/export Release App Clip builds for `OpenMusicEventAppClip` and `OpenMusicEventWhiteLabelAppClip`
+  - measure compressed and uncompressed App Clip size, publish the size report as a CI artifact, and fail when either target crosses the configured budget
+  - add a banned-dependency check so App Clip targets cannot link/import the editor, auth, source-control, source-publishing, or broad image-import stacks
+  - track size deltas per change so regressions are visible before App Store review
 - Android Instant App work:
   - investigate whether the current Skip Android app can support Play Instant directly
   - if Skip cannot produce the right module shape, decide between a small native Android/Compose instant module, a web fallback, or deferring Android Instant until packaging catches up
@@ -77,15 +95,28 @@ The full app can remain the durable experience for saved plans, richer media, au
   - expired event
   - wrong event QR
   - event app vs generic OME app
-- Code pointers: `Darwin`, `Darwin/OpenMusicEvent.xcodeproj`, `Android/app/build.gradle.kts`, `Sources/OpenMusicEventApp/OpenMusicEventAppRoot.swift`, `Sources/OpenMusicEventAppEventViewer`, `Sources/OpenMusicEventDatabase`.
+- Code pointers: `Darwin`, `Darwin/OpenMusicEvent.xcodeproj`, `Android/app/build.gradle.kts`, `Sources/OpenMusicEventApp/OpenMusicEventAppRoot.swift`, `Sources/OpenMusicEventApp/OpenMusicEventRoute.swift`, `Sources/OpenMusicEventAppEventViewer/EventViewer.swift`, `Sources/OpenMusicEventAppEventViewer/EventNavigation.swift`, `Sources/OpenMusicEventDatabase`, and the future read-only event viewer/App Clip entry modules.
+```
+
+## Acceptance Criteria
+
+```gpt-5
+- `OpenMusicEventAppClip` and `OpenMusicEventWhiteLabelAppClip` are explicit iOS App Clip targets/schemes.
+- The App Clip roots can open an attendee-safe event route without compiling the full app root, authentication coordinator, editing flows, source publishing, source-control checkout/import, or broad image import.
+- App Clip builds reject or hand off unsupported `/edit` and `/settings` routes instead of silently presenting missing screens.
+- CI archives both App Clip targets in Release, reports compressed and uncompressed size, and fails when the configured size budget is exceeded.
+- CI fails if banned full-app dependencies appear in the App Clip target graph.
+- The white-label App Clip can use a branded configuration without forking the attendee-safe viewer core.
 ```
 
 ## Open Questions
 
 ```gpt-5
-- Is the first App Clip tied to the generic Open Music Event app, a white-label event app, or both?
+- Do `OpenMusicEventAppClip` and `OpenMusicEventWhiteLabelAppClip` ship together, or does one prove the target graph first?
+- Is `OpenMusicEventWhiteLabelAppClip` one reusable configurable target, or does each organizer eventually get a generated concrete App Clip wrapper?
 - Can the current Skip Android packaging support Play Instant, or does Android need a separate lightweight implementation path?
-- Which shared SwiftUI modules are safe to include in an App Clip without pulling in too much editing, authentication, image, or source-control weight?
+- Which shared SwiftUI modules are safe to include in an App Clip after the read-only viewer/core split?
+- What initial CI size budget should fail the App Clip build, and should it leave margin below the platform limit?
 - What is the minimum offline behavior expected after a QR scan succeeds once?
 - Should the lightweight experience offer notification opt-in, saved schedule, or favorites, or should those require the full app?
 ```
@@ -93,5 +124,5 @@ The full app can remain the durable experience for saved plans, richer media, au
 ## Next Step
 
 ```gpt-5
-Run a packaging feasibility spike: create the smallest possible iOS App Clip shell that can parse an event route, and separately verify whether Android can support an Instant App from the current Skip/Gradle shape.
+Run a packaging feasibility spike: sketch the read-only event viewer/App Clip target graph, add a first CI size/dependency report for the empty App Clip shells, then create the smallest possible iOS App Clip shell that can parse an event route. Separately verify whether Android can support an Instant App from the current Skip/Gradle shape.
 ```

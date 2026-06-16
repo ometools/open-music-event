@@ -1,3 +1,4 @@
+import Clocks
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
@@ -16,12 +17,8 @@ import Testing
 struct SettingsFeatureTests {
     @Test
     func testErrorButtonReportsGlobalError() async {
-        let store = withDependencies {
-            $0.exhaustivity = .off
-        } operation: {
-            TestStore(initialState: SettingsErrorHost.State()) {
-                SettingsErrorHost()
-            }
+        let store = TestStore(initialState: SettingsErrorHost.State()) {
+            SettingsErrorHost()
         }
 
         await withIssueReporters([]) {
@@ -37,12 +34,8 @@ struct SettingsFeatureTests {
 
     @Test
     func eventSettingsTestErrorButtonReportsGlobalError() async {
-        let store = withDependencies {
-            $0.exhaustivity = .off
-        } operation: {
-            TestStore(initialState: EventSettingsErrorHost.State()) {
-                EventSettingsErrorHost()
-            }
+        let store = TestStore(initialState: EventSettingsErrorHost.State()) {
+            EventSettingsErrorHost()
         }
 
         await withIssueReporters([]) {
@@ -63,7 +56,6 @@ struct SettingsFeatureTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.exhaustivity = .off
         } operation: {
             TestStore(initialState: EventSettings.State(eventID: eventID)) {
                 EventSettings()
@@ -343,7 +335,6 @@ private func makePolicyEditorStore(
         $0.context = .test
         $0.continuousClock = ImmediateClock()
         $0.defaultDatabase = database
-        $0.exhaustivity = .off
     } operation: {
         Store(initialState: EditEventPolicies.State(eventID: eventID)) {
             EditEventPolicies()

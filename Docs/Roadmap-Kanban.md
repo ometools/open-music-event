@@ -20,7 +20,7 @@ kanban-plugin: board
 - [ ] [[roadmap/OME-062-site-map-and-wayfinding|OME-062: Site Map and Wayfinding]]
 - [ ] [[roadmap/OME-060-in-app-onboarding-and-permission-tour|OME-060: In-App Onboarding and Permission Tour]]
 - [ ] [[roadmap/OME-034-ci-tack-buildkite-pipeline|OME-034: CI / Tack Buildkite Pipeline]]
-- [ ] [[roadmap/OME-037-live-event-source-smoke-tests|OME-037: Live Event Source Smoke Tests]]
+- [ ] [[roadmap/OME-037-live-event-source-smoke-tests|OME-037: Live Event Source Smoke Tests]]ØØ
 - [ ] [[roadmap/OME-038-contributor-claim-flow|OME-038: Contributor Claim Flow]]
 - [ ] [[roadmap/OME-039-organizer-authority-and-review-permissions|OME-039: Organizer Authority and Review Permissions]]
 - [ ] [[roadmap/OME-040-pds-account-provider-onboarding|OME-040: PDS / Account Provider Onboarding]]
