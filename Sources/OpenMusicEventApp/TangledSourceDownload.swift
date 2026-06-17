@@ -263,6 +263,25 @@ struct TangledSourceDownloadView: View {
                 Text("Workspace")
             }
 
+            Section("Canonical Sources") {
+                canonicalSourceButton(
+                    "Wicked Woods",
+                    source: "wickedwoods.ca/ome-workspace"
+                )
+                canonicalSourceButton(
+                    "Shambhala",
+                    source: "woody.fm/shambhala-ome"
+                )
+                canonicalSourceButton(
+                    "Pine Creek Lodge",
+                    source: "woody.fm/pine-creek-lodge-ome"
+                )
+                canonicalSourceButton(
+                    "Folk Fest",
+                    source: "woody.fm/montana-folk-festival-ome"
+                )
+            }
+
             if let importedSummary = store.importedSummary {
                 Section("Imported") {
                     Text("\(importedSummary.events.count) events")
@@ -313,6 +332,16 @@ struct TangledSourceDownloadView: View {
                     store.send(.importButtonTapped)
                 }
             }
+        }
+    }
+
+    private func canonicalSourceButton(
+        _ title: LocalizedStringKey,
+        source: String
+    ) -> some View {
+        Button(title) {
+            store.send(.sourceFolderSelected(source))
+            store.send(.importButtonTapped)
         }
     }
 }

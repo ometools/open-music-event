@@ -39,6 +39,7 @@ EditStage.State(
         appearance: nil,
         materializationPolicy: .prefetchOnOpen,
         thumbhash: nil,
+        dimensions: nil,
         focalPoint: nil
       ),
       [1]: OpenMusicEvent.ImageAsset(
@@ -49,6 +50,7 @@ EditStage.State(
         appearance: nil,
         materializationPolicy: .prefetchOnOpen,
         thumbhash: nil,
+        dimensions: nil,
         focalPoint: nil
       ),
       [2]: OpenMusicEvent.ImageAsset(
@@ -59,6 +61,7 @@ EditStage.State(
         appearance: nil,
         materializationPolicy: .lazy,
         thumbhash: nil,
+        dimensions: nil,
         focalPoint: nil
       )
     ],
@@ -67,6 +70,7 @@ EditStage.State(
     lineup: nil
   ),
   _errorMessage: nil,
+  _destination: nil,
   _form: Form.State(
     _focusedField: nil,
     _submissionStatus: .idle,
@@ -131,7 +135,6 @@ EditStage.State(
       appearance: nil,
       materializationPolicy: .prefetchOnOpen
     ),
-    _imageInfo: nil,
     _images: [
       [0]: ImageAssetPicker.ImageValue(
         asset: OpenMusicEvent.ImageAsset(
@@ -142,6 +145,7 @@ EditStage.State(
           appearance: nil,
           materializationPolicy: .prefetchOnOpen,
           thumbhash: nil,
+          dimensions: nil,
           focalPoint: nil
         ),
         assetKeyDiscriminator: nil,
@@ -149,8 +153,7 @@ EditStage.State(
         importedImage: nil,
         sourceLabel: nil
       )
-    ],
-    _importImages: nil
+    ]
   ),
   _isSaving: false,
   _logoImagePicker: ImageAssetPicker.State(
@@ -191,7 +194,6 @@ EditStage.State(
       appearance: nil,
       materializationPolicy: .prefetchOnOpen
     ),
-    _imageInfo: nil,
     _images: [
       [0]: ImageAssetPicker.ImageValue(
         asset: OpenMusicEvent.ImageAsset(
@@ -202,6 +204,7 @@ EditStage.State(
           appearance: nil,
           materializationPolicy: .prefetchOnOpen,
           thumbhash: nil,
+          dimensions: nil,
           focalPoint: nil
         ),
         assetKeyDiscriminator: nil,
@@ -209,8 +212,7 @@ EditStage.State(
         importedImage: nil,
         sourceLabel: nil
       )
-    ],
-    _importImages: nil
+    ]
   ),
   _posterImagePicker: ImageAssetPicker.State(
     _cacheContext: LocalImageCacheContext(
@@ -250,7 +252,6 @@ EditStage.State(
       appearance: nil,
       materializationPolicy: .lazy
     ),
-    _imageInfo: nil,
     _images: [
       [0]: ImageAssetPicker.ImageValue(
         asset: OpenMusicEvent.ImageAsset(
@@ -261,6 +262,7 @@ EditStage.State(
           appearance: nil,
           materializationPolicy: .lazy,
           thumbhash: nil,
+          dimensions: nil,
           focalPoint: nil
         ),
         assetKeyDiscriminator: nil,
@@ -268,7 +270,6 @@ EditStage.State(
         importedImage: nil,
         sourceLabel: nil
       )
-    ],
-    _importImages: nil
+    ]
   )
 )

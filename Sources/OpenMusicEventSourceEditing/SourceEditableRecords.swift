@@ -205,6 +205,7 @@ private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, S
             appearance: appearance?.rawValue,
             materializationPolicy: materializationPolicy.rawValue,
             thumbhash: thumbhash,
+            dimensions: dimensions.map { (width: $0.width, height: $0.height) },
             focalPoint: focalPoint.map { (x: $0.x, y: $0.y) }
         )
     }

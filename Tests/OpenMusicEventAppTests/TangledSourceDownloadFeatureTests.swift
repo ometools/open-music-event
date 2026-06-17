@@ -1828,20 +1828,7 @@ struct TangledSourceDownloadFeatureTests {
             #expect(keptReferenceCount == 1)
         }
 
-        let backupURL = try #require(storedRepositoryBackupURLs(for: storedURL).first)
-        #expect(
-            FileManager.default.fileExists(
-                atPath: backupURL
-                    .appending(path: ".ome", directoryHint: .isDirectory)
-                    .appending(path: "reference.sqlite")
-                    .path(percentEncoded: false)
-            )
-        )
-        #expect(
-            !FileManager.default.fileExists(
-                atPath: backupURL.appending(path: "old.txt").path(percentEncoded: false)
-            )
-        )
+        #expect(try storedRepositoryBackupURLs(for: storedURL).isEmpty)
     }
 
     @Test
@@ -1896,7 +1883,7 @@ struct TangledSourceDownloadFeatureTests {
         }
 
         store.send(.importButtonTapped) {
-            $0.errorMessage = "Enter a source path or Tangled repository."
+            $0.errorMessage = "Enter a local folder or shared workspace address."
         }
     }
 

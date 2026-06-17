@@ -17,6 +17,12 @@ Plan AppView ingestion for public `community.lexicon.calendar.event` and `commun
 
 Community calendar records give OpenMusicEvent a useful interoperability path before every event is published as an OME-native record. atmo.rsvp and Smoke Signal already exercise the shared calendar event and RSVP lexicons, so they are good first sources for proving AppView ingestion without making any one producer's behavior part of the core OME event contract.
 
+## Phase Boundary
+
+```gpt-5
+This is not part of the Wicked Woods launch-critical org publishing slice. Wicked Woods should first prove source-managed OME records, [[OME-068-wicked-woods-local-attendee-state|local attendee favorites/personal schedule state]], and an [[OME-070-wicked-woods-appview-event-snapshot|OME event snapshot AppView surface]]. Community-calendar publishing, public RSVP/attendance semantics, atmo.rsvp, Smoke Signal, public favorites, and cross-app social behavior are intentionally later interoperability/community work.
+```
+
 ## Rough Shape
 
 - Treat `community.lexicon.calendar.event` records as external source records with stable AT URIs and CIDs.

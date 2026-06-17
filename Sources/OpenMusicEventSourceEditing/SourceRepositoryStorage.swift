@@ -181,6 +181,17 @@ public extension SourceRepositoryStorageClient {
             withIntermediateDirectories: true
         )
 
+        let destinationReferenceDatabaseURL = referenceDatabaseURL(in: destinationURL)
+        if sourceReferenceDatabaseExists(at: destinationReferenceDatabaseURL) {
+            try removeContents(
+                of: destinationURL,
+                preservingReferenceDatabaseAt: destinationReferenceDatabaseURL.standardizedFileURL.path
+            )
+            try removeSQLiteDatabase(at: referenceDatabaseURL(in: sourceURL))
+            try moveContents(of: sourceURL, to: destinationURL)
+            return
+        }
+
         let oldDestinationURL = parentURL
             .appendingPathComponent(
                 ".\(destinationURL.lastPathComponent).old-\(UUID().uuidString)",
@@ -211,11 +222,9 @@ public extension SourceRepositoryStorageClient {
             throw error
         }
     }
+
     private static func removeStoredRepositoryBackup(at repositoryURL: URL) throws {
-        let referenceDatabaseURL = repositoryURL
-            .standardizedFileURL
-            .appending(path: ".ome", directoryHint: .isDirectory)
-            .appending(path: "reference.sqlite")
+        let referenceDatabaseURL = referenceDatabaseURL(in: repositoryURL)
         guard sourceReferenceDatabaseExists(at: referenceDatabaseURL) else {
             try FileManager.default.removeItem(at: repositoryURL)
             return
@@ -231,12 +240,82 @@ public extension SourceRepositoryStorageClient {
     private static func sourceReferenceDatabaseExists(at databaseURL: URL) -> Bool {
         let fileManager = FileManager.default
         let databasePath = databaseURL.standardizedFileURL.path
-        return [
+        return sqliteDatabasePaths(for: databasePath)
+            .contains { fileManager.fileExists(atPath: $0) }
+    }
+
+    private static func removeSQLiteDatabase(at databaseURL: URL) throws {
+        for url in sqliteDatabaseURLs(for: databaseURL) {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                guard error.isMissingFile else { throw error }
+            }
+        }
+    }
+
+    private static func referenceDatabaseURL(in repositoryURL: URL) -> URL {
+        repositoryURL
+            .standardizedFileURL
+            .appending(path: ".ome", directoryHint: .isDirectory)
+            .appending(path: "reference.sqlite")
+    }
+
+    private static func sqliteDatabaseURLs(for databaseURL: URL) -> [URL] {
+        sqliteDatabasePaths(for: databaseURL.standardizedFileURL.path)
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    private static func sqliteDatabasePaths(for databasePath: String) -> [String] {
+        [
             databasePath,
             databasePath + "-shm",
             databasePath + "-wal",
             databasePath + "-journal",
-        ].contains { fileManager.fileExists(atPath: $0) }
+        ]
+    }
+
+    private static func moveContents(
+        of sourceDirectoryURL: URL,
+        to destinationDirectoryURL: URL
+    ) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: destinationDirectoryURL,
+            withIntermediateDirectories: true
+        )
+
+        let contents = try fileManager.contentsOfDirectory(
+            at: sourceDirectoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+        for sourceURL in contents {
+            let destinationURL = destinationDirectoryURL
+                .appendingPathComponent(sourceURL.lastPathComponent)
+            if try shouldMergeDirectory(from: sourceURL, into: destinationURL) {
+                try moveContents(of: sourceURL, to: destinationURL)
+            } else {
+                do {
+                    try fileManager.removeItem(at: destinationURL)
+                } catch {
+                    guard error.isMissingFile else { throw error }
+                }
+                try fileManager.moveItem(at: sourceURL, to: destinationURL)
+            }
+        }
+
+        try fileManager.removeItem(at: sourceDirectoryURL)
+    }
+
+    private static func shouldMergeDirectory(
+        from sourceURL: URL,
+        into destinationURL: URL
+    ) throws -> Bool {
+        guard try isDirectoryThatCanBeDescended(sourceURL),
+              FileManager.default.fileExists(atPath: destinationURL.path),
+              try isDirectoryThatCanBeDescended(destinationURL)
+        else { return false }
+        return true
     }
 
     private static func removeContents(

@@ -827,6 +827,142 @@ struct TangledPullReviewClientTests {
     }
 
     @Test
+    func rawDiffFetchesLatestPatchBlob() async throws {
+        let authorDID = try #require(DID("did:plc:author"))
+        let patchText = """
+        From abc Mon Sep 17 00:00:00 2001
+        Subject: [PATCH] Add Excision
+
+        ---
+         events/wicked-woods-2026/event.yml | 1 +
+         1 file changed, 1 insertion(+)
+        """
+        let patchBlob = try Data(patchText.utf8).gzipped()
+        let review = TangledPullReview(
+            author: "did:plc:author",
+            body: "Proposed from OME.",
+            commentCount: 0,
+            createdAt: "2026-07-08T12:02:00Z",
+            patchBlobs: [
+                TangledPullReview.PatchBlob(
+                    cid: "bafkreipatch",
+                    createdAt: "2026-07-08T12:01:00Z",
+                    index: 1,
+                    mimeType: "application/gzip",
+                    size: patchBlob.count
+                )
+            ],
+            state: "open",
+            targetBranch: "main",
+            targetRepositoryDID: "did:plc:targetrepo",
+            title: "Add Excision",
+            uri: "at://did:plc:author/sh.tangled.repo.pull/3pull"
+        )
+        let requests = Mutex([URL?]())
+
+        let rawDiff = try await withDependencies {
+            $0.defaultPort = 443
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    Issue.record("Raw diff should not resolve handle \(handle).")
+                    return (
+                        Atmosphere.Account(id: .init(authorDID), handle: handle),
+                        try didDocument(
+                            did: authorDID,
+                            handle: handle,
+                            pdsHost: "author.pds.example"
+                        )
+                    )
+                },
+                resolveDID: { did in
+                    #expect(did == authorDID)
+                    return (
+                        Atmosphere.Account(
+                            id: .init(authorDID),
+                            handle: "author.example"
+                        ),
+                        try didDocument(
+                            did: authorDID,
+                            handle: "author.example",
+                            pdsHost: "author.pds.example"
+                        )
+                    )
+                }
+            )
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, _ in
+                requests.withLock { $0.append(request.url) }
+                let path = request.url?.path ?? ""
+                let collection = request.url?.queryValue(named: "collection")
+
+                switch collection {
+                case "sh.tangled.repo.pull"
+                    where path.hasSuffix("/com.atproto.repo.getRecord"):
+                    return Data(
+                        """
+                        {
+                          "uri": "at://did:plc:author/sh.tangled.repo.pull/3pull",
+                          "cid": "bafyreipull",
+                          "value": {
+                            "$type": "sh.tangled.repo.pull",
+                            "target": {
+                              "repo": "did:plc:targetrepo",
+                              "branch": "main"
+                            },
+                            "title": "Add Excision",
+                            "body": "Proposed from OME.",
+                            "rounds": [
+                              {
+                                "patchBlob": {
+                                  "$type": "blob",
+                                  "ref": {"$link": "bafkreioldpatch"},
+                                  "mimeType": "application/gzip",
+                                  "size": 12
+                                },
+                                "createdAt": "2026-07-08T11:00:00Z"
+                              },
+                              {
+                                "patchBlob": {
+                                  "$type": "blob",
+                                  "ref": {"$link": "bafkreipatch"},
+                                  "mimeType": "application/gzip",
+                                  "size": \(patchBlob.count)
+                                },
+                                "createdAt": "2026-07-08T12:01:00Z"
+                              }
+                            ],
+                            "createdAt": "2026-07-08T12:02:00Z"
+                          }
+                        }
+                        """
+                        .utf8
+                    )
+
+                case _ where path.hasSuffix("/com.atproto.sync.getBlob"):
+                    return patchBlob
+
+                default:
+                    Issue.record("Unexpected request: \(request.url?.absoluteString ?? "<nil>")")
+                    return Data("{}".utf8)
+                }
+            }
+        } operation: {
+            try await TangledPullReviewClient.openMusicEvent.rawDiff(review)
+        }
+
+        expectNoDifference(rawDiff, patchText)
+        #expect(
+            requests.withLock { requests in
+                requests.contains {
+                    $0?.host == "author.pds.example"
+                        && $0?.path.hasSuffix("/com.atproto.sync.getBlob") == true
+                        && $0?.queryValue(named: "cid") == "bafkreipatch"
+                }
+            }
+        )
+    }
+
+    @Test
     func deleteRemovesPullRecord() async throws {
         let review = TangledPullReview(
             author: "did:plc:author123",

@@ -1,5 +1,6 @@
 import ArgumentParser
 import CustomDump
+import Foundation
 import OpenMusicEventSource
 import Testing
 

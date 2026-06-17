@@ -125,9 +125,6 @@
     "Blank Event" : {
 
     },
-    "Branch" : {
-
-    },
     "Browse" : {
 
     },
@@ -346,13 +343,13 @@
     "festival-source" : {
 
     },
+    "Folk Fest" : {
+
+    },
     "Following" : {
 
     },
     "Following feature stub." : {
-
-    },
-    "Happening Now" : {
 
     },
     "HEAD" : {
@@ -460,7 +457,7 @@
     "main or HEAD" : {
 
     },
-    "Manage Shared Workspace" : {
+    "Manage Team Workspace" : {
 
     },
     "Messages, announcements, and alert history are never carried forward." : {
@@ -539,6 +536,9 @@
         }
       }
     },
+    "Now" : {
+
+    },
     "Only events with stages can seed a rollover." : {
 
     },
@@ -546,6 +546,12 @@
 
     },
     "Open Shared Workspace" : {
+
+    },
+    "Past" : {
+
+    },
+    "Pine Creek Lodge" : {
 
     },
     "Powered by [Skip](https://skip.dev)" : {
@@ -577,7 +583,7 @@
         }
       }
     },
-    "Preparing Shared Workspace" : {
+    "Preparing Team Workspace" : {
 
     },
     "Preparing Workspace" : {
@@ -586,19 +592,7 @@
     "Previous Event" : {
 
     },
-    "Previous Events" : {
-
-    },
     "Provider address" : {
-
-    },
-    "Ref" : {
-
-    },
-    "Remote" : {
-
-    },
-    "Repository" : {
 
     },
     "Retry" : {
@@ -675,6 +669,9 @@
         }
       }
     },
+    "Shambhala" : {
+
+    },
     "Shared workspace" : {
 
     },
@@ -735,9 +732,6 @@
 
     },
     "tangled.org" : {
-
-    },
-    "Technical details" : {
 
     },
     "Technical details" : {
@@ -856,10 +850,10 @@
     "Unavailable Events" : {
 
     },
-    "Upcoming Events" : {
+    "Upcoming" : {
 
     },
-    "Version" : {
+    "Upload to Tangled" : {
 
     },
     "Venue and location details" : {
@@ -932,6 +926,9 @@
           }
         }
       }
+    },
+    "Wicked Woods" : {
+
     },
     "Wicked Woods 2026" : {
 

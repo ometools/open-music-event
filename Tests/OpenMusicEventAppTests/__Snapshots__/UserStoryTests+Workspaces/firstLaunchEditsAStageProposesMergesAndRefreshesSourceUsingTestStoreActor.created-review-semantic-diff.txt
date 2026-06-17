@@ -170,6 +170,7 @@
                     appearance: nil,
                     materializationPolicy: "prefetchOnOpen",
                     thumbhash: nil,
+                    dimensions: nil,
                     focalPoint: nil
                   ),
                   [2]: (…)
@@ -369,6 +370,7 @@
                     appearance: nil,
                     materializationPolicy: "prefetchOnOpen",
                     thumbhash: nil,
+                    dimensions: nil,
                     focalPoint: nil
                   ),
                   [2]: (…)
@@ -403,6 +405,7 @@
                 appearance: nil,
                 materializationPolicy: .prefetchOnOpen,
                 thumbhash: nil,
+                dimensions: nil,
                 focalPoint: nil
               ),
               [1]: OpenMusicEvent.ImageAsset(
@@ -413,6 +416,7 @@
                 appearance: nil,
                 materializationPolicy: .prefetchOnOpen,
                 thumbhash: nil,
+                dimensions: nil,
                 focalPoint: nil
               ),
               [2]: OpenMusicEvent.ImageAsset(
@@ -423,6 +427,7 @@
                 appearance: nil,
                 materializationPolicy: .lazy,
                 thumbhash: nil,
+                dimensions: nil,
                 focalPoint: nil
               )
             ],
@@ -456,6 +461,7 @@
                 appearance: nil,
                 materializationPolicy: .prefetchOnOpen,
                 thumbhash: nil,
+                dimensions: nil,
                 focalPoint: nil
               ),
               [1]: OpenMusicEvent.ImageAsset(
@@ -466,6 +472,7 @@
                 appearance: nil,
                 materializationPolicy: .prefetchOnOpen,
                 thumbhash: nil,
+                dimensions: nil,
                 focalPoint: nil
               ),
               [2]: OpenMusicEvent.ImageAsset(
@@ -476,6 +483,7 @@
                 appearance: nil,
                 materializationPolicy: .lazy,
                 thumbhash: nil,
+                dimensions: nil,
                 focalPoint: nil
               )
             ],

@@ -206,6 +206,7 @@ public struct TangledPullReviewClient: Sendable {
     public var merge: @Sendable (
         OpenMusicEventTangledPullReviewMergeRequest
     ) async throws -> Void
+    public var rawDiff: @Sendable (TangledPullReview) async throws -> String
 
     public init(
         list: @escaping @Sendable (
@@ -215,12 +216,16 @@ public struct TangledPullReviewClient: Sendable {
         merge: @escaping @Sendable (
             OpenMusicEventTangledPullReviewMergeRequest
         ) async throws -> Void = { _ in },
-        delete: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in }
+        delete: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in },
+        rawDiff: @escaping @Sendable (TangledPullReview) async throws -> String = { review in
+            throw TangledPullReviewClientError.missingPatchBlob(review.id)
+        }
     ) {
         self.list = list
         self.close = close
         self.merge = merge
         self.delete = delete
+        self.rawDiff = rawDiff
     }
 }
 
@@ -395,6 +400,25 @@ public extension TangledPullReviewClient {
                             TangledOAuthRequirements.pullDeleteAuthRequirement
                         )
                     )
+                )
+            },
+            rawDiff: { review in
+                @Dependency(XRPC.Client.self) var xrpcClient
+
+                let pullURI = try requireTangledPullURI(review.uri)
+                let pullAuthorDID = try requireDIDAuthority(pullURI)
+                let pullRecord = try await TangledSourcePatchPublisherDiagnostics.run(
+                    operation: "pullReview.fetchRawDiffRecord",
+                    details: [
+                        "pull: \(pullURI.description)",
+                        "author: \(pullAuthorDID.description)",
+                    ]
+                ) {
+                    try await xrpcClient.tangledPullRecord(pullURI)
+                }
+                return try await patchTextForLatestRound(
+                    in: pullRecord.value,
+                    authorDID: pullAuthorDID
                 )
             }
         )

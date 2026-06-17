@@ -15,3 +15,4 @@ The uploaded bundle should include:
 - `public/assets/ome-location.jpeg`
 - `public/assets/ome-more.jpeg`
 - `public/.well-known/oauth-client-metadata.json`
+- `public/.well-known/apple-app-site-association`

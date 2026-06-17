@@ -308,6 +308,21 @@ public struct EventWorkspace {
         }
     }
 
+    public enum TangledPullReviewRawDiffStatus: Equatable, Sendable {
+        case failed(TangledPullReviewRawDiffFailure)
+        case loaded(String)
+        case loading
+        case notLoaded
+    }
+
+    public struct TangledPullReviewRawDiffFailure: Equatable, Error, Sendable {
+        public var message: String
+
+        public init(_ error: any Error) {
+            self.message = String(describing: error)
+        }
+    }
+
     public struct PendingDeletedTangledPullReview: Equatable, Sendable {
         public var review: TangledPullReview
         public var index: Int
@@ -320,14 +335,11 @@ public struct EventWorkspace {
 
     public enum SelectedTangledPullReview: Equatable, Sendable {
         case loaded(TangledPullReview)
-        case pending(id: String)
 
         public var id: String {
             switch self {
             case let .loaded(review):
                 review.id
-            case let .pending(id):
-                id
             }
         }
     }
@@ -386,6 +398,7 @@ public struct EventWorkspace {
         public var tangledPullReviewCloseFailures: [String: TangledPullReviewCloseFailure] = [:]
         public var tangledPullReviewDeleteFailures: [String: TangledPullReviewDeleteFailure] = [:]
         public var tangledPullReviewMergeFailures: [String: TangledPullReviewMergeFailure] = [:]
+        public var tangledPullReviewRawDiffs: [String: TangledPullReviewRawDiffStatus] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
         public var workspaceOwnerIdentity: WorkspaceActorIdentity = .unavailable
         public var signedInAccountIdentity: WorkspaceActorIdentity = .signedOut
@@ -460,6 +473,7 @@ public struct EventWorkspace {
         case mergeTangledPullReviewButtonTapped(TangledPullReview)
         case onAppear
         case proposeChangeButtonTapped
+        case reviewRawDiffButtonTapped(TangledPullReview)
         case reviewSemanticDiffButtonTapped(TangledPullReview)
         case refreshTangledPullReviewsButtonTapped
         case refreshSourceButtonTapped
@@ -475,6 +489,10 @@ public struct EventWorkspace {
         case tangledPullReviewSemanticDiffResponse(
             reviewID: String,
             Result<TangledPullReviewSemanticDiff, TangledPullReviewSemanticDiffFailure>
+        )
+        case tangledPullReviewRawDiffResponse(
+            reviewID: String,
+            Result<String, TangledPullReviewRawDiffFailure>
         )
         case tangledPullReviewCloseResponse(
             review: TangledPullReview,
@@ -685,6 +703,39 @@ public struct EventWorkspace {
                 }
             }
 
+            func loadTangledPullReviewRawDiff(
+                review: TangledPullReview,
+                state: inout State
+            ) {
+                switch state.tangledPullReviewRawDiffs[review.id] {
+                case .loaded, .loading:
+                    return
+                case .failed, .notLoaded, nil:
+                    break
+                }
+
+                let tangledPullReviewClient = tangledPullReviewClient
+                state.tangledPullReviewRawDiffs[review.id] = .loading
+                store.addTask {
+                    do {
+                        let diff = try await tangledPullReviewClient.rawDiff(review)
+                        try store.send(
+                            .tangledPullReviewRawDiffResponse(
+                                reviewID: review.id,
+                                .success(diff)
+                            )
+                        )
+                    } catch {
+                        try store.send(
+                            .tangledPullReviewRawDiffResponse(
+                                reviewID: review.id,
+                                .failure(TangledPullReviewRawDiffFailure(error))
+                            )
+                        )
+                    }
+                }
+            }
+
             func closeTangledPullReview(
                 _ review: TangledPullReview,
                 state: inout State
@@ -819,6 +870,7 @@ public struct EventWorkspace {
                 state.tangledPullReviewCloseFailures[review.id] = nil
                 state.tangledPullReviewDeleteFailures[review.id] = nil
                 state.tangledPullReviewMergeFailures[review.id] = nil
+                state.tangledPullReviewRawDiffs[review.id] = nil
                 state.tangledPullReviewSemanticDiffs[review.id] = nil
                 if state.selectedTangledPullReview?.id == review.id {
                     state.selectedTangledPullReview = nil
@@ -961,14 +1013,17 @@ public struct EventWorkspace {
             case let .sourceProposal(.delegate(.created(publication))):
                 state.isPreparingSourceProposal = false
                 state.pendingCreatedTangledPullReviewID = publication.sourceChangeID
-                if let sourceChangeID = publication.sourceChangeID {
-                    state.selectedTangledPullReview = .pending(id: sourceChangeID)
+                if publication.sourceChangeID == nil {
+                    state.dismissSourceProposal()
+                } else {
+                    state.sourceProposal?.status = .created(publication)
+                    state.sourceProposalStatus = .created(publication)
                 }
-                state.dismissSourceProposal()
                 refreshTangledPullReviews(target: state.target, state: &state)
 
             case .sourceProposal(.delegate(.dismissed)):
                 state.isPreparingSourceProposal = false
+                state.pendingCreatedTangledPullReviewID = nil
                 state.dismissSourceProposal()
 
             case .proposeChangeButtonTapped:
@@ -983,6 +1038,9 @@ public struct EventWorkspace {
 
             case let .reviewSemanticDiffButtonTapped(review):
                 loadTangledPullReviewSemanticDiff(review: review, state: &state)
+
+            case let .reviewRawDiffButtonTapped(review):
+                loadTangledPullReviewRawDiff(review: review, state: &state)
 
             case let .sourcePatchGenerationResponse(.success(patch)):
                 state.sourcePatchStatus = .generated(patch)
@@ -1017,6 +1075,12 @@ public struct EventWorkspace {
 
             case let .tangledPullReviewSemanticDiffResponse(reviewID, .failure(failure)):
                 state.tangledPullReviewSemanticDiffs[reviewID] = .failed(failure)
+
+            case let .tangledPullReviewRawDiffResponse(reviewID, .success(diff)):
+                state.tangledPullReviewRawDiffs[reviewID] = .loaded(diff)
+
+            case let .tangledPullReviewRawDiffResponse(reviewID, .failure(failure)):
+                state.tangledPullReviewRawDiffs[reviewID] = .failed(failure)
 
             case let .tangledPullReviewCloseResponse(review, .success):
                 state.closingTangledPullReviewIDs.remove(review.id)
@@ -1058,6 +1122,7 @@ public struct EventWorkspace {
                 if let pendingReviewID = state.pendingCreatedTangledPullReviewID,
                    let review = loadedReviews.first(where: { $0.id == pendingReviewID })
                 {
+                    state.dismissSourceProposal()
                     state.selectedTangledPullReview = .loaded(review)
                     state.pendingCreatedTangledPullReviewID = nil
                 } else if let selectedReviewID = state.selectedTangledPullReview?.id,
@@ -1562,11 +1627,16 @@ public struct EventWorkspaceView: View {
                                     review: review,
                                     authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
                                         ?? .unavailable,
+                                    rawDiffStatus: store.tangledPullReviewRawDiffs[review.id]
+                                        ?? .notLoaded,
                                     semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                                         ?? .notLoaded,
                                     isMerging: isMerging,
                                     isBusy: isBusy,
                                     mergeFailure: mergeFailure,
+                                    onLoadRawDiff: {
+                                        store.send(.reviewRawDiffButtonTapped(review))
+                                    },
                                     onLoadSemanticDiff: {
                                         store.send(.reviewSemanticDiffButtonTapped(review))
                                     },
@@ -1702,9 +1772,6 @@ public struct EventWorkspaceView: View {
         switch selectedReview {
         case let .loaded(review):
             tangledPullReviewDetail(review)
-
-        case let .pending(id):
-            PendingTangledPullReviewDetailView(reviewID: id)
         }
     }
 
@@ -1719,11 +1786,16 @@ public struct EventWorkspaceView: View {
             review: review,
             authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
                 ?? .unavailable,
+            rawDiffStatus: store.tangledPullReviewRawDiffs[review.id]
+                ?? .notLoaded,
             semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                 ?? .notLoaded,
             isMerging: isMerging,
             isBusy: isBusy,
             mergeFailure: mergeFailure,
+            onLoadRawDiff: {
+                store.send(.reviewRawDiffButtonTapped(review))
+            },
             onLoadSemanticDiff: {
                 store.send(.reviewSemanticDiffButtonTapped(review))
             },
@@ -1731,27 +1803,6 @@ public struct EventWorkspaceView: View {
                 store.send(.mergeTangledPullReviewButtonTapped(review))
             }
         )
-    }
-}
-
-struct PendingTangledPullReviewDetailView: View {
-    let reviewID: String
-
-    var body: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-            Text("Loading review")
-                .font(.headline)
-            DisclosureGroup("Technical details") {
-                WorkspaceTechnicalValueView(
-                    label: "Review ID",
-                    value: reviewID
-                )
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("Review")
     }
 }
 
@@ -1940,10 +1991,12 @@ private extension Collection where Element == TangledPullReview {
 struct TangledPullReviewDetailView: View {
     let review: TangledPullReview
     let authorIdentity: WorkspaceActorIdentity
+    let rawDiffStatus: EventWorkspace.TangledPullReviewRawDiffStatus
     let semanticDiffStatus: EventWorkspace.TangledPullReviewSemanticDiffStatus
     var isMerging = false
     var isBusy = false
     var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
+    let onLoadRawDiff: () -> Void
     let onLoadSemanticDiff: () -> Void
     let onMerge: () -> Void
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
@@ -1993,6 +2046,7 @@ struct TangledPullReviewDetailView: View {
             }
 
             reviewSemanticDiffSections
+            reviewRawDiffSection
 
             if showsTechnicalDetails {
                 Section {
@@ -2089,6 +2143,60 @@ struct TangledPullReviewDetailView: View {
         }
         .onAppear {
             onLoadSemanticDiff()
+            onLoadRawDiff()
+        }
+    }
+
+    @ViewBuilder
+    private var reviewRawDiffSection: some View {
+        switch rawDiffStatus {
+        case let .failed(failure):
+            Section("Raw Diff") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Raw diff could not be loaded")
+                    if showsTechnicalDetails {
+                        Text(failure.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                Button("Try Again") {
+                    onLoadRawDiff()
+                }
+            }
+
+        case let .loaded(diff):
+            Section("Raw Diff") {
+                if diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("No raw diff")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ScrollView(.horizontal) {
+                        Text(diff)
+                            .font(.caption)
+                            .monospaced()
+                            .fixedSize(horizontal: true, vertical: false)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+        case .loading:
+            Section("Raw Diff") {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Loading raw diff")
+                }
+            }
+
+        case .notLoaded:
+            Section("Raw Diff") {
+                Button("Load Raw Diff") {
+                    onLoadRawDiff()
+                }
+            }
         }
     }
 

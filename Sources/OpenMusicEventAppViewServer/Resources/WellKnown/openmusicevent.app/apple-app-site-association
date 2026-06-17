@@ -3,13 +3,21 @@
     "apps": [],
     "details": [
       {
-        "appID": "TEAMID.app.openmusicevent",
-        "paths": [
-          "/events/*",
-          "/e/*",
-          "/organizers/*"
+        "appIDs": [
+          "FYZE6539TN.bundle.ome.OpenMusicEvent"
+        ],
+        "components": [
+          {
+            "/": "/orgs/*"
+          }
         ]
       }
+    ]
+  },
+  "appclips": {
+    "apps": [
+      "FYZE6539TN.bundle.ome.OpenMusicEvent.Clip",
+      "FYZE6539TN.com.Festivl.WickedWoods.Clip"
     ]
   }
 }

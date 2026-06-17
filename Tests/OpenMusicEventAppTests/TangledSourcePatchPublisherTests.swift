@@ -207,7 +207,7 @@ struct TangledSourcePatchPublisherTests {
             encoding: .utf8
         )
         let branchName = BranchName(
-            rawValue: "ome-proposal-00000000-0000-0000-0000-000000000042"
+            rawValue: "ome/proposal-00000000-0000-0000-0000-000000000042"
         )
         let commitID = CommitID(rawValue: "fedcbafedcbafedcbafedcbafedcbafedcbafedc")
         let credentials = Credentials(
@@ -736,7 +736,7 @@ struct TangledSourcePatchPublisherTests {
             )
         )
         let branchName = BranchName(
-            rawValue: "ome-proposal-00000000-0000-0000-0000-000000000043"
+            rawValue: "ome/proposal-00000000-0000-0000-0000-000000000043"
         )
         let commitID = CommitID(rawValue: "fedcbafedcbafedcbafedcbafedcbafedc")
         let cloneRequests = Mutex([CloneRequest]())

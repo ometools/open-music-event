@@ -1402,25 +1402,25 @@ public struct TeamWorkspaceDetailView: View {
 
             if showsTechnicalDetails, let sourceBaseline = store.sourceBaseline {
                 DisclosureGroup("Technical details", isExpanded: $sourceSectionExpanded) {
-                    WorkspaceTechnicalValueView(
+                    OpenMusicEventComponents.WorkspaceTechnicalValueView(
                         label: "Source address",
-                         value: sourceBaseline.sourceReference
-                     )
-                     WorkspaceTechnicalValueView(
-                         label: "Provider",
-                         value: sourceBaseline.sourceKind.rawValue
-                     )
-                     WorkspaceTechnicalValueView(
-                         label: "Version",
-                         value: sourceBaseline.ref ?? "default version"
-                     )
-                     if let organizerID = store.organizer?.id.description {
-                         WorkspaceTechnicalValueView(
-                             label: "Owner actor ID",
-                             value: organizerID
-                         )
+                        value: sourceBaseline.sourceReference
+                    )
+                    OpenMusicEventComponents.WorkspaceTechnicalValueView(
+                        label: "Provider",
+                        value: sourceBaseline.sourceKind.rawValue
+                    )
+                    OpenMusicEventComponents.WorkspaceTechnicalValueView(
+                        label: "Version",
+                        value: sourceBaseline.ref ?? "default version"
+                    )
+                    if let organizerID = store.organizer?.id.description {
+                        OpenMusicEventComponents.WorkspaceTechnicalValueView(
+                            label: "Owner actor ID",
+                            value: organizerID
+                        )
                     }
-                    WorkspaceTechnicalValueView(
+                    OpenMusicEventComponents.WorkspaceTechnicalValueView(
                         label: "Imported",
                         value: sourceBaseline.importedAt.formatted(
                             date: .abbreviated,
@@ -1489,13 +1489,11 @@ public struct TeamWorkspaceDetailView: View {
                 SourceWorkspaceView(store: teamWorkspaceEditorStore)
             }
         }
-        .toolbar {
-            toolbarContent
-        }
+        .toolbar(content: toolbarContent)
     }
 
     @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
+    private func toolbarContent() -> some ToolbarContent {
         ToolbarItemGroup {
             if showsAuthoringControls, store.canEditCalendar {
                 Button {

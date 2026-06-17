@@ -452,11 +452,14 @@ public struct SourceActorDIDConverter: Sendable {
                     }
                     for performanceIndex in performances.indices {
                         let performance = performances[performanceIndex]
-                        guard let actors = performance.contributorActors else {
+                        guard let contributors = performance.contributors else {
                             continue
                         }
 
-                        for actorIndex in actors.indices {
+                        for contributorIndex in contributors.indices {
+                            guard case let .actor(actor) = contributors[contributorIndex].subject else {
+                                continue
+                            }
                             let location = SourceActorDIDConversionLocation(
                                 file: "events/\(event.directoryName)/schedules/\(schedule.path.rawValue)",
                                 eventDirectory: event.directoryName,
@@ -464,7 +467,7 @@ public struct SourceActorDIDConverter: Sendable {
                                 stageID: stageID,
                                 performanceIndex: performanceIndex,
                                 performanceTitle: performance.title,
-                                actorIndex: actorIndex
+                                actorIndex: contributorIndex
                             )
                             occurrences.append(
                                 SourceScheduleActorOccurrence(
@@ -472,9 +475,9 @@ public struct SourceActorDIDConverter: Sendable {
                                     scheduleIndex: scheduleIndex,
                                     stageID: stageID,
                                     performanceIndex: performanceIndex,
-                                    actorIndex: actorIndex,
+                                    actorIndex: contributorIndex,
                                     location: location,
-                                    actor: actors[actorIndex]
+                                    actor: actor
                                 )
                             )
                         }
@@ -594,12 +597,12 @@ public struct SourceActorDIDConverter: Sendable {
         else { return }
 
         var performance = performances[occurrence.performanceIndex]
-        guard var actors = performance.contributorActors,
-              actors.indices.contains(occurrence.actorIndex)
+        guard var contributors = performance.contributors,
+              contributors.indices.contains(occurrence.actorIndex)
         else { return }
 
-        actors[occurrence.actorIndex] = actor
-        performance.contributorActors = actors
+        contributors[occurrence.actorIndex].subject = .actor(actor)
+        performance.contributors = contributors
         performances[occurrence.performanceIndex] = performance
         performancesByStage[occurrence.stageID] = performances
         schedule.data.performances = performancesByStage

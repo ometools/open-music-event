@@ -368,7 +368,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func createdSourceProposalDismissesSheetAndReloadsTangledReviews() async throws {
+    func createdSourceProposalDismissesToReviewWhenTangledReviewLoads() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         try await seedTangledSourceBackedEvent(eventID, in: database)
@@ -410,11 +410,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         store.send(.sourceProposal(.delegate(.created(publication)))) {
             $0.pendingCreatedTangledPullReviewID = review.uri
-            $0.selectedTangledPullReview = .pending(id: review.uri)
             $0.sourceProposalStatus = .created(publication)
             $0.tangledPullReviewStatus = .loading
         }
-        #expect(store.state.sourceProposal == nil)
+        #expect(store.state.sourceProposal != nil)
         await store.receive(
             \.tangledPullReviewsResponse,
             .equals(.success([review])),
@@ -424,6 +423,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             $0.selectedTangledPullReview = .loaded(review)
             $0.tangledPullReviewStatus = .loaded([review])
         }
+        #expect(store.state.sourceProposal == nil)
 
         expectNoDifference(
             requests.withLock { $0 },
@@ -431,6 +431,51 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 OpenMusicEventTangledPullReviewRequest(eventID: eventID),
             ]
         )
+        await store.dismount()
+    }
+
+    @Test
+    func dismissedCreatedSourceProposalStopsPendingReviewNavigation() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        try await seedTangledSourceBackedEvent(eventID, in: database)
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
+        let review = testTangledPullReview()
+        let publication = SourcePatchPublication(
+            sourceChangeID: review.uri,
+            sourceChangeURL: URL(string: "https://tangled.org/woody.fm/wicked-woods/pulls")
+        )
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            var state = EventWorkspace.State(eventID: eventID)
+            state.sourcePatchStatus = .generated(patch)
+            state.sourceProposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            state.sourceProposal?.status = .created(publication)
+            state.sourceProposalStatus = .created(publication)
+            state.pendingCreatedTangledPullReviewID = review.uri
+            return TestStore(initialState: state) {
+                EventWorkspace()
+            }
+        }
+
+        store.send(.sourceProposal(.delegate(.dismissed))) {
+            $0.pendingCreatedTangledPullReviewID = nil
+        }
+        #expect(store.state.sourceProposal == nil)
+        store.send(.tangledPullReviewsResponse(.success([review]))) {
+            $0.tangledPullReviewStatus = .loaded([review])
+        }
+        #expect(store.state.selectedTangledPullReview == nil)
         await store.dismount()
     }
 
@@ -1057,6 +1102,63 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 OpenMusicEventTangledPullReviewRequest(eventID: eventID)
             ]
         )
+        await store.dismount()
+    }
+
+    @Test
+    func selectedTangledPullReviewLoadsRawDiff() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let review = testTangledPullReview()
+        let rawDiff = """
+        diff --git a/events/event-1/event.yml b/events/event-1/event.yml
+        --- a/events/event-1/event.yml
+        +++ b/events/event-1/event.yml
+        @@ -1 +1 @@
+        -name: Old
+        +name: New
+        """
+        let rawDiffRequests = Mutex([TangledPullReview]())
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient(
+                list: { _ in [review] },
+                rawDiff: { review in
+                    rawDiffRequests.withLock { $0.append(review) }
+                    return rawDiff
+                }
+            )
+        } operation: {
+            var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.selectedTangledPullReview = .loaded(review)
+            initialState.tangledPullReviewStatus = .loaded([review])
+            return TestStore(initialState: initialState) {
+                EventWorkspace()
+            }
+        }
+
+        let task = store.send(.reviewRawDiffButtonTapped(review)) {
+            $0.tangledPullReviewRawDiffs[review.id] = .loading
+        }
+        await store.receive(
+            \.tangledPullReviewRawDiffResponse,
+            .matching { (
+                response: (
+                    reviewID: String,
+                    Result<String, EventWorkspace.TangledPullReviewRawDiffFailure>
+                )
+            ) in
+                guard response.reviewID == review.id else { return false }
+                guard case let .success(loadedRawDiff) = response.1 else { return false }
+                return loadedRawDiff == rawDiff
+            },
+            timeout: .seconds(1)
+        ) {
+            $0.tangledPullReviewRawDiffs[review.id] = .loaded(rawDiff)
+        }
+        await task?.value
+
+        expectNoDifference(rawDiffRequests.withLock { $0 }, [review])
         await store.dismount()
     }
 

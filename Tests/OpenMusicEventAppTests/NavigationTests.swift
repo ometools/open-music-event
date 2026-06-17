@@ -977,6 +977,103 @@ struct NavigationTests {
     }
 
     @Test
+    func teamWorkspaceDetailManageSourceMountsLiveWorkspaceDatabase() async throws {
+        let repositoryURL = try temporarySourceRepositoryURL()
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
+        try writeMinimalSourceRepository(at: repositoryURL)
+
+        let workingDirectoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-live-workspace-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: workingDirectoryURL) }
+        try FileManager.default.createDirectory(
+            at: workingDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let workingDatabaseURL = workingDirectoryURL
+            .appending(path: "open-music-event.sqlite")
+        let database = try makeFileBackedPreparedDatabase(at: workingDatabaseURL)
+
+        let referenceDatabaseURL = try SourceReferenceDatabaseClient.referenceDatabaseURL(
+            repositoryURL: repositoryURL
+        )
+        let referenceDatabase = try makeReferenceDatabase(at: referenceDatabaseURL)
+        let organizerID = try #require(OMERecord.Organizer.ID("did:plc:cqqtuv75m7e5s4uj6nw4czyu"))
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/wicked-woods-ome",
+            ref: "HEAD"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: organizerID)
+        let eventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: eventLocalID("wicked-woods-ome-2025")
+        )
+        let importedAt = Date(timeIntervalSince1970: 1_788_000_000)
+        let recorder = SourceEditModePreparationRecorder()
+
+        try await database.write { db in
+            try Self.insertLiveWorkspaceSourceFixture(
+                db,
+                organizerID: organizerID,
+                calendarID: calendarID,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance,
+                importedAt: importedAt
+            )
+        }
+        try referenceDatabase.write { db in
+            try Self.insertLiveWorkspaceSourceFixture(
+                db,
+                organizerID: organizerID,
+                calendarID: calendarID,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance,
+                importedAt: importedAt
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.sourceEditingWorkingDatabasePath = workingDatabaseURL.path
+            $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+            }
+            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
+                repositoryURL: { _ in repositoryURL },
+                store: { _, _ in repositoryURL },
+                remove: { _ in }
+            )
+            $0.sourceWorkspaceDatabase = .live
+        } operation: {
+            TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                TeamWorkspaceDetail()
+            }
+        }
+
+        let task = store.send(.manageSourceButtonTapped) {
+            $0.isPreparingTeamWorkspaceEditor = true
+        }
+        await task?.value
+
+        #expect(await recorder.sourceBaselineIDs == [sourceBaselineID])
+        #expect(store.state.isPreparingTeamWorkspaceEditor == false)
+        let teamWorkspaceEditor = try #require(store.state.teamWorkspaceEditor)
+        #expect(teamWorkspaceEditor.sourceBaselineID == sourceBaselineID)
+        #expect(teamWorkspaceEditor.calendarID == calendarID)
+        #expect(teamWorkspaceEditor.sourceBaseline?.id == sourceBaselineID)
+        await waitUntil {
+            store.state.teamWorkspaceEditor?.sourceWorkspaceSummary.availability == .available
+        }
+        expectNoDifference(
+            store.state.teamWorkspaceEditor?.sourceWorkspaceSummary.totalCount,
+            0
+        )
+    }
+
+    @Test
     func sourceWorkspaceDatabaseDoesNotRepairMissingReferenceDatabase() async throws {
         let repositoryURL = try temporarySourceRepositoryURL()
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
@@ -1678,11 +1775,10 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerRefreshesSourceDataAfterPullMerge() async throws {
+    func eventViewerRemovesPullReviewAfterPullMerge() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("viewer-merge-refresh-event")
         let sourceProvenance = sourceProvenance("viewer-merge-refresh-source")
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
         let sourceBaseline = SourceBaselineRecord(
             source: sourceProvenance,
             databaseFileName: "baseline.sqlite",
@@ -1814,14 +1910,8 @@ struct NavigationTests {
             to: \EventViewerHarness.State.eventWorkspace,
             EventWorkspace.Action.mergeTangledPullReviewButtonTapped(review)
         )?.value
-        await waitUntil {
-            refreshedSourceBaselineIDs.withLock { $0 } == [sourceBaselineID]
-        }
-        await waitUntil {
-            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount == 0
-        }
 
-        expectNoDifference(refreshedSourceBaselineIDs.withLock { $0 }, [sourceBaselineID])
+        expectNoDifference(refreshedSourceBaselineIDs.withLock { $0 }, [])
         expectNoDifference(
             mergeRequests.withLock { $0 },
             [
@@ -6742,7 +6832,7 @@ struct NavigationTests {
     }
 
     @Test
-    func whiteLabelRecoveredAuthoringModeUpdatesLaunchRestoredEventViewer() async throws {
+    func whiteLabelLaunchRestoredEventViewerStartsInAuthoringMode() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
 
@@ -6750,6 +6840,12 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.whiteLabelSourceRegistry = WhiteLabelSourceRegistryClient { organizerID in
+                #expect(organizerID == testOrganizerID)
+                return WhiteLabelSourceDescriptor(
+                    reference: .source("tangled.org/woody.fm/test-festival")
+                )
+            }
         } operation: {
             var state = RootHarness.State()
             state.root = OpenMusicEventAppRoot.State(
@@ -6765,13 +6861,6 @@ struct NavigationTests {
                 RootHarness()
             }
         }
-
-        #expect(store.state.root.eventViewer?.state.authoringMode == .attendee)
-        #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == false)
-
-        await store.modify {
-            $0.root.whiteLabelRoot?.state.authoringMode = .authoring(.all)
-        }?.value
 
         #expect(store.state.root.eventViewer?.state.authoringMode == .authoring(.all))
         #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == true)
@@ -6804,6 +6893,27 @@ struct NavigationTests {
             @Dependency(\.defaultDatabase) var database
             return database
         }
+    }
+
+    private func makeFileBackedPreparedDatabase(
+        at databaseURL: URL
+    ) throws -> any DatabaseWriter {
+        let database = try DatabasePool(path: databaseURL.path)
+        var migrator = DatabaseMigrator()
+        OMERecord.DatabaseMigrations.register(into: &migrator)
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+        return database
+    }
+
+    private func makeReferenceDatabase(
+        at databaseURL: URL
+    ) throws -> SourceBaselineDatabase {
+        try SourceReferenceDatabaseClient.prepareReferenceDirectory(for: databaseURL)
+        let database = try defaultBaselineDatabase(path: databaseURL.path)
+        try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(database)
+        return database
     }
 
     private func makeCoreDatabase() throws -> any DatabaseWriter {
@@ -6982,6 +7092,29 @@ struct NavigationTests {
             )
         }
         .execute(db)
+    }
+
+    private nonisolated static func insertLiveWorkspaceSourceFixture(
+        _ db: Database,
+        organizerID: OMERecord.Organizer.ID,
+        calendarID: OMERecord.Calendar.ID,
+        eventID: OMERecord.Event.ID,
+        sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance,
+        importedAt: Date
+    ) throws {
+        try insertOrganizer(db, id: organizerID)
+        try insertEvent(db, id: eventID, name: "Wicked Woods")
+        try insertCalendar(db, id: calendarID, name: "Wicked Woods")
+        try insertSourceBaseline(
+            db,
+            sourceProvenance: sourceProvenance,
+            importedAt: importedAt
+        )
+        try insertEventSourceProvenance(
+            db,
+            eventID: eventID,
+            sourceProvenance: sourceProvenance
+        )
     }
 
     private nonisolated static func insertContributor(

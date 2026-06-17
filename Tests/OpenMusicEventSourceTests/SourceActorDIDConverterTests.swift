@@ -114,6 +114,7 @@ struct SourceActorDIDConverterTests {
             performances:
               main:
               - title: Actor Set
+                startTime: "18:00"
                 contributorActors:
                 - WOODY.FM
                 - did:plc:actor123
@@ -273,9 +274,8 @@ struct SourceActorDIDConverterTests {
 
         #expect(result.didWrite)
         let schedule = try readScheduleFixture(at: repositoryURL)
-        let actors = try #require(schedule.performances["main"]?.first?.contributorActors)
         expectNoDifference(
-            actors.map(\.description),
+            try actorDescriptions(in: schedule),
             [
                 "did:plc:woody123",
                 "did:plc:quoted123",
@@ -370,14 +370,21 @@ struct SourceActorDIDConverterTests {
             ["unresolved.example"]
         )
         let schedule = try readScheduleFixture(at: repositoryURL)
-        let actors = try #require(schedule.performances["main"]?.first?.contributorActors)
         expectNoDifference(
-            actors.map(\.description),
+            try actorDescriptions(in: schedule),
             [
                 "did:plc:woody123",
                 "unresolved.example",
             ]
         )
+    }
+
+    private func actorDescriptions(in schedule: ScheduleDTO) throws -> [String] {
+        let contributors = try #require(schedule.performances["main"]?.first?.contributors)
+        return contributors.compactMap { contributor in
+            guard case let .actor(actor) = contributor.subject else { return nil }
+            return actor.description
+        }
     }
 
     private func writeActorFixture(
