@@ -18,6 +18,8 @@ public struct OpenMusicEventAppRoot {
         public var browser = Spawn(OpenMusicEventBrowser.State())
         public var errorNotifications = Spawn(ErrorNotifications.State())
         public var eventViewer: Spawn<EventViewer>?
+        public var hasRestoredSelectedEventAtLaunch = false
+        public var launchEventViewer: Spawn<EventViewer>?
 
         @FetchOne(AppState.find(1))
         public var appState: AppState?
@@ -44,6 +46,45 @@ public struct OpenMusicEventAppRoot {
     public var body: some Feature {
         let _ = Self._logChanges()
 
+        let clearSelectedEvent: () -> Void = {
+            try? database.write { db in
+                try AppState.update {
+                    $0.organizerID = #bind(nil as OMERecord.Organizer.ID?)
+                    $0.eventID = #bind(nil as OMERecord.ID<OMERecord.Event>?)
+                }
+                .execute(db)
+            }
+        }
+
+        let prefetchAssetsOnOpen: (OMERecord.Event.ID) -> Void = { eventID in
+            store.addTask {
+                do {
+                    try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
+                } catch {
+                }
+            }
+        }
+
+        let openEventViewer: (OMERecord.Event.ID, EventTarget?, inout State) -> Void = { eventID, target, state in
+            store.withDependencies {
+                if state.launchEventViewer != nil {
+                    state.launchEventViewer = Spawn(.route(eventID: eventID, target: target))
+                } else {
+                    state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                }
+            }
+            if state.selectedEventID != eventID {
+                try? database.write { db in
+                    try AppState.update {
+                        $0.organizerID = #bind(eventID.organizerID)
+                        $0.eventID = #bind(eventID.eventID)
+                    }
+                    .execute(db)
+                }
+            }
+            prefetchAssetsOnOpen(eventID)
+        }
+
         Features {
             Update { state, action in
                 switch action {
@@ -52,35 +93,12 @@ public struct OpenMusicEventAppRoot {
 
                 case .eventViewerDismissed:
                     state.eventViewer = nil
-                    try? database.write { db in
-                        try AppState.update {
-                            $0.organizerID = #bind(nil as OMERecord.Organizer.ID?)
-                            $0.eventID = #bind(nil as OMERecord.ID<OMERecord.Event>?)
-                        }
-                        .execute(db)
-                    }
+                    clearSelectedEvent()
 
                 case .handleNavigationRequest(let request):
                     switch request {
                     case let .event(eventID, target):
-                        store.withDependencies {
-                            state.eventViewer = Spawn(.route(eventID: eventID, target: target))
-                        }
-                        if state.selectedEventID != eventID {
-                            try? database.write { db in
-                                try AppState.update {
-                                    $0.organizerID = #bind(eventID.organizerID)
-                                    $0.eventID = #bind(eventID.eventID)
-                                }
-                                .execute(db)
-                            }
-                        }
-                        store.addTask {
-                            do {
-                                try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
-                            } catch {
-                            }
-                        }
+                        openEventViewer(eventID, target, &state)
 
                     case .externalURL:
                         break
@@ -88,22 +106,7 @@ public struct OpenMusicEventAppRoot {
 
                 case .openRoute(let route):
                     if case let .event(eventID, target) = route.navigationRequest {
-                        store.withDependencies {
-                            state.eventViewer = Spawn(.route(eventID: eventID, target: target))
-                        }
-                        try? database.write { db in
-                            try AppState.update {
-                                $0.organizerID = #bind(eventID.organizerID)
-                                $0.eventID = #bind(eventID.eventID)
-                            }
-                            .execute(db)
-                        }
-                        store.addTask {
-                            do {
-                                try await eventImagePrefetch.prefetchAssetsOnOpen(eventID)
-                            } catch {
-                            }
-                        }
+                        openEventViewer(eventID, target, &state)
                     }
 
                 case .openURL(let url):
@@ -137,20 +140,24 @@ public struct OpenMusicEventAppRoot {
             }
         }
         .onChange(of: store.selectedEventID, initial: true) { _, newValue, state in
-            if let newValue {
-                if state.eventViewer?.state.eventID != newValue {
-                    store.withDependencies {
-                        state.eventViewer = Spawn(.route(eventID: newValue, target: nil))
-                    }
+            guard !state.hasRestoredSelectedEventAtLaunch else {
+                if newValue == nil {
+                    state.launchEventViewer = nil
                 }
-                store.addTask {
-                    do {
-                        try await eventImagePrefetch.prefetchAssetsOnOpen(newValue)
-                    } catch {
-                    }
-                }
-            } else {
-                state.eventViewer = nil
+                return
+            }
+
+            state.hasRestoredSelectedEventAtLaunch = true
+            guard let newValue else { return }
+
+            store.withDependencies {
+                state.launchEventViewer = Spawn(.route(eventID: newValue, target: nil))
+            }
+            prefetchAssetsOnOpen(newValue)
+        }
+        .onChange(of: store.launchEventViewer?.state.eventID) { oldValue, newValue, _ in
+            if oldValue != nil, newValue == nil {
+                clearSelectedEvent()
             }
         }
         .onEvent(NavigationRequested.self) { request, _ in
@@ -185,6 +192,10 @@ public struct OpenMusicEventAppRoot {
             EventViewer()
                 .openMusicEventAuthenticatedSession()
         }
+        .ifLet(\.launchEventViewer) {
+            EventViewer()
+                .openMusicEventAuthenticatedSession()
+        }
     }
 }
 
@@ -210,7 +221,11 @@ public struct OpenMusicEventAppRootView: View {
         AuthenticationCoordinatorView(
             store: store.scope(\.authentication, action: \.authentication)
         ) {
-            browserView
+            if let launchEventViewerStore = store.spawn(\.launchEventViewer) {
+                EventViewerView(store: launchEventViewerStore)
+            } else {
+                browserView
+            }
         }
     }
 

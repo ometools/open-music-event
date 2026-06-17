@@ -122,7 +122,7 @@ public struct ImportImages {
             case .saveButtonTapped:
                 guard state.canSave else { return }
 
-                let images = state.images
+                let images = state.images.normalizingIncompleteAppearancePairs()
                 state.errorMessage = nil
                 state.isSaving = true
 
@@ -370,6 +370,17 @@ public extension ImportImages {
                 focalPoint: asset.focalPoint
             )
         }
+    }
+}
+
+extension Collection where Element == ImportImages.ImportedImage {
+    func normalizingIncompleteAppearancePairs() -> [ImportImages.ImportedImage] {
+        zip(self, map(\.asset).normalizingIncompleteAppearancePairs())
+            .map { importedImage, asset in
+                var importedImage = importedImage
+                importedImage.asset = asset
+                return importedImage
+            }
     }
 }
 

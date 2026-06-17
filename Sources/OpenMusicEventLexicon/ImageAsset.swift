@@ -175,6 +175,52 @@ public extension Collection where Element == OpenMusicEvent.ImageAsset {
 
         return first(where: { $0.role == role })
     }
+
+    func normalizingIncompleteAppearancePairs() -> [OpenMusicEvent.ImageAsset] {
+        var appearancesByKey: [String: AppearancePairCompleteness] = [:]
+
+        for image in self {
+            guard let appearance = image.appearance else { continue }
+            appearancesByKey[image.appearancePairKey, default: AppearancePairCompleteness()]
+                .insert(appearance)
+        }
+
+        return map { image in
+            guard image.appearance != nil,
+                  appearancesByKey[image.appearancePairKey]?.isComplete != true
+            else {
+                return image
+            }
+
+            var image = image
+            image.appearance = nil
+            return image
+        }
+    }
+}
+
+private struct AppearancePairCompleteness {
+    var hasDark = false
+    var hasLight = false
+
+    var isComplete: Bool {
+        hasDark && hasLight
+    }
+
+    mutating func insert(_ appearance: OpenMusicEvent.ImageAsset.Appearance) {
+        switch appearance {
+        case .dark:
+            hasDark = true
+        case .light:
+            hasLight = true
+        }
+    }
+}
+
+private extension OpenMusicEvent.ImageAsset {
+    var appearancePairKey: String {
+        "\(role.rawValue)|\(renderKind.rawValue)"
+    }
 }
 
 public extension OpenMusicEvent.Event {

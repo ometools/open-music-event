@@ -60,3 +60,51 @@ public struct SourceImageAsset: Codable, Equatable, Sendable {
     public var thumbhash: String?
     public var focalPoint: OMERecord.ImageAsset.FocalPoint?
 }
+
+public extension Collection where Element == SourceImageAsset {
+    func normalizingIncompleteAppearancePairs() -> [SourceImageAsset] {
+        var appearancesByKey: [String: SourceImageAppearancePairCompleteness] = [:]
+
+        for image in self {
+            guard let appearance = image.appearance else { continue }
+            appearancesByKey[image.appearancePairKey, default: SourceImageAppearancePairCompleteness()]
+                .insert(appearance)
+        }
+
+        return map { image in
+            guard image.appearance != nil,
+                  appearancesByKey[image.appearancePairKey]?.isComplete != true
+            else {
+                return image
+            }
+
+            var image = image
+            image.appearance = nil
+            return image
+        }
+    }
+}
+
+private struct SourceImageAppearancePairCompleteness {
+    var hasDark = false
+    var hasLight = false
+
+    var isComplete: Bool {
+        hasDark && hasLight
+    }
+
+    mutating func insert(_ appearance: OMERecord.ImageAsset.Appearance) {
+        switch appearance {
+        case .dark:
+            hasDark = true
+        case .light:
+            hasLight = true
+        }
+    }
+}
+
+private extension SourceImageAsset {
+    var appearancePairKey: String {
+        "\(role.rawValue)|\(renderKind.rawValue)"
+    }
+}

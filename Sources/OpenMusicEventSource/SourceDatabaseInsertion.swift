@@ -615,7 +615,7 @@ public extension OME {
             parentLocalID: String,
             sourceDirectoryURL: URL?
         ) throws -> [OME.ImageAsset]? {
-            let images = try sourceImages?.map { image in
+            let images = try sourceImages?.normalizingIncompleteAppearancePairs().map { image in
                 let assetKey = image.assetKey
                     ?? makeAssetKey(
                         organizerID: organizerID,

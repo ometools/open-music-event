@@ -3333,7 +3333,7 @@ struct NavigationTests {
     }
 
     @Test
-    func dismissClearsSelectedEvent() async throws {
+    func launchRestoreMountsLaunchEventViewer() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         try await database.write { db in
@@ -3345,7 +3345,44 @@ struct NavigationTests {
         }
 
         let store = makeRootHarnessStore(database: database, eventID: eventID)
+        #expect(store.state.root.launchEventViewer?.state.eventID == eventID)
+        #expect(store.state.root.eventViewer == nil)
+    }
+
+    @Test
+    func launchEventViewerDismissClearsSelectedEvent() async throws {
+        let eventID = eventID("event-1")
+        let database = try makePreparedDatabase()
+        try await database.write { db in
+            try AppState.update {
+                $0.organizerID = #bind(eventID.organizerID)
+                $0.eventID = #bind(eventID.eventID)
+            }
+            .execute(db)
+        }
+
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+        #expect(store.state.root.launchEventViewer?.state.eventID == eventID)
+
+        await store.modify {
+            $0.root.launchEventViewer = nil
+        }?.value
+
+        let appState = try await database.read { db in
+            try AppState.fetchOne(db)
+        }
+        #expect(appState?.selectedEventID == nil)
+    }
+
+    @Test
+    func modalEventViewerDismissClearsSelectedEvent() async throws {
+        let eventID = eventID("event-1")
+        let database = try makePreparedDatabase()
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+
+        store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
         #expect(store.state.root.eventViewer?.state.eventID == eventID)
+        #expect(store.state.root.launchEventViewer == nil)
 
         store.send(.root(.eventViewerDismissed))
 

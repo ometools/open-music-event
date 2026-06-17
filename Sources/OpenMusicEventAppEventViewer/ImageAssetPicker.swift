@@ -93,6 +93,7 @@ public struct ImageAssetPicker {
             _ imageValues: [ImageValue],
             context: LocalImageCacheContext
         ) throws -> (images: [OMERecord.ImageAsset], blobs: [LocalImageBlob]) {
+            let imageValues = imageValues.normalizingIncompleteAppearancePairs()
             var assets: [OMERecord.ImageAsset] = []
             var blobs: [LocalImageBlob] = []
 
@@ -260,6 +261,18 @@ public struct ImageAssetPicker {
                 }
             }
         }
+    }
+}
+
+private extension Array where Element == ImageAssetPicker.ImageValue {
+    func normalizingIncompleteAppearancePairs() -> Self {
+        zip(self, map(\.asset).normalizingIncompleteAppearancePairs())
+            .map { imageValue, asset in
+                var imageValue = imageValue
+                imageValue.asset = asset
+                imageValue.importedImage?.asset = asset
+                return imageValue
+            }
     }
 }
 
