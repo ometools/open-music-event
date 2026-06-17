@@ -1,0 +1,4 @@
+# Skip configuration for OpenMusicEventWhiteLabelApp module
+
+skip:
+  mode: 'native'

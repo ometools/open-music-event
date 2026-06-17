@@ -19,6 +19,7 @@ let package = Package(
         .library(name: "OpenMusicEventSourceEditing", targets: ["OpenMusicEventSourceEditing"]),
         .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
         .library(name: "OpenMusicEventWhiteLabel", targets: ["OpenMusicEventWhiteLabel"]),
+        .library(name: "OpenMusicEventWhiteLabelApp", targets: ["OpenMusicEventWhiteLabelApp"]),
         .library(name: "ErrorHandling", targets: ["ErrorHandling"]),
         .library(name: "SourceEditing", targets: ["SourceEditing"]),
         .library(name: "LiquidGlassSegmentedPicker", targets: ["LiquidGlassSegmentedPicker"]),
@@ -189,13 +190,21 @@ let package = Package(
         .target(
             name: "OpenMusicEventWhiteLabel",
             dependencies: [
-                "BlueskyActorCache",
-                "OpenMusicEventAppEventViewer",
+                "OpenMusicEventLexicon",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "OpenMusicEventWhiteLabelApp",
+            dependencies: [
+                "OpenMusicEventApp",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
                 "OpenMusicEventSourceClone",
                 "OpenMusicEventSourceEditing",
+                "OpenMusicEventWhiteLabel",
                 "SourceEditing",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
@@ -370,8 +379,10 @@ let package = Package(
         .testTarget(
             name: "OpenMusicEventWhiteLabelTests",
             dependencies: [
+                "OpenMusicEventApp",
                 "OpenMusicEventAppEventViewer",
                 "OpenMusicEventWhiteLabel",
+                "OpenMusicEventWhiteLabelApp",
                 .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
             ]
         ),

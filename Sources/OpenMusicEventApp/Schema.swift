@@ -1,4 +1,5 @@
 import BlueskyActorCache
+import Dependencies
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -57,7 +58,7 @@ extension DependencyValues {
         #endif
         OME.DatabaseMigrations.register(into: &migrator)
         BlueskyActorCacheMigrations.register(into: &migrator)
-        registerOpenMusicEventAppMigrations(into: &migrator)
+        OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
 
         try migrator.migrate(database)
         try database.write { db in
@@ -67,8 +68,15 @@ extension DependencyValues {
     }
 }
 
-private func registerOpenMusicEventAppMigrations(into migrator: inout DatabaseMigrator) {
-    migrator.registerMigration("Create OpenMusicEvent app schema") { db in
+public enum OpenMusicEventAppDependencies {
+    public static func prepareDatabase(_ dependencies: inout DependencyValues) throws {
+        try dependencies.bootstrapDatabase()
+    }
+}
+
+public enum OpenMusicEventAppDatabaseMigrations {
+    public static func register(into migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("Create OpenMusicEvent app schema") { db in
         try #sql("""
             CREATE TABLE IF NOT EXISTS "organizerPreferences" (
               "organizerID" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
@@ -192,6 +200,7 @@ private func registerOpenMusicEventAppMigrations(into migrator: inout DatabaseMi
             ) STRICT
             """)
             .execute(db)
+        }
     }
 }
 

@@ -6,8 +6,12 @@ import OpenMusicEventLexicon
 import SQLiteData
 import Testing
 
+@testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
 @testable import OpenMusicEventWhiteLabel
+@testable import OpenMusicEventWhiteLabelApp
+
+private typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
 @MainActor
 struct WhiteLabelRootTests {
@@ -29,7 +33,7 @@ struct WhiteLabelRootTests {
       }?.value
 
       #expect(store.state.isLoading == false)
-      #expect(store.state.events.isEmpty)
+      #expect(store.state.organizationRoot?.state.organizerID == nil)
       #expect(
         store.state.errorMessage
           == WhiteLabelError.sourceRegistryUnconfigured(organizerID).localizedDescription)
@@ -78,8 +82,8 @@ struct WhiteLabelRootTests {
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
       #expect(store.state.organizerID == organizerID)
+      #expect(store.state.organizationRoot?.state.organizerID == organizerID)
       #expect(store.state.errorMessage == nil)
-      #expect(store.state.events.map { $0.name } == ["Wicked Woods 2025"])
     }
   }
 
@@ -116,6 +120,39 @@ struct WhiteLabelRootTests {
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
       #expect(store.state.organizerID == organizerID)
+      #expect(store.state.organizationRoot?.state.organizerID == organizerID)
+      #expect(store.state.errorMessage == nil)
+    }
+  }
+
+  @Test
+  func tangledSourceDescriptorIsAllowedOutsideDevelopmentOverride() async throws {
+    try await withNonExhaustiveTest {
+      let database = try makePreparedDatabase()
+      let organizerID = organizerID("wickedwoods")
+      let descriptor = WhiteLabelSourceDescriptor(
+        reference: .source("https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome")
+      )
+      let recorder = SourceImportRecorder()
+
+      let store = makeStore(
+        configuration: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
+        database: database
+      ) {
+        $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
+        $0.whiteLabelSourceImport = WhiteLabelSourceImportClient {
+          importedOrganizerID, importedDescriptor in
+          await recorder.record(organizerID: importedOrganizerID, descriptor: importedDescriptor)
+          return []
+        }
+      }
+
+      await store.send(WhiteLabelRoot.Action.task) {
+        $0.isLoading = true
+      }?.value
+
+      #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
+      #expect(store.state.organizationRoot?.state.organizerID == organizerID)
       #expect(store.state.errorMessage == nil)
     }
   }
@@ -145,12 +182,12 @@ struct WhiteLabelRootTests {
         store.state.errorMessage
           == WhiteLabelError.directSourceRequiresDevelopmentOverride(organizerID)
           .localizedDescription)
-      #expect(store.state.events.isEmpty)
+      #expect(store.state.organizationRoot?.state.organizerID == nil)
     }
   }
 
   @Test
-  func eventButtonPresentsEventViewer() async throws {
+  func eventNavigationPresentsEventViewer() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()
       let organizerID = organizerID("wickedwoods")
@@ -189,9 +226,13 @@ struct WhiteLabelRootTests {
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
       }?.value
-      store.send(WhiteLabelRoot.Action.eventButtonTapped(selectedEventID))
+      await store.send(
+        to: \.organizationRoot,
+        .handleNavigationRequest(.event(selectedEventID, nil))
+      )?.value
 
-      #expect(store.state.eventViewer?.state.eventID == selectedEventID)
+      #expect(store.state.organizationRoot?.state.organizerID == organizerID)
+      #expect(store.state.organizationRoot?.state.eventViewer?.state.eventID == selectedEventID)
     }
   }
 
@@ -222,7 +263,7 @@ struct WhiteLabelRootTests {
       let database = try SQLiteData.defaultDatabase()
       var migrator = DatabaseMigrator()
       OMERecord.DatabaseMigrations.register(into: &migrator)
-      WhiteLabelDatabaseMigrations.register(into: &migrator)
+      OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
       try migrator.migrate(database)
       return database
     }

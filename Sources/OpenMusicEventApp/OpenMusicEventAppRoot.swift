@@ -216,7 +216,6 @@ public struct OpenMusicEventAppRootView: View {
 
     @ViewBuilder
     private var browserView: some View {
-        #if os(iOS)
         OpenMusicEventBrowserView(store: store.spawn(\.browser))
             .fullScreenCover(
                 isPresented: eventViewerIsPresented,
@@ -228,19 +227,6 @@ public struct OpenMusicEventAppRootView: View {
                     EventViewerView(store: eventViewerStore)
                 }
             }
-        #else
-        OpenMusicEventBrowserView(store: store.spawn(\.browser))
-            .sheet(
-                isPresented: eventViewerIsPresented,
-                onDismiss: {
-                    store.send(.eventViewerDismissed)
-                }
-            ) {
-                if let eventViewerStore = store.spawn(\.eventViewer) {
-                    EventViewerView(store: eventViewerStore)
-                }
-            }
-        #endif
     }
 
     private var eventViewerIsPresented: Binding<Bool> {
