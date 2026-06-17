@@ -504,9 +504,12 @@ private struct SourceImageReferenceContext: Sendable {
     var parentKind: SourceImageParentKind
     var parentLocalID: String
 
-    func assetKey(for sourceImage: SourceImageAsset) -> String {
+    func assetKey(
+        for sourceImage: SourceImageAsset,
+        variant: SourceImageAsset.VariantPayload
+    ) -> String {
         // Mirrors source insertion's inferred key for source file image assets.
-        if let assetKey = sourceImage.assetKey {
+        if let assetKey = variant.payload.assetKey {
             return assetKey
         }
 
@@ -518,7 +521,7 @@ private struct SourceImageReferenceContext: Sendable {
             parentKind.rawValue,
             parentLocalID,
             sourceImage.role.rawValue,
-            sourceImage.appearance?.rawValue ?? "default",
+            variant.appearance?.rawValue ?? "default",
         ])
         return components
             .joined(separator: "|")
@@ -610,8 +613,9 @@ private extension Array where Element == SourceImageAsset {
         from source: [SourceImageAsset]?,
         context: SourceImageReferenceContext
     ) -> [SourceImageAsset] {
-        guard var source else { return self }
-        return map { image in
+        let images = bundlingAppearancePairs()
+        guard var source = source?.bundlingAppearancePairs() else { return images }
+        return images.map { image in
             guard let sourceIndex = source.firstIndex(where: {
                 image.canPreserveSourceImageReference(
                     from: $0,
@@ -627,7 +631,7 @@ private extension Array where Element == SourceImageAsset {
     }
 
     func removingLocalFileURLImages() -> [SourceImageAsset]? {
-        let images = filter { !$0.source.isLocalFileURL }
+        let images = filter { !$0.hasLocalFileURL }
         return images.isEmpty ? nil : images
     }
 }
@@ -636,10 +640,15 @@ private extension SourceImageAsset {
     func preservingSourceImageReference(
         from sourceImage: SourceImageAsset
     ) -> Self {
-        var image = self
-        image.assetKey = sourceImage.assetKey
-        image.source = sourceImage.source
-        return image
+        mapPayloads { payload, appearance in
+            guard let sourcePayload = sourceImage.payload(for: appearance) else {
+                return payload
+            }
+            var payload = payload
+            payload.assetKey = sourcePayload.assetKey
+            payload.source = sourcePayload.source
+            return payload
+        }
     }
 
     func canPreserveSourceImageReference(
@@ -647,15 +656,37 @@ private extension SourceImageAsset {
         context: SourceImageReferenceContext
     ) -> Bool {
         guard role == sourceImage.role,
-              appearance == sourceImage.appearance
+              renderKind == sourceImage.renderKind,
+              materializationPolicy == sourceImage.materializationPolicy,
+              payloads.map(\.appearance) == sourceImage.payloads.map(\.appearance)
         else { return false }
 
-        if let assetKey,
-           assetKey == context.assetKey(for: sourceImage) {
-            return true
+        for variant in payloads {
+            guard let sourcePayload = sourceImage.payload(for: variant.appearance) else {
+                return false
+            }
+
+            let sourceVariant = SourceImageAsset.VariantPayload(
+                appearance: variant.appearance,
+                payload: sourcePayload
+            )
+            if let assetKey = variant.payload.assetKey,
+               assetKey == context.assetKey(for: sourceImage, variant: sourceVariant) {
+                continue
+            }
+
+            guard variant.payload.source.isEquivalentSourceImageReference(to: sourcePayload.source) else {
+                return false
+            }
         }
 
-        return source.isEquivalentSourceImageReference(to: sourceImage.source)
+        return true
+    }
+
+    var hasLocalFileURL: Bool {
+        payloads.contains {
+            $0.payload.source.isLocalFileURL
+        }
     }
 }
 

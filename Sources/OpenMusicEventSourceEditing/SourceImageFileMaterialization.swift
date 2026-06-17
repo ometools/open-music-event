@@ -113,44 +113,49 @@ private extension OpenMusicEventSourceRepository {
         parentFileName: String,
         usedPaths: inout Set<String>
     ) throws -> SourceImageAsset {
-        guard case let .url(url) = image.source, url.isFileURL else {
-            if case let .file(path) = image.source {
-                usedPaths.insert(path)
+        try image.mapPayloads { payload, appearance in
+            guard case let .url(url) = payload.source, url.isFileURL else {
+                if case let .file(path) = payload.source {
+                    usedPaths.insert(path)
+                }
+                return payload
             }
-            return image
+
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue
+            else {
+                throw SourceImageFileMaterializationError.missingLocalImageFile(url)
+            }
+
+            let sourcePath = materializedImagePath(
+                for: image,
+                appearance: appearance,
+                parentFileName: parentFileName,
+                sourceURL: url,
+                usedPaths: &usedPaths
+            )
+            let destinationURL = sourceDirectoryURL.appending(path: sourcePath)
+            try FileManager.default.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(contentsOf: url).write(to: destinationURL, options: .atomic)
+
+            var payload = payload
+            payload.assetKey = nil
+            payload.source = .file(sourcePath)
+            return payload
         }
-
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              !isDirectory.boolValue
-        else {
-            throw SourceImageFileMaterializationError.missingLocalImageFile(url)
-        }
-
-        let sourcePath = materializedImagePath(
-            for: image,
-            parentFileName: parentFileName,
-            sourceURL: url,
-            usedPaths: &usedPaths
-        )
-        let destinationURL = sourceDirectoryURL.appending(path: sourcePath)
-        try FileManager.default.createDirectory(
-            at: destinationURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data(contentsOf: url).write(to: destinationURL, options: .atomic)
-
-        var image = image
-        image.assetKey = nil
-        image.source = .file(sourcePath)
-        return image
     }
 
     static func sourceImageFilePaths(in images: [SourceImageAsset]?) -> Set<String> {
         var paths = Set<String>()
         for image in images ?? [] {
-            if case let .file(path) = image.source {
-                paths.insert(path)
+            for variant in image.payloads {
+                if case let .file(path) = variant.payload.source {
+                    paths.insert(path)
+                }
             }
         }
         return paths
@@ -158,6 +163,7 @@ private extension OpenMusicEventSourceRepository {
 
     static func materializedImagePath(
         for image: SourceImageAsset,
+        appearance: OMERecord.ImageAsset.Appearance?,
         parentFileName: String,
         sourceURL: URL,
         usedPaths: inout Set<String>
@@ -165,7 +171,7 @@ private extension OpenMusicEventSourceRepository {
         let base = [
             parentFileName.fileSafeSourceImagePathComponent,
             image.role.rawValue.fileSafeSourceImagePathComponent,
-            image.appearance?.rawValue.fileSafeSourceImagePathComponent,
+            appearance?.rawValue.fileSafeSourceImagePathComponent,
         ]
         .compactMap { $0 }
         .filter { !$0.isEmpty }
@@ -225,8 +231,10 @@ private extension OpenMusicEventSourceEvent {
             paths.formUnion(OpenMusicEventSourceRepository.sourceImageFilePaths(in: contributor.data.images))
         }
         for poster in event.posters ?? [] {
-            if case let .file(path) = poster.data.image.source {
-                paths.insert(path)
+            for variant in poster.data.image.payloads {
+                if case let .file(path) = variant.payload.source {
+                    paths.insert(path)
+                }
             }
         }
     }

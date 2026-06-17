@@ -754,7 +754,6 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(roundTripped.calendar, repository.calendar)
     }
 
-    @Test
     func sourceImagesNormalizeIncompleteAppearancePairs() throws {
         let lightHero = SourceImageAsset(
             source: .url(try #require(URL(string: "https://example.com/light.png"))),
@@ -785,6 +784,132 @@ struct OpenMusicEventSourceTests {
             normalized.map(\.appearance),
             [.light, .dark, nil]
         )
+    }
+
+    @Test
+    func readsBundledAppearanceSourceImageAssets() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        try """
+        name: Appearance Calendar
+        images:
+        - role: logo
+          renderKind: transparent
+          materializationPolicy: lazy
+          appearances:
+            light:
+              source:
+                file: images/logo-light.png
+            dark:
+              source:
+                file: images/logo-dark.png
+        """
+            .write(to: repositoryURL.appending(path: "calendar.yml"), atomically: true, encoding: .utf8)
+
+        let repository = try OpenMusicEventSourceRepositoryFileTree()
+            .read(from: repositoryURL)
+            .output
+            .requiredValue
+        let calendar = try #require(repository.calendar)
+        let logo = try #require(calendar.images?.first)
+        let appearances = try #require(logo.appearances)
+
+        expectNoDifference(appearances.light.source, .file("images/logo-light.png"))
+        expectNoDifference(appearances.dark.source, .file("images/logo-dark.png"))
+
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let draft = calendar.recordDraft(ownerID: organizerID)
+        expectNoDifference(
+            draft.images?.map(\.appearance),
+            [.light, .dark]
+        )
+        expectNoDifference(draft.images?.count, 2)
+
+        let outputURL = try temporaryRepositoryURL()
+        _ = try OpenMusicEventSourceRepositoryFileTree().write(repository, to: outputURL)
+        let roundTripped = try OpenMusicEventSourceRepositoryFileTree()
+            .read(from: outputURL)
+            .output
+            .requiredValue
+        expectNoDifference(roundTripped.calendar, repository.calendar)
+    }
+
+    @Test
+    func readsLegacyFlatAppearanceImagePairsAsBundledSourceImageAssets() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        try """
+        name: Legacy Appearance Calendar
+        images:
+        - role: logo
+          renderKind: transparent
+          appearance: light
+          materializationPolicy: lazy
+          source:
+            file: images/logo-light.png
+        - role: logo
+          renderKind: transparent
+          appearance: dark
+          materializationPolicy: lazy
+          source:
+            file: images/logo-dark.png
+        """
+            .write(to: repositoryURL.appending(path: "calendar.yml"), atomically: true, encoding: .utf8)
+
+        let repository = try OpenMusicEventSourceRepositoryFileTree()
+            .read(from: repositoryURL)
+            .output
+            .requiredValue
+        let calendar = try #require(repository.calendar)
+        let logo = try #require(calendar.images?.first)
+        let appearances = try #require(logo.appearances)
+
+        expectNoDifference(calendar.images?.count, 1)
+        expectNoDifference(appearances.light.source, .file("images/logo-light.png"))
+        expectNoDifference(appearances.dark.source, .file("images/logo-dark.png"))
+    }
+
+    @Test
+    func sourceImagesBundleFlatRuntimeAppearancePairs() throws {
+        let lightURL = try #require(URL(string: "https://example.com/logo-light.png"))
+        let darkURL = try #require(URL(string: "https://example.com/logo-dark.png"))
+        let sourceImages = [
+            OME.ImageAsset(
+                source: .url(lightURL),
+                role: .logo,
+                renderKind: .transparent,
+                appearance: .light,
+                materializationPolicy: .lazy
+            ),
+            OME.ImageAsset(
+                source: .url(darkURL),
+                role: .logo,
+                renderKind: .transparent,
+                appearance: .dark,
+                materializationPolicy: .lazy
+            ),
+        ]
+        .sourceImageAssets()
+
+        let sourceImage = try #require(sourceImages.first)
+        let appearances = try #require(sourceImage.appearances)
+        expectNoDifference(sourceImages.count, 1)
+        expectNoDifference(appearances.light.source, .url(lightURL))
+        expectNoDifference(appearances.dark.source, .url(darkURL))
+    }
+
+    @Test
+    func incompleteAppearanceSourceImageFallsBackToStandard() throws {
+        let sourceImages = [
+            SourceImageAsset(
+                source: .url(try #require(URL(string: "https://example.com/logo-light.png"))),
+                role: .logo,
+                renderKind: .transparent,
+                appearance: .light,
+                materializationPolicy: .lazy
+            )
+        ]
+
+        let image = try #require(sourceImages.recordImageAssets().first)
+        expectNoDifference(image.appearance, nil)
     }
 
     @Test
