@@ -13,6 +13,7 @@ kanban-plugin: board
 ## Planned
 
 - [ ] [[roadmap/OME-063-source-backed-event-creation-for-wicked-woods-2026|OME-063: Source-Backed Event Creation for Wicked Woods 2026]]
+- [ ] [[roadmap/OME-064-openmusicevent-feedback-board|OME-064: OpenMusicEvent.app Feedback Board]]
 - [ ] [[roadmap/OME-027-real-atproto-record-publishing|OME-027: Real ATProto Record Publishing]]
 - [ ] [[roadmap/OME-028-appview-indexing-service|OME-028: AppView / Indexing Service]]
 - [ ] [[roadmap/OME-029-organizer-collaboration-workflows|OME-029: Organizer Collaboration Workflows]]
