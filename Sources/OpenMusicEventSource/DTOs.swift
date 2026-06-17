@@ -21,7 +21,7 @@ public struct CalendarDTO: Codable, Equatable, Sendable {
         self.init(
             name: draft.name,
             description: draft.description,
-            images: draft.images?.map(SourceImageAsset.init)
+            images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs()
         )
     }
 
@@ -29,7 +29,7 @@ public struct CalendarDTO: Codable, Equatable, Sendable {
         self.init(
             name: calendar.name,
             description: calendar.description,
-            images: calendar.images?.map(SourceImageAsset.init)
+            images: calendar.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs()
         )
     }
 
@@ -139,7 +139,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
             locations: draft.locations,
             uris: draft.uris,
             timeZone: draft.timeZone,
-            images: draft.images?.map(SourceImageAsset.init),
+            images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs(),
             contactNumbers: draft.contactNumbers,
             categoryConfigs: draft.categoryConfigs,
             policies: draft.policies,
@@ -359,7 +359,7 @@ public struct StageDTO: Codable, Equatable, Sendable {
             color: draft.color,
             category: draft.category,
             sortIndex: draft.sortIndex,
-            images: draft.images?.map(SourceImageAsset.init),
+            images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs(),
             systemIconName: draft.systemIconName,
             iconShortCode: draft.iconShortCode,
             lineup: draft.lineup
@@ -517,7 +517,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
             id: draft.id,
             name: draft.name,
             bio: draft.bio,
-            images: draft.images?.map(SourceImageAsset.init),
+            images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs(),
             kind: draft.kind,
             links: draft.links
         )
@@ -649,7 +649,7 @@ public struct PosterDTO: Codable, Equatable, Sendable {
         self.init(
             id: draft.id,
             title: draft.title,
-            image: SourceImageAsset(draft.image)
+            image: [SourceImageAsset(draft.image)].normalizingIncompleteAppearancePairs()[0]
         )
     }
 

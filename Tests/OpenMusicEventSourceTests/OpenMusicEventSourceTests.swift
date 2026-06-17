@@ -442,6 +442,39 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
+    func sourceImagesNormalizeIncompleteAppearancePairs() throws {
+        let lightHero = SourceImageAsset(
+            source: .url(try #require(URL(string: "https://example.com/light.png"))),
+            role: .hero,
+            renderKind: .fullImage,
+            appearance: .light,
+            materializationPolicy: .lazy
+        )
+        let darkHero = SourceImageAsset(
+            source: .url(try #require(URL(string: "https://example.com/dark.png"))),
+            role: .hero,
+            renderKind: .fullImage,
+            appearance: .dark,
+            materializationPolicy: .lazy
+        )
+        let loneDarkLogo = SourceImageAsset(
+            source: .url(try #require(URL(string: "https://example.com/logo-dark.png"))),
+            role: .logo,
+            renderKind: .transparent,
+            appearance: .dark,
+            materializationPolicy: .lazy
+        )
+
+        let normalized = [lightHero, darkHero, loneDarkLogo]
+            .normalizingIncompleteAppearancePairs()
+
+        expectNoDifference(
+            normalized.map(\.appearance),
+            [.light, .dark, nil]
+        )
+    }
+
+    @Test
     func contributorMarkdownWriteEmitsFrontMatterAndBody() throws {
         let contributor = try contributorFile(
             name: "Artist One",

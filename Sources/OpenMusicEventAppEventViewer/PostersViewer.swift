@@ -132,6 +132,7 @@ public struct PostersViewer {
         eventID: OMERecord.Event.ID,
         database: any DatabaseWriter
     ) async throws {
+        let images = images.normalizingIncompleteAppearancePairs()
         try await database.write { db in
             var usedPosterIDs = Set(
                 try Self.postersQuery(eventID: eventID)
@@ -367,7 +368,7 @@ public struct EditPoster {
             return OMERecord.Poster.Draft(
                 id: posterID,
                 title: trimmedTitle.nilIfEmpty,
-                image: image
+                image: [image].normalizingIncompleteAppearancePairs()[0]
             )
         }
     }

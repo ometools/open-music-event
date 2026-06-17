@@ -1,41 +1,44 @@
-# OME Blender Starter Model
+# OME Blender Logo Blockout
 
-This folder contains a simple generated Blender scene for exploring the Open Music Event logo as a dimensional motion asset.
+This folder contains Blender working files for exploring the Open Music Event logo as a dimensional motion asset.
 
-The first goal is not an exact production model. It is a low-friction starting point with named, separated parts that can be edited by hand in Blender or used as source material for TouchDesigner.
+The current model direction is user-authored in Blender 5.1.2. Do not treat AI-generated geometry, scripts, or scene files as the source of truth unless Woody explicitly asks for that.
+
+The first goal is not an exact production model. It is a low-friction blockout with separated parts that can be refined by hand in Blender and later used as source material for TouchDesigner.
 
 ## Files
 
-- `ome_logo_starter_model.py` generates the scene.
-- `ome-logo-starter-model.blend` is the generated Blender file.
-- `ome-logo-starter-model.glb` is a portable export for other tools.
-- `ome-logo-starter-preview.png` is a rendered preview frame.
+- `OME-3d-Logo.blend` is the current working Blender file.
+- `OME-3d-Logo-blockout-portal-cage.blend` is an earlier blockout milestone for the portal cage.
+- `OME-3d-Logo.blend1` is Blender's local backup file.
+- `ome_logo_starter_model.py` is historical scaffolding from an abandoned generated-starter attempt. Do not build on it unless explicitly requested.
 
-## Regenerate
+## Current Shape Direction
 
-From the repo root:
+- Four-prong spherical claw/cage around a glowing inner portal.
+- The front prong crosses in front of the portal.
+- The portal is the light source inside the cage, not a hole in the cage.
+- The `O` and `E` are smoked-glass side forms around the portal cage.
+- The bottom `OPEN MUSIC EVENT` wordmark is a supporting lockup, not the hero.
 
-```sh
-/Applications/Blender.app/Contents/MacOS/Blender --background --python Docs/design/blender/ome_logo_starter_model.py
-```
+## Material And Lighting Direction
 
-## Model Shape
-
-The scene is split into collections:
-
-- `00_reference`: locked image plane using the final mark snapshot.
-- `10_logo_geometry`: simple torus, curve, rounded-box, beam, ring, and wordmark geometry.
-- `20_controls`: a named empty with handoff parameters for TouchDesigner.
-- `30_lights_camera`: orthographic camera and a soft light.
-
-Useful first edits in Blender:
-
-- Move the `portal left arch tube` and `portal right arch tube` curves until the central portal feels right.
-- Adjust the `left O loop` torus scale and position.
-- Tune the three `right E` rounded bars.
-- Hide or lower the opacity of `reference_final_mark_image_locked` once the model starts matching the mark.
-- Keep object names stable if TouchDesigner starts referencing them.
+- The geometry should be able to go nearly invisible against black.
+- Reveal the logo with lighting: portal glow, grazing lights, rim lights, and spectral reflections.
+- Keep the material dark smoked glass rather than bright colored plastic.
+- Let cyan/blue, violet, rose, and gold appear from lights and reflections.
+- Use higher samples and denoise for final stills; viewport speckle is expected with glass/transparent previews.
 
 ## TouchDesigner Handoff
 
-Treat Blender as the source for rough dimensional geometry and materials. Treat TouchDesigner as the place where the logo comes alive through beam intensity, ring pulse, gradient phase, bloom, audio input, and state-driven animation.
+Treat Blender as the source for manually authored dimensional geometry and material look. Treat TouchDesigner as the place where the logo comes alive through beam intensity, ring pulse, gradient phase, bloom, audio input, and state-driven animation.
+
+Useful future animation handles:
+
+- Portal intensity.
+- Cage rotation or opening.
+- Front-prong silhouette against the portal core.
+- `O` and `E` spectral shimmer.
+- Horizontal beam intensity.
+- Refraction ring pulse.
+- Bloom and audio-reactive passes.

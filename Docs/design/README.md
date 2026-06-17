@@ -29,6 +29,8 @@ See [[logo|Logo]] for the detailed logo notes, references, constraints, and asse
 
 - The center portal/M mark is the strongest identity element and should be explored as a motion and transition motif.
 - The spectral/rainbow light treatment should behave like refraction, signal, or portal light rather than becoming the app's permanent accent color.
+- The Blender model direction is a user-authored smoked-glass logo: a four-prong spherical cage around an inner white/cyan portal, with the front prong crossing in front.
+- The dimensional logo should be nearly invisible on black until revealed by portal glow, grazing light, rim light, and subtle spectral accents.
 - OME app chrome should stay calm, native, precise, and utilitarian.
 - Event surfaces should be able to adopt each event's own palette, logo, and imagery.
 - Liquid Glass on iOS can carry some refraction and depth in a few high-value places.

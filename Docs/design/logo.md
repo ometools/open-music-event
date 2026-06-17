@@ -117,6 +117,41 @@ Open questions:
 - Which single app moment should inherit the first motion idea: launch, event open, import/sync, auth handoff, or QR entry?
 - Should the portal react to real audio or schedule state later, or stay purely state-driven?
 
+## Blender Model Direction
+
+The current Blender direction treats the final mark as dimensional glass and light, not as a flat logo extrusion. The model work is user-authored in Blender 5.1.2; do not treat any AI-generated starter script as the source of truth.
+
+Settled shape direction:
+
+- The center mark is a four-prong spherical claw or cage around an inner portal.
+- The front prong crosses in front of the portal core.
+- The portal is the glowing object inside the cage, not a cutout or aperture in the front surface.
+- The `O` and `E` are supporting smoked-glass side forms around the cage.
+- The bottom `OPEN MUSIC EVENT` wordmark is a supporting lockup and can use the same glass/light language, but it should stay quieter than the portal.
+
+Material and lighting direction:
+
+- The logo geometry should be able to go nearly invisible against a black field.
+- Legibility should come from grazing light, rim light, portal glow, and spectral reflections rather than bright base colors.
+- Use dark smoked glass for the `O`, `E`, cage, and wordmark body.
+- Use the portal core as a white/cyan light source inside the cage.
+- Add spectral color through lighting and reflections: cyan/blue rim, violet rim, and subtle rose/gold accent.
+- Keep the background dark and restrained so the mark appears when light reveals it.
+- Render noise from glass/transparent materials is expected during preview; final stills should use higher samples and denoise.
+
+Useful lighting roles:
+
+- Portal light: inside the cage; white/cyan; reveals the inner cage and front-prong silhouette.
+- Rim lights: behind or side-grazing; blue, cyan, or violet; reveal the outside contours of the `O`, cage, and `E`.
+- Warm accent: low and subtle; rose or gold; preserves the spectral mark without turning the UI into a neon theme.
+- Wordmark light: low, glancing, or duplicated as a faint emission layer so the letters can appear from darkness without becoming flat white text.
+
+Automation and handoff:
+
+- Keep major objects separate and named for later TouchDesigner control.
+- Likely animation handles: portal intensity, front-prong silhouette, cage rotation or opening, O/E shimmer, beam intensity, ring pulse, gradient phase, bloom, and audio-reactive experiments.
+- Blender should carry the authored geometry and material look; TouchDesigner should make the logo come alive through automation and compositing.
+
 ## Asset Needs
 
 - Final layered source artwork.

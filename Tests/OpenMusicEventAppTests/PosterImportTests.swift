@@ -83,7 +83,7 @@ struct PosterImportTests {
         #expect(Set(importedPosters.map(\.image.role)) == [.poster])
         #expect(Set(blobs.compactMap(\.sourceURL)) == [sourceURL1, sourceURL2])
         #expect(Set(blobs.map(\.data)) == [Data("first-poster".utf8), Data("second-poster".utf8)])
-        #expect(importedPosters.first { $0.id.posterID.rawValue.rawValue == "lineup-2" }?.image.appearance == .dark)
+        #expect(importedPosters.first { $0.id.posterID.rawValue.rawValue == "lineup-2" }?.image.appearance == nil)
 
         for poster in importedPosters {
             let fileURL = try #require(poster.image.url)
@@ -225,6 +225,98 @@ struct PosterImportTests {
     }
 
     @Test
+    func importImagesSaveNormalizesLoneAppearanceAsStandard() async throws {
+        var image = ImportImages.Configuration.posters.importedImage(
+            title: "Night Poster",
+            sourceName: "night-poster.png",
+            sourceURL: URL(fileURLWithPath: "/tmp/night-poster.png"),
+            mimeType: "image/png",
+            data: Data("night-poster".utf8)
+        )
+        image.asset.appearance = .dark
+        let savedImages = SavedImportedImages()
+
+        let store = Store(
+            initialState: ImportImages.State(
+                configuration: .posters,
+                images: [image]
+            )
+        ) {
+            ImportImages { images in
+                await savedImages.setValue(images)
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let savedImage = try #require(await savedImages.value?.first)
+        expectNoDifference(savedImage.asset.appearance, nil)
+        expectNoDifference(savedImage.localImageImportRequest.appearance, nil)
+    }
+
+    @Test
+    func importImagesSaveKeepsPairedAppearances() async throws {
+        var lightImage = ImportImages.Configuration.posters.importedImage(
+            title: "Day Poster",
+            sourceName: "day-poster.png",
+            sourceURL: URL(fileURLWithPath: "/tmp/day-poster.png"),
+            mimeType: "image/png",
+            data: Data("day-poster".utf8)
+        )
+        lightImage.asset.appearance = .light
+        var darkImage = ImportImages.Configuration.posters.importedImage(
+            title: "Night Poster",
+            sourceName: "night-poster.png",
+            sourceURL: URL(fileURLWithPath: "/tmp/night-poster.png"),
+            mimeType: "image/png",
+            data: Data("night-poster".utf8)
+        )
+        darkImage.asset.appearance = .dark
+        let savedImages = SavedImportedImages()
+
+        let store = Store(
+            initialState: ImportImages.State(
+                configuration: .posters,
+                images: [lightImage, darkImage]
+            )
+        ) {
+            ImportImages { images in
+                await savedImages.setValue(images)
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let images = try #require(await savedImages.value)
+        expectNoDifference(images.map(\.asset.appearance), [.light, .dark])
+        expectNoDifference(images.map(\.localImageImportRequest.appearance), [.light, .dark])
+    }
+
+    @Test
+    func imageAssetPickerMaterializationNormalizesLoneAppearanceAsStandard() throws {
+        let eventID = eventID("event-1")
+        let posterID = OMERecord.Poster.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            posterID: Self.localPosterID("lineup")
+        )
+        let asset = OMERecord.ImageAsset(
+            source: .url(try #require(URL(string: "https://example.com/poster.png"))),
+            role: .poster,
+            renderKind: .fullImage,
+            appearance: .dark,
+            materializationPolicy: .lazy
+        )
+
+        let preparedImages = try ImageAssetPicker.State.materializedImages(
+            [ImageAssetPicker.ImageValue(asset: asset)],
+            context: .init(posterID: posterID)
+        )
+
+        expectNoDifference(preparedImages.images.map(\.appearance), [nil])
+    }
+
+    @Test
     func posterTapOpensPosterDetail() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -362,6 +454,8 @@ struct PosterImportTests {
         })
         var editedAsset = poster.image
         editedAsset.appearance = .dark
+        var expectedAsset = editedAsset
+        expectedAsset.appearance = nil
 
         var state = EditPoster.State(
             posterID: poster.id,
@@ -378,7 +472,7 @@ struct PosterImportTests {
 
         let draft = try state.preparedDraft()
 
-        expectNoDifference(draft.image, editedAsset)
+        expectNoDifference(draft.image, expectedAsset)
     }
 
     @Test
@@ -399,6 +493,8 @@ struct PosterImportTests {
         })
         var editedAsset = poster.image
         editedAsset.appearance = .dark
+        var expectedAsset = editedAsset
+        expectedAsset.appearance = nil
 
         let store = withDependencies {
             $0.context = .test
@@ -427,7 +523,7 @@ struct PosterImportTests {
             try OMERecord.Poster.fetchOne(db)
         })
         expectNoDifference(updatedPoster.title, "Updated Lineup")
-        expectNoDifference(updatedPoster.image, editedAsset)
+        expectNoDifference(updatedPoster.image, expectedAsset)
         #expect(store.isPresented == false)
     }
 
@@ -707,6 +803,14 @@ struct PosterImportTests {
             await Task.yield()
         }
         Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
+    }
+}
+
+private actor SavedImportedImages {
+    var value: [ImportImages.ImportedImage]?
+
+    func setValue(_ value: [ImportImages.ImportedImage]) {
+        self.value = value
     }
 }
 
