@@ -35,8 +35,8 @@ let package = Package(
         .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
         .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
         .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
+        .package(url: "https://source.woody.fm/swift-dependencies-source-control-client", branch: "main"),
 
-        .package(name: "swift-dependencies-source-control-client", path: "~/Developer/swift-packages/swift-dependencies-source-control-client"),
 
         .package(url: "https://source.skip.tools/skip.git", from: "1.8.6"),
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0"),
