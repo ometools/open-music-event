@@ -1,4 +1,3 @@
-@_exported import OpenMusicEventLexicon
+@_exported import OpenMusicEventEditors
+@_exported import OpenMusicEventViewers
 @_exported import OpenMusicEventSourceEditing
-
-public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent

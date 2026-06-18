@@ -11,6 +11,8 @@ let package = Package(
         .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
         .library(name: "OpenMusicEventApp", type: .dynamic, targets: ["OpenMusicEventApp"]),
         .library(name: "OpenMusicEventAppEventViewer", targets: ["OpenMusicEventAppEventViewer"]),
+        .library(name: "OpenMusicEventEditors", targets: ["OpenMusicEventEditors"]),
+        .library(name: "OpenMusicEventViewers", targets: ["OpenMusicEventViewers"]),
         .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
         .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
         .library(name: "OpenMusicEventImages", targets: ["OpenMusicEventImages"]),
@@ -49,7 +51,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
-        .package(url: "https://github.com/pointfreeco/swift-parsing", branch: "main"),
+        .package(url: "https://github.com/pointfreeco/swift-parsing", branch: "main", traits: []),
 
 
         .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),
@@ -115,11 +117,13 @@ let package = Package(
                 "ErrorHandling",
                 "LiquidGlassSegmentedPicker",
                 "OpenMusicEventDatabase",
+                "OpenMusicEventEditors",
                 "OpenMusicEventImages",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventAuthentication",
                 "OpenMusicEventSourceEditing",
                 "OpenMusicEventTimeZones",
+                "OpenMusicEventViewers",
                 "ScheduleComponents",
                 "SourceEditing",
                 "SwiftUITabFeatures",
@@ -135,6 +139,20 @@ let package = Package(
                 .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "OpenMusicEventViewers",
+            dependencies: [
+                "OpenMusicEventLexicon",
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+            ]
+        ),
+        .target(
+            name: "OpenMusicEventEditors",
+            dependencies: [
+                "OpenMusicEventViewers",
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+            ]
         ),
         .target(
             name: "OpenMusicEventImages",
