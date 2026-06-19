@@ -168,6 +168,7 @@ private struct SourceComparableEvent: Equatable, Sendable {
     var contactNumbers: [OME.Event.ContactNumber]?
     var categoryConfigs: OME.Event.CategoryConfigs?
     var policies: OME.Event.Policies?
+    var reportingLink: OME.Event.ReportingLink?
 
     init(_ event: OME.Event) {
         self.id = event.id
@@ -184,6 +185,7 @@ private struct SourceComparableEvent: Equatable, Sendable {
         self.contactNumbers = event.contactNumbers
         self.categoryConfigs = event.categoryConfigs
         self.policies = event.policies
+        self.reportingLink = event.reportingLink
     }
 }
 

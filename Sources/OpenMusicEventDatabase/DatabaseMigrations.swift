@@ -247,6 +247,14 @@ public extension OME {
 
             }
 
+            migrator.registerMigration("Add OpenMusicEvent event reporting links") { db in
+                try #sql("""
+                    ALTER TABLE "events"
+                    ADD COLUMN "reportingLink" TEXT
+                    """)
+                    .execute(db)
+            }
+
             OME.SourceEditingMigrations.register(into: &migrator)
 
             migrator.registerMigration("Create OpenMusicEvent local image blob schema") { db in

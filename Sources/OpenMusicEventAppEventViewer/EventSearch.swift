@@ -194,7 +194,7 @@ public struct EventSearchView: View {
                 StageDetailView(store: detailStore)
             }
         }
-        .searchable(text: $store.query, prompt: "Search Wicked Woods")
+        .searchable(text: $store.query, prompt: "Search this event")
     }
 }
 

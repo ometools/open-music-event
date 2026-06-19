@@ -743,7 +743,8 @@ private extension OME.Event {
             images: images,
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs,
-            policies: policies
+            policies: policies,
+            reportingLink: reportingLink
         )
     }
 }

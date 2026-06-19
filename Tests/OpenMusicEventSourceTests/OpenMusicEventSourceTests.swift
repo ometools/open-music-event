@@ -393,6 +393,47 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
+    func eventReportingLinkRoundTripsThroughYAML() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "reporting-event", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: eventURL,
+            withIntermediateDirectories: true
+        )
+
+        try """
+        name: Reporting Event
+        timeZone: America/Denver
+        reportingLink:
+          name: Report an Incident
+          url: https://example.org/report
+          description: Use this form to report an event safety concern.
+        """
+        .write(to: eventURL.appending(path: "event.yml"), atomically: true, encoding: .utf8)
+
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let repository = try tree.read(from: repositoryURL).output.requiredValue
+        let event = try #require(repository.events.first?.components.event)
+
+        expectNoDifference(
+            event.reportingLink,
+            OME.Event.ReportingLink(
+                name: "Report an Incident",
+                url: URL(string: "https://example.org/report")!,
+                description: "Use this form to report an event safety concern."
+            )
+        )
+
+        let outputURL = try temporaryRepositoryURL()
+        _ = try tree.write(repository, to: outputURL)
+        let roundTripped = try tree.read(from: outputURL).output.requiredValue
+
+        expectNoDifference(roundTripped, repository)
+    }
+
+    @Test
     func readsSourceImageAssetsFromRepositoryFiles() throws {
         let repositoryURL = try temporaryRepositoryURL()
         try writeImageFixtureRepository(at: repositoryURL)

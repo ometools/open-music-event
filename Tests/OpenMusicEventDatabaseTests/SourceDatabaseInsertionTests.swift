@@ -174,6 +174,42 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func sourceRepositoryReportingLinkPersistsToEventRow() async throws {
+        let reportingLink = OME.Event.ReportingLink(
+            name: "Report an Incident",
+            url: URL(string: "https://example.org/report")!,
+            description: "Use this form to report an event safety concern."
+        )
+        let source = try makeSourceRepository(reportingLink: reportingLink)
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+        let eventID = try #require(insertion.events.first?.id)
+
+        expectNoDifference(
+            insertion.events.first?.reportingLink,
+            reportingLink
+        )
+
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let insertedEvent = try await database.read { db in
+            try OME.Event.where { $0.id.eq(eventID) }
+                .fetchOne(db)
+        }
+        expectNoDifference(
+            try #require(insertedEvent?.reportingLink),
+            reportingLink
+        )
+    }
+
+    @Test
     func buildsDefaultCalendarFromSourceMetadata() throws {
         let source = try makeSourceRepository(
             calendar: CalendarDTO(
@@ -2732,6 +2768,7 @@ struct SourceDatabaseInsertionTests {
         eventName: String = "Testival 2026",
         explicitLocalEventID: OME.ID<OME.Event>? = nil,
         eventPolicies: OME.Event.Policies? = nil,
+        reportingLink: OME.Event.ReportingLink? = nil,
         eventImages: [SourceImageAsset]? = nil,
         stageImages: [SourceImageAsset]? = nil,
         contributorImages: [SourceImageAsset]? = nil,
@@ -2789,7 +2826,8 @@ struct SourceDatabaseInsertionTests {
                             images: eventImages,
                             contactNumbers: nil,
                             categoryConfigs: nil,
-                            policies: eventPolicies
+                            policies: eventPolicies,
+                            reportingLink: reportingLink
                         ),
                         stages: [
                             try FileContent(

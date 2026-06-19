@@ -8,6 +8,29 @@ import Testing
 
 struct DatabaseMigrationTests {
     @Test
+    func eventReportingLinkMigrationAddsNullableColumn() async throws {
+        let database = try SQLiteData.defaultDatabase()
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        try await database.read { db in
+            let type = try String.fetchOne(
+                db,
+                sql: #"SELECT "type" FROM pragma_table_info('events') WHERE "name" = 'reportingLink'"#
+            )
+            let isNotNull = try Int.fetchOne(
+                db,
+                sql: #"SELECT "notnull" FROM pragma_table_info('events') WHERE "name" = 'reportingLink'"#
+            )
+
+            #expect(type == "TEXT")
+            #expect(isNotNull == 0)
+        }
+    }
+
+    @Test
     func eventSearchSchemaMigrationCreatesDocumentAndTextTables() async throws {
         let database = try SQLiteData.defaultDatabase()
 
@@ -652,6 +675,7 @@ struct DatabaseMigrationTests {
         "Create OpenMusicEvent core schema",
         "Add OpenMusicEvent participant actor policies",
         "Add OpenMusicEvent calendars",
+        "Add OpenMusicEvent event reporting links",
         "Create OpenMusicEvent source provenance schema",
         "Create OpenMusicEvent source baseline schema",
         "Create OpenMusicEvent local image blob schema",

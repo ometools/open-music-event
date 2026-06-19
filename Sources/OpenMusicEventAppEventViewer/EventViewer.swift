@@ -74,14 +74,14 @@ public struct EventViewer {
 
         public static let defaultFeatures: [Self] = [
             .schedule(.schedule),
-            .contributors,
-            .stages,
             .communications,
             .contactInfo,
-            .location,
             .siteMap,
+            .location,
+            .contributors,
             .posters,
             .notifications,
+            .stages,
             .settings,
             .edit,
             .search,
@@ -624,7 +624,7 @@ public struct EventViewerView: View {
     @available(iOS 18.0, *)
     struct iOS18TabView: View {
         @Bindable var store: StoreOf<EventViewer>
-        @State var tabLayout = TabFeatureLayout(preferredIDs: [EventViewer.EventFeature.about.customizationID])
+        @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
             TabFeaturesView(

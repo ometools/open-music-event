@@ -1,6 +1,9 @@
 import ComposableArchitecture2
+import Dependencies
 import ErrorHandling
+import Foundation
 import OpenMusicEventDatabase
+import SQLiteData
 import SwiftUI
 
 @Feature
@@ -14,21 +17,27 @@ public struct EventSettings {
         ) {
             self.destination = destination
             self.eventID = eventID
+            _event = FetchOne(
+                OMERecord.Event.where { $0.id.eq(eventID) }
+            )
         }
 
         public var destination: Destination.State?
+        @FetchOne public var event: OMERecord.Event?
         public var eventID: OMERecord.Event.ID
     }
 
     public enum Action {
         case destination(Destination.Action)
         case eventPoliciesButtonTapped
+        case reportingLinkButtonTapped
         case testErrorButtonTapped
     }
 
     @Feature
     public enum Destination {
         case editEventPolicies(Spawn<EditEventPolicies>)
+        case editReportingLink(Spawn<EditReportingLink>)
     }
 
     public var body: some Feature {
@@ -41,6 +50,13 @@ public struct EventSettings {
                 store.withDependencies {
                     state.destination = .editEventPolicies(
                         Spawn(EditEventPolicies.State(eventID: state.eventID))
+                    )
+                }
+
+            case .reportingLinkButtonTapped:
+                store.withDependencies {
+                    state.destination = .editReportingLink(
+                        Spawn(EditReportingLink.State(eventID: state.eventID))
                     )
                 }
 
@@ -70,6 +86,20 @@ public struct EventSettingsView: View {
 
     public var body: some View {
         Form {
+            Section("Integrations") {
+                Button {
+                    store.send(.reportingLinkButtonTapped)
+                } label: {
+                    HStack {
+                        Text("Reporting Link")
+                        Spacer()
+                        Text(store.event?.reportingLink == nil ? "Not configured" : "Configured")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
             Section("Policies") {
                 Button {
                     store.send(.eventPoliciesButtonTapped)
@@ -91,6 +121,238 @@ public struct EventSettingsView: View {
             item: $store.scope(\.destination, action: \.destination).editEventPolicies
         ) { editStore in
             EditEventPoliciesView(store: editStore)
+        }
+        .navigationDestination(
+            item: $store.scope(\.destination, action: \.destination).editReportingLink
+        ) { editStore in
+            EditReportingLinkView(store: editStore)
+        }
+    }
+}
+
+@Feature
+public struct EditReportingLink {
+    public init() {}
+
+    public struct State {
+        public init(eventID: OMERecord.Event.ID) {
+            self.eventID = eventID
+        }
+
+        let eventID: OMERecord.Event.ID
+        var description = ""
+        var draft: OMERecord.Event.Draft?
+        var errorMessage: String?
+        var hasLoadedDraft = false
+        var isEnabled = false
+        var isSaving = false
+        var name = ""
+        var urlString = ""
+
+        var canSubmit: Bool {
+            hasLoadedDraft && !isSaving && validationMessage == nil
+        }
+
+        var preparedDraft: OMERecord.Event.Draft? {
+            guard var draft else { return nil }
+
+            if isEnabled {
+                guard let url = preparedURL else { return nil }
+                draft.reportingLink = OMERecord.Event.ReportingLink(
+                    name: trimmedName,
+                    url: url,
+                    description: trimmedDescription.nilIfEmpty
+                )
+            } else {
+                draft.reportingLink = nil
+            }
+
+            return draft
+        }
+
+        var preparedURL: URL? {
+            guard let components = URLComponents(string: trimmedURLString),
+                  let scheme = components.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https",
+                  components.host?.isEmpty == false,
+                  let url = components.url
+            else { return nil }
+
+            return url
+        }
+
+        var trimmedDescription: String {
+            description.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var trimmedName: String {
+            name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var trimmedURLString: String {
+            urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var validationMessage: String? {
+            guard hasLoadedDraft, isEnabled else { return nil }
+            guard !trimmedName.isEmpty else {
+                return "Enter a reporting link name."
+            }
+            guard preparedURL != nil else {
+                return "Enter a valid http or https URL."
+            }
+            return nil
+        }
+
+        mutating func apply(_ reportingLink: OMERecord.Event.ReportingLink?) {
+            isEnabled = reportingLink != nil
+            name = reportingLink?.name ?? ""
+            urlString = reportingLink?.url.absoluteString ?? ""
+            description = reportingLink?.description ?? ""
+        }
+    }
+
+    public enum Action {
+        case cancelButtonTapped
+        case saveButtonTapped
+    }
+
+    @Dependency(\.defaultDatabase) var database
+
+    public var body: some Feature {
+        Update { state, action in
+            switch action {
+            case .cancelButtonTapped:
+                store.addTask {
+                    try store.dismiss()
+                }
+
+            case .saveButtonTapped:
+                guard !state.isSaving else { return }
+                guard state.hasLoadedDraft else {
+                    state.errorMessage = "This event could not be loaded."
+                    return
+                }
+                guard let validationMessage = state.validationMessage else {
+                    guard let draft = state.preparedDraft else {
+                        state.errorMessage = "Unable to save reporting link."
+                        return
+                    }
+
+                    state.errorMessage = nil
+                    state.isSaving = true
+
+                    store.addTask {
+                        do {
+                            try database.write { db in
+                                try OMERecord.Event.upsert {
+                                    draft
+                                }
+                                .execute(db)
+                            }
+                            try store.modify {
+                                $0.errorMessage = nil
+                                $0.isSaving = false
+                            }
+                            try store.dismiss()
+                        } catch {
+                            try store.modify {
+                                $0.errorMessage = "Unable to save reporting link."
+                                $0.isSaving = false
+                            }
+                        }
+                    }
+                    return
+                }
+
+                state.errorMessage = validationMessage
+            }
+        }
+        .onMount { state in
+            guard !state.hasLoadedDraft else { return }
+
+            do {
+                if let event = try database.read({ db in
+                    try OMERecord.Event.where { $0.id.eq(state.eventID) }.fetchOne(db)
+                }) {
+                    state.draft = .init(event)
+                    state.apply(event.reportingLink)
+                    state.hasLoadedDraft = true
+                    state.errorMessage = nil
+                } else {
+                    state.errorMessage = "This event could not be loaded."
+                }
+            } catch {
+                state.errorMessage = "This event could not be loaded."
+            }
+        }
+    }
+}
+
+public struct EditReportingLinkView: View {
+    @Bindable var store: StoreOf<EditReportingLink>
+
+    public init(store: StoreOf<EditReportingLink>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Group {
+            if store.hasLoadedDraft {
+                Form {
+                    Section("Reporting Link") {
+                        Toggle("Enable Reporting Link", isOn: $store.isEnabled)
+
+                        if store.isEnabled {
+                            TextField("Name", text: $store.name)
+                            TextField("URL", text: $store.urlString)
+                                #if os(iOS)
+                                .keyboardType(.URL)
+                                #endif
+                        }
+                    }
+
+                    if store.isEnabled {
+                        Section("Description") {
+                            TextField("Description", text: $store.description, axis: .vertical)
+                                .lineLimit(2...5)
+                        }
+                    }
+
+                    if let errorMessage = store.errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+            } else {
+                ViewerPlaceholderView(
+                    title: "Reporting Link",
+                    systemImage: "link",
+                    description: "This event could not be loaded."
+                )
+            }
+        }
+        .disabled(store.isSaving)
+        .navigationTitle("Reporting Link")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    store.send(.cancelButtonTapped)
+                }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                if store.isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        store.send(.saveButtonTapped)
+                    }
+                    .disabled(!store.canSubmit)
+                }
+            }
         }
     }
 }
@@ -122,4 +384,10 @@ private extension ErrorOperation {
 
 private extension ErrorKind {
     static let eventSettingsTestError = Self("event.settings.test-error")
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
 }

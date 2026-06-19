@@ -128,6 +128,9 @@ extension OpenMusicEvent {
         @Column(as: Policies.JSONRepresentation?.self)
         public var policies: Policies?
 
+        @Column(as: ReportingLink.JSONRepresentation?.self)
+        public var reportingLink: ReportingLink?
+
         public var owner: OME.Contributor.Actor?
     }
 }
@@ -204,6 +207,22 @@ extension OpenMusicEvent.Event {
 
         public var phoneNumber: String
         public var title: String
+        public var description: String?
+    }
+
+    public struct ReportingLink: Codable, Sendable, Equatable {
+        public init(
+            name: String,
+            url: URL,
+            description: String? = nil
+        ) {
+            self.name = name
+            self.url = url
+            self.description = description
+        }
+
+        public var name: String
+        public var url: URL
         public var description: String?
     }
 
