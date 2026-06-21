@@ -325,10 +325,21 @@ private extension WhiteLabelRoot.State {
 
 private extension WhiteLabelSourceDescriptor {
     func validateProductionUse(organizerID: OMERecord.Organizer.ID) throws {
-        if case let .source(source) = reference,
-           case .local = try SourceRepositoryLocation(parsing: source)
-        {
+        guard case let .source(source) = reference else { return }
+        let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedSource.looksLikeLocalPathForWhiteLabelSource {
             throw WhiteLabelError.directSourceRequiresDevelopmentOverride(organizerID)
         }
+
+        if case .local = try SourceRepositoryLocation(parsing: trimmedSource) {
+            throw WhiteLabelError.directSourceRequiresDevelopmentOverride(organizerID)
+        }
+    }
+}
+
+private extension String {
+    var looksLikeLocalPathForWhiteLabelSource: Bool {
+        hasPrefix("/") || hasPrefix(".") || hasPrefix("~")
     }
 }

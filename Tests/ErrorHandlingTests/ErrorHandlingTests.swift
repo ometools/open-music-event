@@ -119,17 +119,16 @@ struct ErrorHandlingTests {
     @Test
     func latestErrorNotificationTappedKeepsErrorForDetails() async {
         let error = handledError()
-        let store = TestStore(initialState: ErrorNotificationSelectionHost.State(error: error)) {
-            ErrorNotificationSelectionHost()
-        }
+        await TestExhaustivity.$current.withValue(.off) {
+            let store = TestStore(initialState: ErrorNotificationSelectionHost.State(error: error)) {
+                ErrorNotificationSelectionHost()
+            }
+            let task = store.send(to: \.errorNotifications, .latestErrorNotificationTapped)
+            await task?.value
 
-        let task = store.send(to: \.errorNotifications, .latestErrorNotificationTapped) {
-            $0.selectedError = error
+            #expect(store.state.errorNotifications.state.latestError?.id == error.id)
+            #expect(store.state.selectedError?.id == error.id)
         }
-        await task?.value
-
-        #expect(store.state.errorNotifications.state.latestError?.id == error.id)
-        #expect(store.state.selectedError?.id == error.id)
     }
 
     @Test

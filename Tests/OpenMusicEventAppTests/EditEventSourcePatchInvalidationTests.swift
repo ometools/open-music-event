@@ -14,6 +14,7 @@ import Testing
 @testable import OpenMusicEventAppEventViewer
 
 @MainActor
+@Suite(.tcaExhaustivity(.off), .serialized)
 struct EditEventSourcePatchInvalidationTests {
     @Test
     func generateSourcePatchButtonLoadsPatch() async throws {

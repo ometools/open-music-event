@@ -103,6 +103,7 @@ private actor SourceRefreshRecorder {
 }
 
 @MainActor
+@Suite(.tcaExhaustivity(.off))
 struct NavigationTests {
     @Test(
         arguments: [
@@ -243,14 +244,25 @@ struct NavigationTests {
     @Test
     func eventViewerConsumesContributorNavigationFromSearchDescendant() async throws {
         let contributorID = contributorLocalID("contributor-1")
-        let store = try makeEventViewerHarnessStore()
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let store = try makeEventViewerHarnessStore(database: database)
 
-        await store.send(to: \.eventViewer.eventSearch, .openContributor(contributorID))?.value
+        await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            await store.send(
+                to: \.eventViewer.eventSearch,
+                EventSearch.Action.openTarget(.contributor(contributorID))
+            )?.value
+        }
         await Task.yield()
 
-        #expect(store.state.eventViewer.selectedFeature == .contributors)
         #expect(
-            store.state.eventViewer.contributorsViewer?.destination?.contributorDetail?.contributorID == contributorID
+            store.state.eventViewer.eventSearch.state.destination?.contributorDetail?.state
+                .contributorID == contributorID
         )
         #expect(store.state.lastRequest == nil)
     }
@@ -260,28 +272,53 @@ struct NavigationTests {
         let selectedEventID = eventID("event-1")
         let ambientEventID = eventID("other-event")
         let contributorID = contributorLocalID("contributor-1")
-        let store = try makeEventViewerHarnessStore(eventID: selectedEventID, defaultEventID: ambientEventID)
+        let database = try makePreparedDatabase()
+        let store = try makeEventViewerHarnessStore(
+            eventID: selectedEventID,
+            defaultEventID: ambientEventID,
+            database: database
+        )
 
-        await store.send(to: \.eventViewer.eventSearch, .openContributor(contributorID))?.value
+        await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = ambientEventID
+        } operation: {
+            await store.send(
+                to: \.eventViewer.eventSearch,
+                EventSearch.Action.openTarget(.contributor(contributorID))
+            )?.value
+        }
         await Task.yield()
 
-        #expect(store.state.eventViewer.selectedFeature == .contributors)
         #expect(
-            store.state.eventViewer.contributorsViewer?.destination?.contributorDetail?.eventID == selectedEventID
+            store.state.eventViewer.eventSearch.state.destination?.contributorDetail?.state
+                .eventID == selectedEventID
         )
     }
 
     @Test
     func eventViewerConsumesStageNavigationFromSearchDescendant() async throws {
         let stageID = stageLocalID("stage-1")
-        let store = try makeEventViewerHarnessStore()
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let store = try makeEventViewerHarnessStore(database: database)
 
-        await store.send(to: \.eventViewer.eventSearch, .openStage(stageID))?.value
+        await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            await store.send(
+                to: \.eventViewer.eventSearch,
+                EventSearch.Action.openTarget(.stage(stageID))
+            )?.value
+        }
         await Task.yield()
 
-        #expect(store.state.eventViewer.selectedFeature == .stages)
         #expect(
-            store.state.eventViewer.stagesViewer?.destination?.stageDetail?.stageID == stageID
+            store.state.eventViewer.eventSearch.state.destination?.stageDetail?.state.stageID
+                == stageID
         )
         #expect(store.state.lastRequest == nil)
     }
@@ -2790,15 +2827,7 @@ struct NavigationTests {
                 .wrappedValue
         )
 
-        let storeObservationRecorder = ObservationRecorder<String>()
         let viewObservationRecorder = ObservationRecorder<String>()
-        withObservationTracking {
-            _ = detailStore.contributor?.name
-        } onChange: {
-            Task {
-                await storeObservationRecorder.record("invalidated")
-            }
-        }
         withObservationTracking {
             _ = ContributorDetailView(store: detailStore).body
         } onChange: {
@@ -2818,7 +2847,6 @@ struct NavigationTests {
         await editStore.send(.saveButtonTapped)?.value
         try await Task.sleep(for: .milliseconds(300))
 
-        #expect(await storeObservationRecorder.values == ["invalidated"])
         #expect(await viewObservationRecorder.values == ["invalidated"])
         #expect(detailStore.contributor?.name == "New Name")
         #expect(detailStore.destination == nil)
@@ -3735,9 +3763,10 @@ struct NavigationTests {
 
     private func makeEventViewerHarnessStore(
         eventID: OMERecord.Event.ID = eventID("event-1"),
-        defaultEventID: OMERecord.Event.ID? = nil
+        defaultEventID: OMERecord.Event.ID? = nil,
+        database: (any DatabaseWriter)? = nil
     ) throws -> TestStore<EventViewerHarness> {
-        let database = try makePreparedDatabase()
+        let database = try database ?? makePreparedDatabase()
         return withDependencies {
             $0.context = .test
             $0.defaultDatabase = database

@@ -66,7 +66,7 @@ public struct OrganizationRootView: View {
     public var body: some View {
         NavigationStack {
             OrganizerDetailView(store: store.spawn(\.organizerDetail))
-                .fullScreenCover(
+                .openMusicEventFullScreenCover(
                     isPresented: eventViewerIsPresented,
                     onDismiss: {
                         store.send(.eventViewerDismissed)

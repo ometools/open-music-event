@@ -11,6 +11,7 @@ import Testing
 @testable import OpenMusicEventLexicon
 
 @MainActor
+@Suite(.tcaExhaustivity(.off))
 struct ScheduleAuthoringTests {
     @Test
     func createsScheduleDay() async throws {

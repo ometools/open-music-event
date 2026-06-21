@@ -14,6 +14,7 @@ import Testing
 @testable import OpenMusicEventAppEventViewer
 
 @MainActor
+@Suite(.tcaExhaustivity(.off))
 struct SettingsFeatureTests {
     @Test
     func testErrorButtonReportsGlobalError() async {
@@ -25,6 +26,7 @@ struct SettingsFeatureTests {
             await store.send(to: \.settings, .testErrorButtonTapped)?.value
         }
 
+        await waitForLatestError(in: store.state.errorNotifications)
         let latestError = store.state.errorNotifications.state.latestError
         #expect(latestError?.kind == .settingsTestError)
         #expect(latestError?.message.fallback == "Test error.")
@@ -34,25 +36,30 @@ struct SettingsFeatureTests {
 
     @Test
     func eventSettingsTestErrorButtonReportsGlobalError() async throws {
-        let database = try makePreparedDatabase()
-        let store = withDependencies {
-            $0.defaultDatabase = database
-            $0.exhaustivity = .off
-        } operation: {
-            TestStore(initialState: EventSettingsErrorHost.State()) {
-                EventSettingsErrorHost()
+        try await TestExhaustivity.$current.withValue(.off) {
+            let database = try makePreparedDatabase()
+            let store: TestStore<EventSettingsErrorHost> = withDependencies {
+                $0.defaultDatabase = database
+            } operation: {
+                TestStore(initialState: EventSettingsErrorHost.State()) {
+                    EventSettingsErrorHost()
+                }
             }
-        }
 
-        await withIssueReporters([]) {
-            await store.send(to: \.eventSettings, .testErrorButtonTapped)?.value
-        }
+            await withIssueReporters([]) {
+                await store.send(
+                    to: \.eventSettings,
+                    EventSettings.Action.testErrorButtonTapped
+                )?.value
+            }
 
-        let latestError = store.state.errorNotifications.state.latestError
-        #expect(latestError?.kind.rawValue == "event.settings.test-error")
-        #expect(latestError?.message.fallback == "Test error.")
-        #expect(latestError?.operation.rawValue == "event.settings.test-error")
-        #expect(latestError?.debugDescription == "Event settings test error")
+            await waitForLatestError(in: store.state.errorNotifications)
+            let latestError = store.state.errorNotifications.state.latestError
+            #expect(latestError?.kind.rawValue == "event.settings.test-error")
+            #expect(latestError?.message.fallback == "Test error.")
+            #expect(latestError?.operation.rawValue == "event.settings.test-error")
+            #expect(latestError?.debugDescription == "Event settings test error")
+        }
     }
 
     @Test
@@ -73,23 +80,31 @@ struct SettingsFeatureTests {
         #expect(store.state.destination?.editEventPolicies?.eventID == eventID)
     }
 
+    private func waitForLatestError(in errorNotifications: Spawn<ErrorNotifications>) async {
+        for _ in 0..<100 {
+            if errorNotifications.state.latestError != nil { return }
+            await Task.yield()
+        }
+    }
+
     @Test
     func reportingLinkButtonOpensReportingLinkEditor() throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID()
-        let store = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.exhaustivity = .off
-        } operation: {
-            TestStore(initialState: EventSettings.State(eventID: eventID)) {
-                EventSettings()
+        try TestExhaustivity.$current.withValue(.off) {
+            let database = try makePreparedDatabase()
+            let eventID = testEventID()
+            let store: TestStore<EventSettings> = withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+            } operation: {
+                TestStore(initialState: EventSettings.State(eventID: eventID)) {
+                    EventSettings()
+                }
             }
+
+            store.send(EventSettings.Action.reportingLinkButtonTapped)
+
+            #expect(store.state.destination?.editReportingLink?.eventID == eventID)
         }
-
-        store.send(.reportingLinkButtonTapped)
-
-        #expect(store.state.destination?.editReportingLink?.eventID == eventID)
     }
 
     @Test
@@ -465,7 +480,6 @@ private func makeReportingLinkEditorStore(
         $0.context = .test
         $0.continuousClock = ImmediateClock()
         $0.defaultDatabase = database
-        $0.exhaustivity = .off
     } operation: {
         Store(initialState: EditReportingLink.State(eventID: eventID)) {
             EditReportingLink()

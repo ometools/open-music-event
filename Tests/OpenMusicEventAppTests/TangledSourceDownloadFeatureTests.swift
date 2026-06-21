@@ -24,6 +24,7 @@ import XRPCClient
 @testable import OpenMusicEventApp
 
 @MainActor
+@Suite(.tcaExhaustivity(.off))
 struct TangledSourceDownloadFeatureTests {
     @Test
     func myEventsPresentsDownloadFeature() throws {

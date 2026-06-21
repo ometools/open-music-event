@@ -232,7 +232,7 @@ public struct OpenMusicEventAppRootView: View {
     @ViewBuilder
     private var browserView: some View {
         OpenMusicEventBrowserView(store: store.spawn(\.browser))
-            .fullScreenCover(
+            .openMusicEventFullScreenCover(
                 isPresented: eventViewerIsPresented,
                 onDismiss: {
                     store.send(.eventViewerDismissed)

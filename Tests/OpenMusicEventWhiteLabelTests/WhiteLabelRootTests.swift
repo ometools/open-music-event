@@ -226,13 +226,32 @@ struct WhiteLabelRootTests {
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
       }?.value
-      await store.send(
-        to: \.organizationRoot,
-        .handleNavigationRequest(.event(selectedEventID, nil))
-      )?.value
 
       #expect(store.state.organizationRoot?.state.organizerID == organizerID)
-      #expect(store.state.organizationRoot?.state.eventViewer?.state.eventID == selectedEventID)
+
+      let organizationState = try #require(store.state.organizationRoot?.state)
+      let organizationStore = withDependencies {
+        $0.context = .test
+        $0.defaultDatabase = database
+        $0.defaultEventID = selectedEventID
+      } operation: {
+        TestStore(initialState: organizationState) {
+          OrganizationRoot()
+        }
+      }
+      await withDependencies {
+        $0.context = .test
+        $0.defaultDatabase = database
+        $0.defaultEventID = selectedEventID
+      } operation: {
+        await organizationStore.send(
+          OrganizationRoot.Action.handleNavigationRequest(
+            NavigationRequest.event(selectedEventID, nil)
+          )
+        )?.value
+      }
+
+      #expect(organizationStore.state.eventViewer?.state.eventID == selectedEventID)
     }
   }
 

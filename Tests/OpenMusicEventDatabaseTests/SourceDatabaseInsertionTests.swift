@@ -12,6 +12,7 @@ import SQLiteData
 import SourceEditing
 import Testing
 
+@Suite(.serialized)
 struct SourceDatabaseInsertionTests {
     @Test
     func buildsInsertionRowsFromSourceRepository() throws {

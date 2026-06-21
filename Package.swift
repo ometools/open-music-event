@@ -33,7 +33,7 @@ let package = Package(
         .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
         .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
         .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
-        .package(url: "https://source.woody.fm/swift-composable-atmosphere", branch: "main", traits: ["TCA26"]),
+        .package(path: "/Users/woody/Developer/swift-packages/swift-composable-atmosphere", traits: ["TCA26"]),
         .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
         .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
         .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
@@ -50,8 +50,8 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
-        .package(url: "https://github.com/pointfreeco/TCA26", branch: "main"),
-        .package(url: "https://github.com/pointfreeco/swift-parsing", branch: "main", traits: []),
+        .package(url: "https://github.com/pointfreeco/TCA26", branch: "main", traits: ["Dependencies"]),
+        .package(url: "https://github.com/pointfreeco/swift-parsing", branch: "main"),
 
 
         .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),

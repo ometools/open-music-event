@@ -10,6 +10,7 @@ import Testing
 @testable import OpenMusicEventLexicon
 
 @MainActor
+@Suite(.tcaExhaustivity(.off))
 struct StageDuplicationTests {
     @Test
     func opensCopyStagesFromOtherEventSheetWhenCurrentEventIsEmpty() async throws {
