@@ -101,7 +101,10 @@ public struct ContributorProfile: Identifiable, Sendable {
             return false
         }
 
-        return contributor.isGeneratedScheduleActorContributor(actor: contributorActor)
+        return contributor.isGeneratedScheduleActorContributor(
+            actor: contributorActor,
+            actorProfileHandle: actorProfileHandle
+        )
     }
 
     var actorProfileLoadRequest: ActorProfileLoadRequest? {
