@@ -40,9 +40,6 @@ public struct OpenMusicEventAppRoot {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
-    @Dependency(\.continuousClock) var clock
-    @Dependency(\.errorNotificationPresentation) var errorNotificationPresentation
-
     public var body: some Feature {
         let _ = Self._logChanges()
 
@@ -123,15 +120,7 @@ public struct OpenMusicEventAppRoot {
                     }
 
                 case .task:
-                    store.addTask {
-                        let selections = await errorNotificationPresentation.selections()
-                        for await error in selections {
-                            try store.post(
-                                key: ErrorNotificationSelected.self,
-                                value: error
-                            )
-                        }
-                    }
+                    break
                 }
             }
 
@@ -165,23 +154,7 @@ public struct OpenMusicEventAppRoot {
                 try store.send(.handleNavigationRequest(request))
             }
         }
-        .onEvent(OpenMusicEventAuthorizationPresentationRequested.self) { request, _ in
-            store.addTask {
-                try store.send(.authentication(.authorizationPresentationRequested(request)))
-            }
-        }
-        .onEvent(ErrorReported.self) { error, state in
-            state.errorNotifications.state.report(error)
-            store.addTask {
-                await errorNotificationPresentation.show(.error(error))
-            }
-            store.addTask {
-                try await clock.sleep(for: ErrorNotifications.automaticDismissDelay)
-                try store.modify {
-                    $0.errorNotifications.state.dismiss(id: error.id)
-                }
-            }
-        }
+        .presentReportedErrors()
         .spawn(\.browser) {
             OpenMusicEventBrowser()
         }
@@ -198,6 +171,8 @@ public struct OpenMusicEventAppRoot {
         }
     }
 }
+
+extension OpenMusicEventAppRoot.State: ErrorNotificationRootState {}
 
 public struct OpenMusicEventAppRootView: View {
     public init(store: StoreOf<OpenMusicEventAppRoot>) {
@@ -233,22 +208,20 @@ public struct OpenMusicEventAppRootView: View {
     private var browserView: some View {
         OpenMusicEventBrowserView(store: store.spawn(\.browser))
             .openMusicEventFullScreenCover(
-                isPresented: eventViewerIsPresented,
+                item: eventViewerStore,
                 onDismiss: {
                     store.send(.eventViewerDismissed)
                 }
-            ) {
-                if let eventViewerStore = store.spawn(\.eventViewer) {
-                    EventViewerView(store: eventViewerStore)
-                }
+            ) { eventViewerStore in
+                EventViewerView(store: eventViewerStore)
             }
     }
 
-    private var eventViewerIsPresented: Binding<Bool> {
+    private var eventViewerStore: Binding<StoreOf<EventViewer>?> {
         Binding(
-            get: { store.eventViewer != nil },
-            set: { isPresented in
-                if !isPresented {
+            get: { store.spawn(\.eventViewer) },
+            set: { eventViewerStore in
+                if eventViewerStore == nil {
                     store.send(.eventViewerDismissed)
                 }
             }

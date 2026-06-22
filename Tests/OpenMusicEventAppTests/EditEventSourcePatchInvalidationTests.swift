@@ -327,6 +327,11 @@ struct EditEventSourcePatchInvalidationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0[OAuth.Client.self] = successfulOAuthClient(
+                session: openMusicEventTestSession(permissions: requirement.permissions)
+            )
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            $0.oauthBrowserStrategy = .webAuthenticationSession
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
                 location
             }
@@ -335,6 +340,7 @@ struct EditEventSourcePatchInvalidationTests {
                 try await authorizationBroker.authorize(requirement)
                 return publication
             }
+            $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
         } operation: {
             TestStore(initialState: SourceProposalFlow.State(eventID: eventID, patch: patch)) {
                 SourceProposalFlow()
@@ -347,9 +353,9 @@ struct EditEventSourcePatchInvalidationTests {
         await waitUntil { store.state.authorization.flow != nil }
         #expect(store.state.authorization.flow?.requirement == requirement)
 
-        store.send(
-            .authorization(.delegate(.succeeded(OAuth.Session.placeholder.accountID)))
-        )
+        store.send(.authorization(.flow(.loginHintChanged("woody.fm"))))
+        let authTask = store.send(.authorization(.flow(.submit)))
+        await authTask?.value
         await task?.value
         #expect(store.state.sourceProposalStatus == .created(publication))
         #expect(store.state.authorization.flow == nil)
@@ -647,6 +653,73 @@ private enum SourceProposalTestError: Equatable, Error {
 private enum ResetEditsTestError: Equatable, Error {
     case failed
     case previousFailure
+}
+
+private let testCallbackURL = OAuth.App.CallbackURI(
+    URL(string: "app.openmusicevent:/oauth/callback?code=test-code&state=test-nonce&iss=https://bsky.social")!
+)
+
+private func successfulOAuthClient(session: OAuth.Session) -> OAuth.Client {
+    var client = OAuth.Client()
+    client.beginAuthorizationWithPermissions = { _, _ in
+        (
+            URL(string: "https://bsky.social/oauth/authorize")!,
+            try testPendingSession()
+        )
+    }
+    client.exchangeCode = { _, _, _, _ in
+        session
+    }
+    return client
+}
+
+private func openMusicEventTestSession(
+    permissions: Set<OAuth.Permission>
+) -> OAuth.Session {
+    var session = OAuth.Session.placeholder
+    var granted = Set([OAuth.Permission.atproto])
+    granted.formUnion(permissions)
+    session.scope = OAuth.Scope(
+        rawValue: granted
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: " ")
+    )
+    return session
+}
+
+private func testPendingSession() throws -> OAuth.Session.Pending {
+    let metadata = try JSONDecoder().decode(
+        OAuth.AuthorizationServer.Metadata.self,
+        from: Data("""
+        {
+            "issuer": "https://bsky.social",
+            "authorization_endpoint": "https://bsky.social/oauth/authorize",
+            "token_endpoint": "https://bsky.social/oauth/token",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": ["none"],
+            "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
+            "scopes_supported": ["atproto"],
+            "authorization_response_iss_parameter_supported": true,
+            "require_pushed_authorization_requests": true,
+            "pushed_authorization_request_endpoint": "https://bsky.social/oauth/par",
+            "dpop_signing_alg_values_supported": ["ES256"],
+            "require_request_uri_registration": true,
+            "client_id_metadata_document_supported": true
+        }
+        """.utf8)
+    )
+    return OAuth.Session.Pending(
+        pkceChallenge: OAuth.PKCE.Challenge(verifier: OAuth.PKCE.CodeVerifier("test-verifier")),
+        state: OAuth.Nonce(rawValue: "test-nonce"),
+        redirectURI: OAuth.App.RedirectURI(OpenMusicEventOAuth.redirectURL),
+        authServer: metadata,
+        accountID: OAuth.Session.placeholder.accountID,
+        pdsHost: .init("placeholder.example"),
+        dpopKey: OAuth.DPOP.Key()
+    )
 }
 
 @MainActor

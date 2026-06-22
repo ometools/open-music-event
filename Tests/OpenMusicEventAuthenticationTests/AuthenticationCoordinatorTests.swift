@@ -78,33 +78,36 @@ struct AuthenticationCoordinatorTests {
     }
 
     @Test
-    func successStoresSelectedSessionAndCompletesRequest() async {
+    func successStoresSelectedSessionAndCompletesRequest() async throws {
         OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
+        let requirement = OAuth.AuthRequirement(
+            permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
+        )
+        let session = openMusicEventTestSession(permissions: requirement.permissions)
         var state = AuthenticationCoordinator.State.localTestState()
         state.authorization = AuthorizationFlow.State(
-            requirement: OAuth.AuthRequirement(
-                permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
-            )
+            requirement: requirement,
+            loginHint: "woody.fm"
         )
-        state.$sessionStore.withLock {
-            $0.upsert(.placeholder)
-        }
+        let client = successfulOAuthClient(session: session)
         let store = withDependencies {
+            $0[OAuth.Client.self] = client
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            $0.oauthBrowserStrategy = .webAuthenticationSession
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
+            $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
         } operation: {
             Store(initialState: state) {
                 AuthenticationCoordinator()
             }
         }
 
-        let task = store.send(
-            .authorization(.delegate(.succeeded(OAuth.Session.placeholder.accountID)))
-        )
+        let task = store.send(.authorization(.submit))
         await task?.value
 
         #expect(store.authorization == nil)
-        #expect(store.session == .placeholder)
+        #expect(store.session == session)
         #expect(await recorder.events == [.succeed])
     }
 
@@ -112,10 +115,13 @@ struct AuthenticationCoordinatorTests {
     func routedSuccessStoresSelectedSessionAndCompletesResponder() async throws {
         OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
+        let requirement = OAuth.AuthRequirement(
+            permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
+        )
+        let session = openMusicEventTestSession(permissions: requirement.permissions)
         let request = AuthorizationPresentationRequest(
-            requirement: OAuth.AuthRequirement(
-                permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
-            )
+            loginHint: "woody.fm",
+            requirement: requirement
         )
         var state = AuthenticationCoordinator.State.localTestState()
         state.routedAuthorizationRequest = request
@@ -124,11 +130,13 @@ struct AuthenticationCoordinatorTests {
             session: state.session,
             sessionStore: state.sessionStore
         )
-        state.$sessionStore.withLock {
-            $0.upsert(.placeholder)
-        }
+        let client = successfulOAuthClient(session: session)
         let store = withDependencies {
+            $0[OAuth.Client.self] = client
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            $0.oauthBrowserStrategy = .webAuthenticationSession
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
+            $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
         } operation: {
             Store(initialState: state) {
                 AuthenticationCoordinator()
@@ -138,15 +146,13 @@ struct AuthenticationCoordinatorTests {
             try await request.responder.wait()
         }
 
-        let task = store.send(
-            .authorization(.delegate(.succeeded(OAuth.Session.placeholder.accountID)))
-        )
+        let task = store.send(.authorization(.submit))
         await task?.value
         try await waiter.value
 
         #expect(store.authorization == nil)
         #expect(store.routedAuthorizationRequest == nil)
-        #expect(store.session == .placeholder)
+        #expect(store.session == session)
         #expect(await recorder.events == [])
     }
 
@@ -168,7 +174,7 @@ struct AuthenticationCoordinatorTests {
             }
         }
 
-        let task = store.send(.authorization(.delegate(.cancelled)))
+        let task = store.send(.authorization(.cancel))
         await task?.value
 
         #expect(store.authorization == nil)
@@ -202,7 +208,7 @@ struct AuthenticationCoordinatorTests {
             try await request.responder.wait()
         }
 
-        let task = store.send(.authorization(.delegate(.cancelled)))
+        let task = store.send(.authorization(.cancel))
         await task?.value
         await #expect(throws: CancellationError.self) {
             try await waiter.value
@@ -222,8 +228,13 @@ struct AuthenticationCoordinatorTests {
         )
         let failure = OAuth.AuthorizationRequired.signIn(requirement)
         var state = AuthenticationCoordinator.State.localTestState()
-        state.authorization = AuthorizationFlow.State(requirement: requirement)
+        state.authorization = AuthorizationFlow.State(
+            requirement: requirement,
+            loginHint: "woody.fm"
+        )
         let store = withDependencies {
+            $0[OAuth.Client.self] = failingOAuthClient(failure)
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
         } operation: {
             Store(initialState: state) {
@@ -231,7 +242,7 @@ struct AuthenticationCoordinatorTests {
             }
         }
 
-        let task = store.send(.authorization(.delegate(.failed(failure))))
+        let task = store.send(.authorization(.submit))
         await task?.value
 
         #expect(store.authorization == nil)
@@ -246,7 +257,10 @@ struct AuthenticationCoordinatorTests {
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
         )
         let failure = OAuth.AuthorizationRequired.signIn(requirement)
-        let request = AuthorizationPresentationRequest(requirement: requirement)
+        let request = AuthorizationPresentationRequest(
+            loginHint: "woody.fm",
+            requirement: requirement
+        )
         var state = AuthenticationCoordinator.State.localTestState()
         state.routedAuthorizationRequest = request
         state.authorization = OpenMusicEventOAuth.authorizationFlowState(
@@ -255,6 +269,8 @@ struct AuthenticationCoordinatorTests {
             sessionStore: state.sessionStore
         )
         let store = withDependencies {
+            $0[OAuth.Client.self] = failingOAuthClient(failure)
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
         } operation: {
             Store(initialState: state) {
@@ -265,7 +281,7 @@ struct AuthenticationCoordinatorTests {
             try await request.responder.wait()
         }
 
-        let task = store.send(.authorization(.delegate(.failed(failure))))
+        let task = store.send(.authorization(.submit))
         await task?.value
         let error = await #expect(throws: OAuth.AuthorizationRequired.self) {
             try await waiter.value
@@ -285,6 +301,27 @@ struct AuthenticationCoordinatorTests {
             SessionProbe()
                 .openMusicEventAuthenticatedSession(
                     session: session,
+                    authFailureMessage: authFailureMessage
+                )
+        }
+
+        store.send(.readSession)
+
+        #expect(store.observedSession == .placeholder)
+    }
+
+    @Test
+    func authenticatedDependencyModifierExposesSelectedSessionStoreFallback() {
+        let session = Shared<OAuth.Session?>(value: nil)
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(.placeholder)
+        let sessionStore = Shared<OAuth.SessionStore>(value: sessionStoreValue)
+        let authFailureMessage = Shared<ErrorMessage?>(value: nil)
+        let store = Store(initialState: SessionProbe.State()) {
+            SessionProbe()
+                .openMusicEventAuthenticatedSession(
+                    session: session,
+                    sessionStore: sessionStore,
                     authFailureMessage: authFailureMessage
                 )
         }
@@ -315,6 +352,81 @@ private struct SessionProbe {
             }
         }
     }
+}
+
+private let testCallbackURL = OAuth.App.CallbackURI(
+    URL(string: "app.openmusicevent:/oauth/callback?code=test-code&state=test-nonce&iss=https://bsky.social")!
+)
+
+private func successfulOAuthClient(session: OAuth.Session) -> OAuth.Client {
+    var client = OAuth.Client()
+    client.beginAuthorizationWithPermissions = { _, _ in
+        (
+            URL(string: "https://bsky.social/oauth/authorize")!,
+            try testPendingSession()
+        )
+    }
+    client.exchangeCode = { _, _, _, _ in
+        session
+    }
+    return client
+}
+
+private func failingOAuthClient(_ failure: OAuth.AuthorizationRequired) -> OAuth.Client {
+    var client = OAuth.Client()
+    client.beginAuthorizationWithPermissions = { _, _ in
+        throw failure
+    }
+    return client
+}
+
+private func openMusicEventTestSession(
+    permissions: Set<OAuth.Permission>
+) -> OAuth.Session {
+    var session = OAuth.Session.placeholder
+    var granted = Set([OAuth.Permission.atproto])
+    granted.formUnion(permissions)
+    session.scope = OAuth.Scope(
+        rawValue: granted
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: " ")
+    )
+    return session
+}
+
+private func testPendingSession() throws -> OAuth.Session.Pending {
+    let metadata = try JSONDecoder().decode(
+        OAuth.AuthorizationServer.Metadata.self,
+        from: Data("""
+        {
+            "issuer": "https://bsky.social",
+            "authorization_endpoint": "https://bsky.social/oauth/authorize",
+            "token_endpoint": "https://bsky.social/oauth/token",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": ["none"],
+            "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
+            "scopes_supported": ["atproto"],
+            "authorization_response_iss_parameter_supported": true,
+            "require_pushed_authorization_requests": true,
+            "pushed_authorization_request_endpoint": "https://bsky.social/oauth/par",
+            "dpop_signing_alg_values_supported": ["ES256"],
+            "require_request_uri_registration": true,
+            "client_id_metadata_document_supported": true
+        }
+        """.utf8)
+    )
+    return OAuth.Session.Pending(
+        pkceChallenge: OAuth.PKCE.Challenge(verifier: OAuth.PKCE.CodeVerifier("test-verifier")),
+        state: OAuth.Nonce(rawValue: "test-nonce"),
+        redirectURI: OAuth.App.RedirectURI(OpenMusicEventOAuth.redirectURL),
+        authServer: metadata,
+        accountID: OAuth.Session.placeholder.accountID,
+        pdsHost: .init("placeholder.example"),
+        dpopKey: OAuth.DPOP.Key()
+    )
 }
 
 private extension OAuthAuthenticationCoordinator.State {

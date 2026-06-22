@@ -1,11 +1,10 @@
 import Foundation
-import Parsing
 
 public struct SourcePatchGitPatchCodec: Sendable {
     public init() {}
 
     public func format(_ patch: SourcePatch) throws -> Data {
-        let text = try String(Self.parser.print(patch))
+        let text = try Self.parser.print(patch)
         return Data(text.utf8)
     }
 
@@ -37,7 +36,7 @@ public enum SourcePatchGitPatchCodecError: Equatable, Error, Sendable {
     case unsupportedPatch(String)
 }
 
-private struct CanonicalSourcePatchParser: ParserPrinter {
+private struct CanonicalSourcePatchParser {
     func parse(_ input: inout Substring) throws -> SourcePatch {
         var scanner = SourcePatchScanner(input)
         var fileChanges: [SourcePatchFileChange] = []
@@ -50,11 +49,10 @@ private struct CanonicalSourcePatchParser: ParserPrinter {
         return SourcePatch(fileChanges: fileChanges)
     }
 
-    func print(_ patch: SourcePatch, into input: inout Substring) throws {
-        let text = try patch.fileChanges
+    func print(_ patch: SourcePatch) throws -> String {
+        try patch.fileChanges
             .map(Self.printFileChange)
             .joined()
-        input.prepend(contentsOf: text)
     }
 
     func printReviewPatch(_ patch: SourcePatch) throws -> String {

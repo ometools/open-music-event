@@ -76,9 +76,13 @@ public struct Account {
             isAuthenticationSheetPresented: Bool = false,
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
+            signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
             storage: OAuthSessionStorage = OpenMusicEventOAuth.storage
         ) {
-            let signUpServerConfiguration = OpenMusicEventOAuth.signUpServerConfiguration
+            @Dependency(\.openMusicEventSignUpServerConfiguration)
+            var defaultSignUpServerConfiguration
+            let signUpServerConfiguration =
+                signUpServerConfiguration ?? defaultSignUpServerConfiguration
             let signUpServerHost = signUpServerConfiguration.defaultServerHost
             let selectedSignUpServerOptionID = signUpServerConfiguration
                 .availableOption(serverHost: signUpServerHost)?
@@ -88,6 +92,7 @@ public struct Account {
             self.oauth = Spawn(OAuthAccount.State(storage: storage))
             self.selectedMode = selectedMode
             self.selectedSignUpServerOptionID = selectedSignUpServerOptionID
+            self.signUpServerConfiguration = signUpServerConfiguration
             self.signInForm = SignInFormFeature.State(
                 value: SignInFormValue(handle: signInLoginHint)
             )
@@ -104,6 +109,7 @@ public struct Account {
             isAuthenticationSheetPresented: Bool = false,
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
+            signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
             authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
             session: Shared<OAuth.Session?>,
             sessionStore: Shared<OAuth.SessionStore>
@@ -112,6 +118,7 @@ public struct Account {
                 isAuthenticationSheetPresented: isAuthenticationSheetPresented,
                 selectedMode: selectedMode,
                 signInLoginHint: signInLoginHint,
+                signUpServerConfiguration: signUpServerConfiguration,
                 storage: OAuthSessionStorage(
                     session: session,
                     sessionStore: sessionStore,
@@ -124,6 +131,7 @@ public struct Account {
         public var oauth: Spawn<OAuthAccount>
         public var selectedMode: Mode
         public var selectedSignUpServerOptionID: OAuthSignUpServerOption.ID?
+        public var signUpServerConfiguration: OAuthSignUpServerConfiguration
         public var signInForm: SignInFormFeature.State
         public var signUpForm: SignUpFormFeature.State
         public var usesCustomSignUpServerHost: Bool
@@ -195,6 +203,7 @@ public struct Account {
     }
 
     @Dependency(\.openMusicEventAccountAuthorizationClient) var accountAuthorizationClient
+    @Dependency(\.openMusicEventSignUpServerConfiguration) var signUpServerConfiguration
 
     public var body: some Feature {
         Features {
@@ -219,7 +228,7 @@ public struct Account {
                     state.isAuthenticationSheetPresented = false
 
                 case .customSignUpServerOptionTapped:
-                    guard OpenMusicEventOAuth.signUpServerConfiguration.allowsCustomServerHost else { return }
+                    guard state.signUpServerConfiguration.allowsCustomServerHost else { return }
                     state.selectedSignUpServerOptionID = nil
                     state.usesCustomSignUpServerHost = true
                     state.signUpServerHost = ""
@@ -320,7 +329,7 @@ public struct Account {
                     state.oauth.state.errorMessage = "Sign up failed."
 
                 case .signUpServerOptionTapped(let id):
-                    guard let option = OpenMusicEventOAuth.signUpServerConfiguration.availableOption(id: id),
+                    guard let option = state.signUpServerConfiguration.availableOption(id: id),
                           let serverHost = option.serverHost
                     else { return }
                     state.selectedSignUpServerOptionID = option.id
@@ -353,7 +362,7 @@ public struct Account {
         .spawn(\.oauth) {
             OAuthAccount(
                 baseAuthRequirement: OpenMusicEventOAuth.baseAuthRequirement,
-                signUpServerConfiguration: OpenMusicEventOAuth.signUpServerConfiguration
+                signUpServerConfiguration: signUpServerConfiguration
             )
         }
     }
@@ -656,7 +665,7 @@ struct AccountSignUpServerFormView: View {
 
     var body: some View {
         Section("Provider") {
-            ForEach(OpenMusicEventOAuth.signUpServerConfiguration.options) { option in
+            ForEach(store.signUpServerConfiguration.options) { option in
                 Button {
                     store.send(.signUpServerOptionTapped(option.id))
                 } label: {
@@ -669,7 +678,7 @@ struct AccountSignUpServerFormView: View {
                 .disabled(option.isComingSoon)
             }
 
-            if OpenMusicEventOAuth.signUpServerConfiguration.allowsCustomServerHost {
+            if store.signUpServerConfiguration.allowsCustomServerHost {
                 Button {
                     store.send(.customSignUpServerOptionTapped)
                 } label: {
@@ -682,7 +691,7 @@ struct AccountSignUpServerFormView: View {
         }
 
         if store.usesCustomSignUpServerHost ||
-            OpenMusicEventOAuth.signUpServerConfiguration.options.isEmpty {
+            store.signUpServerConfiguration.options.isEmpty {
             Section("Server") {
                 TextField("Server Host", text: $store.signUpForm.value.serverHost)
                     #if !os(macOS)
@@ -817,9 +826,11 @@ struct AccountSignUpServerImagePlaceholder: View {
 
 public extension OAuthAccount {
     init() {
+        @Dependency(\.openMusicEventSignUpServerConfiguration)
+        var signUpServerConfiguration
         self.init(
             baseAuthRequirement: OpenMusicEventOAuth.baseAuthRequirement,
-            signUpServerConfiguration: OpenMusicEventOAuth.signUpServerConfiguration
+            signUpServerConfiguration: signUpServerConfiguration
         )
     }
 }

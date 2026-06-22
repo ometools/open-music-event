@@ -1,15 +1,17 @@
 import ComposableArchitecture2
 import Dependencies
+import ErrorHandling
 import Foundation
 import HTTPClient
 import OpenMusicEventApp
+import OpenMusicEventAppEventViewer
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import OpenMusicEventWhiteLabel
-import SourceEditing
 import SQLiteData
 import SwiftUI
 
@@ -17,12 +19,9 @@ public typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
 public enum WhiteLabelDependencies {
     public static func prepare(_ dependencies: inout DependencyValues) throws {
-        try OpenMusicEventAppDependencies.prepareDatabase(&dependencies)
+        try OME.prepareDependencies(&dependencies)
         dependencies.tangledSourceCheckout = .archive
         dependencies.whiteLabelSourceImport = .live
-        dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
-        dependencies.sourcePatchPublisher = .preparedWorkingTree
-        dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
     }
 }
 
@@ -32,6 +31,7 @@ public extension WhiteLabelSourceImportClient {
             @Dependency(\.defaultDatabase) var database
             @Dependency(\.httpClient) var httpClient
             @Dependency(\.tangledSourceArchiveExtractor) var archiveExtractor
+            @Dependency(\.tangledSourceImport) var tangledSourceImport
             @Dependency(\.uuid) var uuid
 
             let cachedEventIDs = try await events(for: organizerID, in: database)
@@ -57,11 +57,13 @@ public extension WhiteLabelSourceImportClient {
                 cleanupURL = outputURL
 
             case let .source(source):
-                request = OpenMusicEventSourceValidationRequest(
-                    source: source,
-                    organizerID: organizerID
+                let result = try await tangledSourceImport.importSource(
+                    OpenMusicEventSourceValidationRequest(
+                        source: source,
+                        organizerID: organizerID
+                    )
                 )
-                cleanupURL = nil
+                return result.insertedEventIDs
             }
 
             defer {
@@ -99,85 +101,232 @@ public struct WhiteLabelRoot {
         }
 
         public var configuration: WhiteLabelAppConfiguration
+        public var authentication = AuthenticationCoordinator.State()
+        public var errorNotifications = Spawn(ErrorNotifications.State())
         public var errorMessage: String?
+        public var eventViewer: Spawn<EventViewer>?
         public var isLoading = false
+        public var loadingPhase: LoadingPhase = .idle
         public var organizationRoot: Spawn<OrganizationRoot>?
         public var organizerID: OMERecord.Organizer.ID?
+        public var sourceDetail: Spawn<SourceDetail>?
+
+        public enum LoadingPhase: Equatable, Sendable {
+            case idle
+            case preparing
+            case resolvingOrganizer
+            case locatingSource
+            case importingSource
+            case openingEvent
+        }
     }
 
     public enum Action {
+        case authentication(AuthenticationCoordinator.Action)
+        case eventViewerDismissed
+        case handleNavigationRequest(NavigationRequest)
+        case openURL(URL)
         case retryButtonTapped
         case task
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.openMusicEventStoredAuthentication) var storedAuthentication
     @Dependency(\.whiteLabelDevelopmentSourceOverride) var developmentSourceOverride
     @Dependency(\.whiteLabelOrganizerIdentityResolver) var identityResolver
     @Dependency(\.whiteLabelSourceImport) var sourceImport
     @Dependency(\.whiteLabelSourceRegistry) var sourceRegistry
 
     public var body: some Feature {
-        Update { state, action in
-            switch action {
-            case .retryButtonTapped, .task:
-                guard !state.isLoading else { return }
-                state.errorMessage = nil
-                state.isLoading = true
+        let _ = Self._logChanges()
 
-                let configuration = state.configuration
-                let database = self.database
-                let developmentSourceOverride = self.developmentSourceOverride
-                let identityResolver = self.identityResolver
-                let sourceImport = self.sourceImport
-                let sourceRegistry = self.sourceRegistry
-                store.addTask {
-                    do {
-                        let organizerID = try await Self.load(
-                            configuration,
-                            developmentSourceOverride: developmentSourceOverride,
-                            identityResolver: identityResolver,
-                            sourceImport: sourceImport,
-                            sourceRegistry: sourceRegistry
-                        )
-                        try store.modify {
-                            $0.errorMessage = nil
-                            $0.isLoading = false
-                            $0.organizerID = organizerID
-                            $0.setOrganizationRoot(organizerID: organizerID)
+        Features {
+            Scope(\.authentication, action: \.authentication) {
+                AuthenticationCoordinator()
+            }
+
+            Update { state, action in
+                switch action {
+                case .authentication:
+                    break
+
+                case .eventViewerDismissed:
+                    state.eventViewer = nil
+
+                case let .handleNavigationRequest(request):
+                    switch request {
+                    case let .event(eventID, target):
+                        store.withDependencies {
+                            state.eventViewer = Spawn(.route(eventID: eventID, target: target))
                         }
-                    } catch {
+
+                    case .externalURL:
+                        break
+                    }
+
+                case .openURL(let url):
+                    guard OpenMusicEventOAuth.isCallbackURL(url) else { return }
+                    store.addTask {
+                        try store.send(.authentication(.handleOpenURL(.init(url))))
+                    }
+
+                case .retryButtonTapped, .task:
+                    guard !state.isLoading else { return }
+                    state.errorMessage = nil
+                    state.isLoading = true
+                    state.loadingPhase = .preparing
+
+                    let configuration = state.configuration
+                    let database = self.database
+                    let developmentSourceOverride = self.developmentSourceOverride
+                    let identityResolver = self.identityResolver
+                    let sourceImport = self.sourceImport
+                    let sourceRegistry = self.sourceRegistry
+                    let storedAuthentication = self.storedAuthentication
+                    store.addTask {
+                        let updateLoadingPhase: (State.LoadingPhase) async -> Void = { phase in
+                            _ = try? store.modify {
+                                $0.loadingPhase = phase
+                            }
+                        }
+
+                        let _: Void? = await store.withErrorHandling(
+                            fallbackMessage: .storedAuthenticationLoadFailed,
+                            operation: .storedAuthenticationLoad
+                        ) {
+                            try await storedAuthentication.enforceFreshness()
+                        }
+
+                        let loadedRoot = await store.withErrorHandling(
+                            fallbackMessage: .whiteLabelLoadFailed,
+                            operation: .whiteLabelLoad
+                        ) {
+                            await updateLoadingPhase(Self.initialLoadingPhase(
+                                configuration,
+                                developmentSourceOverride: developmentSourceOverride
+                            ))
+                            let resolvedSource = try await Self.resolveSource(
+                                configuration,
+                                developmentSourceOverride: developmentSourceOverride,
+                                identityResolver: identityResolver,
+                                sourceRegistry: sourceRegistry
+                            )
+                            await updateLoadingPhase(.importingSource)
+                            _ = try await sourceImport.ensureImported(
+                                resolvedSource.organizerID,
+                                resolvedSource.descriptor
+                            )
+                            await updateLoadingPhase(.openingEvent)
+                            let sourceBaselineIDs = try await Self.sourceBaselineIDs(
+                                for: resolvedSource.organizerID,
+                                in: database
+                            )
+                            return LoadedRoot(
+                                organizerID: resolvedSource.organizerID,
+                                sourceBaselineIDs: sourceBaselineIDs
+                            )
+                        } cleanup: {
+                            $0.isLoading = false
+                            $0.loadingPhase = .idle
+                        } parseError: {
+                            SourceImportError.parser
+                        }
+
+                        if let loadedRoot {
+                            try store.modify {
+                                $0.errorMessage = nil
+                                $0.isLoading = false
+                                $0.loadingPhase = .idle
+                                $0.organizerID = loadedRoot.organizerID
+                                $0.setLoadedRoot(
+                                    organizerID: loadedRoot.organizerID,
+                                    sourceBaselineIDs: loadedRoot.sourceBaselineIDs
+                                )
+                            }
+                            return
+                        }
+
                         let cachedOrganizerID = try? await Self.cachedOrganizerID(
                             for: configuration,
                             database: database,
                             developmentSourceOverride: developmentSourceOverride,
                             identityResolver: identityResolver
                         )
+                        let sourceBaselineIDs: [SourceBaselineRecord.ID]
+                        if let cachedOrganizerID {
+                            sourceBaselineIDs = (try? await Self.sourceBaselineIDs(
+                                for: cachedOrganizerID,
+                                in: database
+                            )) ?? []
+                        } else {
+                            sourceBaselineIDs = []
+                        }
                         try store.modify {
                             $0.isLoading = false
+                            $0.loadingPhase = .idle
                             if let cachedOrganizerID {
                                 $0.errorMessage = "Unable to refresh \(configuration.brand.displayName)."
                                 $0.organizerID = cachedOrganizerID
-                                $0.setOrganizationRoot(organizerID: cachedOrganizerID)
+                                $0.setLoadedRoot(
+                                    organizerID: cachedOrganizerID,
+                                    sourceBaselineIDs: sourceBaselineIDs
+                                )
                             } else {
-                                $0.errorMessage = error.localizedDescription
+                                $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
                             }
                         }
                     }
                 }
             }
         }
+        .onEvent(NavigationRequested.self) { request, state in
+            guard state.sourceDetail != nil else { return .continue }
+            store.addTask {
+                try store.send(.handleNavigationRequest(request))
+            }
+            return .stop
+        }
+        .presentReportedErrors()
+        .spawn(\.errorNotifications) {
+            ErrorNotifications()
+        }
         .ifLet(\.organizationRoot) {
             OrganizationRoot()
         }
+        .ifLet(\.sourceDetail) {
+            SourceDetail()
+        }
+        .ifLet(\.eventViewer) {
+            EventViewer()
+        }
     }
 
-    private static func load(
+    private struct ResolvedSource {
+        var organizerID: OMERecord.Organizer.ID
+        var descriptor: WhiteLabelSourceDescriptor
+    }
+
+    private struct LoadedRoot {
+        var organizerID: OMERecord.Organizer.ID
+        var sourceBaselineIDs: [SourceBaselineRecord.ID]
+    }
+
+    private static func initialLoadingPhase(
+        _ configuration: WhiteLabelAppConfiguration,
+        developmentSourceOverride: WhiteLabelDevelopmentSourceOverride?
+    ) -> State.LoadingPhase {
+        if developmentSourceOverride != nil || configuration.organizerID != nil {
+            return .locatingSource
+        }
+        return .resolvingOrganizer
+    }
+
+    private static func resolveSource(
         _ configuration: WhiteLabelAppConfiguration,
         developmentSourceOverride: WhiteLabelDevelopmentSourceOverride?,
         identityResolver: WhiteLabelOrganizerIdentityResolverClient,
-        sourceImport: WhiteLabelSourceImportClient,
         sourceRegistry: WhiteLabelSourceRegistryClient
-    ) async throws -> OMERecord.Organizer.ID {
+    ) async throws -> ResolvedSource {
         let organizerID: OMERecord.Organizer.ID
         let descriptor: WhiteLabelSourceDescriptor
 
@@ -199,8 +348,7 @@ public struct WhiteLabelRoot {
             throw WhiteLabelError.missingOrganizerIdentity(configuration.brand.displayName)
         }
 
-        _ = try await sourceImport.ensureImported(organizerID, descriptor)
-        return organizerID
+        return ResolvedSource(organizerID: organizerID, descriptor: descriptor)
     }
 
     private static func cachedOrganizerID(
@@ -220,6 +368,21 @@ public struct WhiteLabelRoot {
             return nil
         }
         return try await organizerExists(organizerID, in: database) ? organizerID : nil
+    }
+
+    private static func sourceBaselineIDs(
+        for organizerID: OMERecord.Organizer.ID,
+        in database: any DatabaseReader
+    ) async throws -> [SourceBaselineRecord.ID] {
+        try await database.read { db in
+            let provenanceRecords = try EventSourceProvenanceRecord
+                .where { $0.id.organizerID.eq(organizerID) }
+                .fetchAll(db)
+            var seen: Set<SourceBaselineRecord.ID> = []
+            return provenanceRecords.compactMap(\.sourceBaselineID).filter {
+                seen.insert($0).inserted
+            }
+        }
     }
 
     private static var developmentSourceOverridesAreEnabled: Bool {
@@ -247,6 +410,8 @@ public struct WhiteLabelRoot {
     }
 }
 
+extension WhiteLabelRoot.State: ErrorNotificationRootState {}
+
 public struct WhiteLabelRootView: View {
     public init(store: StoreOf<WhiteLabelRoot>) {
         self.store = store
@@ -255,15 +420,34 @@ public struct WhiteLabelRootView: View {
     @Bindable var store: StoreOf<WhiteLabelRoot>
 
     public var body: some View {
-        content
+        AuthenticationCoordinatorView(
+            store: store.scope(\.authentication, action: \.authentication)
+        ) {
+            content
+        }
             .task {
                 await store.send(.task)?.value
+            }
+            .onOpenURL { url in
+                store.send(.openURL(url))
             }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let organizationRootStore = store.spawn(\.organizationRoot) {
+        if let sourceDetailStore = store.spawn(\.sourceDetail) {
+            NavigationStack {
+                SourceDetailView(store: sourceDetailStore)
+                    .openMusicEventFullScreenCover(
+                        item: eventViewerStore,
+                        onDismiss: {
+                            store.send(.eventViewerDismissed)
+                        }
+                    ) { eventViewerStore in
+                        EventViewerView(store: eventViewerStore)
+                    }
+            }
+        } else if let organizationRootStore = store.spawn(\.organizationRoot) {
             OrganizationRootView(store: organizationRootStore)
         } else {
             NavigationStack {
@@ -272,12 +456,23 @@ public struct WhiteLabelRootView: View {
         }
     }
 
+    private var eventViewerStore: Binding<StoreOf<EventViewer>?> {
+        Binding(
+            get: { store.spawn(\.eventViewer) },
+            set: { eventViewerStore in
+                if eventViewerStore == nil {
+                    store.send(.eventViewerDismissed)
+                }
+            }
+        )
+    }
+
     private var loadingView: some View {
         List {
             header
 
             if store.isLoading {
-                ProgressView()
+                loadingStatus
             }
 
             if let errorMessage = store.errorMessage {
@@ -292,6 +487,23 @@ public struct WhiteLabelRootView: View {
             }
         }
         .navigationTitle(store.configuration.brand.displayName)
+    }
+
+    private var loadingStatus: some View {
+        Section {
+            HStack(alignment: .top, spacing: 12) {
+                ProgressView()
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(store.loadingPhase.title(displayName: store.configuration.brand.displayName))
+                        .font(.headline)
+                    Text(store.loadingPhase.detail)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+        }
     }
 
     private var header: some View {
@@ -313,14 +525,79 @@ public struct WhiteLabelRootView: View {
             .padding(.vertical, 4)
         }
     }
+
 }
 
 private extension WhiteLabelRoot.State {
-    mutating func setOrganizationRoot(organizerID: OMERecord.Organizer.ID) {
-        if organizationRoot?.state.organizerID != organizerID {
-            organizationRoot = Spawn(OrganizationRoot.State(organizerID: organizerID))
+    mutating func setLoadedRoot(
+        organizerID: OMERecord.Organizer.ID,
+        sourceBaselineIDs: [SourceBaselineRecord.ID]
+    ) {
+        if sourceBaselineIDs.count == 1, let sourceBaselineID = sourceBaselineIDs.first {
+            organizationRoot = nil
+            if sourceDetail?.state.sourceBaselineID != sourceBaselineID {
+                sourceDetail = Spawn(SourceDetail.State(sourceBaselineID: sourceBaselineID))
+            }
+        } else {
+            sourceDetail = nil
+            if organizationRoot?.state.organizerID != organizerID {
+                organizationRoot = Spawn(OrganizationRoot.State(organizerID: organizerID))
+            }
         }
     }
+}
+
+private extension WhiteLabelRoot.State.LoadingPhase {
+    func title(displayName: String) -> String {
+        switch self {
+        case .idle:
+            "Ready"
+        case .preparing:
+            "Preparing \(displayName)"
+        case .resolvingOrganizer:
+            "Finding \(displayName)"
+        case .locatingSource:
+            "Finding \(displayName) source"
+        case .importingSource:
+            "Downloading \(displayName) source"
+        case .openingEvent:
+            "Opening \(displayName)"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .idle:
+            "The event source is ready."
+        case .preparing:
+            "Checking the local event cache."
+        case .resolvingOrganizer:
+            "Resolving the organizer account."
+        case .locatingSource:
+            "Looking up the configured event repository."
+        case .importingSource:
+            "Downloading and validating the event data."
+        case .openingEvent:
+            "Preparing the event workspace."
+        }
+    }
+}
+
+private extension UserFacingText {
+    static let storedAuthenticationLoadFailed = Self(
+        "Unable to restore your account session.",
+        fallback: "Unable to restore your account session."
+    )
+
+    static let whiteLabelLoadFailed = Self(
+        "Unable to load event source.",
+        fallback: "Unable to load event source."
+    )
+}
+
+private extension ErrorOperation {
+    static let storedAuthenticationLoad = Self("auth.stored.load")
+    static let whiteLabelLoad = Self("white-label.load")
 }
 
 private extension WhiteLabelSourceDescriptor {

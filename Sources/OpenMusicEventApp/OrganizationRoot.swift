@@ -67,23 +67,21 @@ public struct OrganizationRootView: View {
         NavigationStack {
             OrganizerDetailView(store: store.spawn(\.organizerDetail))
                 .openMusicEventFullScreenCover(
-                    isPresented: eventViewerIsPresented,
+                    item: eventViewerStore,
                     onDismiss: {
                         store.send(.eventViewerDismissed)
                     }
-                ) {
-                    if let eventViewerStore = store.spawn(\.eventViewer) {
-                        EventViewerView(store: eventViewerStore)
-                    }
+                ) { eventViewerStore in
+                    EventViewerView(store: eventViewerStore)
                 }
         }
     }
 
-    private var eventViewerIsPresented: Binding<Bool> {
+    private var eventViewerStore: Binding<StoreOf<EventViewer>?> {
         Binding(
-            get: { store.eventViewer != nil },
-            set: { isPresented in
-                if !isPresented {
+            get: { store.spawn(\.eventViewer) },
+            set: { eventViewerStore in
+                if eventViewerStore == nil {
                     store.send(.eventViewerDismissed)
                 }
             }

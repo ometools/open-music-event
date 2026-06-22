@@ -9,8 +9,14 @@ import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SwiftUI
 
-struct TangledSourceImportClient: Sendable {
-    var importSource: @Sendable (OpenMusicEventSourceValidationRequest) async throws -> OpenMusicEventSourceValidationResult
+public struct TangledSourceImportClient: Sendable {
+    public var importSource: @Sendable (OpenMusicEventSourceValidationRequest) async throws -> OpenMusicEventSourceValidationResult
+
+    public init(
+        importSource: @escaping @Sendable (OpenMusicEventSourceValidationRequest) async throws -> OpenMusicEventSourceValidationResult
+    ) {
+        self.importSource = importSource
+    }
 }
 
 public struct SourceImportCompleted: FeatureEventKey {
@@ -31,7 +37,7 @@ public struct ImportedSource: Equatable, Sendable {
     }
 }
 
-extension TangledSourceImportClient {
+public extension TangledSourceImportClient {
     static var live: Self {
         Self { request in
             @Dependency(\.defaultDatabase) var database
@@ -76,7 +82,7 @@ private enum TangledSourceImportClientKey: DependencyKey {
     }
 }
 
-extension DependencyValues {
+public extension DependencyValues {
     var tangledSourceImport: TangledSourceImportClient {
         get { self[TangledSourceImportClientKey.self] }
         set { self[TangledSourceImportClientKey.self] = newValue }

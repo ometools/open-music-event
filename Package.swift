@@ -51,7 +51,6 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main", traits: ["Dependencies"]),
-        .package(url: "https://github.com/pointfreeco/swift-parsing", branch: "main"),
 
 
         .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),
@@ -189,7 +188,6 @@ let package = Package(
                 .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "GRDB", package: "GRDB.swift"),
-                .product(name: "Parsing", package: "swift-parsing"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),
@@ -217,6 +215,7 @@ let package = Package(
         .target(
             name: "OpenMusicEventWhiteLabelApp",
             dependencies: [
+                "ErrorHandling",
                 "OpenMusicEventApp",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",
@@ -400,9 +399,16 @@ let package = Package(
             dependencies: [
                 "OpenMusicEventApp",
                 "OpenMusicEventAppEventViewer",
+                "OpenMusicEventLexicon",
+                "OpenMusicEventSource",
+                "OpenMusicEventSourceEditing",
                 "OpenMusicEventWhiteLabel",
                 "OpenMusicEventWhiteLabelApp",
+                .product(name: "ATProto", package: "swift-composable-atmosphere"),
+                .product(name: "ComposableArchitecture2", package: "TCA26"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+                .product(name: "SQLiteData", package: "sqlite-data"),
             ]
         ),
         .testTarget(

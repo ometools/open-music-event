@@ -114,6 +114,21 @@ struct AccountTests {
     }
 
     @Test
+    func accountStateUsesSignUpServerConfigurationDependency() {
+        let configuration = accountTestSignUpServerConfiguration
+
+        withDependencies {
+            $0.openMusicEventSignUpServerConfiguration = configuration
+        } operation: {
+            let state = Account.State.localTestState(selectedMode: .signUp)
+
+            #expect(state.signUpServerConfiguration == configuration)
+            #expect(state.signUpServerHost == configuration.defaultServerHost)
+            #expect(state.selectedSignUpServerOptionID == "account-test")
+        }
+    }
+
+    @Test
     func signInFormLaunchesDirectAuthorizationWithLoginHint() async {
         let accountAuthorization = AccountDirectAuthorizationRecorder()
         let authorizationRequests = AccountAuthorizationRecorder()
@@ -372,6 +387,22 @@ private extension Account.State {
         )
     }
 }
+
+private let accountTestSignUpServerConfiguration = OAuthSignUpServerConfiguration(
+    defaultServerHost: "account.example",
+    options: [
+        OAuthSignUpServerOption(
+            id: "account-test",
+            title: "Account Test",
+            subtitle: "account.example",
+            description: "A test account provider.",
+            imageURL: nil,
+            metadataSource: "test",
+            availability: .available(serverHost: "account.example")
+        ),
+    ],
+    allowsCustomServerHost: false
+)
 
 private actor AccountAuthorizationRecorder {
     struct LoginRequest: Equatable {

@@ -2,12 +2,15 @@ import ATProto
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import SQLiteData
 import Testing
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
+@testable import OpenMusicEventSourceEditing
 @testable import OpenMusicEventWhiteLabel
 @testable import OpenMusicEventWhiteLabelApp
 
@@ -30,6 +33,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
+        $0.loadingPhase = .preparing
       }?.value
 
       #expect(store.state.isLoading == false)
@@ -78,12 +82,49 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
+        $0.loadingPhase = .preparing
       }?.value
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
       #expect(store.state.organizerID == organizerID)
       #expect(store.state.organizationRoot?.state.organizerID == organizerID)
       #expect(store.state.errorMessage == nil)
+    }
+  }
+
+  @Test
+  func startupRestoresStoredAuthenticationBeforeImportingSource() async throws {
+    try await withNonExhaustiveTest {
+      let database = try makePreparedDatabase()
+      let organizerID = WickedWoodsWhiteLabel.temporaryDevelopmentOrganizerID
+      let descriptor = WhiteLabelSourceDescriptor(reference: .source("/tmp/wicked-woods-ome"))
+      let recorder = StartupOrderRecorder()
+
+      let store = makeStore(
+        configuration: WickedWoodsWhiteLabel.configuration(),
+        database: database
+      ) {
+        $0.openMusicEventStoredAuthentication = OpenMusicEventStoredAuthenticationClient {
+          await recorder.record(.storedAuthentication)
+        }
+        $0.whiteLabelDevelopmentSourceOverride = WickedWoodsWhiteLabel.developmentSourceOverride(
+          reference: .source("/tmp/wicked-woods-ome")
+        )
+        $0.whiteLabelSourceImport = WhiteLabelSourceImportClient {
+          importedOrganizerID, importedDescriptor in
+          await recorder.record(.sourceImport)
+          #expect(importedOrganizerID == organizerID)
+          #expect(importedDescriptor == descriptor)
+          return []
+        }
+      }
+
+      await store.send(WhiteLabelRoot.Action.task) {
+        $0.isLoading = true
+        $0.loadingPhase = .preparing
+      }?.value
+
+      #expect(await recorder.events == [.storedAuthentication, .sourceImport])
     }
   }
 
@@ -116,12 +157,61 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
+        $0.loadingPhase = .preparing
       }?.value
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
       #expect(store.state.organizerID == organizerID)
       #expect(store.state.organizationRoot?.state.organizerID == organizerID)
       #expect(store.state.errorMessage == nil)
+    }
+  }
+
+  @Test
+  func singleImportedSourcePresentsSourceDetailDirectly() async throws {
+    try await withNonExhaustiveTest {
+      let database = try makePreparedDatabase()
+      let organizerID = organizerID("wickedwoods")
+      let selectedEventID = eventID(organizerID: organizerID, eventID: "2025")
+      let descriptor = WhiteLabelSourceDescriptor(
+        reference: .source("https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome")
+      )
+      let source = sourceProvenance("wicked-woods-ome")
+      let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+
+      let store = makeStore(
+        configuration: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
+        database: database
+      ) {
+        $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
+        $0.whiteLabelSourceImport = WhiteLabelSourceImportClient {
+          importedOrganizerID, _ in
+          #expect(importedOrganizerID == organizerID)
+          try await insertSourceBackedEvent(
+            selectedEventID,
+            source: source,
+            into: database
+          )
+          return [selectedEventID]
+        }
+      }
+
+      await store.send(WhiteLabelRoot.Action.task) {
+        $0.isLoading = true
+        $0.loadingPhase = .preparing
+      }?.value
+
+      #expect(store.state.sourceDetail?.state.sourceBaselineID == sourceBaselineID)
+      #expect(store.state.organizationRoot == nil)
+      #expect(store.state.errorMessage == nil)
+
+      await store.send(
+        WhiteLabelRoot.Action.handleNavigationRequest(
+          NavigationRequest.event(selectedEventID, nil)
+        )
+      )?.value
+
+      #expect(store.state.eventViewer?.state.eventID == selectedEventID)
     }
   }
 
@@ -149,6 +239,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
+        $0.loadingPhase = .preparing
       }?.value
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
@@ -176,6 +267,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
+        $0.loadingPhase = .preparing
       }?.value
 
       #expect(
@@ -184,6 +276,37 @@ struct WhiteLabelRootTests {
           .localizedDescription)
       #expect(store.state.organizationRoot?.state.organizerID == nil)
     }
+  }
+
+  @Test
+  func liveSourceImportDelegatesSourceReferencesToTangledSourceImport() async throws {
+    let database = try makePreparedDatabase()
+    let organizerID = organizerID("wickedwoods")
+    let importedEventID = eventID(organizerID: organizerID, eventID: "2025")
+    let source = "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
+    let recorder = TangledSourceImportRecorder()
+
+    let importedEventIDs = try await withDependencies {
+      $0.context = .test
+      $0.defaultDatabase = database
+      $0.tangledSourceImport = TangledSourceImportClient { request in
+        await recorder.record(request)
+        return try validationResult(eventID: importedEventID)
+      }
+    } operation: {
+      try await WhiteLabelSourceImportClient.live.ensureImported(
+        organizerID,
+        WhiteLabelSourceDescriptor(reference: .source(source))
+      )
+    }
+
+    #expect(importedEventIDs == [importedEventID])
+    #expect(await recorder.requests == [
+      OpenMusicEventSourceValidationRequest(
+        source: source,
+        organizerID: organizerID
+      )
+    ])
   }
 
   @Test
@@ -225,6 +348,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
+        $0.loadingPhase = .preparing
       }?.value
 
       #expect(store.state.organizationRoot?.state.organizerID == organizerID)
@@ -299,6 +423,19 @@ struct WhiteLabelRootTests {
 
 private struct RegistryShouldNotBeCalled: Error {}
 
+private actor StartupOrderRecorder {
+  enum Event: Equatable, Sendable {
+    case storedAuthentication
+    case sourceImport
+  }
+
+  private(set) var events: [Event] = []
+
+  func record(_ event: Event) {
+    events.append(event)
+  }
+}
+
 private struct SourceImportRecord: Equatable, Sendable {
   var organizerID: OMERecord.Organizer.ID
   var descriptor: WhiteLabelSourceDescriptor
@@ -317,6 +454,43 @@ private actor SourceImportRecorder {
   ) {
     values.append(SourceImportRecord(organizerID: organizerID, descriptor: descriptor))
   }
+}
+
+private actor TangledSourceImportRecorder {
+  private var values: [OpenMusicEventSourceValidationRequest] = []
+
+  var requests: [OpenMusicEventSourceValidationRequest] {
+    values
+  }
+
+  func record(_ request: OpenMusicEventSourceValidationRequest) {
+    values.append(request)
+  }
+}
+
+private func validationResult(
+  eventID: OMERecord.Event.ID
+) throws -> OpenMusicEventSourceValidationResult {
+  let source = OpenMusicEventSourceRepository(events: [])
+  let insertion = try OMERecord.SourceDatabaseInsertion(
+    .init(source: source, organizerID: eventID.organizerID)
+  )
+  return OpenMusicEventSourceValidationResult(
+    repositoryURL: FileManager.default.temporaryDirectory,
+    organizerID: eventID.organizerID,
+    insertion: insertion,
+    insertedEventIDs: [eventID],
+    summary: SourceValidationSummary(
+      events: [.init(eventID: eventID.eventID.rawValue.rawValue, name: "Imported Event")],
+      stageCount: 0,
+      scheduleCount: 0,
+      contributorCount: 0,
+      channelCount: 0,
+      posterCount: 0,
+      performanceCount: 0,
+      performanceContributorCount: 0
+    )
+  )
 }
 
 private func insertEvent(
@@ -361,6 +535,53 @@ private func insertEvent(
     }
     .execute(db)
   }
+}
+
+private func insertSourceBackedEvent(
+  _ eventID: OMERecord.Event.ID,
+  source: OMERecord.SourceDatabaseInsertion.SourceProvenance,
+  into database: any DatabaseWriter
+) async throws {
+  try await insertEvent(
+    eventID,
+    name: "Wicked Woods 2025",
+    startDate: LocalDate("2025-08-29"),
+    endDate: LocalDate("2025-08-31"),
+    into: database
+  )
+  let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+  try await database.write { db in
+    try SourceBaselineRecord.insert {
+      SourceBaselineRecord(
+        source: source,
+        databaseFileName: "reference.sqlite",
+        importedAt: Date(timeIntervalSince1970: 1)
+      )
+    }
+    .execute(db)
+    try EventSourceProvenanceRecord.insert {
+      EventSourceProvenanceRecord(
+        id: eventID,
+        sourceBaselineID: sourceBaselineID,
+        sourceKind: source.kind,
+        sourceReference: source.reference,
+        ref: source.ref,
+        eventIDOrigin: .explicit,
+        sourceEventDirectory: eventID.eventID.rawValue.rawValue
+      )
+    }
+    .execute(db)
+  }
+}
+
+private func sourceProvenance(
+  _ repository: String
+) -> OMERecord.SourceDatabaseInsertion.SourceProvenance {
+  OMERecord.SourceDatabaseInsertion.SourceProvenance(
+    kind: .tangled,
+    reference: "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/\(repository)",
+    ref: "HEAD"
+  )
 }
 
 private func eventID(

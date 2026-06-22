@@ -119,6 +119,9 @@
     "Browse feature stub." : {
 
     },
+    "Calendar Changes" : {
+
+    },
     "Calendars" : {
 
     },
@@ -397,6 +400,9 @@
         }
       }
     },
+    "Manage Source" : {
+
+    },
     "My Events" : {
 
     },
@@ -433,6 +439,9 @@
 
     },
     "New Event" : {
+
+    },
+    "No changes to propose" : {
 
     },
     "No Events" : {
@@ -496,7 +505,13 @@
         }
       }
     },
+    "Preparing Source" : {
+
+    },
     "Previous Events" : {
+
+    },
+    "Propose Change" : {
 
     },
     "Ref" : {
@@ -582,6 +597,12 @@
 
     },
     "Source" : {
+
+    },
+    "Source baseline missing" : {
+
+    },
+    "Source changes unavailable" : {
 
     },
     "Source import output can only be used with Tangled repositories." : {
@@ -684,6 +705,9 @@
         }
       }
     },
+    "Unable to check source changes." : {
+
+    },
     "Unable to connect to Tangled over SSH." : {
 
     },
@@ -693,10 +717,16 @@
     "Unable to import source." : {
 
     },
+    "Unable to prepare source editing." : {
+
+    },
     "Unable to prepare the downloaded source because a file already exists." : {
 
     },
     "Unable to resolve the repository owner." : {
+
+    },
+    "Unable to restore your account session." : {
 
     },
     "Unable to store the imported source because a file already exists." : {

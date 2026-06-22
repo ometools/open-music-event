@@ -7,6 +7,35 @@ import TCATProtoAuthentication
 import WebMetadataClient
 import XRPCClient
 
+public struct OpenMusicEventStoredAuthenticationClient: Sendable {
+    public var enforceFreshness: @Sendable () async throws -> Void
+
+    public init(
+        enforceFreshness: @escaping @Sendable () async throws -> Void
+    ) {
+        self.enforceFreshness = enforceFreshness
+    }
+}
+
+private enum OpenMusicEventStoredAuthenticationClientKey: DependencyKey {
+    static var liveValue: OpenMusicEventStoredAuthenticationClient {
+        OpenMusicEventStoredAuthenticationClient {
+            try await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
+        }
+    }
+
+    static var testValue: OpenMusicEventStoredAuthenticationClient {
+        OpenMusicEventStoredAuthenticationClient {}
+    }
+}
+
+public extension DependencyValues {
+    var openMusicEventStoredAuthentication: OpenMusicEventStoredAuthenticationClient {
+        get { self[OpenMusicEventStoredAuthenticationClientKey.self] }
+        set { self[OpenMusicEventStoredAuthenticationClientKey.self] = newValue }
+    }
+}
+
 private let openMusicEventOAuthSession = Shared<OAuth.Session?>(
     wrappedValue: nil,
     KeychainSharedKey(item: OpenMusicEventOAuth.sessionKeychainItem)
@@ -133,13 +162,32 @@ public enum OpenMusicEventOAuth {
 
     public static func prepareDependencies(_ dependencies: inout DependencyValues) {
         let authorizationRequests = dependencies.openMusicEventAuthorizationRequests
+            .openMusicEventDefaultingSignUpServerConfiguration(
+                dependencies.openMusicEventSignUpServerConfiguration
+            )
+        dependencies.openMusicEventAuthorizationRequests = authorizationRequests
         dependencies.oauthAppConfiguration = appConfiguration
         dependencies.oauthAppManifest = appManifest
         dependencies.oauthAuthorizationBroker = authorizationRequests.broker()
         dependencies.oauthBrowserStrategy = .webAuthenticationSession
+        dependencies.getDefaultSession = {
+            session.wrappedValue
+                ?? sessionStore.wrappedValue.selectedSession
+                ?? .placeholder
+        }
+        dependencies.getOptionalDefaultSession = {
+            session.wrappedValue
+                ?? sessionStore.wrappedValue.selectedSession
+        }
         dependencies.oauthScopes = appManifest.basePermissions.permissions
             .sorted { $0.rawValue < $1.rawValue }
             .map { OAuth.Scope(rawValue: $0.rawValue) }
+        dependencies.errorInterceptors.append(
+            .tokenRefresh(
+                session: session,
+                authFailureMessage: authFailureMessage
+            )
+        )
         dependencies.xrpcAuthorizationGate = .defaultSessionAuthorization
     }
 

@@ -5,6 +5,18 @@ import OpenMusicEventLexicon
 import SourceEditing
 
 public extension OME {
+    static var sourceMetadataRecordTypes: [AnySourceEditableRecordType] {
+        [
+            Calendar.sourceRecordType(
+                projection: SourceComparableCalendar.init,
+                semanticallyEqualColumn: { columnName, baseline, working in
+                    columnName == "images"
+                        && sourceComparableImages(baseline.images) == sourceComparableImages(working.images)
+                }
+            ),
+        ]
+    }
+
     static var sourceRecordTableTypes: [any SourceEditableTable.Type] {
         [
             Event.self,
@@ -58,6 +70,7 @@ public extension OME {
     }
 }
 
+extension OME.Calendar: SourceEditableTable {}
 extension OME.Event: SourceEditableTable {}
 extension OME.Stage: SourceEditableTable {}
 extension OME.Contributor: SourceEditableTable {}
@@ -186,6 +199,20 @@ private struct SourceComparableEvent: Equatable, Sendable {
         self.categoryConfigs = event.categoryConfigs
         self.policies = event.policies
         self.reportingLink = event.reportingLink
+    }
+}
+
+private struct SourceComparableCalendar: Equatable, Sendable {
+    var id: OME.Calendar.ID
+    var name: String
+    var description: String?
+    var images: [SourceComparableImageAsset]?
+
+    init(_ calendar: OME.Calendar) {
+        self.id = calendar.id
+        self.name = calendar.name
+        self.description = calendar.description
+        self.images = sourceComparableImages(calendar.images)
     }
 }
 

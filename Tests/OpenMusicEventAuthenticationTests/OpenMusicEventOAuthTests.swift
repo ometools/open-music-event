@@ -2,6 +2,7 @@ import ATProtoOAuth
 import Dependencies
 import DependenciesTestSupport
 import Foundation
+import Sharing
 import TCATProtoAuthentication
 import Testing
 import WebMetadataClient
@@ -94,6 +95,98 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
+    func authorizationRequestsDefaultToOpenMusicEventSignUpServerConfiguration() async throws {
+        let center = AuthorizationRequestCenter()
+        let configuration = testSignUpServerConfiguration
+        let requests = OpenMusicEventAuthorizationRequests(center: center)
+            .openMusicEventDefaultingSignUpServerConfiguration(configuration)
+        let stream = await requests.requests()
+        let observedRequest = Task<AuthorizationRequestCenter.Request?, Never> {
+            var iterator = stream.makeAsyncIterator()
+            while let yieldedRequest = await iterator.next() {
+                if let request = yieldedRequest {
+                    return request
+                }
+            }
+            return nil
+        }
+        let authorization = Task {
+            try await requests.broker().authorize(OpenMusicEventOAuth.baseAuthRequirement)
+        }
+
+        let request = try #require(await observedRequest.value)
+        await requests.cancel()
+        _ = await authorization.result
+
+        #expect(request.requirement == OpenMusicEventOAuth.baseAuthRequirement)
+        #expect(request.serverHost == configuration.defaultServerHost)
+        #expect(request.signUpServerConfiguration == configuration)
+    }
+
+    @Test
+    func authorizationPresenterDefaultsToOpenMusicEventSignUpServerConfiguration() async {
+        let recorder = AuthorizationPresentationRecorder()
+        let configuration = testSignUpServerConfiguration
+        let presenter = withDependencies {
+            $0.openMusicEventSignUpServerConfiguration = configuration
+        } operation: {
+            OpenMusicEventAuthorizationPresenter { request in
+                await recorder.present(request)
+            }
+        }
+
+        await #expect(throws: CancellationError.self) {
+            try await presenter.authorize(OpenMusicEventOAuth.baseAuthRequirement)
+        }
+
+        let request = await recorder.request
+        #expect(request?.requirement == OpenMusicEventOAuth.baseAuthRequirement)
+        #expect(request?.serverHost == configuration.defaultServerHost)
+        #expect(request?.signUpServerConfiguration == configuration)
+    }
+
+    @Test
+    func authorizationWrapperExposesSelectedSessionStoreFallback() async throws {
+        var sessionStore = OAuth.SessionStore()
+        sessionStore.upsert(.placeholder)
+
+        let observedSession = try await withOpenMusicEventAuthorization(
+            presenter: OpenMusicEventAuthorizationPresenter { _ in },
+            session: Shared<OAuth.Session?>(value: nil),
+            sessionStore: Shared<OAuth.SessionStore>(value: sessionStore),
+            authFailureMessage: Shared<ErrorMessage?>(value: nil)
+        ) {
+            @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
+            return getOptionalDefaultSession()
+        }
+
+        #expect(observedSession == .placeholder)
+    }
+
+    @Test
+    func preparedDependenciesExposeSelectedSessionStoreFallback() {
+        OpenMusicEventOAuth.resetStoredSession()
+        var dependencies = DependencyValues()
+        var sessionStore = OAuth.SessionStore()
+        sessionStore.upsert(.placeholder)
+        OpenMusicEventOAuth.sessionStore.withLock {
+            $0 = sessionStore
+        }
+        defer {
+            OpenMusicEventOAuth.resetStoredSession()
+        }
+
+        OpenMusicEventOAuth.prepareDependencies(&dependencies)
+
+        withDependencies {
+            $0 = dependencies
+        } operation: {
+            @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
+            #expect(getOptionalDefaultSession() == .placeholder)
+        }
+    }
+
+    @Test
     func bundledMetadataMatchesManifest() throws {
         let bundled = try JSONDecoder().decode(
             OAuth.App.Metadata.self,
@@ -151,6 +244,31 @@ struct OpenMusicEventOAuthTests {
             #expect(OpenMusicEventOAuth.session.wrappedValue == .placeholder)
             #expect(OpenMusicEventOAuth.sessionStore.wrappedValue == sessionStore)
         }
+    }
+}
+
+private let testSignUpServerConfiguration = OAuthSignUpServerConfiguration(
+    defaultServerHost: "custom.social",
+    options: [
+        OAuthSignUpServerOption(
+            id: "custom",
+            title: "Custom",
+            subtitle: "custom.social",
+            description: "A test provider.",
+            imageURL: nil,
+            metadataSource: "test",
+            availability: .available(serverHost: "custom.social")
+        ),
+    ],
+    allowsCustomServerHost: false
+)
+
+private actor AuthorizationPresentationRecorder {
+    private(set) var request: AuthorizationPresentationRequest?
+
+    func present(_ request: AuthorizationPresentationRequest) async {
+        self.request = request
+        await request.responder.cancel()
     }
 }
 

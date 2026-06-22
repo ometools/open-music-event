@@ -1,10 +1,13 @@
 import ComposableArchitecture2
 import Dependencies
+import ErrorHandling
 import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventSourceEditing
+import OpenMusicEventAuthentication
+import SourceEditing
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -764,7 +767,9 @@ public struct SourceDetail {
         }
 
         var editCalendar: EditCalendar.State?
+        var sourceManagement: SourceManagement.State?
         var destination: Destination.State?
+        var isPreparingSourceManagement = false
 
         @DebugSnapshotIgnored
         @FetchOne
@@ -798,6 +803,10 @@ public struct SourceDetail {
             sourceBaseline != nil && editableCalendarID != nil && organizer != nil
         }
 
+        var canManageSource: Bool {
+            sourceBaseline != nil && editableCalendarID != nil
+        }
+
         var editableCalendarID: OMERecord.Calendar.ID? {
             if let calendar {
                 return calendar.id
@@ -815,6 +824,8 @@ public struct SourceDetail {
         case editButtonTapped
         case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
+        case manageSourceButtonTapped
+        case sourceManagement(SourceManagement.Action)
         case task
     }
 
@@ -822,6 +833,8 @@ public struct SourceDetail {
     public enum Destination {
         case createEvent(Spawn<CreateEvent>)
     }
+
+    @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
 
     static func sourceBaselineQuery(
         sourceBaselineID: SourceBaselineRecord.ID
@@ -966,6 +979,40 @@ public struct SourceDetail {
                     )
                 }
 
+            case .manageSourceButtonTapped:
+                guard !state.isPreparingSourceManagement else { return }
+                guard let calendarID = state.editableCalendarID,
+                      let sourceBaseline = state.sourceBaseline
+                else { return }
+                let sourceBaselineID = sourceBaseline.id
+                let sourceEditModePreparation = sourceEditModePreparation
+                state.isPreparingSourceManagement = true
+                store.addTask {
+                    let sourceManagement = await store.withErrorHandling(
+                        fallbackMessage: .sourceEditPreparationFailed,
+                        operation: .sourceEditPreparation
+                    ) {
+                        try await sourceEditModePreparation.prepare(sourceBaselineID)
+                        return SourceManagement.State(
+                            sourceBaselineID: sourceBaselineID,
+                            calendarID: calendarID
+                        )
+                    } cleanup: {
+                        $0.isPreparingSourceManagement = false
+                    } parseError: {
+                        SourceImportError.parser
+                    }
+
+                    guard let sourceManagement else { return }
+                    try store.modify {
+                        $0.isPreparingSourceManagement = false
+                        $0.sourceManagement = sourceManagement
+                    }
+                }
+
+            case .sourceManagement:
+                return
+
             case .task:
                 break
             }
@@ -975,6 +1022,9 @@ public struct SourceDetail {
         }
         .ifLet(\.editCalendar, action: \.editCalendar) {
             EditCalendar()
+        }
+        .ifLet(\.sourceManagement, action: \.sourceManagement) {
+            SourceManagement()
         }
     }
 }
@@ -1061,6 +1111,11 @@ public struct SourceDetailView: View {
                 EditCalendarView(store: editStore)
             }
         }
+        .sheet(item: $store.scope(\.sourceManagement, action: \.sourceManagement)) { sourceManagementStore in
+            NavigationStack {
+                SourceManagementView(store: sourceManagementStore)
+            }
+        }
         .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
             NavigationStack {
                 CreateEventView(store: createEventStore)
@@ -1076,6 +1131,12 @@ public struct SourceDetailView: View {
                 Button("Edit Calendar", systemImage: "pencil") {
                     store.send(.editButtonTapped)
                 }
+            }
+            if store.canManageSource {
+                Button(store.isPreparingSourceManagement ? "Preparing Source" : "Manage Source") {
+                    store.send(.manageSourceButtonTapped)
+                }
+                .disabled(store.isPreparingSourceManagement)
             }
         }
     }
@@ -1128,6 +1189,258 @@ public struct SourceDetailView: View {
         }
     }
 }
+
+@Feature
+public struct SourceManagement {
+    public init() {}
+
+    public struct State: Identifiable {
+        public init(
+            sourceBaselineID: SourceBaselineRecord.ID,
+            calendarID: OMERecord.Calendar.ID
+        ) {
+            self.sourceBaselineID = sourceBaselineID
+            self.calendarID = calendarID
+            self._editSummary = Fetch(
+                wrappedValue: SourceMetadataEditSummary(
+                    sourceBaselineID: sourceBaselineID,
+                    availability: .missingBaseline,
+                    groups: []
+                ),
+                SourceMetadataEditSummaryRequest(
+                    sourceBaselineID: sourceBaselineID,
+                    calendarID: calendarID
+                )
+            )
+        }
+
+        public var id: SourceBaselineRecord.ID { sourceBaselineID }
+
+        public let calendarID: OMERecord.Calendar.ID
+
+        @DebugSnapshotIgnored
+        @Fetch public var editSummary: SourceMetadataEditSummary
+
+        public let sourceBaselineID: SourceBaselineRecord.ID
+        public var sourcePatchStatus: EditEvent.SourcePatchStatus = .notGenerated
+        @DebugSnapshotIgnored
+        public var sourceProposal: SourceProposalFlow.State?
+        public var sourceProposalStatus: EditEvent.SourceProposalStatus = .idle
+
+        var canCreateSourceProposal: Bool {
+            guard case let .generated(patch) = sourcePatchStatus,
+                  !patch.isEmpty,
+                  sourceProposalStatus.canCreateProposal
+            else { return false }
+            return true
+        }
+    }
+
+    public enum Action {
+        case generateSourcePatchButtonTapped
+        case proposeChangeButtonTapped
+        case sourcePatchGenerationResponse(
+            Result<SourcePatch, EditEvent.SourcePatchGenerationFailure>
+        )
+        case sourceProposal(SourceProposalFlow.Action)
+        case sourceProposalDismissed
+    }
+
+    @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
+    var sourcePatchGenerator
+
+    public var body: some Feature {
+        Update { state, action in
+            func generateSourcePatch(state: inout State) {
+                let calendarID = state.calendarID
+                let sourceBaselineID = state.sourceBaselineID
+                let sourcePatchGenerator = sourcePatchGenerator
+                state.sourcePatchStatus = .generating
+                store.addTask {
+                    let patch = await store.withErrorHandling(
+                        fallbackMessage: .sourcePatchGenerationFailed,
+                        operation: .sourcePatchGeneration
+                    ) {
+                        try await sourcePatchGenerator.generate(
+                            OpenMusicEventCalendarSourcePatchRequest(
+                                calendarID: calendarID,
+                                sourceBaselineID: sourceBaselineID
+                            )
+                        )
+                    } cleanup: {
+                        $0.sourcePatchStatus = .failed(
+                            EditEvent.SourcePatchGenerationFailure(
+                                SourceManagementSourcePatchGenerationError()
+                            )
+                        )
+                    }
+
+                    guard let patch else { return }
+                    try store.send(.sourcePatchGenerationResponse(.success(patch)))
+                }
+            }
+
+            switch action {
+            case .generateSourcePatchButtonTapped:
+                generateSourcePatch(state: &state)
+
+            case .proposeChangeButtonTapped:
+                guard case let .generated(patch) = state.sourcePatchStatus else {
+                    generateSourcePatch(state: &state)
+                    return
+                }
+                guard !patch.isEmpty else { return }
+                state.sourceProposal = SourceProposalFlow.State(
+                    target: .calendar(state.calendarID, state.sourceBaselineID),
+                    sourceChangeGroups: state.editSummary.groups,
+                    patch: patch
+                )
+                state.sourceProposalStatus = .composing
+
+            case let .sourcePatchGenerationResponse(.success(patch)):
+                state.sourcePatchStatus = .generated(patch)
+
+            case let .sourcePatchGenerationResponse(.failure(failure)):
+                state.sourcePatchStatus = .failed(failure)
+
+            case .sourceProposal(.createProposalButtonTapped):
+                state.sourceProposalStatus = .proposing
+
+            case .sourceProposal(.delegate(.dismissed)), .sourceProposalDismissed:
+                state.sourceProposal = nil
+                switch state.sourceProposalStatus {
+                case .composing, .failed:
+                    state.sourceProposalStatus = .idle
+                case .created, .idle, .proposing:
+                    break
+                }
+
+            case .sourceProposal(.sourceProposalCancelled):
+                state.sourceProposalStatus = .composing
+
+            case let .sourceProposal(.sourceProposalResponse(.success(publication))):
+                state.sourceProposalStatus = .created(publication)
+
+            case let .sourceProposal(.sourceProposalResponse(.failure(failure))):
+                state.sourceProposalStatus = .failed(failure)
+
+            case .sourceProposal:
+                break
+            }
+        }
+        .ifLet(\.sourceProposal, action: \.sourceProposal) {
+            SourceProposalFlow()
+        }
+    }
+}
+
+public struct SourceManagementView: View {
+    @Bindable var store: StoreOf<SourceManagement>
+
+    public init(store: StoreOf<SourceManagement>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        List {
+            switch store.editSummary.availability {
+            case .available:
+                sourceProposalSections
+
+            case .missingBaseline:
+                Section {
+                    Text("Source baseline missing")
+                        .foregroundStyle(.secondary)
+                }
+
+            case let .unavailable(reason):
+                Section {
+                    Text("Source changes unavailable")
+                    Text(String(describing: reason))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .navigationTitle("Source")
+        .sheet(
+            item: $store.scope(\.sourceProposal, action: \.sourceProposal),
+            onDismiss: {
+                store.send(.sourceProposalDismissed)
+            }
+        ) { sourceProposalStore in
+            SourceProposalComposerView(store: sourceProposalStore)
+        }
+    }
+
+    @ViewBuilder
+    private var sourceProposalSections: some View {
+        Section {
+            HStack {
+                Text("Calendar Changes")
+                Spacer()
+                Text(store.editSummary.totalCount, format: .number)
+                    .font(.headline)
+                    .monospacedDigit()
+            }
+        }
+
+        Section {
+            SourcePatchStatusView(status: displayedSourcePatchStatus)
+
+            if case let .generated(patch) = store.sourcePatchStatus {
+                if patch.isEmpty {
+                    Text("No changes to propose")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button("Propose Change") {
+                        store.send(.proposeChangeButtonTapped)
+                    }
+                    .disabled(store.sourceProposalStatus.isProposing)
+                }
+            } else {
+                Button(sourcePatchReviewButtonTitle) {
+                    store.send(.generateSourcePatchButtonTapped)
+                }
+                .disabled(sourcePatchIsGenerating)
+            }
+
+            SourceProposalStatusView(status: store.sourceProposalStatus)
+        }
+
+        if case let .generated(patch) = store.sourcePatchStatus,
+           !patch.isEmpty {
+            SourceProposalSummarySections(groups: store.editSummary.groups)
+        }
+    }
+
+    private var sourcePatchIsGenerating: Bool {
+        store.sourcePatchStatus == .generating
+    }
+
+    private var displayedSourcePatchStatus: EditEvent.SourcePatchStatus {
+        switch store.sourcePatchStatus {
+        case .failed:
+            .notGenerated
+        default:
+            store.sourcePatchStatus
+        }
+    }
+
+    private var sourcePatchReviewButtonTitle: String {
+        switch store.sourcePatchStatus {
+        case .failed:
+            "Try Again"
+        case .generating:
+            "Checking Changes"
+        default:
+            "Review Changes"
+        }
+    }
+}
+
+private struct SourceManagementSourcePatchGenerationError: Error {}
 
 private extension OMERecord.Event {
     var sortDate: LocalDate? {

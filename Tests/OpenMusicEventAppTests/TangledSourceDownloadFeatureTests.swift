@@ -16,6 +16,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+import SourceControlClient
 import SourceEditing
 import SQLiteData
 import Testing
@@ -347,6 +348,12 @@ struct TangledSourceDownloadFeatureTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0[OAuth.Client.self] = successfulOAuthClient(
+                session: openMusicEventTestSession(permissions: requirement.permissions)
+            )
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            $0.oauthBrowserStrategy = .webAuthenticationSession
+            $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
             $0.tangledSourceImport = TangledSourceImportClient { _ in
                 @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 try await authorizationBroker.authorize(requirement)
@@ -366,9 +373,9 @@ struct TangledSourceDownloadFeatureTests {
         await waitUntil { store.state.authorization.flow != nil }
         #expect(store.state.authorization.flow?.requirement == requirement)
 
-        store.send(
-            .authorization(.delegate(.succeeded(OAuth.Session.placeholder.accountID)))
-        )
+        store.send(.authorization(.flow(.loginHintChanged("woody.fm"))))
+        let authTask = store.send(.authorization(.flow(.submit)))
+        await authTask?.value
         await task?.value
 
         #expect(store.state.importedSummary == result.summary)
@@ -395,9 +402,12 @@ struct TangledSourceDownloadFeatureTests {
         let store = withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 1_700_000_000))
+            $0[OAuth.Client.self] = successfulOAuthClient(session: session)
             $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            $0.oauthBrowserStrategy = .webAuthenticationSession
             $0.p256Sign = { _, _ in Data(repeating: 0xAB, count: 64) }
             $0.uuid = .constant(UUID(uuidString: "12345678-1234-1234-1234-123456789abc")!)
+            $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = .liveValue
             $0.xrpcAuthorizationGate = .defaultSessionAuthorization
@@ -425,14 +435,9 @@ struct TangledSourceDownloadFeatureTests {
             $0.isImporting = true
         }
         await waitUntil { store.state.authorization.flow != nil }
-        store.modify {
-            $0.authorization.$sessionStore.withLock {
-                $0.upsert(session)
-            }
-        }
-        store.send(
-            .authorization(.delegate(.succeeded(session.accountID)))
-        )
+        store.send(.authorization(.flow(.loginHintChanged("woody.fm"))))
+        let authTask = store.send(.authorization(.flow(.submit)))
+        await authTask?.value
         await task?.value
 
         #expect(store.state.importedSummary == result.summary)
@@ -652,6 +657,147 @@ struct TangledSourceDownloadFeatureTests {
         }
 
         #expect(sourceReferenceBaselineCount == 1)
+    }
+
+    @Test
+    func sourceEditModePreparationPromotesArchiveBackedTangledSourceToGit() async throws {
+        let database = try makePreparedDatabase()
+        let ownerDID = try #require(DID("did:plc:owner123"))
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:owner123/wicked-woods-ome",
+            ref: "main"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+
+        let storedRepositoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-edit-mode-source-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: storedRepositoryURL) }
+
+        try writeMinimalSourceRepository(at: storedRepositoryURL)
+        let referenceDirectoryURL = storedRepositoryURL
+            .appending(path: ".ome", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: referenceDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        try Data("reference".utf8).write(
+            to: referenceDirectoryURL.appending(path: "reference.sqlite")
+        )
+
+        try await database.write { db in
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    source: sourceProvenance,
+                    databaseFileName: "reference.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 0)
+                )
+            }
+            .execute(db)
+        }
+
+        try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.uuid = .constant(
+                try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000004"))
+            )
+            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
+                repositoryURL: { provenance in
+                    #expect(provenance == sourceProvenance)
+                    return storedRepositoryURL
+                },
+                store: { repositoryURL, provenance in
+                    #expect(provenance == sourceProvenance)
+                    if FileManager.default.fileExists(atPath: storedRepositoryURL.path) {
+                        try FileManager.default.removeItem(at: storedRepositoryURL)
+                    }
+                    try FileManager.default.moveItem(at: repositoryURL, to: storedRepositoryURL)
+                    return storedRepositoryURL
+                },
+                remove: { _ in }
+            )
+            $0[Atmosphere.Account.Client.self] = .sourceEditModeTestClient(
+                did: ownerDID,
+                handle: "owner.example",
+                pdsHost: "owner.pds.example"
+            )
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, _ in
+                guard request.url?.host == "owner.pds.example" else {
+                    throw SourceEditModePreparationTestError.unexpectedRequest
+                }
+                return Data(
+                    """
+                    {
+                      "records": [
+                        {
+                          "uri": "at://did:plc:owner123/sh.tangled.repo/3repo",
+                          "cid": "bafyreifakerepo",
+                          "value": {
+                            "$type": "sh.tangled.repo",
+                            "name": "wicked-woods-ome",
+                            "repoDid": "did:plc:targetrepo",
+                            "knot": "tangled.org",
+                            "createdAt": "2026-05-26T17:30:42Z"
+                          }
+                        }
+                      ]
+                    }
+                    """
+                    .utf8
+                )
+            }
+            $0.sourceControl = SourceControlClient(
+                clone: { request in
+                    try FileManager.default.createDirectory(
+                        at: request.destinationURL.appending(path: ".git"),
+                        withIntermediateDirectories: true
+                    )
+                    try writeMinimalSourceRepository(at: request.destinationURL)
+                    return Repository(url: request.destinationURL)
+                },
+                open: { Repository(url: $0) },
+                fetch: { _ in },
+                checkout: { _ in },
+                createBranch: { Branch(name: $0.name) },
+                status: { _ in [] },
+                stage: { _ in },
+                commit: { _ in Commit(id: "unused") },
+                formatPatch: { _ in Data() },
+                push: { _ in }
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                Credentials(
+                    ssh: SSHCredentials(
+                        publicKey: "ssh-ed25519 public-key Open Music Event",
+                        privateKey: "private-key"
+                    )
+                )
+            }
+        } operation: {
+            try await SourceEditModePreparationClient.live.prepare(sourceBaselineID)
+        }
+
+        #expect(
+            FileManager.default.fileExists(
+                atPath: storedRepositoryURL.appending(path: ".git").path
+            )
+        )
+        #expect(
+            FileManager.default.fileExists(
+                atPath: storedRepositoryURL
+                    .appending(path: ".ome", directoryHint: .isDirectory)
+                    .appending(path: "reference.sqlite")
+                    .path
+            )
+        )
+        let gitignore = try String(
+            contentsOf: storedRepositoryURL.appending(path: ".gitignore"),
+            encoding: .utf8
+        )
+        #expect(gitignore.split(separator: "\n").contains(".ome/reference.sqlite"))
     }
 
     @Test
@@ -1096,6 +1242,74 @@ private struct SourceImportFailure: CustomStringConvertible, Error, Sendable {
     var description: String
 }
 
+private enum SourceEditModePreparationTestError: Error {
+    case unexpectedRequest
+}
+
+private extension Atmosphere.Account.Client {
+    static func sourceEditModeTestClient(
+        did: DID,
+        handle: Atmosphere.Account.Handle,
+        pdsHost: String
+    ) -> Self {
+        Self(
+            resolveHandle: { resolvedHandle in
+                guard resolvedHandle == handle else {
+                    throw SourceEditModePreparationTestError.unexpectedRequest
+                }
+                return (
+                    Atmosphere.Account(id: .init(did), handle: handle),
+                    try sourceEditModeDIDDocument(
+                        did: did,
+                        handle: handle,
+                        pdsHost: pdsHost
+                    )
+                )
+            },
+            resolveDID: { resolvedDID in
+                guard resolvedDID == did else {
+                    throw SourceEditModePreparationTestError.unexpectedRequest
+                }
+                return (
+                    Atmosphere.Account(id: .init(did), handle: handle),
+                    try sourceEditModeDIDDocument(
+                        did: did,
+                        handle: handle,
+                        pdsHost: pdsHost
+                    )
+                )
+            }
+        )
+    }
+}
+
+private func sourceEditModeDIDDocument(
+    did: DID,
+    handle: Atmosphere.Account.Handle,
+    pdsHost: String
+) throws -> DID.Document {
+    try JSONDecoder().decode(
+        DID.Document.self,
+        from: Data(
+            """
+            {
+              "id": "\(did.description)",
+              "alsoKnownAs": ["at://\(handle.rawValue)"],
+              "verificationMethod": [],
+              "service": [
+                {
+                  "id": "#atproto_pds",
+                  "type": "AtprotoPersonalDataServer",
+                  "serviceEndpoint": "https://\(pdsHost)"
+                }
+              ]
+            }
+            """
+            .utf8
+        )
+    )
+}
+
 @Feature
 private struct SourceImportErrorHost {
     struct State {
@@ -1160,6 +1374,73 @@ private func tangledSourceProvenance(
         kind: .tangled,
         reference: "tangled.org/woody.fm/\(repositoryName)",
         ref: ref
+    )
+}
+
+private let testCallbackURL = OAuth.App.CallbackURI(
+    URL(string: "app.openmusicevent:/oauth/callback?code=test-code&state=test-nonce&iss=https://bsky.social")!
+)
+
+private func successfulOAuthClient(session: OAuth.Session) -> OAuth.Client {
+    var client = OAuth.Client()
+    client.beginAuthorizationWithPermissions = { _, _ in
+        (
+            URL(string: "https://bsky.social/oauth/authorize")!,
+            try testPendingSession()
+        )
+    }
+    client.exchangeCode = { _, _, _, _ in
+        session
+    }
+    return client
+}
+
+private func openMusicEventTestSession(
+    permissions: Set<OAuth.Permission>
+) -> OAuth.Session {
+    var session = OAuth.Session.placeholder
+    var granted = Set([OAuth.Permission.atproto])
+    granted.formUnion(permissions)
+    session.scope = OAuth.Scope(
+        rawValue: granted
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: " ")
+    )
+    return session
+}
+
+private func testPendingSession() throws -> OAuth.Session.Pending {
+    let metadata = try JSONDecoder().decode(
+        OAuth.AuthorizationServer.Metadata.self,
+        from: Data("""
+        {
+            "issuer": "https://bsky.social",
+            "authorization_endpoint": "https://bsky.social/oauth/authorize",
+            "token_endpoint": "https://bsky.social/oauth/token",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": ["none"],
+            "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
+            "scopes_supported": ["atproto"],
+            "authorization_response_iss_parameter_supported": true,
+            "require_pushed_authorization_requests": true,
+            "pushed_authorization_request_endpoint": "https://bsky.social/oauth/par",
+            "dpop_signing_alg_values_supported": ["ES256"],
+            "require_request_uri_registration": true,
+            "client_id_metadata_document_supported": true
+        }
+        """.utf8)
+    )
+    return OAuth.Session.Pending(
+        pkceChallenge: OAuth.PKCE.Challenge(verifier: OAuth.PKCE.CodeVerifier("test-verifier")),
+        state: OAuth.Nonce(rawValue: "test-nonce"),
+        redirectURI: OAuth.App.RedirectURI(OpenMusicEventOAuth.redirectURL),
+        authServer: metadata,
+        accountID: OAuth.Session.placeholder.accountID,
+        pdsHost: .init("placeholder.example"),
+        dpopKey: OAuth.DPOP.Key()
     )
 }
 

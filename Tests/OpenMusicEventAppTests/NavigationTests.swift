@@ -8,6 +8,7 @@ import DebugSnapshots
 import Foundation
 import Observation
 import OpenMusicEventDatabase
+import OpenMusicEventAuthentication
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import Sharing
@@ -92,6 +93,18 @@ private actor BlueskyProfileRequestRecorder {
 }
 
 private actor SourceRefreshRecorder {
+    private var recordedSourceBaselineIDs: [SourceBaselineRecord.ID] = []
+
+    var sourceBaselineIDs: [SourceBaselineRecord.ID] {
+        recordedSourceBaselineIDs
+    }
+
+    func record(_ sourceBaselineID: SourceBaselineRecord.ID) {
+        recordedSourceBaselineIDs.append(sourceBaselineID)
+    }
+}
+
+private actor SourceEditModePreparationRecorder {
     private var recordedSourceBaselineIDs: [SourceBaselineRecord.ID] = []
 
     var sourceBaselineIDs: [SourceBaselineRecord.ID] {
@@ -511,6 +524,114 @@ struct NavigationTests {
         store.send(.editButtonTapped)
 
         #expect(store.state.editCalendar?.calendarID == calendarID)
+    }
+
+    @Test
+    func sourceDetailPreparesSourceForEditingBeforePresentingManagement() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("editable-source-management")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+        let eventID = eventID("editable-source-management-event")
+        let recorder = SourceEditModePreparationRecorder()
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Editable Source Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 1_600)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+            try Self.insertCalendar(db, id: calendarID, name: "Editable Source Calendar")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+            }
+        } operation: {
+            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                SourceDetail()
+            }
+        }
+
+        let task = store.send(.manageSourceButtonTapped) {
+            $0.isPreparingSourceManagement = true
+        }
+        await task?.value
+
+        #expect(await recorder.sourceBaselineIDs == [sourceBaselineID])
+        #expect(store.state.isPreparingSourceManagement == false)
+        #expect(store.state.sourceManagement?.sourceBaselineID == sourceBaselineID)
+        #expect(store.state.sourceManagement?.calendarID == calendarID)
+    }
+
+    @Test
+    func sourceDetailRoutesPreparationAuthorizationThroughAppSheet() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("auth-source-management")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+        let eventID = eventID("auth-source-management-event")
+        let requirement = OpenMusicEventOAuth.tangledPublicKeyAuthRequirement
+        let authorizationCenter = AuthorizationRequestCenter()
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Authorized Source Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 1_600)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+            try Self.insertCalendar(db, id: calendarID, name: "Authorized Source Calendar")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
+                center: authorizationCenter
+            )
+            $0.oauthAuthorizationBroker = authorizationCenter.broker
+            $0.sourceEditModePreparation = SourceEditModePreparationClient { _ in
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
+                try await authorizationBroker.authorize(requirement)
+            }
+        } operation: {
+            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                SourceDetail()
+            }
+        }
+
+        let task = store.send(.manageSourceButtonTapped) {
+            $0.isPreparingSourceManagement = true
+        }
+        let requests = await authorizationCenter.requests()
+        for await request in requests {
+            guard let request else { continue }
+            #expect(request.requirement == requirement)
+            await authorizationCenter.succeed()
+            break
+        }
+        await task?.value
+
+        #expect(store.state.isPreparingSourceManagement == false)
+        #expect(store.state.sourceManagement?.sourceBaselineID == sourceBaselineID)
+        #expect(store.state.sourceManagement?.calendarID == calendarID)
     }
 
     @Test

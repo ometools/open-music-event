@@ -2,7 +2,7 @@ import ErrorHandling
 import Foundation
 import OpenMusicEventSource
 
-extension UserFacingText {
+public extension UserFacingText {
     static let sourceImportArchiveDestinationExists = Self(
         "Unable to prepare the downloaded source because a file already exists.",
         fallback: "Unable to prepare the downloaded source because a file already exists."
@@ -63,18 +63,33 @@ extension UserFacingText {
         "Unable to store the imported source because a file already exists.",
         fallback: "Unable to store the imported source because a file already exists."
     )
+    static let sourceEditPreparationFailed = Self(
+        "Unable to prepare source editing.",
+        fallback: "Unable to prepare source editing."
+    )
+    static let sourcePatchGenerationFailed = Self(
+        "Unable to check source changes.",
+        fallback: "Unable to check source changes."
+    )
+    static let storedAuthenticationLoadFailed = Self(
+        "Unable to restore your account session.",
+        fallback: "Unable to restore your account session."
+    )
     static let settingsTestError = Self(
         "Test error.",
         fallback: "Test error."
     )
 }
 
-extension ErrorOperation {
+public extension ErrorOperation {
+    static let sourceEditPreparation = Self("source.edit.prepare")
     static let sourceImport = Self("source.import")
+    static let sourcePatchGeneration = Self("source.patch.generate")
+    static let storedAuthenticationLoad = Self("auth.stored.load")
     static let settingsTestError = Self("settings.test-error")
 }
 
-extension ErrorKind {
+public extension ErrorKind {
     static let settingsTestError = Self("settings.test-error")
     static let sourceImportArchiveDestinationExists = Self("source.import.archive.destination-exists")
     static let sourceImportArchiveEmpty = Self("source.import.archive.empty")
@@ -93,8 +108,8 @@ extension ErrorKind {
     static let sourceImportStorageDestinationExists = Self("source.import.storage.destination-exists")
 }
 
-enum SourceImportError {
-    static var parser: ErrorParser {
+public enum SourceImportError {
+    public static var parser: ErrorParser {
         .oneOf(
             sourceValidationParser,
             contains(

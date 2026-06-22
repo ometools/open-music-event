@@ -481,10 +481,14 @@ struct SourceIndicatorView: View {
     }
 }
 
-struct SourcePatchStatusView: View {
+public struct SourcePatchStatusView: View {
     let status: EditEvent.SourcePatchStatus
 
-    var body: some View {
+    public init(status: EditEvent.SourcePatchStatus) {
+        self.status = status
+    }
+
+    public var body: some View {
         switch status {
         case let .failed(failure):
             VStack(alignment: .leading, spacing: 4) {
@@ -525,10 +529,14 @@ struct SourcePatchStatusView: View {
     }
 }
 
-struct SourceProposalStatusView: View {
+public struct SourceProposalStatusView: View {
     let status: EditEvent.SourceProposalStatus
 
-    var body: some View {
+    public init(status: EditEvent.SourceProposalStatus) {
+        self.status = status
+    }
+
+    public var body: some View {
         switch status {
         case .composing, .idle:
             EmptyView()
@@ -563,10 +571,14 @@ struct SourceProposalStatusView: View {
     }
 }
 
-struct SourceProposalComposerView: View {
+public struct SourceProposalComposerView: View {
     @Bindable var store: StoreOf<SourceProposalFlow>
 
-    var body: some View {
+    public init(store: StoreOf<SourceProposalFlow>) {
+        self.store = store
+    }
+
+    public var body: some View {
         NavigationStack {
             List {
                 Section("Title") {
@@ -589,7 +601,7 @@ struct SourceProposalComposerView: View {
                 }
 
                 SourceProposalStatusView(status: store.sourceProposalStatus)
-                SourceProposalSummarySections(summary: store.editSummary)
+                SourceProposalSummarySections(groups: store.sourceChangeGroups)
 
                 Section {
                     DisclosureGroup("Advanced") {
@@ -621,12 +633,20 @@ struct SourceProposalComposerView: View {
     }
 }
 
-struct SourceProposalSummarySections: View {
-    let summary: EventEditSummary
+public struct SourceProposalSummarySections: View {
+    let groups: [SourceChangeGroup]
 
-    var body: some View {
-        if summary.groups.contains(where: { !$0.records.isEmpty }) {
-            ForEach(summary.groups.filter { !$0.records.isEmpty }) { group in
+    public init(groups: [SourceChangeGroup]) {
+        self.groups = groups
+    }
+
+    init(summary: EventEditSummary) {
+        self.groups = summary.groups
+    }
+
+    public var body: some View {
+        if groups.contains(where: { !$0.records.isEmpty }) {
+            ForEach(groups.filter { !$0.records.isEmpty }) { group in
                 SourceChangeGroupSections(group: group)
             }
         } else {
@@ -760,7 +780,7 @@ private extension EditEvent.SourcePatchStatus {
     }
 }
 
-extension EditEvent.SourceProposalStatus {
+public extension EditEvent.SourceProposalStatus {
     var canCreateProposal: Bool {
         switch self {
         case .composing, .failed, .idle:

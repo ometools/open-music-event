@@ -113,3 +113,112 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
         }
     }
 }
+
+public struct SourceMetadataEditSummary: Equatable, Sendable {
+    public enum Availability: Equatable, Sendable {
+        case available
+        case missingBaseline
+        case unavailable(SourceChangeSummary.UnavailableReason)
+    }
+
+    public var availability: Availability
+    public var groups: [SourceChangeGroup]
+    public var sourceBaselineID: SourceBaselineRecord.ID
+
+    public init(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        availability: Availability,
+        groups: [SourceChangeGroup]
+    ) {
+        self.sourceBaselineID = sourceBaselineID
+        self.availability = availability
+        self.groups = groups
+    }
+
+    public var totalCount: Int {
+        groups.reduce(0) { $0 + $1.totalCount }
+    }
+
+    public var badgeCount: Int? {
+        guard case .available = availability, totalCount > 0 else { return nil }
+        return totalCount
+    }
+}
+
+public struct SourceMetadataEditSummaryRequest: FetchKeyRequest {
+    public var calendarID: OME.Calendar.ID
+    public var sourceBaselineID: SourceBaselineRecord.ID
+
+    public init(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        calendarID: OME.Calendar.ID
+    ) {
+        self.sourceBaselineID = sourceBaselineID
+        self.calendarID = calendarID
+    }
+
+    public func fetch(_ db: Database) throws -> SourceMetadataEditSummary {
+        let sourceBaseline = try SourceBaselineRecord
+            .where { $0.id.eq(sourceBaselineID) }
+            .fetchOne(db)
+
+        guard let sourceBaseline else {
+            return SourceMetadataEditSummary(
+                sourceBaselineID: sourceBaselineID,
+                availability: .missingBaseline,
+                groups: []
+            )
+        }
+
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+        guard let baselineDatabase = try sourceReferenceDatabase.existing(
+            sourceBaseline.sourceProvenance
+        ) else {
+            return SourceMetadataEditSummary(
+                sourceBaselineID: sourceBaselineID,
+                availability: .missingBaseline,
+                groups: []
+            )
+        }
+
+        let sourceSummary = try SourceEditingComparer().summary(
+            in: db,
+            baselineDatabase: baselineDatabase,
+            recordTypes: OME.sourceMetadataRecordTypes,
+            scope: .openMusicEventCalendar(calendarID: calendarID)
+        )
+
+        switch sourceSummary.availability {
+        case .available:
+            return SourceMetadataEditSummary(
+                sourceBaselineID: sourceBaselineID,
+                availability: .available,
+                groups: sourceSummary.groups
+            )
+
+        case let .unavailable(reason):
+            return SourceMetadataEditSummary(
+                sourceBaselineID: sourceBaselineID,
+                availability: .unavailable(reason),
+                groups: []
+            )
+        }
+    }
+}
+
+public extension SourceRecordScope {
+    static func openMusicEventCalendar(calendarID: OME.Calendar.ID) -> Self {
+        SourceRecordScope(
+            filters: [
+                SourceRecordScope.Filter(
+                    columnName: "ownerID",
+                    value: calendarID.ownerID.queryBinding
+                ),
+                SourceRecordScope.Filter(
+                    columnName: "calendarID",
+                    value: calendarID.calendarID.rawValue.rawValue.queryBinding
+                ),
+            ]
+        )
+    }
+}

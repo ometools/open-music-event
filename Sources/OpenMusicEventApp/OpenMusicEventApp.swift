@@ -25,6 +25,7 @@ extension OME {
         dependencies.sourceControl = LibGit2SourceControlClient.live
         dependencies.tangledSourceCheckout = .git
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
+        dependencies[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
         dependencies.sourcePatchPublisher = .openMusicEventTangled
         dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
         let baseDatabase = dependencies.defaultDatabase
