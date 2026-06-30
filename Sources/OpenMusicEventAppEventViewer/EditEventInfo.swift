@@ -72,6 +72,24 @@ public struct EditEventInfo {
             }
         }
 
+        var dateRangeSelection: EventDateRangeSelection {
+            get {
+                EventDateRangeSelection(
+                    hasStartDate: hasStartDate,
+                    startDateSelection: startDateSelection,
+                    hasEndDate: hasEndDate,
+                    endDateSelection: endDateSelection,
+                    timeZone: draft.timeZone
+                )
+            }
+            set {
+                hasStartDate = newValue.hasStartDate
+                startDateSelection = newValue.startDateSelection
+                hasEndDate = newValue.hasEndDate
+                endDateSelection = newValue.endDateSelection
+            }
+        }
+
         var status: EditEventInfoStatus {
             EditEventInfoStatus(draft.status)
         }
@@ -218,31 +236,7 @@ public struct EditEventInfoView: View {
                     }
 
                     Section("Times") {
-                        HStack {
-                            Toggle("Start Date", isOn: $store.hasStartDate.animation())
-                            if store.hasStartDate {
-                                DatePicker(
-                                    "Start Date",
-                                    selection: $store.startDateSelection,
-                                    displayedComponents: .date
-                                )
-                                .labelsHidden()
-                                .environment(\.timeZone, store.timeZoneSelection)
-                            }
-                        }
-
-                        HStack {
-                            Toggle("End Date", isOn: $store.hasEndDate.animation())
-                            if store.hasEndDate {
-                                DatePicker(
-                                    "End Date",
-                                    selection: $store.endDateSelection,
-                                    displayedComponents: .date
-                                )
-                                .labelsHidden()
-                                .environment(\.timeZone, store.timeZoneSelection)
-                            }
-                        }
+                        EventDateRangePicker(selection: $store.dateRangeSelection)
 
                         NavigationLink {
                             TimeZonePicker(selection: $store.timeZoneSelection)

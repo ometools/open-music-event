@@ -820,6 +820,7 @@ public struct SourceDetail {
 
     public enum Action {
         case addEventButtonTapped
+        case didPullToRefresh
         case destination(Destination.Action)
         case editButtonTapped
         case editCalendar(EditCalendar.Action)
@@ -835,6 +836,8 @@ public struct SourceDetail {
     }
 
     @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
+    @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @StoreTaskID var sourceDataRefreshTask
 
     static func sourceBaselineQuery(
         sourceBaselineID: SourceBaselineRecord.ID
@@ -958,6 +961,19 @@ public struct SourceDetail {
                         )
                     )
                 )
+
+            case .didPullToRefresh:
+                let sourceBaselineID = state.sourceBaselineID
+                store.addTask(id: sourceDataRefreshTask) {
+                    let _: Void? = await store.withErrorHandling(
+                        fallbackMessage: .sourceDataRefreshFailed,
+                        operation: .sourceDataRefresh
+                    ) {
+                        try await sourceDataRefresh.refresh(sourceBaselineID)
+                    } parseError: {
+                        SourceImportError.parser
+                    }
+                }
 
             case .destination:
                 return
@@ -1105,6 +1121,9 @@ public struct SourceDetailView: View {
                     message: "This source has no events."
                 )
             }
+        }
+        .refreshable {
+            await store.send(.didPullToRefresh)?.value
         }
         .sheet(item: $store.scope(\.editCalendar, action: \.editCalendar)) { editStore in
             NavigationStack {

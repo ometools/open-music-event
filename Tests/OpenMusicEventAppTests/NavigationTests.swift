@@ -787,6 +787,38 @@ struct NavigationTests {
     }
 
     @Test
+    func sourceDetailPullToRefreshRefreshesSourceBaseline() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("events-page-refresh-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let recorder = SourceRefreshRecorder()
+        try await database.write { db in
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 0)
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+            }
+        } operation: {
+            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                SourceDetail()
+            }
+        }
+
+        await store.send(.didPullToRefresh)?.value
+
+        let sourceBaselineIDs = await recorder.sourceBaselineIDs
+        expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
+    }
+
+    @Test
     func eventInfoPullToRefreshPostsSourceDataRefreshRequest() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("refresh-source-event")

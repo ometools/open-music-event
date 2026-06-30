@@ -53,6 +53,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main", traits: ["Dependencies"]),
 
 
+        .package(url: "https://github.com/14T/DateRangePicker", branch: "main"),
         .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
@@ -130,6 +131,7 @@ let package = Package(
                 .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "ComposableForms", package: "swift-composable-forms"),
+                .product(name: "DateRangePicker", package: "DateRangePicker", condition: .when(platforms: [.iOS])),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Sharing", package: "swift-sharing"),

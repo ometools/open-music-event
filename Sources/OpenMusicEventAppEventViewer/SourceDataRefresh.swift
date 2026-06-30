@@ -54,13 +54,13 @@ public extension DependencyValues {
     }
 }
 
-extension UserFacingText {
+public extension UserFacingText {
     static let sourceDataRefreshFailed = Self(
         "Unable to refresh source.",
         fallback: "Unable to refresh source."
     )
 }
 
-extension ErrorOperation {
+public extension ErrorOperation {
     static let sourceDataRefresh = Self("source.refresh")
 }

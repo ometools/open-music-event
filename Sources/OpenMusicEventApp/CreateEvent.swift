@@ -205,6 +205,24 @@ public struct CreateEvent {
             }
         }
 
+        var dateRangeSelection: EventDateRangeSelection {
+            get {
+                EventDateRangeSelection(
+                    hasStartDate: hasStartDate,
+                    startDateSelection: startDateSelection,
+                    hasEndDate: hasEndDate,
+                    endDateSelection: endDateSelection,
+                    timeZone: timeZone
+                )
+            }
+            set {
+                hasStartDate = newValue.hasStartDate
+                startDateSelection = newValue.startDateSelection
+                hasEndDate = newValue.hasEndDate
+                endDateSelection = newValue.endDateSelection
+            }
+        }
+
         var validationMessage: String? {
             if !eventName.isEmpty && trimmedEventName.isEmpty {
                 return "Enter an event name."
@@ -534,27 +552,7 @@ struct CreateEventView: View {
             }
 
             Section {
-                Toggle("Start Date", isOn: $store.form.value.hasStartDate.animation())
-                if store.hasStartDate {
-                    DatePicker(
-                        "Start Date",
-                        selection: $store.form.value.startDateSelection,
-                        displayedComponents: .date
-                    )
-                    .labelsHidden()
-                    .environment(\.timeZone, store.timeZone)
-                }
-
-                Toggle("Add End Date", isOn: $store.form.value.hasEndDate.animation())
-                if store.hasEndDate {
-                    DatePicker(
-                        "End Date",
-                        selection: $store.form.value.endDateSelection,
-                        displayedComponents: .date
-                    )
-                    .labelsHidden()
-                    .environment(\.timeZone, store.timeZone)
-                }
+                EventDateRangePicker(selection: $store.dateRangeSelection)
 
                 Button {
                     isTimeZonePickerPresented = true
