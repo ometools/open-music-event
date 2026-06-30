@@ -3,6 +3,7 @@ import ATProtoOAuth
 import ArgumentParser
 import Dependencies
 import Foundation
+import Noora
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -32,6 +33,7 @@ extension OpenMusicEventCommand {
                 Rewrite.self,
                 TangledPullIndexingRepro.self,
                 TangledSourceCloneCommand.self,
+                NormalizeActors.self,
                 Validate.self
             ],
             defaultSubcommand: Validate.self
@@ -367,4 +369,257 @@ extension OpenMusicEventCommand.Source {
             return parsedOrganizerID
         }
     }
+}
+
+extension OpenMusicEventCommand.Source {
+    struct NormalizeActors: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "normalize-actors",
+            abstract: "Resolve handle-valued contributor actors to DIDs."
+        )
+
+        @Argument(help: "Path to a local source repository root.")
+        var source: String
+
+        @Option(help: "Optional event directory under events/ to scan.")
+        var event: String?
+
+        @Flag(help: "Rewrite schedule files. Defaults to a dry run.")
+        var apply = false
+
+        @Flag(help: "Apply resolved replacements even when some handles could not be resolved.")
+        var allowUnresolved = false
+
+        @Option(
+            name: .customLong("override"),
+            help: "Manual handle-to-DID override in the form old.handle.example=did:plc:abc123."
+        )
+        var overrideArguments: [String] = []
+
+        @Option(help: "Maximum number of handles to resolve concurrently.")
+        var resolutionParallelism = 16
+
+        @Option(help: "Per-handle resolution timeout in seconds.")
+        var resolutionTimeoutSeconds = 5
+
+        func run() async throws {
+            let noora = Noora(theme: .openMusicEvent)
+            guard resolutionParallelism > 0 else {
+                throw ValidationError("--resolution-parallelism must be greater than zero.")
+            }
+            guard resolutionTimeoutSeconds > 0 else {
+                throw ValidationError("--resolution-timeout-seconds must be greater than zero.")
+            }
+
+            let result = try await SourceActorDIDConverter().convert(
+                SourceActorDIDConversionRequest(
+                    repositoryURL: URL(fileURLWithPath: source),
+                    eventDirectory: event,
+                    apply: apply,
+                    allowUnresolved: allowUnresolved,
+                    overrides: try parsedOverrides(),
+                    resolutionParallelism: resolutionParallelism,
+                    resolutionTimeoutSeconds: resolutionTimeoutSeconds
+                )
+            ) { progress in
+                printProgress(progress, noora: noora)
+            }
+
+            printResult(result, noora: noora)
+        }
+
+        func parsedOverrides() throws -> [String: String] {
+            var overrides: [String: String] = [:]
+
+            for override in overrideArguments {
+                let parts = override.split(
+                    separator: "=",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                )
+                guard parts.count == 2,
+                      !parts[0].isEmpty,
+                      !parts[1].isEmpty
+                else {
+                    throw ValidationError("Override must use handle=did form: \(override)")
+                }
+
+                let handle = String(parts[0])
+                guard overrides[handle] == nil else {
+                    throw ValidationError("Duplicate override for \(handle)")
+                }
+                overrides[handle] = String(parts[1])
+            }
+
+            return overrides
+        }
+
+        static let metricHeaders = ["Metric", "Count"]
+        static let replacementHeaders = ["File", "Stage", "Performance", "Actor", "Handle", "DID", "Source"]
+        static let unresolvedHandleHeaders = ["File", "Stage", "Performance", "Actor", "Handle", "Error"]
+
+        struct OutputTables: Equatable {
+            var metrics: [[String]]
+            var replacements: [[String]]
+            var unresolvedHandles: [[String]]
+        }
+
+        enum ProgressOutput: Equatable {
+            case info(String)
+            case line(String)
+        }
+
+        static func outputTables(for result: SourceActorDIDConversionResult) -> OutputTables {
+            OutputTables(
+                metrics: [
+                    ["Replacements", "\(result.replacements.count)"],
+                    ["Unresolved handles", "\(result.unresolvedHandles.count)"],
+                    ["Existing DID references", "\(result.unchangedDIDReferences.count)"],
+                    ["Touched files", "\(result.touchedFiles.count)"],
+                ],
+                replacements: result.replacements.map { replacement in
+                    [
+                        replacement.location.file,
+                        replacement.location.stageID,
+                        replacement.location.performanceTitle,
+                        "\(replacement.location.actorIndex)",
+                        replacement.handle,
+                        replacement.did,
+                        replacement.source.rawValue,
+                    ]
+                },
+                unresolvedHandles: result.unresolvedHandles.map { unresolvedHandle in
+                    [
+                        unresolvedHandle.location.file,
+                        unresolvedHandle.location.stageID,
+                        unresolvedHandle.location.performanceTitle,
+                        "\(unresolvedHandle.location.actorIndex)",
+                        unresolvedHandle.handle,
+                        unresolvedHandle.errorDescription,
+                    ]
+                }
+            )
+        }
+
+        static func progressOutput(
+            for progress: SourceActorDIDConversionProgress
+        ) -> ProgressOutput {
+            switch progress {
+            case let .readingRepository(repositoryURL):
+                .info("Reading source repository at \(repositoryURL.path).")
+
+            case let .repositoryRead(eventCount):
+                .line("  Read \(eventCount) event(s).")
+
+            case let .validatingOverrides(count):
+                .line("  Validating \(count) override(s).")
+
+            case let .discoveringActors(eventDirectory):
+                if let eventDirectory {
+                    .info("Discovering contributor actor references in event \(eventDirectory).")
+                } else {
+                    .info("Discovering contributor actor references in all events.")
+                }
+
+            case let .actorsDiscovered(
+                actorReferenceCount,
+                handleReferenceCount,
+                didReferenceCount,
+                uniqueHandleCount,
+                scheduleFileCount
+            ):
+                .line(
+                    """
+                      Found \(actorReferenceCount) actor reference(s) in \(scheduleFileCount) schedule file(s): \(handleReferenceCount) handle(s), \(didReferenceCount) DID(s), \(uniqueHandleCount) unique handle(s).
+                    """
+                )
+
+            case let .resolvingHandles(uniqueHandleCount, overrideCount, parallelism, timeoutSeconds):
+                if uniqueHandleCount == 0 {
+                    .line("  No handle references need resolution.")
+                } else {
+                    .info("Resolving \(uniqueHandleCount) unique handle(s), including \(overrideCount) override(s), with up to \(parallelism) concurrent request(s) and \(timeoutSeconds)s timeout.")
+                }
+
+            case let .resolvingHandle(handle, index, total):
+                .line("  Resolving [\(index)/\(total)] \(handle).")
+
+            case let .handleResolved(handle, index, total, source):
+                .line("    Resolved [\(index)/\(total)] \(handle) via \(source.rawValue).")
+
+            case let .handleResolutionFailed(handle, index, total, _):
+                .line("    Unresolved [\(index)/\(total)] \(handle).")
+
+            case .buildingResult:
+                .line("  Building conversion report.")
+
+            case let .checkingApplyPreconditions(unresolvedHandleCount):
+                .line("  Checking apply preconditions: \(unresolvedHandleCount) unresolved handle(s).")
+
+            case let .applying(replacementCount, scheduleFileCount):
+                .info("Applying \(replacementCount) replacement(s) across \(scheduleFileCount) schedule file(s).")
+
+            case let .writingScheduleFile(file):
+                .line("  Writing \(file).")
+
+            case let .finished(didWrite):
+                if didWrite {
+                    .line("  Source write finished.")
+                } else {
+                    .line("  Dry-run scan finished.")
+                }
+            }
+        }
+
+        private func printProgress(
+            _ progress: SourceActorDIDConversionProgress,
+            noora: Noora
+        ) {
+            switch Self.progressOutput(for: progress) {
+            case let .info(message):
+                noora.info(.alert(TerminalText(stringLiteral: message)))
+
+            case let .line(message):
+                noora.passthrough(TerminalText(stringLiteral: "\(message)\n"))
+            }
+        }
+
+        private func printResult(
+            _ result: SourceActorDIDConversionResult,
+            noora: Noora = Noora(theme: .openMusicEvent)
+        ) {
+            let outputTables = Self.outputTables(for: result)
+
+            if result.didWrite {
+                noora.success("Source actor DID conversion applied.")
+            } else {
+                noora.info("Source actor DID conversion dry run.")
+            }
+
+            noora.table(headers: Self.metricHeaders, rows: outputTables.metrics)
+
+            if !outputTables.replacements.isEmpty {
+                noora.table(headers: Self.replacementHeaders, rows: outputTables.replacements)
+            }
+
+            if !outputTables.unresolvedHandles.isEmpty {
+                noora.warning("Some contributor actor handles could not be resolved.")
+                noora.table(headers: Self.unresolvedHandleHeaders, rows: outputTables.unresolvedHandles)
+            }
+        }
+    }
+}
+
+private extension Theme {
+    static let openMusicEvent = Theme(
+        primary: "336699",
+        secondary: "C85A9C",
+        muted: "6B7280",
+        accent: "F5C542",
+        danger: "D64545",
+        success: "4F9D69",
+        info: "2D8CBA",
+        selectedRowText: "FFFFFF",
+        selectedRowBackground: "336699"
+    )
 }

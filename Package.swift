@@ -86,6 +86,7 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-http-types", from: "1.4.0"),
     .package(url: "https://github.com/1024jp/GzipSwift", from: "6.0.0"),
     .package(url: "https://github.com/kateinoigakukun/swift-tar", branch: "main"),
+    .package(url: "https://github.com/tuist/Noora", from: "0.15.0"),
 ]
 
 #if os(macOS)
@@ -308,6 +309,7 @@ var targets: [Target] = [
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "FileTree", package: "swift-file-tree"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+            .product(name: "Noora", package: "Noora"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
             .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
             .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
@@ -330,6 +332,7 @@ var targets: [Target] = [
     .testTarget(
         name: "OpenMusicEventCLITests",
         dependencies: [
+            "OpenMusicEventCLI",
             "OpenMusicEventSourceClone",
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
@@ -389,6 +392,7 @@ var targets: [Target] = [
             "OpenMusicEventSource",
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
+            .product(name: "Dependencies", package: "swift-dependencies"),
         ],
         resources: [
             .copy("Fixtures")
