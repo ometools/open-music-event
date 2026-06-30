@@ -78,9 +78,6 @@
         }
       }
     },
-    "Add End Date" : {
-
-    },
     "Add Event" : {
 
     },
@@ -228,9 +225,6 @@
 
     },
     "Edit Calendar" : {
-
-    },
-    "End Date" : {
 
     },
     "Enter a source slug." : {
@@ -523,6 +517,9 @@
     "Repository" : {
 
     },
+    "Retry" : {
+
+    },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
       "localizations" : {
@@ -606,9 +603,6 @@
 
     },
     "Source import output can only be used with Tangled repositories." : {
-
-    },
-    "Start Date" : {
 
     },
     "Start with the basics. This creates the event now so you can come back and fill in artwork, schedule, locations, and the rest later" : {
@@ -715,6 +709,9 @@
 
     },
     "Unable to import source." : {
+
+    },
+    "Unable to load event source." : {
 
     },
     "Unable to prepare source editing." : {

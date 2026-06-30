@@ -10,12 +10,40 @@ import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+import OpenMusicEventWhiteLabel
 import SourceControlClient
 import SourceControlClientGit
 import SourceEditing
 
 /// A logger for the OpenMusicEventApp module.
 let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEventApp")
+
+public enum OpenMusicEventAppVariant: Equatable, Sendable {
+    case generic
+    case whiteLabel(WhiteLabelAppConfiguration)
+}
+
+public enum OpenMusicEventAppDependencyProfile: Sendable {
+    case generic
+    case whiteLabel
+}
+
+public enum OpenMusicEventDependencies {
+    public static func prepare(
+        _ dependencies: inout DependencyValues,
+        profile: OpenMusicEventAppDependencyProfile = .generic,
+        update: (inout DependencyValues) throws -> Void = { _ in }
+    ) throws {
+        try OME.prepareDependencies(&dependencies)
+        switch profile {
+        case .generic:
+            break
+        case .whiteLabel:
+            dependencies.tangledSourceCheckout = .archive
+        }
+        try update(&dependencies)
+    }
+}
 
 extension OME {
 
@@ -64,16 +92,22 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 ///
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
 /* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
+    @State var store: StoreOf<OpenMusicEventAppRoot>
+
     /* SKIP @bridge */public init() {
+        self.init(variant: .generic)
     }
 
-    static let store = StoreOf<OpenMusicEventAppRoot>(
-        initialState: .init()) {
+    public init(variant: OpenMusicEventAppVariant) {
+        _store = State(initialValue: StoreOf<OpenMusicEventAppRoot>(
+            initialState: .init(variant: variant)
+        ) {
             OpenMusicEventAppRoot()
+        })
     }
 
     public var body: some View {
-        OpenMusicEventAppRootView(store: Self.store)
+        OpenMusicEventAppRootView(store: store)
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }

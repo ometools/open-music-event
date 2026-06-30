@@ -597,12 +597,11 @@ extension OpenMusicEvent {
         public var id: ID
 
         public var name: String
+        public var did: DID? = nil
         public var bio: String?
         @Column(as: [OpenMusicEvent.ImageAsset].JSONRepresentation?.self)
         public var images: [OpenMusicEvent.ImageAsset]?
         public var kind: Kind?
-
-//        public var contributorDID: DID?
 
         @Column(as: [ExternalPlatform.Link].JSONRepresentation?.self)
         public var links: [ExternalPlatform.Link]?

@@ -94,6 +94,7 @@ public extension OpenMusicEventSourcePatchConversion {
             )
             sourceEvent.schedules = try sourceEvent.sourceScheduleFiles(
                 from: schedules,
+                contributors: contributors,
                 performances: performances,
                 performanceContributors: performanceContributors,
                 eventTimeZone: event.timeZone
@@ -145,6 +146,7 @@ public enum OpenMusicEventCalendarSourcePatchConversionError: Equatable, Error, 
 private extension OpenMusicEventSourceEvent {
     func sourceScheduleFiles(
         from schedules: [OME.Schedule],
+        contributors: [OME.Contributor],
         performances: [OME.Performance],
         performanceContributors: [OME.Performance.Contributors],
         eventTimeZone: TimeZone
@@ -165,6 +167,11 @@ private extension OpenMusicEventSourceEvent {
             grouping: performanceContributors,
             by: \.performanceID
         )
+        let contributorIDsWithDID = Set(
+            contributors.compactMap { contributor in
+                contributor.did == nil ? nil : contributor.id.contributorID
+            }
+        )
         var consumedScheduleIDs: Set<OME.ID<OME.Schedule>> = []
         var files: [FileContent<ScheduleDTO>] = []
 
@@ -183,6 +190,7 @@ private extension OpenMusicEventSourceEvent {
                         performances: sourcePerformances(
                             scheduleID: scheduleID,
                             performances: performancesByScheduleID[scheduleID] ?? [],
+                            contributorIDsWithDID: contributorIDsWithDID,
                             performanceContributors: contributorsByPerformanceID,
                             sourceSchedule: sourceSchedule,
                             eventTimeZone: eventTimeZone
@@ -215,6 +223,7 @@ private extension OpenMusicEventSourceEvent {
                         performances: sourcePerformances(
                             scheduleID: scheduleID,
                             performances: performancesByScheduleID[scheduleID] ?? [],
+                            contributorIDsWithDID: contributorIDsWithDID,
                             performanceContributors: contributorsByPerformanceID,
                             sourceSchedule: nil,
                             eventTimeZone: eventTimeZone
@@ -620,6 +629,7 @@ private extension String {
 private func sourcePerformances(
     scheduleID: OME.ID<OME.Schedule>,
     performances: [OME.Performance],
+    contributorIDsWithDID: Set<OME.ID<OME.Contributor>>,
     performanceContributors: [OME.ID<OME.Performance>: [OME.Performance.Contributors]],
     sourceSchedule: ScheduleDTO?,
     eventTimeZone: TimeZone
@@ -658,6 +668,7 @@ private func sourcePerformances(
                         preservingSource: sourcePerformance,
                         nextPerformance: nextPerformance,
                         contributors: performanceContributors[performance.id.performanceID] ?? [],
+                        contributorIDsWithDID: contributorIDsWithDID,
                         eventTimeZone: eventTimeZone
                     )
                 }
@@ -774,15 +785,26 @@ private extension OME.Performance {
         preservingSource source: SourcePerformance?,
         nextPerformance: OME.Performance?,
         contributors: [OME.Performance.Contributors],
+        contributorIDsWithDID: Set<OME.ID<OME.Contributor>>,
         eventTimeZone: TimeZone
     ) -> ScheduleDTO.Performance {
-        let contributorIDs = contributors.compactMap { contributor in
-            contributor.anonymousName == nil && contributor.contributorActor == nil
-                ? contributor.contributorID
+        let contributorIDs = contributors.compactMap { contributor -> OME.ID<OME.Contributor>? in
+            guard contributor.anonymousName == nil,
+                  let contributorID = contributor.contributorID
+            else { return nil }
+
+            return contributor.contributorActor == nil || contributorIDsWithDID.contains(contributorID)
+                ? contributorID
                 : nil
         }
         let contributorNames = contributors.compactMap(\.anonymousName)
-        let contributorActors = contributors.compactMap(\.contributorActor)
+        let contributorActors = contributors.compactMap { contributor -> OME.Contributor.Actor? in
+            if let contributorID = contributor.contributorID,
+               contributorIDsWithDID.contains(contributorID) {
+                return nil
+            }
+            return contributor.contributorActor
+        }
         return ScheduleDTO.Performance(
             id: source?.id ?? (id.performanceID == inferredID ? nil : id.performanceID),
             title: title,
@@ -895,6 +917,7 @@ private extension OME.Poster {
 private extension OME.Contributor {
     var hasSourceProfileContent: Bool {
         bio?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || did != nil
             || images?.isEmpty == false
             || kind != nil
             || links?.isEmpty == false
@@ -911,6 +934,7 @@ private extension OME.Contributor {
         OME.Contributor.Draft(
             id: id,
             name: name,
+            did: did,
             bio: bio,
             images: images,
             kind: kind,

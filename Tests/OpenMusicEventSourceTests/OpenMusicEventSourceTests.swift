@@ -519,6 +519,7 @@ struct OpenMusicEventSourceTests {
     func contributorMarkdownWriteEmitsFrontMatterAndBody() throws {
         let contributor = try contributorFile(
             name: "Artist One",
+            did: try #require(DID("did:plc:artist123")),
             bio: "Artist One writes markdown."
         )
 
@@ -527,6 +528,7 @@ struct OpenMusicEventSourceTests {
 
         #expect(text.hasPrefix("---\n"))
         #expect(text.contains("name: Artist One"))
+        #expect(text.contains("did: did:plc:artist123"))
         #expect(text.contains("Artist One writes markdown."))
         #expect(!text.contains("bio:"))
 
@@ -626,6 +628,7 @@ struct OpenMusicEventSourceTests {
 
     private func contributorFile(
         name: String,
+        did: DID? = nil,
         bio: String?
     ) throws -> FileContent<ContributorDTO> {
         try FileContent(
@@ -633,6 +636,7 @@ struct OpenMusicEventSourceTests {
             fileType: "md",
             data: ContributorDTO(
                 name: name,
+                did: did,
                 bio: bio
             )
         )

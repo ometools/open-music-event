@@ -1,3 +1,4 @@
+import ATProto
 import Foundation
 import OpenMusicEventLexicon
 
@@ -537,6 +538,7 @@ public extension OME {
                                         contributorID: contributorID
                                     ),
                                     name: displayName,
+                                    did: nil,
                                     bio: nil,
                                     images: nil,
                                     kind: nil,
@@ -563,6 +565,7 @@ public extension OME {
                                         contributorID: contributorID
                                     ),
                                     name: displayName,
+                                    did: actor.didValue,
                                     bio: nil,
                                     images: nil,
                                     kind: nil,
@@ -719,6 +722,15 @@ private extension OME.SourceDatabaseInsertion.SourceProvenance {
                 .map(String.init)
                 ?? reference
         }
+    }
+}
+
+private extension OME.Contributor.Actor {
+    var didValue: DID? {
+        if case let .did(did) = identifier {
+            return did
+        }
+        return nil
     }
 }
 

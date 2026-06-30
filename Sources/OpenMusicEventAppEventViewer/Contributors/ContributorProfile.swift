@@ -287,7 +287,9 @@ extension ContributorProfile {
     ) -> some QueryExpression<OMERecord.Contributor.Actor?> {
         #sql(
             """
-            (
+            COALESCE(
+              "contributors"."did",
+              (
               SELECT "performanceContributors"."contributorActor"
               FROM "performanceContributors"
               WHERE "performanceContributors"."organizerID" = \(eventID.organizerID)
@@ -296,6 +298,7 @@ extension ContributorProfile {
                 AND "performanceContributors"."contributorActor" IS NOT NULL
               ORDER BY "performanceContributors"."performanceID"
               LIMIT 1
+              )
             )
             """,
             as: OMERecord.Contributor.Actor?.self
@@ -308,7 +311,9 @@ extension ContributorProfile {
     ) -> some QueryExpression<OMERecord.Contributor.Actor?> {
         #sql(
             """
-            (
+            COALESCE(
+              "contributors"."did",
+              (
               SELECT "performanceContributors"."contributorActor"
               FROM "performanceContributors"
               WHERE "performanceContributors"."organizerID" = \(eventID.organizerID)
@@ -317,6 +322,7 @@ extension ContributorProfile {
                 AND "performanceContributors"."contributorID" = "contributors"."contributorID"
                 AND "performanceContributors"."contributorActor" IS NOT NULL
               LIMIT 1
+              )
             )
             """,
             as: OMERecord.Contributor.Actor?.self
@@ -407,7 +413,9 @@ extension ContributorProfile {
               FROM "blueskyActorProfileCacheEntries"
               JOIN "blueskyActorProfiles"
                 ON "blueskyActorProfiles"."did" = "blueskyActorProfileCacheEntries"."did"
-              WHERE "blueskyActorProfileCacheEntries"."actor" = (
+              WHERE "blueskyActorProfileCacheEntries"."actor" = COALESCE(
+                "contributors"."did",
+                (
                 SELECT "performanceContributors"."contributorActor"
                 FROM "performanceContributors"
                 WHERE "performanceContributors"."organizerID" = \(eventID.organizerID)
@@ -416,6 +424,7 @@ extension ContributorProfile {
                   AND "performanceContributors"."contributorActor" IS NOT NULL
                 ORDER BY "performanceContributors"."performanceID"
                 LIMIT 1
+                )
               )
               LIMIT 1
             )
@@ -437,7 +446,9 @@ extension ContributorProfile {
               FROM "blueskyActorProfileCacheEntries"
               JOIN "blueskyActorProfiles"
                 ON "blueskyActorProfiles"."did" = "blueskyActorProfileCacheEntries"."did"
-              WHERE "blueskyActorProfileCacheEntries"."actor" = (
+              WHERE "blueskyActorProfileCacheEntries"."actor" = COALESCE(
+                "contributors"."did",
+                (
                 SELECT "performanceContributors"."contributorActor"
                 FROM "performanceContributors"
                 WHERE "performanceContributors"."organizerID" = \(eventID.organizerID)
@@ -446,6 +457,7 @@ extension ContributorProfile {
                   AND "performanceContributors"."contributorID" = "contributors"."contributorID"
                   AND "performanceContributors"."contributorActor" IS NOT NULL
                 LIMIT 1
+                )
               )
               LIMIT 1
             )

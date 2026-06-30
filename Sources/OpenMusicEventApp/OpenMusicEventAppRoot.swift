@@ -12,7 +12,14 @@ public struct OpenMusicEventAppRoot {
     public init() {}
 
     public struct State {
-        public init() {}
+        public init(variant: OpenMusicEventAppVariant = .generic) {
+            self.variant = variant
+            if case let .whiteLabel(configuration) = variant {
+                self.whiteLabelBootstrap = Spawn(
+                    WhiteLabelBootstrap.State(configuration: configuration)
+                )
+            }
+        }
 
         public var authentication = AuthenticationCoordinator.State()
         public var browser = Spawn(OpenMusicEventBrowser.State())
@@ -20,6 +27,8 @@ public struct OpenMusicEventAppRoot {
         public var eventViewer: Spawn<EventViewer>?
         public var hasRestoredSelectedEventAtLaunch = false
         public var launchEventViewer: Spawn<EventViewer>?
+        public var variant: OpenMusicEventAppVariant
+        public var whiteLabelBootstrap: Spawn<WhiteLabelBootstrap>? = nil
 
         @FetchOne(AppState.find(1))
         public var appState: AppState?
@@ -70,7 +79,7 @@ public struct OpenMusicEventAppRoot {
                     state.eventViewer = Spawn(.route(eventID: eventID, target: target))
                 }
             }
-            if state.selectedEventID != eventID {
+            if state.persistsSelectedEvent, state.selectedEventID != eventID {
                 try? database.write { db in
                     try AppState.update {
                         $0.organizerID = #bind(eventID.organizerID)
@@ -90,7 +99,9 @@ public struct OpenMusicEventAppRoot {
 
                 case .eventViewerDismissed:
                     state.eventViewer = nil
-                    clearSelectedEvent()
+                    if state.persistsSelectedEvent {
+                        clearSelectedEvent()
+                    }
 
                 case .handleNavigationRequest(let request):
                     switch request {
@@ -129,6 +140,7 @@ public struct OpenMusicEventAppRoot {
             }
         }
         .onChange(of: store.selectedEventID, initial: true) { _, newValue, state in
+            guard state.persistsSelectedEvent else { return }
             guard !state.hasRestoredSelectedEventAtLaunch else {
                 if newValue == nil {
                     state.launchEventViewer = nil
@@ -144,8 +156,8 @@ public struct OpenMusicEventAppRoot {
             }
             prefetchAssetsOnOpen(newValue)
         }
-        .onChange(of: store.launchEventViewer?.state.eventID) { oldValue, newValue, _ in
-            if oldValue != nil, newValue == nil {
+        .onChange(of: store.launchEventViewer?.state.eventID) { oldValue, newValue, state in
+            if state.persistsSelectedEvent, oldValue != nil, newValue == nil {
                 clearSelectedEvent()
             }
         }
@@ -160,6 +172,9 @@ public struct OpenMusicEventAppRoot {
         }
         .spawn(\.errorNotifications) {
             ErrorNotifications()
+        }
+        .ifLet(\.whiteLabelBootstrap) {
+            WhiteLabelBootstrap()
         }
         .ifLet(\.eventViewer) {
             EventViewer()
@@ -199,14 +214,14 @@ public struct OpenMusicEventAppRootView: View {
             if let launchEventViewerStore = store.spawn(\.launchEventViewer) {
                 EventViewerView(store: launchEventViewerStore)
             } else {
-                browserView
+                surfaceView
             }
         }
     }
 
     @ViewBuilder
-    private var browserView: some View {
-        OpenMusicEventBrowserView(store: store.spawn(\.browser))
+    private var surfaceView: some View {
+        mainContent
             .openMusicEventFullScreenCover(
                 item: eventViewerStore,
                 onDismiss: {
@@ -215,6 +230,19 @@ public struct OpenMusicEventAppRootView: View {
             ) { eventViewerStore in
                 EventViewerView(store: eventViewerStore)
             }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        switch store.variant {
+        case .generic:
+            OpenMusicEventBrowserView(store: store.spawn(\.browser))
+
+        case .whiteLabel:
+            if let whiteLabelStore = store.spawn(\.whiteLabelBootstrap) {
+                WhiteLabelBootstrapView(store: whiteLabelStore)
+            }
+        }
     }
 
     private var eventViewerStore: Binding<StoreOf<EventViewer>?> {
@@ -226,5 +254,16 @@ public struct OpenMusicEventAppRootView: View {
                 }
             }
         )
+    }
+}
+
+private extension OpenMusicEventAppRoot.State {
+    var persistsSelectedEvent: Bool {
+        switch variant {
+        case .generic:
+            true
+        case .whiteLabel:
+            false
+        }
     }
 }

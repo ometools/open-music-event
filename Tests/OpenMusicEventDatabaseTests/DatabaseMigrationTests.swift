@@ -663,6 +663,12 @@ struct DatabaseMigrationTests {
             let contributorCount = try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "contributors""#)
             #expect(contributorCount == 0)
 
+            let contributorColumns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('contributors')"#
+            )
+            #expect(contributorColumns.contains("did"))
+
             let performanceContributorColumns = try String.fetchAll(
                 db,
                 sql: #"SELECT "name" FROM pragma_table_info('performanceContributors')"#

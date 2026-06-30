@@ -204,14 +204,6 @@ struct WhiteLabelRootTests {
       #expect(store.state.sourceDetail?.state.sourceBaselineID == sourceBaselineID)
       #expect(store.state.organizationRoot == nil)
       #expect(store.state.errorMessage == nil)
-
-      await store.send(
-        WhiteLabelRoot.Action.handleNavigationRequest(
-          NavigationRequest.event(selectedEventID, nil)
-        )
-      )?.value
-
-      #expect(store.state.eventViewer?.state.eventID == selectedEventID)
     }
   }
 
@@ -311,72 +303,30 @@ struct WhiteLabelRootTests {
 
   @Test
   func eventNavigationPresentsEventViewer() async throws {
-    try await withNonExhaustiveTest {
-      let database = try makePreparedDatabase()
-      let organizerID = organizerID("wickedwoods")
-      let descriptor = WhiteLabelSourceDescriptor(
-        reference: .archiveURL(URL(string: "https://example.com/wicked-woods.tar.gz")!)
-      )
-      let selectedEventID = eventID(organizerID: organizerID, eventID: "2025")
-      try await insertEvent(
-        selectedEventID,
-        name: "Wicked Woods 2025",
-        startDate: LocalDate("2025-08-29"),
-        endDate: LocalDate("2025-08-31"),
-        into: database
-      )
-
-      let store = makeStore(
-        configuration: .init(
-          brand: .init(displayName: "Wicked Woods"),
-          organizerID: organizerID,
-          handle: "wickedwoods.ca"
-        ),
-        database: database
-      ) {
-        $0.whiteLabelSourceRegistry = WhiteLabelSourceRegistryClient { requestedOrganizerID in
-          #expect(requestedOrganizerID == organizerID)
-          return descriptor
-        }
-        $0.whiteLabelSourceImport = WhiteLabelSourceImportClient {
-          requestedOrganizerID, requestedDescriptor in
-          #expect(requestedOrganizerID == organizerID)
-          #expect(requestedDescriptor == descriptor)
-          return [selectedEventID]
-        }
-      }
-
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .preparing
-      }?.value
-
-      #expect(store.state.organizationRoot?.state.organizerID == organizerID)
-
-      let organizationState = try #require(store.state.organizationRoot?.state)
-      let organizationStore = withDependencies {
-        $0.context = .test
-        $0.defaultDatabase = database
-        $0.defaultEventID = selectedEventID
-      } operation: {
-        TestStore(initialState: organizationState) {
-          OrganizationRoot()
-        }
-      }
-      await withDependencies {
-        $0.context = .test
-        $0.defaultDatabase = database
-        $0.defaultEventID = selectedEventID
-      } operation: {
-        await organizationStore.send(
-          OrganizationRoot.Action.handleNavigationRequest(
-            NavigationRequest.event(selectedEventID, nil)
+    let database = try makePreparedDatabase()
+    let organizerID = organizerID("wickedwoods")
+    let selectedEventID = eventID(organizerID: organizerID, eventID: "2025")
+    let store = withDependencies {
+      $0.context = .test
+      $0.defaultDatabase = database
+      $0.defaultEventID = selectedEventID
+    } operation: {
+      Store(
+        initialState: OpenMusicEventAppRoot.State(
+          variant: .whiteLabel(
+            WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
           )
-        )?.value
+        )
+      ) {
+        OpenMusicEventAppRoot()
       }
-
-      #expect(organizationStore.state.eventViewer?.state.eventID == selectedEventID)
     }
+
+    await store.send(.handleNavigationRequest(.event(selectedEventID, nil)))?.value
+    #expect(store.eventViewer?.state.eventID == selectedEventID)
+
+    await store.send(.eventViewerDismissed)?.value
+    #expect(store.eventViewer == nil)
   }
 
   private func makeStore(

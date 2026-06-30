@@ -3,6 +3,7 @@ import BlueskyActorCache
 import ComposableForms
 import ComposableArchitecture2
 import Dependencies
+import ErrorHandling
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventImages
@@ -259,182 +260,6 @@ struct ContributorsRowView: View {
 }
 
 @Feature
-public struct ContributorDetail {
-    public init() {}
-
-    public struct State: Identifiable {
-        public let contributorID: OMERecord.ID<OMERecord.Contributor>
-        public let eventID: OMERecord.Event.ID
-        public var destination: Destination.State?
-
-        @FetchOne var profile: ContributorProfile?
-
-        public init(
-            contributorID: OMERecord.ID<OMERecord.Contributor>,
-            eventID: OMERecord.Event.ID? = nil
-        ) {
-            @Dependency(\.defaultEventID) var defaultEventID
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
-
-            self.contributorID = contributorID
-            self.eventID = eventID ?? defaultEventID
-            self.timeZone = defaultEventTimeZone
-            _profile = FetchOne(
-                ContributorProfile.one(
-                    contributorID: contributorID,
-                    eventID: self.eventID,
-                    hydration: .bskyActorProfile
-                )
-            )
-            _performanceContributors = FetchAll(
-                ContributorsViewer.performanceContributorsQuery(eventID: self.eventID)
-            )
-            _performanceRows = FetchAll(
-                PerformanceRow.forContributor(
-                    contributorID: contributorID,
-                    eventID: self.eventID
-                )
-            )
-            _performances = FetchAll(
-                ScheduleViewer.eventPerformancesQuery(eventID: self.eventID)
-            )
-            _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: self.eventID)
-            )
-        }
-
-        public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
-
-        @DebugSnapshotIgnored public var timeZone: TimeZone
-        @FetchAll var performanceRows: [PerformanceRow]
-        @FetchAll public var performanceContributors: [OMERecord.Performance.Contributors]
-        @FetchAll public var performances: [OMERecord.Performance]
-        @FetchAll public var stages: [OMERecord.Stage]
-
-        var contributor: OMERecord.Contributor? {
-            profile?.contributor
-        }
-
-        var stageContext: ContributorStageContext {
-            ContributorStageContext(
-                contributorID: contributorID,
-                performanceContributors: performanceContributors,
-                performances: performances,
-                stages: stages
-            )
-        }
-
-        var actorProfileLoadRequest: ContributorProfile.ActorProfileLoadRequest? {
-            profile?.actorProfileLoadRequest
-        }
-
-        var contributorActor: OMERecord.Contributor.Actor? {
-            profile?.contributorActor
-        }
-
-        var usesActorProfileAsPrimary: Bool {
-            profile?.usesActorProfileAsPrimary ?? false
-        }
-    }
-
-    public enum Action {
-        case destination(Destination.Action)
-        case editButtonTapped
-    }
-
-    @Feature
-    public enum Destination {
-        case editContributor(Spawn<EditContributor>)
-    }
-
-    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
-
-    static func contributorQuery(
-        contributorID: OMERecord.ID<OMERecord.Contributor>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Contributor> {
-        OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.contributorID.eq(contributorID) }
-    }
-
-    public var body: some Feature {
-        Update { state, action in
-            switch action {
-            case .destination:
-                break
-
-            case .editButtonTapped:
-                store.withDependencies {
-                    state.destination = .editContributor(
-                        Spawn(
-                            EditContributor.State(
-                                contributorID: state.contributorID,
-                                eventID: state.eventID
-                            )
-                        )
-                    )
-                }
-            }
-        }
-        .onChange(of: store.actorProfileLoadRequest, initial: true) { _, request, _ in
-            guard let request else { return }
-
-            store.addTask {
-                do {
-                    _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
-                        request.actor.description,
-                        24 * 60 * 60,
-                        15 * 60
-                    )
-                } catch is CancellationError {
-                } catch {
-                }
-            }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
-        }
-    }
-}
-
-public struct ContributorDetailView: View {
-    @Bindable var store: StoreOf<ContributorDetail>
-
-    public init(store: StoreOf<ContributorDetail>) {
-        self.store = store
-    }
-
-    public var body: some View {
-        Group {
-            if let profile = store.profile {
-                ContributorDetailContentView(
-                    profile: profile,
-                    stageContext: store.state.stageContext,
-                    performanceRows: store.performanceRows,
-                    timeZone: store.timeZone
-                ) {
-                    store.send(.editButtonTapped)
-                }
-            } else {
-                ContentUnavailableView(
-                    "Contributor",
-                    systemImage: "person.crop.circle",
-                    description: Text(verbatim: store.contributorID.rawValue.rawValue)
-                )
-                .navigationTitle("Contributor")
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).editContributor) { editStore in
-            NavigationStack {
-                EditContributorView(store: editStore)
-            }
-        }
-    }
-}
-
-@Feature
 public struct EditContributor {
     public init() {}
 
@@ -515,13 +340,12 @@ public struct EditContributor {
         public let eventID: OMERecord.Event.ID
         let mode: Mode
 
-        public var actorPickerErrorMessage: String?
-        public var actorPickerIsPresented = false
+        public var actorSearchErrorMessage: String?
         public var actorSearchFailures: [PredictiveSearchFailure] = []
         public var actorSearchIsLoading = false
         public var actorSearchQuery = ""
         public var actorSearchSections: [PredictiveSearchSection<ActorIdentity>] = []
-        public var appliedContributorActor: OMERecord.Contributor.Actor?
+        public var contributorDID: DID?
         @DebugSnapshotTracked var errorMessage: String?
         var form: FormFeature.State
         @DebugSnapshotTracked var hasLoadedDraft: Bool = false
@@ -531,7 +355,6 @@ public struct EditContributor {
         var originalImages: [OMERecord.ImageAsset] = []
         @FetchAll public var performanceContributors: [OMERecord.Performance.Contributors]
         var photoImagePicker: ImageAssetPicker.State
-        public var selectedActorIdentity: ActorIdentity?
 
         var imageURL: String {
             get { photoImagePicker.firstURLString }
@@ -547,16 +370,12 @@ public struct EditContributor {
             hasLoadedDraft && !isSaving && !isSavingActor && form.canSubmit
         }
 
-        var canApplyActorSelection: Bool {
-            selectedActorIdentity != nil
-                && !isSaving
-                && !isSavingActor
-                && !contributorPerformanceContributors.isEmpty
-        }
-
         var contributorActor: OMERecord.Contributor.Actor? {
-            appliedContributorActor
-                ?? contributorPerformanceContributors.compactMap(\.contributorActor).first
+            if let contributorDID,
+               let actor = OMERecord.Contributor.Actor(contributorDID.description) {
+                return actor
+            }
+            return contributorPerformanceContributors.compactMap(\.contributorActor).first
         }
 
         var contributorPerformanceContributors: [OMERecord.Performance.Contributors] {
@@ -564,18 +383,14 @@ public struct EditContributor {
             return performanceContributors.filter { $0.contributorID == contributorID }
         }
 
-        var showsActorProfileEditor: Bool {
-            mode.contributorID != nil
-        }
-
-            var navigationTitle: String {
-                switch mode {
-                case .create:
+        var navigationTitle: String {
+            switch mode {
+            case .create:
                 return "New Contributor"
-                case .edit:
+            case .edit:
                 return "Edit Contributor"
-                }
             }
+        }
 
         var submitButtonTitle: String {
             switch mode {
@@ -588,6 +403,7 @@ public struct EditContributor {
 
         fileprivate struct SaveRequest: Sendable {
             let bio: String?
+            let did: DID?
             let eventID: OMERecord.Event.ID
             let kind: OMERecord.Contributor.Kind?
             let links: [ExternalPlatform.Link]?
@@ -599,6 +415,7 @@ public struct EditContributor {
 
             init(state: State) {
                 self.bio = state.form.value.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                self.did = state.contributorDID
                 self.eventID = state.eventID
                 self.kind = state.form.value.kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                     .map { OMERecord.Contributor.Kind($0) }
@@ -654,6 +471,7 @@ public struct EditContributor {
                     OMERecord.Contributor.Draft(
                         id: contributorRecordID,
                         name: name,
+                        did: did,
                         bio: bio,
                         images: preparedImages.images.isEmpty ? nil : preparedImages.images,
                         kind: kind,
@@ -661,6 +479,22 @@ public struct EditContributor {
                     ),
                     preparedImages.blobs
                 )
+            }
+
+            func clearLinkedPerformanceActors(
+                contributorID: OMERecord.ID<OMERecord.Contributor>,
+                in db: Database
+            ) throws {
+                guard did != nil else { return }
+
+                try #sql("""
+                    UPDATE "performanceContributors"
+                    SET "contributorActor" = NULL
+                    WHERE "organizerID" = \(eventID.organizerID)
+                      AND "eventID" = \(eventID.eventID)
+                      AND "contributorID" = \(contributorID)
+                    """)
+                    .execute(db)
             }
 
             private func preparedImages(
@@ -697,6 +531,53 @@ public struct EditContributor {
                 assets: originalImages,
                 cacheContext: cacheContext
             )
+        }
+
+        mutating func prefillFromActorIdentity(_ identity: ActorIdentity) {
+            prefillName(identity.displayTitle)
+            prefillPhoto(identity.avatar)
+        }
+
+        mutating func prefillFromActorProfile(_ profile: BlueskyActorProfile) {
+            prefillName(
+                profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                    ?? profile.handle.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                    ?? profile.did
+            )
+            prefillBio(profile.description)
+            prefillPhoto(profile.avatar)
+        }
+
+        mutating func resetActorSearch() {
+            actorSearchErrorMessage = nil
+            actorSearchFailures = []
+            actorSearchIsLoading = false
+            actorSearchQuery = ""
+            actorSearchSections = []
+        }
+
+        private mutating func prefillBio(_ value: String?) {
+            guard form.value.bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let value = value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            else { return }
+
+            form.value.bio = value
+        }
+
+        private mutating func prefillName(_ value: String?) {
+            guard form.value.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let value = value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            else { return }
+
+            form.value.name = value
+        }
+
+        private mutating func prefillPhoto(_ url: URL?) {
+            guard photoImagePicker.images.isEmpty,
+                  let url
+            else { return }
+
+            photoImagePicker.replaceURLString(url.absoluteString)
         }
 
         private var imageCacheContext: LocalImageCacheContext? {
@@ -737,12 +618,10 @@ public struct EditContributor {
     public enum Action {
         case addLinkButtonTapped
         case actorIdentityTapped(ActorIdentity)
-        case actorPickerButtonTapped
-        case actorPickerCancelButtonTapped
+        case actorSearchSubmitted
         case actorSearchQueryChanged(String)
         case actorSearchResponse(PredictiveSearchResponse<ActorIdentity>)
-        case applyActorButtonTapped
-        case applyActorResponse(Result<ContributorActorUpdateResult, ContributorActorUpdateError>)
+        case actorProfileResponse(BlueskyActorProfile?)
         case cancelButtonTapped
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
@@ -778,29 +657,38 @@ public struct EditContributor {
                 state.form.value.links.append(EditableContributorLink())
 
             case let .actorIdentityTapped(identity):
-                state.selectedActorIdentity = identity
-                state.actorPickerErrorMessage = nil
-                store.addTask {
-                    try store.send(.applyActorButtonTapped)
+                guard let actor = OMERecord.Contributor.Actor(identity.did.description) else {
+                    state.actorSearchErrorMessage = "The selected DID is not a valid contributor actor."
+                    return
                 }
 
-            case .actorPickerButtonTapped:
-                state.actorPickerIsPresented = true
-                state.actorPickerErrorMessage = nil
-                state.actorSearchFailures = []
-                state.actorSearchSections = []
-                state.actorSearchQuery = state.contributorActor?.description ?? ""
-                state.selectedActorIdentity = nil
-                searchActorIdentities(query: state.actorSearchQuery, state: &state)
+                state.contributorDID = identity.did
+                state.prefillFromActorIdentity(identity)
+                state.resetActorSearch()
+                state.isSavingActor = true
+                store.addTask {
+                    let profile: BlueskyActorProfile? = await store.withErrorHandling(
+                        fallbackMessage: .contributorProfileLookupFailed,
+                        operation: .contributorProfileLookup
+                    ) {
+                        let cachedProfile = try await blueskyActorProfileCache.cachedProfile(
+                            actor.description
+                        )
+                        let refreshedProfile = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                            actor.description,
+                            24 * 60 * 60,
+                            15 * 60
+                        )
+                        return refreshedProfile ?? cachedProfile
+                    } ?? nil
 
-            case .actorPickerCancelButtonTapped:
-                state.actorPickerIsPresented = false
+                    try store.send(.actorProfileResponse(profile))
+                }
 
             case let .actorSearchQueryChanged(query):
                 state.actorSearchQuery = query
-                state.actorPickerErrorMessage = nil
-                state.selectedActorIdentity = nil
-                searchActorIdentities(query: query, state: &state)
+                state.actorSearchErrorMessage = nil
+                searchActorIdentities(query: query, includingExactLookup: false, state: &state)
 
             case let .actorSearchResponse(response):
                 guard response.query == state.actorSearchQuery.trimmedForActorSearch else {
@@ -811,67 +699,17 @@ public struct EditContributor {
                 state.actorSearchFailures = response.failures
                 state.actorSearchSections = response.sections
 
-            case .applyActorButtonTapped:
-                guard let contributorID = state.mode.contributorID else {
-                    state.actorPickerErrorMessage = "Save this contributor before attaching a profile."
-                    return
-                }
-                guard let identity = state.selectedActorIdentity else {
-                    state.actorPickerErrorMessage = "Select a profile first."
-                    return
-                }
-                guard !state.contributorPerformanceContributors.isEmpty else {
-                    state.actorPickerErrorMessage = "This contributor does not have scheduled appearances to attach a profile to."
-                    return
-                }
-                guard let actor = OMERecord.Contributor.Actor(identity.did.description) else {
-                    state.actorPickerErrorMessage = "The selected DID is not a valid contributor actor."
-                    return
-                }
-
-                let request = ContributorActorUpdateRequest(
-                    actor: actor,
-                    contributorID: contributorID,
-                    eventID: state.eventID
+            case .actorSearchSubmitted:
+                searchActorIdentities(
+                    query: state.actorSearchQuery,
+                    includingExactLookup: true,
+                    state: &state
                 )
-                state.actorPickerErrorMessage = nil
-                state.isSavingActor = true
-                store.addTask {
-                    do {
-                        let performanceContributors = try await database.write { db in
-                            try request.save(in: db)
-                        }
-                        _ = try? await blueskyActorProfileCache.refreshProfileIfNeeded(
-                            actor.description,
-                            24 * 60 * 60,
-                            15 * 60
-                        )
-                        try store.send(.applyActorResponse(.success(
-                            ContributorActorUpdateResult(
-                                actor: actor,
-                                performanceContributors: performanceContributors
-                            )
-                        )))
-                    } catch is CancellationError {
-                    } catch {
-                        try store.send(
-                            .applyActorResponse(
-                                .failure(ContributorActorUpdateError(error))
-                            )
-                        )
-                    }
+
+            case let .actorProfileResponse(profile):
+                if let profile {
+                    state.prefillFromActorProfile(profile)
                 }
-
-            case let .applyActorResponse(.success(result)):
-                state.actorSearchQuery = result.actor.description
-                state.actorPickerErrorMessage = nil
-                state.actorPickerIsPresented = false
-                state.appliedContributorActor = result.actor
-                state.isSavingActor = false
-                state.selectedActorIdentity = nil
-
-            case let .applyActorResponse(.failure(error)):
-                state.actorPickerErrorMessage = error.message
                 state.isSavingActor = false
 
             case .cancelButtonTapped:
@@ -902,6 +740,10 @@ public struct EditContributor {
                                 preparedDraft.draft
                             }
                             .execute(db)
+                            try saveRequest.clearLinkedPerformanceActors(
+                                contributorID: contributorID,
+                                in: db
+                            )
                             if !preparedDraft.blobs.isEmpty {
                                 try LocalImageBlob.insert { preparedDraft.blobs }.execute(db)
                             }
@@ -961,6 +803,7 @@ public struct EditContributor {
                     .fetchOne(db)
                 }) {
                     state.form = FormFeature.State(value: FormValue(contributor: contributor))
+                    state.contributorDID = contributor.did
                     state.originalImages = contributor.images ?? []
                     state.resetImagePickers()
                     state.hasLoadedDraft = true
@@ -974,7 +817,11 @@ public struct EditContributor {
         }
     }
 
-    private func searchActorIdentities(query: String, state: inout State) {
+    private func searchActorIdentities(
+        query: String,
+        includingExactLookup: Bool,
+        state: inout State
+    ) {
         let query = query.trimmedForActorSearch
         guard query.count >= 2 else {
             state.actorSearchFailures = []
@@ -985,69 +832,26 @@ public struct EditContributor {
 
         state.actorSearchIsLoading = true
         store.addTask(id: actorSearchTask) {
-            let response = await Self.actorSearch.search(query)
+            let response = await (includingExactLookup ? Self.exactActorSearch : Self.typeaheadActorSearch)
+                .search(query)
             try Task.checkCancellation()
             try store.send(.actorSearchResponse(response))
         }
     }
 
-    private static let actorSearch = PredictiveSearch(
+    private static let exactActorSearch = PredictiveSearch(
         actorIdentitySources: [
-            .appBskyActorTypeahead(title: "Profiles", limit: 10),
             .exactActorIdentityLookup(title: "Exact match"),
         ],
         minimumQueryLength: 2
     )
-}
 
-public struct ContributorActorUpdateResult: Equatable, Sendable {
-    public var actor: OMERecord.Contributor.Actor
-    public var performanceContributors: [OMERecord.Performance.Contributors]
-}
-
-public struct ContributorActorUpdateError: Equatable, Error, Sendable {
-    public init(message: String) {
-        self.message = message
-    }
-
-    public init(_ error: any Error) {
-        if let error = error as? Self {
-            self = error
-            return
-        }
-        message = "Unable to update contributor profile: \(error)"
-    }
-
-    public var message: String
-}
-
-private struct ContributorActorUpdateRequest: Sendable {
-    let actor: OMERecord.Contributor.Actor
-    let contributorID: OMERecord.ID<OMERecord.Contributor>
-    let eventID: OMERecord.Event.ID
-
-    func save(in db: Database) throws -> [OMERecord.Performance.Contributors] {
-        try #sql("""
-            UPDATE "performanceContributors"
-            SET "contributorActor" = \(actor)
-            WHERE "organizerID" = \(eventID.organizerID)
-              AND "eventID" = \(eventID.eventID)
-              AND "contributorID" = \(contributorID)
-            """)
-            .execute(db)
-
-        let performanceContributors = try ContributorsViewer
-            .performanceContributorsQuery(eventID: eventID)
-            .fetchAll(db)
-        guard performanceContributors.contains(where: {
-            $0.contributorID == contributorID && $0.contributorActor == actor
-        }) else {
-            throw ContributorActorUpdateError(
-                message: "No scheduled appearances were updated for this contributor."
-            )
-        }
-        return performanceContributors
-    }
+    private static let typeaheadActorSearch = PredictiveSearch(
+        actorIdentitySources: [
+            .appBskyActorTypeahead(title: "Profiles", limit: 10),
+        ],
+        minimumQueryLength: 2
+    )
 }
 
 private enum EditContributorFormFieldID {
@@ -1093,14 +897,24 @@ public struct EditContributorView: View {
                         TextField("Kind", text: $store.form.value.kind)
                     }
 
-                    if store.showsActorProfileEditor {
-                        EditContributorActorProfileSection(
-                            actor: store.contributorActor,
-                            isSavingActor: store.isSavingActor
-                        ) {
-                            store.send(.actorPickerButtonTapped)
+                    EditContributorActorProfileSection(
+                        query: $store.actorSearchQuery,
+                        actor: store.contributorActor,
+                        sections: store.actorSearchSections,
+                        failures: store.actorSearchFailures,
+                        isLoading: store.actorSearchIsLoading,
+                        errorMessage: store.actorSearchErrorMessage,
+                        isSavingActor: store.isSavingActor,
+                        queryChanged: { query in
+                            store.send(.actorSearchQueryChanged(query))
+                        },
+                        querySubmitted: {
+                            store.send(.actorSearchSubmitted)
+                        },
+                        identityTapped: { identity in
+                            store.send(.actorIdentityTapped(identity))
                         }
-                    }
+                    )
 
                     Section("Bio") {
                         TextField("Bio", text: $store.form.value.bio, axis: .vertical)
@@ -1189,38 +1003,6 @@ public struct EditContributorView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
-        .sheet(isPresented: $store.actorPickerIsPresented) {
-            NavigationStack {
-                ContributorActorPickerView(
-                    query: $store.actorSearchQuery,
-                    currentActor: store.contributorActor,
-                    sections: store.actorSearchSections,
-                    failures: store.actorSearchFailures,
-                    isLoading: store.actorSearchIsLoading,
-                    selectedIdentity: store.selectedActorIdentity,
-                    errorMessage: store.actorPickerErrorMessage,
-                    isSaving: store.isSavingActor,
-                    canApplySelection: store.canApplyActorSelection,
-                    queryChanged: { query in
-                        store.send(.actorSearchQueryChanged(query))
-                    },
-                    identityTapped: { identity in
-                        store.send(.actorIdentityTapped(identity))
-                    },
-                    applyButtonTapped: {
-                        store.send(.applyActorButtonTapped)
-                    }
-                )
-                .navigationTitle("Contributor Profile")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            store.send(.actorPickerCancelButtonTapped)
-                        }
-                    }
-                }
-            }
-        }
     }
 
     private var nameField: some View {
@@ -1236,119 +1018,77 @@ public struct EditContributorView: View {
 }
 
 struct EditContributorActorProfileSection: View {
-    let actor: OMERecord.Contributor.Actor?
-    let isSavingActor: Bool
-    let actorPickerButtonTapped: () -> Void
-
-    var body: some View {
-        Section("ATProto Profile") {
-            if let actor {
-                LabeledContent("Actor", value: actor.description)
-            } else {
-                Text("No profile selected")
-                    .foregroundStyle(.secondary)
-            }
-
-            Button(actor == nil ? "Add Profile" : "Change Profile") {
-                actorPickerButtonTapped()
-            }
-            .disabled(isSavingActor)
-        }
-    }
-}
-
-struct ContributorActorPickerView: View {
     @Binding var query: String
-    let currentActor: OMERecord.Contributor.Actor?
+    let actor: OMERecord.Contributor.Actor?
     let sections: [PredictiveSearchSection<ActorIdentity>]
     let failures: [PredictiveSearchFailure]
     let isLoading: Bool
-    let selectedIdentity: ActorIdentity?
     let errorMessage: String?
-    let isSaving: Bool
-    let canApplySelection: Bool
+    let isSavingActor: Bool
     let queryChanged: (String) -> Void
+    let querySubmitted: () -> Void
     let identityTapped: (ActorIdentity) -> Void
-    let applyButtonTapped: () -> Void
 
     var body: some View {
-        List {
-            Section("Search") {
-                TextField("Handle or DID", text: $query)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .onSubmit {
-                        queryChanged(query)
-                    }
-
-                if let currentActor {
-                    LabeledContent("Current", value: currentActor.description)
+        Section("ATProto Identity") {
+            TextField("Search Bluesky profiles", text: $query)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+                .onSubmit {
+                    querySubmitted()
                 }
+                .onChange(of: query) { _, value in
+                    queryChanged(value)
+                }
+
+            if let actor {
+                LabeledContent("Current DID", value: actor.description)
             }
 
             if isLoading {
-                Section {
-                    ProgressView()
-                }
+                ProgressView()
             }
 
             ForEach(sections) { section in
-                Section(section.title) {
-                    ForEach(section.results) { identity in
-                        Button {
-                            identityTapped(identity)
-                        } label: {
-                            ContributorActorIdentityRow(
-                                identity: identity,
-                                isSelected: identity.id == selectedIdentity?.id
-                            )
-                        }
-                        .buttonStyle(.plain)
+
+                ForEach(section.results) { identity in
+                    Button {
+                        identityTapped(identity)
+                    } label: {
+                        ContributorActorIdentityRow(
+                            identity: identity,
+                            isSelected: identity.did.description == actor?.description
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isSavingActor)
                 }
             }
 
-            if !isLoading, query.trimmedForActorSearch.count >= 2, sections.isEmpty {
-                Section {
-                    Text("No profiles found")
-                        .foregroundStyle(.secondary)
+            if query.trimmedForActorSearch.count >= 2 {
+                Button("Look up exact handle or DID") {
+                    querySubmitted()
                 }
+                .disabled(isLoading || isSavingActor)
             }
 
             if let errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                }
+                Text(errorMessage)
+                    .foregroundStyle(.red)
             }
 
             if !failures.isEmpty {
-                Section("Lookup Issues") {
-                    ForEach(failures, id: \.sourceID) { failure in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(failure.title)
-                            Text(failure.message)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                ForEach(failures, id: \.sourceID) { failure in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(failure.title)
+                        Text(failure.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-
-            Section {
-                Button(isSaving ? "Saving..." : "Use Selected DID") {
-                    applyButtonTapped()
-                }
-                .disabled(!canApplySelection)
-            }
-        }
-        .onAppear {
-            queryChanged(query)
-        }
-        .onChange(of: query) { _, value in
-            queryChanged(value)
         }
     }
 }
@@ -1592,6 +1332,17 @@ private extension Error {
         let description = String(describing: self)
         return description.isEmpty ? localizedDescription : description
     }
+}
+
+private extension UserFacingText {
+    static let contributorProfileLookupFailed = Self(
+        "Unable to load contributor profile.",
+        fallback: "Unable to load contributor profile."
+    )
+}
+
+private extension ErrorOperation {
+    static let contributorProfileLookup = Self("contributor.profile.lookup")
 }
 
 extension OMERecord.Contributor.Kind {

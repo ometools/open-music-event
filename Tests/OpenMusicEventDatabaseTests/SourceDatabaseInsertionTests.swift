@@ -175,6 +175,24 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func sourceContributorDIDImportsIntoContributorRecord() throws {
+        let did = try #require(DID("did:plc:artist123"))
+        let source = try makeSourceRepository(contributorDID: did)
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        let contributor = try #require(insertion.contributors.first)
+        #expect(contributor.did == did)
+    }
+
+    @Test
     func sourceRepositoryReportingLinkPersistsToEventRow() async throws {
         let reportingLink = OME.Event.ReportingLink(
             name: "Report an Incident",
@@ -2772,6 +2790,7 @@ struct SourceDatabaseInsertionTests {
         reportingLink: OME.Event.ReportingLink? = nil,
         eventImages: [SourceImageAsset]? = nil,
         stageImages: [SourceImageAsset]? = nil,
+        contributorDID: DID? = nil,
         contributorImages: [SourceImageAsset]? = nil,
         includeDefaultContributor: Bool = true,
         performances: [String: [ScheduleDTO.Performance]] = [
@@ -2854,6 +2873,7 @@ struct SourceDatabaseInsertionTests {
                                 data: ContributorDTO(
                                     id: nil,
                                     name: "Artist One",
+                                    did: contributorDID,
                                     bio: nil,
                                     images: contributorImages,
                                     kind: nil,

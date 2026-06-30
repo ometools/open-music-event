@@ -11,7 +11,6 @@ public struct OrganizationRoot {
             self.organizerDetail = Spawn(OrganizerDetail.State(organizerID: organizerID))
         }
 
-        public var eventViewer: Spawn<EventViewer>?
         public var organizerDetail: Spawn<OrganizerDetail>
 
         public var organizerID: OMERecord.Organizer.ID {
@@ -25,33 +24,14 @@ public struct OrganizationRoot {
     }
 
     public var body: some Feature {
-        Update { state, action in
+        Update { _, action in
             switch action {
-            case .eventViewerDismissed:
-                state.eventViewer = nil
-
-            case let .handleNavigationRequest(request):
-                switch request {
-                case let .event(eventID, target):
-                    store.withDependencies {
-                        state.eventViewer = Spawn(.route(eventID: eventID, target: target))
-                    }
-
-                case .externalURL:
-                    break
-                }
-            }
-        }
-        .onEvent(NavigationRequested.self) { request, _ in
-            store.addTask {
-                try store.send(.handleNavigationRequest(request))
+            case .eventViewerDismissed, .handleNavigationRequest:
+                return
             }
         }
         .spawn(\.organizerDetail) {
             OrganizerDetail()
-        }
-        .ifLet(\.eventViewer) {
-            EventViewer()
         }
     }
 }
@@ -66,25 +46,6 @@ public struct OrganizationRootView: View {
     public var body: some View {
         NavigationStack {
             OrganizerDetailView(store: store.spawn(\.organizerDetail))
-                .openMusicEventFullScreenCover(
-                    item: eventViewerStore,
-                    onDismiss: {
-                        store.send(.eventViewerDismissed)
-                    }
-                ) { eventViewerStore in
-                    EventViewerView(store: eventViewerStore)
-                }
         }
-    }
-
-    private var eventViewerStore: Binding<StoreOf<EventViewer>?> {
-        Binding(
-            get: { store.spawn(\.eventViewer) },
-            set: { eventViewerStore in
-                if eventViewerStore == nil {
-                    store.send(.eventViewerDismissed)
-                }
-            }
-        )
     }
 }

@@ -6,6 +6,7 @@ import Testing
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAuthentication
+@testable import OpenMusicEventWhiteLabel
 
 @MainActor
 struct AuthenticationRootTests {
@@ -30,6 +31,33 @@ struct AuthenticationRootTests {
             $0.defaultDatabase = database
         } operation: {
             Store(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
+            }
+        }
+
+        let task = store.send(
+            .openURL(URL(string: "app.openmusicevent:/oauth/callback?code=abc&state=def")!)
+        )
+        await task?.value
+
+        #expect(store.eventViewer == nil)
+    }
+
+    @Test
+    func whiteLabelOauthCallbackURLIsConsumedByAuthentication() async throws {
+        let database = try makePreparedDatabase()
+        let store = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            Store(
+                initialState: OpenMusicEventAppRoot.State(
+                    variant: .whiteLabel(
+                        WhiteLabelAppConfiguration(
+                            brand: .init(displayName: "Wicked Woods")
+                        )
+                    )
+                )
+            ) {
                 OpenMusicEventAppRoot()
             }
         }

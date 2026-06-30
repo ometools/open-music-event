@@ -439,6 +439,14 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Add OpenMusicEvent contributor DID") { db in
+                try #sql("""
+                    ALTER TABLE "contributors"
+                    ADD COLUMN "did" TEXT
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

@@ -80,6 +80,7 @@ let package = Package(
                 "OpenMusicEventSourceClone",
                 "OpenMusicEventSourceEditing",
                 "OpenMusicEventTimeZones",
+                "OpenMusicEventWhiteLabel",
                 "SourceEditing",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),

@@ -439,6 +439,7 @@ public extension OpenMusicEvent.Contributor.Draft {
     init(
         id: OME.Contributor.ID? = nil,
         name: String,
+        did: DID? = nil,
         bio: String? = nil,
         imageURL: URL? = nil,
         logoURL: URL? = nil,
@@ -448,6 +449,7 @@ public extension OpenMusicEvent.Contributor.Draft {
         self.init(
             id: id,
             name: name,
+            did: did,
             bio: bio,
             images: Self.legacyImages(photoURL: imageURL, logoURL: logoURL),
             kind: kind,

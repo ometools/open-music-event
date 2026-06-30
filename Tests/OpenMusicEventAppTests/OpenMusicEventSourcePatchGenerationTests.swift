@@ -1,3 +1,4 @@
+import ATProto
 import Dependencies
 import Foundation
 import OpenMusicEventDatabase
@@ -288,6 +289,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
                 OME.Contributor.Draft(
                     id: contributorID,
                     name: "Artist One",
+                    did: try #require(DID("did:plc:artist123")),
                     bio: "Forest set.",
                     images: nil,
                     kind: nil,
@@ -333,7 +335,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
                     performanceID: performanceID.performanceID,
                     contributorID: contributorID.contributorID,
                     anonymousName: nil,
-                    contributorActor: nil
+                    contributorActor: OME.Contributor.Actor("did:plc:artist123")
                 )
             }
             .execute(db)
@@ -387,6 +389,12 @@ struct OpenMusicEventSourcePatchGenerationTests {
             ),
             as: UTF8.self
         )
+        let contributorText = String(
+            decoding: try #require(
+                patch.fileChanges.first { $0.path == "events/2026/contributors/artist-one.md" }?.newContents
+            ),
+            as: UTF8.self
+        )
         let posterText = String(
             decoding: try #require(
                 patch.fileChanges.first { $0.path == "events/2026/posters/lineup.yml" }?.newContents
@@ -394,10 +402,14 @@ struct OpenMusicEventSourcePatchGenerationTests {
             as: UTF8.self
         )
         #expect(eventText.contains("name: Wicked Woods 2026"))
+        #expect(contributorText.contains("did: did:plc:artist123"))
+        #expect(contributorText.contains("Forest set."))
+        #expect(!contributorText.contains("bio:"))
         #expect(scheduleText.contains("Artist One"))
         #expect(scheduleText.contains("20:00"))
         #expect(scheduleText.contains("21:30"))
         #expect(scheduleText.contains("contributorIDs:"))
+        #expect(!scheduleText.contains("contributorActors:"))
         #expect(posterText.contains("wicked-woods-2026-lineup.png"))
         #expect(!FileManager.default.fileExists(atPath: repositoryURL.appending(path: "events/2026").path))
     }

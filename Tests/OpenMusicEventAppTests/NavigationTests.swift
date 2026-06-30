@@ -3058,10 +3058,106 @@ struct NavigationTests {
     }
 
     @Test
-    func editContributorActorPickerSearchesTypeaheadThenExactLookup() async throws {
+    func contributorProfilePrefersContributorDIDOverPerformanceContributorActor() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let contributorDID = try #require(DID("did:plc:alice123"))
+        let contributorActor = try #require(OMERecord.Contributor.Actor(contributorDID.description))
+        let stalePerformanceActor = try #require(OMERecord.Contributor.Actor("bob.bsky.social"))
+        let contributorID = contributorLocalID("speaker-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let contributorProfile = BlueskyActorProfile(
+            did: contributorDID.description,
+            handle: "alice.bsky.social",
+            displayName: "Alice Profile",
+            description: "Alice profile bio"
+        )
+        let staleProfile = BlueskyActorProfile(
+            did: "did:plc:bob456",
+            handle: "bob.bsky.social",
+            displayName: "Bob Profile",
+            description: "Bob profile bio"
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: eventID,
+                contributorID: "speaker-1",
+                name: "Local Alice",
+                did: contributorDID
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "day-1",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                contributorID: "speaker-1",
+                contributorActor: stalePerformanceActor
+            )
+            try BlueskyActorProfile.insert { contributorProfile }
+                .execute(db)
+            try BlueskyActorProfile.insert { staleProfile }
+                .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: contributorActor.description,
+                    did: contributorProfile.did,
+                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                )
+            }
+            .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: stalePerformanceActor.description,
+                    did: staleProfile.did,
+                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                )
+            }
+            .execute(db)
+        }
+
+        let profile = try await database.read { db in
+            try #require(
+                try ContributorProfile
+                    .one(
+                        contributorID: contributorID,
+                        eventID: eventID,
+                        hydration: .bskyActorProfile
+                    )
+                    .fetchOne(db)
+            )
+        }
+
+        #expect(profile.contributorActor == contributorActor)
+        #expect(profile.handle == "alice.bsky.social")
+        #expect(profile.name == "Local Alice")
+        #expect(profile.bio == nil)
+        #expect(profile.actorProfileLoadRequest?.actor == contributorActor)
+    }
+
+    @Test
+    func editContributorInlineProfileSearchUsesTypeaheadUntilSubmitted() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let contributorID = contributorLocalID("speaker-1")
+        let exactLookupInputs = ObservationRecorder<String>()
+        let typeaheadQueries = ObservationRecorder<String>()
         let exactIdentity = ActorIdentity(
             did: try #require(DID("did:plc:alice123")),
             handle: Atmosphere.Account.Handle(rawValue: "alice.example.com"),
@@ -3091,11 +3187,11 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0.actorTypeaheadSearch.search = { query in
-                #expect(query.normalizedText == "alice")
+                await typeaheadQueries.record(query.normalizedText)
                 return [typeaheadIdentity]
             }
             $0.actorIdentityLookup.resolve = { input in
-                #expect(input == "alice")
+                await exactLookupInputs.record(input)
                 return exactIdentity
             }
         } operation: {
@@ -3108,18 +3204,35 @@ struct NavigationTests {
 
         expectNoDifference(
             store.actorSearchSections.map(\.title),
-            ["Profiles", "Exact match"]
+            ["Profiles"]
         )
         expectNoDifference(
             store.actorSearchSections.flatMap(\.results),
-            [typeaheadIdentity, exactIdentity]
+            [typeaheadIdentity]
         )
+        #expect(await typeaheadQueries.values == ["alice"])
+        #expect(await exactLookupInputs.values == [])
+        #expect(store.actorSearchIsLoading == false)
+        #expect(store.actorSearchFailures.isEmpty)
+
+        await store.send(.actorSearchSubmitted)?.value
+
+        expectNoDifference(
+            store.actorSearchSections.map(\.title),
+            ["Exact match"]
+        )
+        expectNoDifference(
+            store.actorSearchSections.flatMap(\.results),
+            [exactIdentity]
+        )
+        #expect(await typeaheadQueries.values == ["alice"])
+        #expect(await exactLookupInputs.values == ["alice"])
         #expect(store.actorSearchIsLoading == false)
         #expect(store.actorSearchFailures.isEmpty)
     }
 
     @Test
-    func editContributorActorPickerAppliesSelectedDidToContributorAppearances() async throws {
+    func editContributorActorPickerSavesSelectedDidToContributor() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let contributorID = contributorLocalID("speaker-1")
@@ -3202,29 +3315,154 @@ struct NavigationTests {
                 }
             )
         } operation: {
-            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+            var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
+            state.hasLoadedDraft = true
+            state.form.value.name = "Alice"
+            return Store(initialState: state) {
+                EditContributor()
+            }
+        }
+
+        await store.send(.actorIdentityTapped(selectedIdentity))?.value
+        await store.send(.saveButtonTapped)?.value
+
+        let contributor = try await database.read { db in
+            try #require(
+                try ContributorDetail.contributorQuery(
+                    contributorID: contributorID,
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
+        }
+        let actors = try await database.read { db in
+            try OMERecord.Performance.Contributors.fetchAll(db)
+                .compactMap(\.contributorActor?.description)
+        }
+
+        #expect(contributor.did == selectedIdentity.did)
+        expectNoDifference(actors, [])
+
+        #expect(await requestRecorder.actors == [selectedActor.description])
+        #expect(store.contributorActor == selectedActor)
+        #expect(store.actorSearchQuery == "")
+        #expect(store.actorSearchSections.isEmpty)
+        #expect(store.isSavingActor == false)
+        #expect(store.actorSearchErrorMessage == nil)
+    }
+
+    @Test
+    func createContributorActorPickerPrefillsBlankFieldsAndSavesDID() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let selectedIdentity = ActorIdentity(
+            did: try #require(DID("did:plc:alice123")),
+            handle: Atmosphere.Account.Handle(rawValue: "alice.bsky.social"),
+            displayName: "Alice Typeahead",
+            avatar: try #require(URL(string: "https://example.com/alice-avatar.jpg")),
+            source: .typeahead
+        )
+        let profile = BlueskyActorProfile(
+            did: selectedIdentity.did.description,
+            handle: "alice.bsky.social",
+            displayName: "Alice Profile",
+            description: "ATProto builder",
+            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { _ in nil },
+                refreshProfile: { _ in profile },
+                refreshProfileIfNeeded: { _, _, _ in profile }
+            )
+        } operation: {
+            Store(initialState: EditContributor.State(eventID: eventID)) {
                 EditContributor()
             }
         }
 
         await store.send(.actorIdentityTapped(selectedIdentity))?.value
 
-        let actors = try await database.read { db in
-            try OMERecord.Performance.Contributors
-                .fetchAll(db)
-                .compactMap(\.contributorActor?.description)
-                .sorted()
+        #expect(store.contributorDID == selectedIdentity.did)
+        #expect(store.form.value.name == "Alice Typeahead")
+        #expect(store.form.value.bio == "ATProto builder")
+        #expect(store.imageURL == "https://example.com/alice-avatar.jpg")
+
+        await store.send(.saveButtonTapped)?.value
+
+        let contributor = try await database.read { db in
+            try #require(
+                try ContributorDetail.contributorQuery(
+                    contributorID: contributorLocalID("alice-typeahead"),
+                    eventID: eventID
+                )
+                .fetchOne(db)
+            )
         }
 
-        expectNoDifference(
-            actors,
-            [selectedActor.description, selectedActor.description]
+        #expect(contributor.did == selectedIdentity.did)
+        #expect(contributor.name == "Alice Typeahead")
+        #expect(contributor.bio == "ATProto builder")
+        #expect(contributor.images?.first?.url?.absoluteString == "https://example.com/alice-avatar.jpg")
+    }
+
+    @Test
+    func createContributorActorPickerDoesNotOverwriteEnteredFields() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let manualPhotoURL = try #require(URL(string: "https://example.com/manual-photo.jpg"))
+        let selectedIdentity = ActorIdentity(
+            did: try #require(DID("did:plc:alice123")),
+            handle: Atmosphere.Account.Handle(rawValue: "alice.bsky.social"),
+            displayName: "Alice Typeahead",
+            avatar: try #require(URL(string: "https://example.com/alice-avatar.jpg")),
+            source: .typeahead
         )
-        #expect(await requestRecorder.actors == [selectedActor.description])
-        #expect(store.contributorActor == selectedActor)
-        #expect(store.actorPickerIsPresented == false)
-        #expect(store.isSavingActor == false)
-        #expect(store.actorPickerErrorMessage == nil)
+        let profile = BlueskyActorProfile(
+            did: selectedIdentity.did.description,
+            handle: "alice.bsky.social",
+            displayName: "Alice Profile",
+            description: "ATProto builder",
+            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { _ in nil },
+                refreshProfile: { _ in profile },
+                refreshProfileIfNeeded: { _, _, _ in profile }
+            )
+        } operation: {
+            var state = EditContributor.State(eventID: eventID)
+            state.form.value.name = "Manual Artist"
+            state.form.value.bio = "Manual bio"
+            state.imageURL = manualPhotoURL.absoluteString
+            return Store(initialState: state) {
+                EditContributor()
+            }
+        }
+
+        await store.send(.actorIdentityTapped(selectedIdentity))?.value
+
+        #expect(store.contributorDID == selectedIdentity.did)
+        #expect(store.form.value.name == "Manual Artist")
+        #expect(store.form.value.bio == "Manual bio")
+        #expect(store.imageURL == manualPhotoURL.absoluteString)
     }
 
     @Test(arguments: ["alice.bsky.social", "did:plc:alice123"])
@@ -3904,6 +4142,7 @@ struct NavigationTests {
         eventID: OMERecord.Event.ID,
         contributorID: String,
         name: String,
+        did: DID? = nil,
         bio: String? = nil,
         imageURL: URL? = nil,
         logoURL: URL? = nil,
@@ -3918,6 +4157,7 @@ struct NavigationTests {
                     contributorID: contributorLocalID(contributorID)
                 ),
                 name: name,
+                did: did,
                 bio: bio,
                 imageURL: imageURL,
                 logoURL: logoURL,

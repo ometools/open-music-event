@@ -1,3 +1,4 @@
+import ATProto
 import Foundation
 import Lexicon
 import OpenMusicEventLexicon
@@ -490,6 +491,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
     public init(
         id: OMERecord.Contributor.ID? = nil,
         name: String,
+        did: DID? = nil,
         bio: String? = nil,
         images: [SourceImageAsset]? = nil,
         kind: OMERecord.Contributor.Kind? = nil,
@@ -497,6 +499,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
     ) {
         self.id = id
         self.name = name
+        self.did = did
         self.bio = bio
         self.images = images
         self.kind = kind
@@ -506,6 +509,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
     public init(
         id: OMERecord.Contributor.ID? = nil,
         name: String,
+        did: DID? = nil,
         bio: String? = nil,
         imageURL: URL? = nil,
         logoURL: URL? = nil,
@@ -515,6 +519,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         self.init(
             id: id,
             name: name,
+            did: did,
             bio: bio,
             images: Self.legacyImages(photoURL: imageURL, logoURL: logoURL),
             kind: kind,
@@ -526,6 +531,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         self.init(
             id: draft.id,
             name: draft.name,
+            did: draft.did,
             bio: draft.bio,
             images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs(),
             kind: draft.kind,
@@ -535,6 +541,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
 
     public var id: OMERecord.Contributor.ID?
     public var name: String
+    public var did: DID?
     public var bio: String?
     public var images: [SourceImageAsset]?
     public var kind: OMERecord.Contributor.Kind?
@@ -544,6 +551,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         OMERecord.Contributor.Draft(
             id: id,
             name: name,
+            did: did,
             bio: bio,
             images: images?.map(\.recordValue),
             kind: kind,
@@ -562,6 +570,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id
         case name
+        case did
         case bio
         case images
         case imageURL
@@ -581,6 +590,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         self.init(
             id: try container.decodeIfPresent(OMERecord.Contributor.ID.self, forKey: .id),
             name: try container.decode(String.self, forKey: .name),
+            did: try container.decodeIfPresent(DID.self, forKey: .did),
             bio: try container.decodeIfPresent(String.self, forKey: .bio),
             images: images,
             kind: try container.decodeIfPresent(OMERecord.Contributor.Kind.self, forKey: .kind),
@@ -592,6 +602,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(id, forKey: .id)
         try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(did, forKey: .did)
         try container.encodeIfPresent(bio, forKey: .bio)
         try container.encodeIfPresent(images, forKey: .images)
         try container.encodeIfPresent(kind, forKey: .kind)
