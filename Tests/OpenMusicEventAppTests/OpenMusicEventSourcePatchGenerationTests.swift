@@ -248,6 +248,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
         let performanceEnd = try #require(scheduleDate.at(hour: 21, minute: 30, in: timeZone))
         let repositoryURL = fixture.repositoryURL
         let workingRootURL = fixture.rootURL
+        let contributorDID = try #require(DID("did:plc:artist123"))
 
         try await database.write { db in
             try OME.Organizer.insert {
@@ -289,7 +290,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
                 OME.Contributor.Draft(
                     id: contributorID,
                     name: "Artist One",
-                    did: try #require(DID("did:plc:artist123")),
+                    did: contributorDID,
                     bio: "Forest set.",
                     images: nil,
                     kind: nil,

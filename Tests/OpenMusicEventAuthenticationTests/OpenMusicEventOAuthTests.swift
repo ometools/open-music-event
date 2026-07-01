@@ -2,7 +2,6 @@ import ATProtoOAuth
 import Dependencies
 import DependenciesTestSupport
 import Foundation
-import Sharing
 import TCATProtoAuthentication
 import Testing
 import WebMetadataClient
@@ -124,46 +123,6 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
-    func authorizationPresenterDefaultsToOpenMusicEventSignUpServerConfiguration() async {
-        let recorder = AuthorizationPresentationRecorder()
-        let configuration = testSignUpServerConfiguration
-        let presenter = withDependencies {
-            $0.openMusicEventSignUpServerConfiguration = configuration
-        } operation: {
-            OpenMusicEventAuthorizationPresenter { request in
-                await recorder.present(request)
-            }
-        }
-
-        await #expect(throws: CancellationError.self) {
-            try await presenter.authorize(OpenMusicEventOAuth.baseAuthRequirement)
-        }
-
-        let request = await recorder.request
-        #expect(request?.requirement == OpenMusicEventOAuth.baseAuthRequirement)
-        #expect(request?.serverHost == configuration.defaultServerHost)
-        #expect(request?.signUpServerConfiguration == configuration)
-    }
-
-    @Test
-    func authorizationWrapperExposesSelectedSessionStoreFallback() async throws {
-        var sessionStore = OAuth.SessionStore()
-        sessionStore.upsert(.placeholder)
-
-        let observedSession = try await withOpenMusicEventAuthorization(
-            presenter: OpenMusicEventAuthorizationPresenter { _ in },
-            session: Shared<OAuth.Session?>(value: nil),
-            sessionStore: Shared<OAuth.SessionStore>(value: sessionStore),
-            authFailureMessage: Shared<ErrorMessage?>(value: nil)
-        ) {
-            @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
-            return getOptionalDefaultSession()
-        }
-
-        #expect(observedSession == .placeholder)
-    }
-
-    @Test
     func preparedDependenciesExposeSelectedSessionStoreFallback() {
         OpenMusicEventOAuth.resetStoredSession()
         var dependencies = DependencyValues()
@@ -262,15 +221,6 @@ private let testSignUpServerConfiguration = OAuthSignUpServerConfiguration(
     ],
     allowsCustomServerHost: false
 )
-
-private actor AuthorizationPresentationRecorder {
-    private(set) var request: AuthorizationPresentationRequest?
-
-    func present(_ request: AuthorizationPresentationRequest) async {
-        self.request = request
-        await request.responder.cancel()
-    }
-}
 
 private func signUpServerFaviconURL(host: String) -> URL {
     URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=128")!

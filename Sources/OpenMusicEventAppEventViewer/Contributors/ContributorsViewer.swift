@@ -6,6 +6,7 @@ import Dependencies
 import ErrorHandling
 import Foundation
 import OpenMusicEventDatabase
+import OpenMusicEventEditors
 import OpenMusicEventImages
 import SQLiteData
 import Tagged
@@ -58,7 +59,6 @@ public struct ContributorsViewer {
 
     @Feature
     public enum Destination {
-        case createContributor(Spawn<EditContributor>)
         case contributorDetail(Spawn<ContributorDetail>)
     }
 
@@ -90,10 +90,13 @@ public struct ContributorsViewer {
         Update { state, action in
             switch action {
             case .addButtonTapped:
-                store.withDependencies {
-                    state.destination = .createContributor(
-                        Spawn(EditContributor.State(eventID: state.eventID))
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .createContributor(eventID)
                     )
+                    await task?.value
                 }
 
             case .destination:
@@ -175,11 +178,6 @@ public struct ContributorsViewerView: View {
                     Image(systemName: "plus")
                         .accessibilityLabel("Add Contributor")
                 }
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).createContributor) { createStore in
-            NavigationStack {
-                EditContributorView(store: createStore)
             }
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
@@ -303,9 +301,6 @@ public struct EditContributor {
             self.logoImagePicker = ImageAssetPicker.State(configuration: .contributorLogo, assets: nil)
             self.mode = .create
             self.photoImagePicker = ImageAssetPicker.State(configuration: .contributorPhoto, assets: nil)
-            _performanceContributors = FetchAll(
-                ContributorsViewer.performanceContributorsQuery(eventID: eventID)
-            )
         }
 
         public init(
@@ -332,9 +327,6 @@ public struct EditContributor {
                 assets: nil,
                 cacheContext: cacheContext
             )
-            _performanceContributors = FetchAll(
-                ContributorsViewer.performanceContributorsQuery(eventID: eventID)
-            )
         }
 
         public let eventID: OMERecord.Event.ID
@@ -353,7 +345,6 @@ public struct EditContributor {
         public var isSavingActor = false
         var logoImagePicker: ImageAssetPicker.State
         var originalImages: [OMERecord.ImageAsset] = []
-        @FetchAll public var performanceContributors: [OMERecord.Performance.Contributors]
         var photoImagePicker: ImageAssetPicker.State
 
         var imageURL: String {
@@ -375,12 +366,7 @@ public struct EditContributor {
                let actor = OMERecord.Contributor.Actor(contributorDID.description) {
                 return actor
             }
-            return contributorPerformanceContributors.compactMap(\.contributorActor).first
-        }
-
-        var contributorPerformanceContributors: [OMERecord.Performance.Contributors] {
-            guard let contributorID = mode.contributorID else { return [] }
-            return performanceContributors.filter { $0.contributorID == contributorID }
+            return nil
         }
 
         var navigationTitle: String {
@@ -533,6 +519,15 @@ public struct EditContributor {
             )
         }
 
+        mutating func load(_ contributor: OMERecord.Contributor) {
+            form = FormFeature.State(value: FormValue(contributor: contributor))
+            contributorDID = contributor.did
+            originalImages = contributor.images ?? []
+            resetImagePickers()
+            hasLoadedDraft = true
+            errorMessage = nil
+        }
+
         mutating func prefillFromActorIdentity(_ identity: ActorIdentity) {
             prefillName(identity.displayTitle)
             prefillPhoto(identity.avatar)
@@ -638,7 +633,7 @@ public struct EditContributor {
     @StoreTaskID var actorSearchTask
 
     public var body: some Feature {
-        let _ = Self._logChanges()
+//        let _ = Self._logChanges()
         Scope(\.form, action: \.form) {
             FormFeature()
                 .onSubmit { value in
@@ -720,10 +715,17 @@ public struct EditContributor {
             case .form:
                 break
 
-            case .formSubmitted:
+            case let .formSubmitted(value):
+                
                 guard !state.isSaving else { return }
                 guard state.hasLoadedDraft else {
                     state.errorMessage = "This contributor could not be loaded."
+                    return
+                }
+                state.form.value = value
+
+                guard state.form.canSubmit else {
+                    state.errorMessage = "Fix the highlighted fields."
                     return
                 }
 
@@ -802,12 +804,7 @@ public struct EditContributor {
                     )
                     .fetchOne(db)
                 }) {
-                    state.form = FormFeature.State(value: FormValue(contributor: contributor))
-                    state.contributorDID = contributor.did
-                    state.originalImages = contributor.images ?? []
-                    state.resetImagePickers()
-                    state.hasLoadedDraft = true
-                    state.errorMessage = nil
+                    state.load(contributor)
                 } else {
                     state.errorMessage = "This contributor could not be loaded."
                 }
@@ -891,7 +888,7 @@ public struct EditContributorView: View {
     public var body: some View {
         Group {
             if store.hasLoadedDraft {
-                Form {
+                SwiftUI.Form {
                     Section("Contributor") {
                         nameField
                         TextField("Kind", text: $store.form.value.kind)

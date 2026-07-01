@@ -3,6 +3,7 @@ import Dependencies
 import ErrorHandling
 import Foundation
 import OpenMusicEventDatabase
+import OpenMusicEventEditors
 import SQLiteData
 import SwiftUI
 
@@ -11,53 +12,44 @@ public struct EventSettings {
     public init() {}
 
     public struct State {
-        public init(
-            eventID: OMERecord.Event.ID,
-            destination: Destination.State? = nil
-        ) {
-            self.destination = destination
+        public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
             _event = FetchOne(
                 OMERecord.Event.where { $0.id.eq(eventID) }
             )
         }
 
-        public var destination: Destination.State?
         @FetchOne public var event: OMERecord.Event?
         public var eventID: OMERecord.Event.ID
     }
 
     public enum Action {
-        case destination(Destination.Action)
         case eventPoliciesButtonTapped
         case reportingLinkButtonTapped
         case testErrorButtonTapped
     }
 
-    @Feature
-    public enum Destination {
-        case editEventPolicies(Spawn<EditEventPolicies>)
-        case editReportingLink(Spawn<EditReportingLink>)
-    }
-
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .destination:
-                break
-
             case .eventPoliciesButtonTapped:
-                store.withDependencies {
-                    state.destination = .editEventPolicies(
-                        Spawn(EditEventPolicies.State(eventID: state.eventID))
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editEventPolicies(eventID)
                     )
+                    await task?.value
                 }
 
             case .reportingLinkButtonTapped:
-                store.withDependencies {
-                    state.destination = .editReportingLink(
-                        Spawn(EditReportingLink.State(eventID: state.eventID))
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editReportingLink(eventID)
                     )
+                    await task?.value
                 }
 
             case .testErrorButtonTapped:
@@ -70,9 +62,6 @@ public struct EventSettings {
                     }
                 }
             }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
         }
     }
 }
@@ -117,16 +106,6 @@ public struct EventSettingsView: View {
             }
         }
         .navigationTitle("Event Settings")
-        .navigationDestination(
-            item: $store.scope(\.destination, action: \.destination).editEventPolicies
-        ) { editStore in
-            EditEventPoliciesView(store: editStore)
-        }
-        .navigationDestination(
-            item: $store.scope(\.destination, action: \.destination).editReportingLink
-        ) { editStore in
-            EditReportingLinkView(store: editStore)
-        }
     }
 }
 

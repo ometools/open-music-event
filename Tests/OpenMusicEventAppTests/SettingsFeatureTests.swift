@@ -12,6 +12,7 @@ import Testing
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
+@testable import OpenMusicEventEditors
 
 @MainActor
 @Suite(.tcaExhaustivity(.off))
@@ -63,7 +64,7 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func eventPoliciesButtonOpensPolicyEditor() throws {
+    func eventPoliciesButtonEmitsPolicyEditorRequest() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID()
         let store = withDependencies {
@@ -75,9 +76,13 @@ struct SettingsFeatureTests {
             }
         }
 
-        store.send(.eventPoliciesButtonTapped)
-
-        #expect(store.state.destination?.editEventPolicies?.eventID == eventID)
+        let editTask = store.send(.eventPoliciesButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.editEventPolicies(eventID)),
+            timeout: .seconds(1)
+        )
+        await editTask?.value
     }
 
     private func waitForLatestError(in errorNotifications: Spawn<ErrorNotifications>) async {
@@ -88,8 +93,8 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func reportingLinkButtonOpensReportingLinkEditor() throws {
-        try TestExhaustivity.$current.withValue(.off) {
+    func reportingLinkButtonEmitsReportingLinkEditorRequest() async throws {
+        try await TestExhaustivity.$current.withValue(.off) {
             let database = try makePreparedDatabase()
             let eventID = testEventID()
             let store: TestStore<EventSettings> = withDependencies {
@@ -101,9 +106,13 @@ struct SettingsFeatureTests {
                 }
             }
 
-            store.send(EventSettings.Action.reportingLinkButtonTapped)
-
-            #expect(store.state.destination?.editReportingLink?.eventID == eventID)
+            let editTask = store.send(EventSettings.Action.reportingLinkButtonTapped)
+            await store.receive(
+                key: EventEditingRequested.self,
+                value: .equals(.editReportingLink(eventID)),
+                timeout: .seconds(1)
+            )
+            await editTask?.value
         }
     }
 

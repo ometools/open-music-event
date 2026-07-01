@@ -40,7 +40,7 @@ public struct OpenMusicEventBrowser {
     }
 
     public var body: some Feature {
-        let _ = Self._logChanges()
+//        let _ = Self._logChanges()
 
         Update { _, action in
             switch action {

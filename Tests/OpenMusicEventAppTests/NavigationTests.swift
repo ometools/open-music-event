@@ -19,6 +19,7 @@ import XRPCClient
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
+@testable import OpenMusicEventEditors
 
 private let testOrganizerID = OMERecord.Organizer.ID("did:web:example.com")!
 
@@ -976,7 +977,17 @@ struct NavigationTests {
     func eventViewerInjectsEventInfoEditingFromAboutDescendant() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-info-edit-intent")
-        let store = try makeEventViewerHarnessStore(eventID: eventID, database: database)
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            var initialState = EventViewerHarness.State(eventID: eventID)
+            initialState.eventViewer.selectedFeature = .contributors
+            return TestStore(initialState: initialState) {
+                EventViewerHarness()
+            }
+        }
 
         await withDependencies {
             $0.context = .test
@@ -990,11 +1001,8 @@ struct NavigationTests {
         }
         await Task.yield()
 
-        #expect(store.state.eventViewer.selectedFeature == .about)
-        #expect(
-            store.state.eventViewer.eventInfoViewer?.destination?.editEventInfo?.eventID
-                == eventID
-        )
+        #expect(store.state.eventViewer.selectedFeature == .contributors)
+        #expect(store.state.eventViewer.destination?.eventInfoForm?.eventID == eventID)
     }
 
     @Test
@@ -1642,13 +1650,15 @@ struct NavigationTests {
         let context = try await database.read { db in
             ContributorStageContext(
                 contributorID: contributorID,
-                performanceContributors: try ContributorsViewer.performanceContributorsQuery(
+                performanceRows: try PerformanceRow.forContributor(
+                    contributorID: contributorID,
                     eventID: selectedEventID
                 )
                 .fetchAll(db),
-                performances: try ScheduleViewer.eventPerformancesQuery(eventID: selectedEventID)
-                    .fetchAll(db),
-                stages: try ScheduleViewer.stagesQuery(eventID: selectedEventID)
+                lineupStages: try ContributorDetail.lineupStagesQuery(
+                    contributorID: contributorID,
+                    eventID: selectedEventID
+                )
                     .fetchAll(db)
             )
         }
@@ -2371,21 +2381,21 @@ struct NavigationTests {
                 timeZone: timeZone
             )
         }
-        let store = withDependencies {
+        var state = withDependencies {
             $0.context = .test
             $0.date = .constant(now)
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.defaultEventTimeZone = timeZone
         } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
-                ScheduleViewer()
-            }
+            EventViewer.State(eventID: eventID)
         }
+        state.selectedFeature = .contributors
 
-        store.send(.addScheduleButtonTapped)
+        state.handleEditingIntent(.addSchedule(eventID))
 
-        let editSchedule = try #require(store.state.destination?.editSchedule)
+        let editSchedule = try #require(state.destination?.scheduleForm)
+        expectNoDifference(state.selectedFeature, .contributors)
         expectNoDifference(editSchedule.scheduleDate, eventStartDate)
         expectNoDifference(editSchedule.customTitle, "Friday")
         expectNoDifference(editSchedule.sourceFileName, "friday")
@@ -2926,7 +2936,239 @@ struct NavigationTests {
     }
 
     @Test
-    func contributorDetailEditSheetBindingsSaveChanges() async throws {
+    func eventViewerContributorEditIntentPresentsContributorEditor() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let contributorID = contributorLocalID("artist-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Old Name")
+        }
+
+        var state = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            EventViewer.State(eventID: eventID)
+        }
+        state.selectedFeature = .schedule(.schedule)
+
+        state.handleEditingIntent(
+            .editContributor(
+                eventID: eventID,
+                contributorID: contributorID
+            )
+        )
+
+        let editContributor = try #require(state.destination?.contributorForm)
+        #expect(state.selectedFeature == .schedule(.schedule))
+        #expect(editContributor.eventID == eventID)
+        #expect(editContributor.mode.contributorID == contributorID)
+        #expect(!editContributor.hasLoadedDraft)
+    }
+
+    @Test
+    func eventViewerContributorEditDestinationSpawnsEditorAndLoadsDraft() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("wicked-woods-ome-2025")
+        let contributorID = contributorLocalID("[IVY]")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Wicked Woods")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "[IVY]", name: "IVY")
+        }
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: EventViewer.State(eventID: eventID)) {
+                EventViewer()
+            }
+        }
+        @Bindable var contributorsStore = try #require(store.spawn(\.contributorsViewer))
+        await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
+        let detailStore = try #require(
+            $contributorsStore
+                .scope(\.destination, action: \.destination)
+                .contributorDetail
+                .wrappedValue
+        )
+
+        await detailStore.send(.editButtonTapped)?.value
+        await waitUntil {
+            store.destination?.contributorForm?.hasLoadedDraft == true
+        }
+
+        let editContributor = try #require(
+            $store
+                .scope(\.destination, action: \.destination)
+                .contributorForm
+                .wrappedValue
+        )
+
+        #expect(editContributor.hasLoadedDraft)
+        #expect(editContributor.form.value.name == "IVY")
+        #expect(editContributor.mode.contributorID == contributorID)
+    }
+
+    @Test
+    func eventViewerContributorFormProjectedStoreRoutesChildActions() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let contributorID = contributorLocalID("artist-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Artist One")
+        }
+
+        var state = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            EventViewer.State(eventID: eventID)
+        }
+        state.handleEditingIntent(
+            .editContributor(
+                eventID: eventID,
+                contributorID: contributorID
+            )
+        )
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: state) {
+                EventViewer()
+            }
+        }
+        let editContributorStore = try #require(
+            $store
+                .scope(\.destination, action: \.destination)
+                .contributorForm
+                .wrappedValue
+        )
+
+        #expect(editContributorStore.form.value.links.isEmpty)
+
+        await editContributorStore.send(.addLinkButtonTapped)?.value
+
+        #expect(editContributorStore.form.value.links.count == 1)
+        #expect(store.destination?.contributorForm?.form.value.links.count == 1)
+    }
+
+    @Test
+    func eventViewerEditContributorActionSpawnsEditorAndLoadsDraft() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let contributorID = contributorLocalID("artist-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Artist One")
+        }
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: EventViewer.State(eventID: eventID)) {
+                EventViewer()
+            }
+        }
+
+        await store.send(
+            .eventEditingRequested(
+                .editContributor(
+                    eventID: eventID,
+                    contributorID: contributorID
+                )
+            )
+        )?.value
+
+        let editContributor = try #require(
+            $store
+                .scope(\.destination, action: \.destination)
+                .contributorForm
+                .wrappedValue
+        )
+
+        #expect(editContributor.hasLoadedDraft)
+        #expect(editContributor.form.value.name == "Artist One")
+        #expect(editContributor.mode.contributorID == contributorID)
+    }
+
+    @Test
+    func eventViewerStageEditDestinationSpawnsEditorAndLoadsDraft() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let stageID = stageLocalID("meadow")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "meadow",
+                name: "Meadow",
+                category: "main",
+                sortIndex: 2
+            )
+        }
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: EventViewer.State(eventID: eventID)) {
+                EventViewer()
+            }
+        }
+        @Bindable var stagesStore = try #require(store.spawn(\.stagesViewer))
+        await stagesStore.send(.stageButtonTapped(stageID))?.value
+        let detailStore = try #require(
+            $stagesStore
+                .scope(\.destination, action: \.destination)
+                .stageDetail
+                .wrappedValue
+        )
+
+        await detailStore.send(.editButtonTapped)?.value
+        await waitUntil {
+            store.destination?.stageForm?.hasLoadedDraft == true
+        }
+
+        let editStage = try #require(
+            $store
+                .scope(\.destination, action: \.destination)
+                .stageForm
+                .wrappedValue
+        )
+
+        #expect(editStage.hasLoadedDraft)
+        #expect(editStage.form.value.name == "Meadow")
+        #expect(editStage.form.value.category == "main")
+        #expect(editStage.form.value.sortIndex == "2")
+        #expect(editStage.mode.stageID == stageID)
+    }
+
+    @Test
+    func contributorDetailObservesSavedContributorChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let contributorID = contributorLocalID("artist-1")
@@ -2946,18 +3188,18 @@ struct NavigationTests {
             }
         }
 
-        detailStore.send(.editButtonTapped)
-
-        @Bindable var editStore = try #require(
-            $detailStore
-                .scope(\.destination, action: \.destination)
-                .editContributor
-                .wrappedValue
-        )
+        @Bindable var editStore = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+                EditContributor()
+            }
+        }
 
         #expect(editStore.hasLoadedDraft)
         #expect(editStore.form.value.name == "Old Name")
-
         $editStore.form.value.name.wrappedValue = "New Name"
         await editStore.send(.saveButtonTapped)?.value
 
@@ -2973,7 +3215,6 @@ struct NavigationTests {
 
         #expect(contributor.name == "New Name")
         #expect(detailStore.contributor?.name == "New Name")
-        #expect(detailStore.destination == nil)
     }
 
     @Test
@@ -3015,20 +3256,21 @@ struct NavigationTests {
             }
         }
 
-        detailStore.send(.editButtonTapped)
-        @Bindable var editStore = try #require(
-            $detailStore
-                .scope(\.destination, action: \.destination)
-                .editContributor
-                .wrappedValue
-        )
+        @Bindable var editStore = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+                EditContributor()
+            }
+        }
         $editStore.form.value.name.wrappedValue = "New Name"
         await editStore.send(.saveButtonTapped)?.value
         try await Task.sleep(for: .milliseconds(300))
 
         #expect(await viewObservationRecorder.values == ["invalidated"])
         #expect(detailStore.contributor?.name == "New Name")
-        #expect(detailStore.destination == nil)
     }
 
     @Test
@@ -3080,6 +3322,57 @@ struct NavigationTests {
         #expect(store.contributorActor == actor)
         #expect(store.actorProfileLoadRequest?.actor == actor)
         #expect(!store.usesActorProfileAsPrimary)
+    }
+
+    @Test
+    func editContributorDoesNotUsePerformanceContributorActorFallback() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let contributorID = contributorLocalID("speaker-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "day-1", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: eventID,
+                contributorID: "speaker-1",
+                name: "Alice"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "day-1",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "talk-1",
+                contributorID: "speaker-1",
+                contributorActor: actor
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
+                EditContributor()
+            }
+        }
+
+        #expect(store.hasLoadedDraft)
+        #expect(store.contributorDID == nil)
+        #expect(store.contributorActor == nil)
     }
 
     @Test
@@ -3722,7 +4015,41 @@ struct NavigationTests {
     }
 
     @Test
-    func stageDetailEditButtonOpensEventStageEditor() async throws {
+    func createContributorRequiresValidComposableForm() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: EditContributor.State(eventID: eventID)) {
+                EditContributor()
+            }
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented)
+        #expect(
+            store.state.form.validation[AnyHashable(\EditContributor.FormValue.name)]?.errors.map(\.message)
+                == ["Enter a name."]
+        )
+
+        let contributors = try await database.read { db in
+            try OMERecord.Contributor.fetchAll(db)
+        }
+        #expect(contributors.isEmpty)
+    }
+
+    @Test
+    func stageDetailEditButtonEmitsEventStageEditorRequest() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let stageID = stageLocalID("meadow")
@@ -3742,10 +4069,13 @@ struct NavigationTests {
             }
         }
 
-        store.send(.editButtonTapped)
-
-        #expect(store.state.destination?.editStage?.stageID == Optional(stageID))
-        #expect(store.state.destination?.editStage?.eventID == eventID)
+        let editTask = store.send(.editButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.editStage(eventID: eventID, stageID: stageID)),
+            timeout: .seconds(1)
+        )
+        await editTask?.value
     }
 
     @Test
@@ -3837,7 +4167,7 @@ struct NavigationTests {
     }
 
     @Test
-    func stagesViewerAddButtonOpensCreateStageEditor() throws {
+    func stagesViewerAddButtonEmitsCreateStageEditorRequest() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let store = withDependencies {
@@ -3849,10 +4179,13 @@ struct NavigationTests {
             }
         }
 
-        store.send(.addButtonTapped)
-
-        #expect(store.state.destination?.createStage?.stageID == nil)
-        #expect(store.state.destination?.createStage?.eventID == eventID)
+        let addTask = store.send(.addButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.createStage(eventID)),
+            timeout: .seconds(1)
+        )
+        await addTask?.value
     }
 
     @Test
@@ -4333,6 +4666,17 @@ struct NavigationTests {
             store.contributorRows.first(where: { $0.contributorID == contributorID })?
                 .profile.handle != nil
         )
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async {
+        for _ in 0..<100 {
+            if condition() { return }
+            await Task.yield()
+        }
+        Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
     }
 
     private func makeRootHarnessStore(

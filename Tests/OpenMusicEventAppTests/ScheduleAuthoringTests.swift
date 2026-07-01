@@ -8,6 +8,7 @@ import Testing
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
+@testable import OpenMusicEventEditors
 @testable import OpenMusicEventLexicon
 
 @MainActor
@@ -359,7 +360,7 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
-    func scheduleViewerPerformanceEditActionPresentsEditor() async throws {
+    func eventViewerPerformanceEditIntentPresentsEditor() async throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
         let fixture = try await seedScheduleFixture(
@@ -371,15 +372,25 @@ struct ScheduleAuthoringTests {
             fixture: fixture,
             timeZone: timeZone
         )
-        let store = makeScheduleViewerStore(
-            database: database,
-            eventID: fixture.eventID,
-            timeZone: timeZone
+        var state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = fixture.eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            EventViewer.State(eventID: fixture.eventID)
+        }
+        state.selectedFeature = .contributors
+
+        state.handleEditingIntent(
+            .editPerformance(
+                eventID: fixture.eventID,
+                performanceID: performance.id.performanceID
+            )
         )
 
-        store.send(.editPerformanceButtonTapped(performance.id.performanceID))
-
-        let editPerformance = try #require(store.state.destination?.editPerformance)
+        let editPerformance = try #require(state.destination?.performanceForm)
+        #expect(state.selectedFeature == .contributors)
         #expect(editPerformance.performanceID == performance.id.performanceID)
         #expect(editPerformance.title == "Opening Set")
         #expect(editPerformance.description == "Original description.")
@@ -389,7 +400,7 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
-    func performanceDetailEditActionPresentsEditor() async throws {
+    func performanceDetailEditActionEmitsEditorRequest() async throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
         let fixture = try await seedScheduleFixture(
@@ -416,15 +427,18 @@ struct ScheduleAuthoringTests {
             }
         }
 
-        store.send(.editButtonTapped)
-
-        let editPerformance = try #require(store.state.destination?.editPerformance)
-        #expect(editPerformance.performanceID == performance.id.performanceID)
-        #expect(editPerformance.title == "Opening Set")
-        #expect(editPerformance.description == "Original description.")
-        #expect(editPerformance.startTimeSelection == performance.startTime)
-        #expect(editPerformance.endTimeSelection == performance.endTime)
-        #expect(editPerformance.selectedStageID == fixture.stage.id.stageID)
+        let editTask = store.send(.editButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(
+                .editPerformance(
+                    eventID: fixture.eventID,
+                    performanceID: performance.id.performanceID
+                )
+            ),
+            timeout: .seconds(1)
+        )
+        await editTask?.value
     }
 
     @Test

@@ -128,6 +128,7 @@ public struct EventViewer {
             self.editEvent = nil
             self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
             self.eventInfoViewer = nil
+            self.destination = nil
 
             withEventDependencies {
                 for feature in features {
@@ -218,6 +219,8 @@ public struct EventViewer {
         public var eventSearch: Spawn<EventSearch>
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
+        public var destination: Destination.State?
+
         public var id: OMERecord.Event.ID { eventID }
 
         mutating func navigate(to target: EventTarget?) {
@@ -225,7 +228,6 @@ public struct EventViewer {
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                self.eventInfoViewer?.state.destination = nil
                 return
             }
 
@@ -254,12 +256,10 @@ public struct EventViewer {
                 }
                 self.contributorsViewer?.state.destination = destination
                 self.stagesViewer?.state.destination = nil
-                self.eventInfoViewer?.state.destination = nil
             case .contributors:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                self.eventInfoViewer?.state.destination = nil
             case let .stage(stageID):
                 let eventID = self.eventID
                 self.eventSearch.state = withEventDependencies {
@@ -282,22 +282,18 @@ public struct EventViewer {
                     )
                 }
                 self.stagesViewer?.state.destination = destination
-                self.eventInfoViewer?.state.destination = nil
             case .stages:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                self.eventInfoViewer?.state.destination = nil
             case .search:
                 self.eventSearch.state = EventSearch.State.route(eventID: eventID, target: target)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                self.eventInfoViewer?.state.destination = nil
             case .edit:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                self.eventInfoViewer?.state.destination = nil
                 if self.editEvent == nil {
                     self.editEvent = Spawn(EditEvent.State(eventID: self.eventID))
                 }
@@ -305,21 +301,50 @@ public struct EventViewer {
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                self.eventInfoViewer?.state.destination = nil
             }
         }
 
         mutating func handleEditingIntent(_ intent: EventEditingIntent) {
             switch intent {
-            case let .addPerformance(eventID, _),
-                 let .deletePerformance(eventID, _),
-                 let .editPerformance(eventID, _):
+            case let .addPerformance(eventID, scheduleID):
                 guard eventID == self.eventID else { return }
-                self.selectedFeature = .schedule(.schedule)
+                guard let editPerformance = withEventDependencies({
+                    addPerformanceState(scheduleID: scheduleID)
+                }) else { return }
+                self.destination = .performanceForm(Spawn(editPerformance))
+
+            case let .addSchedule(eventID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .scheduleForm(Spawn(editScheduleState()))
+                }
 
             case let .addPosters(eventID):
                 guard eventID == self.eventID else { return }
                 self.selectedFeature = .posters
+
+            case let .copyStagesFromEvent(eventID):
+                guard eventID == self.eventID else { return }
+                self.selectedFeature = .stages
+                self.destination = withEventDependencies {
+                    .copyStagesFromEvent(Spawn(CopyStagesFromEvent.State(eventID: eventID)))
+                }
+
+            case let .createContributor(eventID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .contributorForm(Spawn(EditContributor.State(eventID: eventID)))
+                }
+
+            case let .createStage(eventID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .stageForm(Spawn(EditStage.State(eventID: eventID)))
+                }
+
+            case let .deletePerformance(eventID, _):
+                guard eventID == self.eventID else { return }
+                self.selectedFeature = .schedule(.schedule)
 
             case let .deletePoster(posterID),
                  let .editPoster(posterID):
@@ -327,6 +352,25 @@ public struct EventViewer {
                       posterID.organizerID == self.eventID.organizerID
                 else { return }
                 self.selectedFeature = .posters
+
+            case let .editContactInfo(eventID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .contactInfoForm(Spawn(EditContactInfo.State(eventID: eventID)))
+                }
+
+            case let .editContributor(eventID, contributorID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .contributorForm(
+                        Spawn(
+                            EditContributor.State(
+                                contributorID: contributorID,
+                                eventID: eventID
+                            )
+                        )
+                    )
+                }
 
             case let .editEvent(eventID):
                 guard eventID == self.eventID else { return }
@@ -337,13 +381,47 @@ public struct EventViewer {
 
             case let .editEventInfo(eventID):
                 guard eventID == self.eventID else { return }
-                self.selectedFeature = .about
-                if self.eventInfoViewer == nil {
-                    self.eventInfoViewer = Spawn(EventInfoViewer.State(eventID: eventID))
+                self.destination = withEventDependencies {
+                    .eventInfoForm(Spawn(EditEventInfo.State(eventID: eventID)))
                 }
-                self.eventInfoViewer?.state.destination = .editEventInfo(
-                    Spawn(EditEventInfo.State(eventID: eventID))
-                )
+
+            case let .editEventPolicies(eventID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .eventPoliciesForm(Spawn(EditEventPolicies.State(eventID: eventID)))
+                }
+
+            case let .editLocation(eventID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .locationForm(Spawn(EditLocation.State(eventID: eventID)))
+                }
+
+            case let .editPerformance(eventID, performanceID):
+                guard eventID == self.eventID else { return }
+                guard let editPerformance = withEventDependencies({
+                    editPerformanceState(performanceID: performanceID)
+                }) else { return }
+                self.destination = .performanceForm(Spawn(editPerformance))
+
+            case let .editReportingLink(eventID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .reportingLinkForm(Spawn(EditReportingLink.State(eventID: eventID)))
+                }
+
+            case let .editStage(eventID, stageID):
+                guard eventID == self.eventID else { return }
+                self.destination = withEventDependencies {
+                    .stageForm(
+                        Spawn(
+                            EditStage.State(
+                                stageID: stageID,
+                                eventID: eventID
+                            )
+                        )
+                    )
+                }
 
             case let .eventSettings(eventID):
                 guard eventID == self.eventID else { return }
@@ -352,6 +430,90 @@ public struct EventViewer {
                     self.eventSettings = Spawn(EventSettings.State(eventID: eventID))
                 }
             }
+        }
+
+        private func addPerformanceState(
+            scheduleID: OMERecord.ID<OMERecord.Schedule>?
+        ) -> EditPerformance.State? {
+            @Dependency(\.defaultDatabase) var database
+
+            do {
+                return try database.read { db in
+                    let schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
+                    let stages = try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+                    guard !stages.isEmpty else { return nil }
+
+                    let resolvedScheduleID = scheduleID.flatMap { scheduleID in
+                        schedules.contains { $0.id.scheduleID == scheduleID }
+                            ? scheduleID
+                            : nil
+                    }
+                    let schedule = resolvedScheduleID.flatMap { scheduleID in
+                        schedules.first { $0.id.scheduleID == scheduleID }
+                    } ?? schedules.first
+                    guard let schedule else { return nil }
+
+                    return EditPerformance.State(
+                        eventID: eventID,
+                        schedule: schedule,
+                        stages: stages,
+                        timeZone: eventTimeZone
+                    )
+                }
+            } catch {
+                return nil
+            }
+        }
+
+        private func editPerformanceState(
+            performanceID: OMERecord.ID<OMERecord.Performance>
+        ) -> EditPerformance.State? {
+            @Dependency(\.defaultDatabase) var database
+
+            do {
+                return try database.read { db in
+                    let performanceRows = try PerformanceRow.all(eventID: eventID).fetchAll(db)
+                    let schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
+                    let stages = try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+                    guard
+                        let row = performanceRows.first(where: { $0.performanceID == performanceID }),
+                        let scheduleID = row.performance.scheduleID,
+                        let schedule = schedules.first(where: { $0.id.scheduleID == scheduleID })
+                    else { return nil }
+
+                    return EditPerformance.State(
+                        eventID: eventID,
+                        schedule: schedule,
+                        stages: stages,
+                        timeZone: eventTimeZone,
+                        performance: row.performance
+                    )
+                }
+            } catch {
+                return nil
+            }
+        }
+
+        private func editScheduleState() -> EditSchedule.State {
+            @Dependency(\.defaultDatabase) var database
+
+            let initialDate: LocalDate?
+            do {
+                initialDate = try database.read { db in
+                    try OMERecord.Event
+                        .where { $0.id.eq(eventID) }
+                        .fetchOne(db)?
+                        .startDate
+                }
+            } catch {
+                initialDate = nil
+            }
+
+            return EditSchedule.State(
+                eventID: eventID,
+                initialDate: initialDate,
+                timeZone: eventTimeZone
+            )
         }
 
         private func withEventDependencies<Value>(_ operation: () -> Value) -> Value {
@@ -389,16 +551,39 @@ public struct EventViewer {
 
     public enum Action {
         case closeButtonTapped
+        case destination(Destination.Action)
+        case eventEditingRequested(EventEditingIntent)
         case eventSearch(EventSearch.Action)
     }
 
+    @Feature
+    public enum Destination {
+        case contactInfoForm(Spawn<EditContactInfo>)
+        case contributorForm(Spawn<EditContributor>)
+        case copyStagesFromEvent(Spawn<CopyStagesFromEvent>)
+        case eventInfoForm(Spawn<EditEventInfo>)
+        case eventPoliciesForm(Spawn<EditEventPolicies>)
+        case locationForm(Spawn<EditLocation>)
+        case performanceForm(Spawn<EditPerformance>)
+        case reportingLinkForm(Spawn<EditReportingLink>)
+        case scheduleForm(Spawn<EditSchedule>)
+        case stageForm(Spawn<EditStage>)
+    }
+
     public var body: some Feature {
-        Update { _, action in
+        let _ = Self._logChanges()
+        Update { state, action in
             switch action {
             case .closeButtonTapped:
                 store.addTask {
                     try store.dismiss()
                 }
+
+            case .destination:
+                break
+
+            case let .eventEditingRequested(intent):
+                state.handleEditingIntent(intent)
 
             case .eventSearch:
                 break
@@ -408,8 +593,11 @@ public struct EventViewer {
             guard case let .event(eventID, target) = request, eventID == state.eventID else { return }
             state.navigate(to: target)
         }
-        .onEvent(EventEditingRequested.self) { intent, state in
-            state.handleEditingIntent(intent)
+        .onEvent(EventEditingRequested.self) { intent, _ in
+            store.addTask {
+                let task = try store.send(.eventEditingRequested(intent))
+                await task?.value
+            }
         }
         .onEvent(SourceDataRefreshRequested.self) { request, state in
             guard request.eventID == state.eventID else { return }
@@ -465,10 +653,51 @@ public struct EventViewer {
         .ifLet(\.eventInfoViewer) {
             EventInfoViewer()
         }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+                .dependency(\.defaultEventID, store.eventID)
+                .dependency(\.defaultEventTimeZone, store.eventTimeZone)
+                .dependency(\.sourceEditingSession, store.sourceEditingSession)
+                .dependency(\.defaultDatabase, store.sourceEditingSession?.database ?? database)
+        }
         .dependency(\.defaultEventID, store.eventID)
         .dependency(\.defaultEventTimeZone, store.eventTimeZone)
         .dependency(\.sourceEditingSession, store.sourceEditingSession)
         .dependency(\.defaultDatabase, store.sourceEditingSession?.database ?? database)
+    }
+}
+
+extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
+    public typealias ID = AnyHashable
+
+    @MainActor
+    public var id: ID {
+        switch self {
+        case let .contactInfoForm(store):
+            destinationID("contactInfoForm", store.eventID)
+        case let .contributorForm(store):
+            destinationID("contributorForm", store.eventID, store.mode.contributorID)
+        case let .copyStagesFromEvent(store):
+            destinationID("copyStagesFromEvent", store.eventID)
+        case let .eventInfoForm(store):
+            destinationID("eventInfoForm", store.eventID)
+        case let .eventPoliciesForm(store):
+            destinationID("eventPoliciesForm", store.eventID)
+        case let .locationForm(store):
+            destinationID("locationForm", store.eventID)
+        case let .performanceForm(store):
+            destinationID("performanceForm", store.eventID, store.schedule.id.scheduleID, store.performanceID)
+        case let .reportingLinkForm(store):
+            destinationID("reportingLinkForm", store.eventID)
+        case let .scheduleForm(store):
+            destinationID("scheduleForm", store.eventID)
+        case let .stageForm(store):
+            destinationID("stageForm", store.eventID, store.stageID)
+        }
+    }
+
+    private func destinationID(_ components: AnyHashable...) -> AnyHashable {
+        AnyHashable(components)
     }
 }
 
@@ -480,6 +709,44 @@ public struct EventViewerView: View {
     @Bindable var store: StoreOf<EventViewer>
 
     public var body: some View {
+        tabContent
+            .sheet(item: $store.scope(\.destination, action: \.destination)) { destinationStore in
+                NavigationStack {
+                    destinationContent(destinationStore)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func destinationContent(
+        _ destinationStore: EventViewer.Destination.StoreEnumeration
+    ) -> some View {
+        switch destinationStore {
+        case let .copyStagesFromEvent(copyStore):
+            CopyStagesFromEventView(store: copyStore)
+        case let .contributorForm(formStore):
+            EditContributorView(store: formStore)
+        case let .stageForm(formStore):
+            EditStageView(store: formStore)
+        case let .contactInfoForm(formStore):
+            EditContactInfoView(store: formStore)
+        case let .eventInfoForm(formStore):
+            EditEventInfoView(store: formStore)
+        case let .eventPoliciesForm(formStore):
+            EditEventPoliciesView(store: formStore)
+        case let .locationForm(formStore):
+            EditLocationView(store: formStore)
+        case let .performanceForm(formStore):
+            EditPerformanceView(store: formStore)
+        case let .reportingLinkForm(formStore):
+            EditReportingLinkView(store: formStore)
+        case let .scheduleForm(formStore):
+            EditScheduleView(store: formStore)
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
         #if os(iOS)
         if #available(iOS 18.0, *) {
             iOS18TabView(store: store)

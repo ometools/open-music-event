@@ -10,26 +10,13 @@ struct ContributorStageContext {
 
     init(
         contributorID: OMERecord.ID<OMERecord.Contributor>,
-        performanceContributors: [OMERecord.Performance.Contributors],
-        performances: [OMERecord.Performance],
-        stages: [OMERecord.Stage]
+        performanceRows: [PerformanceRow],
+        lineupStages: [OMERecord.Stage]
     ) {
         self.contributorID = contributorID
-        let performanceIDs = Set(
-            performanceContributors
-                .filter { $0.contributorID == contributorID }
-                .map(\.performanceID)
-        )
-        let scheduledPerformances = performances.filter {
-            performanceIDs.contains($0.id.performanceID)
-        }
-        self.scheduledPerformances = scheduledPerformances
-        self.scheduledStages = Self.orderedStages(
-            stages.filter { stage in
-                scheduledPerformances.contains { $0.stageID == stage.id.stageID }
-            }
-        )
-        self.eventStages = Self.orderedStages(stages)
+        self.scheduledPerformances = performanceRows.map(\.performance)
+        self.scheduledStages = Self.orderedStages(performanceRows.compactMap(\.stage))
+        self.eventStages = Self.orderedStages(scheduledStages + lineupStages)
     }
 
     init(

@@ -1,15 +1,16 @@
-import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
+import DependenciesTestSupport
 import Foundation
 import Sharing
 import TCATProtoAuthentication
 import Testing
 
+@testable import ATProtoOAuth
 @testable import OpenMusicEventAuthentication
 
 @MainActor
-@Suite("AuthenticationCoordinator", .serialized)
+@Suite("AuthenticationCoordinator", .serialized, .dependencies { $0.defaultPort = 443 })
 struct AuthenticationCoordinatorTests {
     @Test
     func authorizationRequestPresentsAuthorizationFlow() {
@@ -396,28 +397,32 @@ private func openMusicEventTestSession(
 }
 
 private func testPendingSession() throws -> OAuth.Session.Pending {
-    let metadata = try JSONDecoder().decode(
-        OAuth.AuthorizationServer.Metadata.self,
-        from: Data("""
-        {
-            "issuer": "https://bsky.social",
-            "authorization_endpoint": "https://bsky.social/oauth/authorize",
-            "token_endpoint": "https://bsky.social/oauth/token",
-            "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
-            "code_challenge_methods_supported": ["S256"],
-            "token_endpoint_auth_methods_supported": ["none"],
-            "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
-            "scopes_supported": ["atproto"],
-            "authorization_response_iss_parameter_supported": true,
-            "require_pushed_authorization_requests": true,
-            "pushed_authorization_request_endpoint": "https://bsky.social/oauth/par",
-            "dpop_signing_alg_values_supported": ["ES256"],
-            "require_request_uri_registration": true,
-            "client_id_metadata_document_supported": true
-        }
-        """.utf8)
-    )
+    let metadata = try withDependencies {
+        $0.defaultPort = 443
+    } operation: {
+        try JSONDecoder().decode(
+            OAuth.AuthorizationServer.Metadata.self,
+            from: Data("""
+            {
+                "issuer": "https://bsky.social",
+                "authorization_endpoint": "https://bsky.social/oauth/authorize",
+                "token_endpoint": "https://bsky.social/oauth/token",
+                "response_types_supported": ["code"],
+                "grant_types_supported": ["authorization_code", "refresh_token"],
+                "code_challenge_methods_supported": ["S256"],
+                "token_endpoint_auth_methods_supported": ["none"],
+                "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
+                "scopes_supported": ["atproto"],
+                "authorization_response_iss_parameter_supported": true,
+                "require_pushed_authorization_requests": true,
+                "pushed_authorization_request_endpoint": "https://bsky.social/oauth/par",
+                "dpop_signing_alg_values_supported": ["ES256"],
+                "require_request_uri_registration": true,
+                "client_id_metadata_document_supported": true
+            }
+            """.utf8)
+        )
+    }
     return OAuth.Session.Pending(
         pkceChallenge: OAuth.PKCE.Challenge(verifier: OAuth.PKCE.CodeVerifier("test-verifier")),
         state: OAuth.Nonce(rawValue: "test-nonce"),

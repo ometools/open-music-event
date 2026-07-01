@@ -9,6 +9,7 @@ import AppKit
 import UIKit
 #endif
 import OpenMusicEventDatabase
+import OpenMusicEventEditors
 import OpenMusicEventImages
 import SQLiteData
 import SwiftUI
@@ -62,8 +63,6 @@ public struct StagesViewer {
 
     @Feature
     public enum Destination {
-        case copyStagesFromEvent(Spawn<CopyStagesFromEvent>)
-        case createStage(Spawn<EditStage>)
         case stageDetail(Spawn<StageDetail>)
     }
 
@@ -82,10 +81,13 @@ public struct StagesViewer {
         Update { state, action in
             switch action {
             case .addButtonTapped:
-                store.withDependencies {
-                    state.destination = .createStage(
-                        Spawn(EditStage.State(eventID: state.eventID))
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .createStage(eventID)
                     )
+                    await task?.value
                 }
 
             case let .deleteStages(stageIDs):
@@ -122,10 +124,13 @@ public struct StagesViewer {
                 }
 
                 state.errorMessage = nil
-                store.withDependencies {
-                    state.destination = .copyStagesFromEvent(
-                        Spawn(CopyStagesFromEvent.State(eventID: state.eventID))
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .copyStagesFromEvent(eventID)
                     )
+                    await task?.value
                 }
 
             case let .stageButtonTapped(stageID):
@@ -560,16 +565,6 @@ public struct StagesViewerView: View {
                 }
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).copyStagesFromEvent) { copyStore in
-            NavigationStack {
-                CopyStagesFromEventView(store: copyStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).createStage) { createStore in
-            NavigationStack {
-                EditStageView(store: createStore)
-            }
-        }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).stageDetail) { detailStore in
             StageDetailView(store: detailStore)
         }
@@ -772,7 +767,6 @@ public struct StageDetail {
     public struct State: Identifiable {
         public let stageID: OMERecord.ID<OMERecord.Stage>
         public let eventID: OMERecord.Event.ID
-        public var destination: Destination.State?
 
         @FetchOne public var stage: OMERecord.Stage?
         @FetchAll var contributors: [ContributorProfile]
@@ -815,13 +809,7 @@ public struct StageDetail {
     }
 
     public enum Action {
-        case destination(Destination.Action)
         case editButtonTapped
-    }
-
-    @Feature
-    public enum Destination {
-        case editStage(Spawn<EditStage>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -839,24 +827,20 @@ public struct StageDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .destination:
-                break
-
             case .editButtonTapped:
-                store.withDependencies {
-                    state.destination = .editStage(
-                        Spawn(
-                            EditStage.State(
-                                stageID: state.stageID,
-                                eventID: state.eventID
-                            )
+                let eventID = state.eventID
+                let stageID = state.stageID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editStage(
+                            eventID: eventID,
+                            stageID: stageID
                         )
                     )
+                    await task?.value
                 }
             }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
         }
         .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
             guard !requests.isEmpty else { return }
@@ -938,11 +922,6 @@ public struct StageDetailView: View {
                     description: Text(verbatim: store.stageID.rawValue.rawValue)
                 )
                 .navigationTitle("Stage")
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).editStage) { editStore in
-            NavigationStack {
-                EditStageView(store: editStore)
             }
         }
     }

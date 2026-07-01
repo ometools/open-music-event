@@ -3,7 +3,6 @@ import Dependencies
 import ErrorHandling
 import Foundation
 import OpenMusicEventAppEventViewer
-import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
@@ -100,7 +99,6 @@ public struct TangledSourceDownload {
 
         var repository = ""
         var ref = "HEAD"
-        var authorization = OpenMusicEventAuthorizationPresentation.State()
         var importedSummary: SourceValidationSummary?
         var isImporting = false
         var errorMessage: String?
@@ -120,74 +118,56 @@ public struct TangledSourceDownload {
     }
 
     public enum Action {
-        case authorization(OpenMusicEventAuthorizationPresentation.Action)
         case importButtonTapped
     }
 
     public var body: some Feature {
-        Features {
-            Scope(\.authorization, action: \.authorization) {
-                OpenMusicEventAuthorizationPresentation()
-            }
+        Update { state, action in
+            switch action {
+            case .importButtonTapped:
+                guard !state.isImporting else { return }
+                guard !state.trimmedRepository.isEmpty else {
+                    state.errorMessage = "Enter a Tangled repository."
+                    return
+                }
 
-            Update { state, action in
-                switch action {
-                case .authorization:
-                    break
+                let request = OpenMusicEventSourceValidationRequest(
+                    source: state.trimmedRepository,
+                    ref: state.resolvedRef
+                )
+                state.isImporting = true
+                state.importedSummary = nil
+                state.errorMessage = nil
 
-                case .importButtonTapped:
-                    guard !state.isImporting else { return }
-                    guard !state.trimmedRepository.isEmpty else {
-                        state.errorMessage = "Enter a Tangled repository."
-                        return
+                store.addTask {
+                    await Task.yield()
+                    let result = await store.withErrorHandling(
+                        fallbackMessage: .sourceImportFailed,
+                        operation: .sourceImport
+                    ) {
+                        try await tangledSourceImport.importSource(request)
+                    } cleanup: {
+                        $0.isImporting = false
+                    } parseError: {
+                        SourceImportError.parser
                     }
+                    guard let result else { return }
 
-                    let request = OpenMusicEventSourceValidationRequest(
-                        source: state.trimmedRepository,
-                        ref: state.resolvedRef
-                    )
-                    let authorizationPresenter = OpenMusicEventAuthorizationPresenter { request in
-                        await Task.yield()
-                        try store.send(.authorization(.present(request)))
+                    await Task.yield()
+                    try store.modify {
+                        $0.isImporting = false
+                        $0.importedSummary = result.summary
+                        $0.errorMessage = nil
                     }
-                    state.isImporting = true
-                    state.importedSummary = nil
-                    state.errorMessage = nil
-
-                    store.addTask {
-                        await Task.yield()
-                        let result = await store.withErrorHandling(
-                            fallbackMessage: .sourceImportFailed,
-                            operation: .sourceImport
-                        ) {
-                            try await withOpenMusicEventAuthorization(
-                                presenter: authorizationPresenter
-                            ) {
-                                try await tangledSourceImport.importSource(request)
-                            }
-                        } cleanup: {
-                            $0.isImporting = false
-                        } parseError: {
-                            SourceImportError.parser
-                        }
-                        guard let result else { return }
-
-                        await Task.yield()
-                        try store.modify {
-                            $0.isImporting = false
-                            $0.importedSummary = result.summary
-                            $0.errorMessage = nil
-                        }
-                        try store.post(
-                            key: SourceImportCompleted.self,
-                            value: ImportedSource(
-                                organizerID: result.organizerID,
-                                sourceBaselineID: (try? request.tangledSourceProvenance())
-                                    .map(SourceBaselineRecord.ID.init(source:))
-                            )
+                    try store.post(
+                        key: SourceImportCompleted.self,
+                        value: ImportedSource(
+                            organizerID: result.organizerID,
+                            sourceBaselineID: (try? request.tangledSourceProvenance())
+                                .map(SourceBaselineRecord.ID.init(source:))
                         )
-                        try store.dismiss()
-                    }
+                    )
+                    _ = try? store.dismiss()
                 }
             }
         }

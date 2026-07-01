@@ -50,6 +50,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
+        .package(url: "https://github.com/pointfreeco/swift-structured-queries", from: "0.32.0", traits: ["Tagged"]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main", traits: ["Dependencies"]),
 
 
@@ -244,6 +245,8 @@ let package = Package(
                 .product(name: "Lexicon", package: "swift-composable-atmosphere"),
                 .product(name: "LexiconSQLiteData", package: "swift-composable-atmosphere"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
+                .product(name: "Tagged", package: "swift-tagged"),
             ]
         ),
         .target(

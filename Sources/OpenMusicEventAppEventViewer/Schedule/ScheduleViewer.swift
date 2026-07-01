@@ -2,6 +2,7 @@ import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventEditors
 import OpenMusicEventViewers
 import ScheduleComponents
 import Sharing
@@ -199,8 +200,6 @@ public struct ScheduleViewer {
     @Feature
     public enum Destination {
         case deletePerformanceConfirmation(DeletePerformanceConfirmation)
-        case editPerformance(Spawn<EditPerformance>)
-        case editSchedule(Spawn<EditSchedule>)
         case performanceDetail(Spawn<PerformanceDetail>)
     }
 
@@ -377,32 +376,30 @@ public struct ScheduleViewer {
         Update { state, action in
             switch action {
             case let .addPerformanceButtonTapped(selectedScheduleID):
-                guard let schedule = state.selectedSchedule(
-                    selectedScheduleID: selectedScheduleID
-                ),
+                guard state.selectedSchedule(selectedScheduleID: selectedScheduleID) != nil,
                       !state.stages.isEmpty
                 else { return }
-                state.destination = .editPerformance(
-                    Spawn(
-                        EditPerformance.State(
-                            eventID: state.eventID,
-                            schedule: schedule,
-                            stages: state.stages,
-                            timeZone: state.timeZone
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .addPerformance(
+                            eventID: eventID,
+                            scheduleID: selectedScheduleID
                         )
                     )
-                )
+                    await task?.value
+                }
 
             case .addScheduleButtonTapped:
-                state.destination = .editSchedule(
-                    Spawn(
-                        EditSchedule.State(
-                            eventID: state.eventID,
-                            initialDate: state.event?.startDate,
-                            timeZone: state.timeZone
-                        )
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .addSchedule(eventID)
                     )
-                )
+                    await task?.value
+                }
 
             case let .deletePerformanceButtonTapped(performanceID):
                 state.destination = .deletePerformanceConfirmation(
@@ -427,23 +424,20 @@ public struct ScheduleViewer {
                 break
 
             case let .editPerformanceButtonTapped(performanceID):
-                guard
-                    let row = state.performanceRows.first(where: { $0.performanceID == performanceID }),
-                    let scheduleID = row.performance.scheduleID,
-                    let schedule = state.schedules.first(where: { $0.id.scheduleID == scheduleID })
-                else { return }
-
-                state.destination = .editPerformance(
-                    Spawn(
-                        EditPerformance.State(
-                            eventID: state.eventID,
-                            schedule: schedule,
-                            stages: state.stages,
-                            timeZone: state.timeZone,
-                            performance: row.performance
+                guard state.performanceRows.contains(where: { $0.performanceID == performanceID }) else {
+                    return
+                }
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editPerformance(
+                            eventID: eventID,
+                            performanceID: performanceID
                         )
                     )
-                )
+                    await task?.value
+                }
 
             case let .performanceButtonTapped(performanceID):
                 store.withDependencies {
@@ -566,16 +560,6 @@ public struct ScheduleViewerView: View {
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .sheet(item: $store.scope(\.destination, action: \.destination).editSchedule) { editStore in
-            NavigationStack {
-                EditScheduleView(store: editStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).editPerformance) { editStore in
-            NavigationStack {
-                EditPerformanceView(store: editStore)
-            }
-        }
         .confirmationDialog(
             "Delete Performance?",
             isPresented: $store.scope(\.destination, action: \.destination).deletePerformanceConfirmation.isPresented,
@@ -706,15 +690,13 @@ public struct PerformanceDetail {
     public struct State: Identifiable {
         public init(
             performanceID: OMERecord.ID<OMERecord.Performance>,
-            eventID: OMERecord.Event.ID? = nil,
-            destination: Destination.State? = nil
+            eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
             @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.eventID = eventID ?? defaultEventID
             self.performanceID = performanceID
-            self.destination = destination
             self.timeZone = defaultEventTimeZone
             _contributors = FetchAll(
                 PerformanceDetail.contributorsQuery(
@@ -739,7 +721,6 @@ public struct PerformanceDetail {
 
         public let eventID: OMERecord.Event.ID
         public let performanceID: OMERecord.ID<OMERecord.Performance>
-        public var destination: Destination.State?
         @DebugSnapshotIgnored
         public let timeZone: TimeZone
 
@@ -770,13 +751,7 @@ public struct PerformanceDetail {
     }
 
     public enum Action {
-        case destination(Destination.Action)
         case editButtonTapped
-    }
-
-    @Feature
-    public enum Destination {
-        case editPerformance(Spawn<EditPerformance>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -806,26 +781,21 @@ public struct PerformanceDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .destination:
-                break
-
             case .editButtonTapped:
-                guard let performance = state.performance,
-                      let schedule = state.schedule
+                guard state.performance != nil,
+                      state.schedule != nil
                 else { return }
-
-                store.withDependencies {
-                    state.destination = .editPerformance(
-                        Spawn(
-                            EditPerformance.State(
-                                eventID: state.eventID,
-                                schedule: schedule,
-                                stages: state.stages,
-                                timeZone: state.timeZone,
-                                performance: performance
-                            )
+                let eventID = state.eventID
+                let performanceID = state.performanceID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editPerformance(
+                            eventID: eventID,
+                            performanceID: performanceID
                         )
                     )
+                    await task?.value
                 }
             }
         }
@@ -846,9 +816,6 @@ public struct PerformanceDetail {
                     }
                 }
             }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
         }
     }
 }
@@ -909,11 +876,6 @@ public struct PerformanceDetailView: View {
                     description: Text(verbatim: store.performanceID.rawValue.rawValue)
                 )
                 .navigationTitle("Performance")
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).editPerformance) { editStore in
-            NavigationStack {
-                EditPerformanceView(store: editStore)
             }
         }
     }

@@ -1,7 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
-import OpenMusicEventAuthentication
 import OpenMusicEventSourceEditing
 import SourceEditing
 
@@ -65,7 +64,6 @@ public struct SourceProposalFlow {
 
         public let target: SourceProposalTarget
         public let patch: SourcePatch
-        public var authorization = OpenMusicEventAuthorizationPresentation.State()
         public var sourceChangeGroups: [SourceChangeGroup]
         public var sourceProposalDescription = ""
         public var sourceProposalStatus: EditEvent.SourceProposalStatus = .composing
@@ -74,7 +72,6 @@ public struct SourceProposalFlow {
 
     @CasePathable
     public enum Action {
-        case authorization(OpenMusicEventAuthorizationPresentation.Action)
         case createProposalButtonTapped
         case delegate(Delegate)
         case dismissButtonTapped
@@ -93,103 +90,86 @@ public struct SourceProposalFlow {
     @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
 
     public var body: some Feature {
-        Features {
-            Scope(\.authorization, action: \.authorization) {
-                OpenMusicEventAuthorizationPresentation()
+        Update { state, action in
+            func createSourceProposal(
+                target: SourceProposalTarget,
+                patch: SourcePatch,
+                description: String?,
+                title: String?
+            ) {
+                let calendarSourcePatchLocationResolver = calendarSourcePatchLocationResolver
+                let sourcePatchLocationResolver = sourcePatchLocationResolver
+                let sourcePatchPublisher = sourcePatchPublisher
+                store.addTask {
+                    await Task.yield()
+                    do {
+                        let location = try await target.resolveLocation(
+                            calendarSourcePatchLocationResolver: calendarSourcePatchLocationResolver,
+                            sourcePatchLocationResolver: sourcePatchLocationResolver
+                        )
+                        let publication = try await sourcePatchPublisher.publish(
+                            SourcePatchPublishRequest(
+                                description: description,
+                                location: location,
+                                patch: patch,
+                                title: title
+                            )
+                        )
+                        await Task.yield()
+                        try store.send(.sourceProposalResponse(.success(publication)))
+                    } catch is CancellationError {
+                        await Task.yield()
+                        try store.send(.sourceProposalCancelled)
+                    } catch {
+                        await Task.yield()
+                        try store.send(
+                            .sourceProposalResponse(
+                                .failure(EditEvent.SourceProposalFailure(error))
+                            )
+                        )
+                    }
+                }
             }
 
-            Update { state, action in
-                func createSourceProposal(
-                    target: SourceProposalTarget,
-                    patch: SourcePatch,
-                    description: String?,
-                    title: String?
-                ) {
-                    let calendarSourcePatchLocationResolver = calendarSourcePatchLocationResolver
-                    let sourcePatchLocationResolver = sourcePatchLocationResolver
-                    let sourcePatchPublisher = sourcePatchPublisher
-                    let authorizationPresenter = OpenMusicEventAuthorizationPresenter { request in
-                        await Task.yield()
-                        try store.send(.authorization(.present(request)))
-                    }
-                    store.addTask {
-                        await Task.yield()
-                        do {
-                            let location = try await target.resolveLocation(
-                                calendarSourcePatchLocationResolver: calendarSourcePatchLocationResolver,
-                                sourcePatchLocationResolver: sourcePatchLocationResolver
-                            )
-                            let publication = try await withOpenMusicEventAuthorization(
-                                presenter: authorizationPresenter
-                            ) {
-                                try await sourcePatchPublisher.publish(
-                                    SourcePatchPublishRequest(
-                                        description: description,
-                                        location: location,
-                                        patch: patch,
-                                        title: title
-                                    )
-                                )
-                            }
-                            await Task.yield()
-                            try store.send(.sourceProposalResponse(.success(publication)))
-                        } catch is CancellationError {
-                            await Task.yield()
-                            try store.send(.sourceProposalCancelled)
-                        } catch {
-                            await Task.yield()
-                            try store.send(
-                                .sourceProposalResponse(
-                                    .failure(EditEvent.SourceProposalFailure(error))
-                                )
-                            )
-                        }
-                    }
+            switch action {
+            case .createProposalButtonTapped:
+                guard !state.patch.isEmpty,
+                      state.sourceProposalStatus.canCreateProposal
+                else { return }
+                let description = state.sourceProposalDescription.sourceProposalDescriptionValue
+                let title = state.sourceProposalTitle.sourceProposalTitleValue
+                state.sourceProposalStatus = .proposing
+                createSourceProposal(
+                    target: state.target,
+                    patch: state.patch,
+                    description: description,
+                    title: title
+                )
+
+            case .delegate:
+                break
+
+            case .dismissButtonTapped:
+                store.addTask {
+                    try store.send(.delegate(.dismissed))
                 }
 
-                switch action {
-                case .authorization:
-                    break
+            case .sourceProposalCancelled:
+                state.sourceProposalStatus = .composing
 
-                case .createProposalButtonTapped:
-                    guard !state.patch.isEmpty,
-                          state.sourceProposalStatus.canCreateProposal
-                    else { return }
-                    let description = state.sourceProposalDescription.sourceProposalDescriptionValue
-                    let title = state.sourceProposalTitle.sourceProposalTitleValue
-                    state.sourceProposalStatus = .proposing
-                    createSourceProposal(
-                        target: state.target,
-                        patch: state.patch,
-                        description: description,
-                        title: title
-                    )
+            case let .sourceProposalDescriptionChanged(description):
+                state.sourceProposalDescription = description
 
-                case .delegate:
-                    break
+            case let .sourceProposalResponse(.success(publication)):
+                let status = EditEvent.SourceProposalStatus.created(publication)
+                state.sourceProposalStatus = status
 
-                case .dismissButtonTapped:
-                    store.addTask {
-                        try store.send(.delegate(.dismissed))
-                    }
+            case let .sourceProposalResponse(.failure(failure)):
+                let status = EditEvent.SourceProposalStatus.failed(failure)
+                state.sourceProposalStatus = status
 
-                case .sourceProposalCancelled:
-                    state.sourceProposalStatus = .composing
-
-                case let .sourceProposalDescriptionChanged(description):
-                    state.sourceProposalDescription = description
-
-                case let .sourceProposalResponse(.success(publication)):
-                    let status = EditEvent.SourceProposalStatus.created(publication)
-                    state.sourceProposalStatus = status
-
-                case let .sourceProposalResponse(.failure(failure)):
-                    let status = EditEvent.SourceProposalStatus.failed(failure)
-                    state.sourceProposalStatus = status
-
-                case let .sourceProposalTitleChanged(title):
-                    state.sourceProposalTitle = title
-                }
+            case let .sourceProposalTitleChanged(title):
+                state.sourceProposalTitle = title
             }
         }
     }

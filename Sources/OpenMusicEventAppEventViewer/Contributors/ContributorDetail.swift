@@ -13,6 +13,7 @@ import Dependencies
 import ErrorHandling
 import Foundation
 import OpenMusicEventDatabase
+import OpenMusicEventEditors
 import OpenMusicEventImages
 import SQLiteData
 import Tagged
@@ -27,7 +28,6 @@ public struct ContributorDetail {
     public struct State: Identifiable {
         public let contributorID: OMERecord.ID<OMERecord.Contributor>
         public let eventID: OMERecord.Event.ID
-        public var destination: Destination.State?
 
         @FetchOne var profile: ContributorProfile?
 
@@ -48,8 +48,11 @@ public struct ContributorDetail {
                     hydration: .bskyActorProfile
                 )
             )
-            _performanceContributors = FetchAll(
-                ContributorsViewer.performanceContributorsQuery(eventID: self.eventID)
+            _lineupStages = FetchAll(
+                ContributorDetail.lineupStagesQuery(
+                    contributorID: contributorID,
+                    eventID: self.eventID
+                )
             )
             _performanceRows = FetchAll(
                 PerformanceRow.forContributor(
@@ -57,21 +60,13 @@ public struct ContributorDetail {
                     eventID: self.eventID
                 )
             )
-            _performances = FetchAll(
-                ScheduleViewer.eventPerformancesQuery(eventID: self.eventID)
-            )
-            _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: self.eventID)
-            )
         }
 
         public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
 
         @DebugSnapshotIgnored public var timeZone: TimeZone
+        @FetchAll public var lineupStages: [OMERecord.Stage]
         @FetchAll var performanceRows: [PerformanceRow]
-        @FetchAll public var performanceContributors: [OMERecord.Performance.Contributors]
-        @FetchAll public var performances: [OMERecord.Performance]
-        @FetchAll public var stages: [OMERecord.Stage]
 
         var contributor: OMERecord.Contributor? {
             profile?.contributor
@@ -80,9 +75,8 @@ public struct ContributorDetail {
         var stageContext: ContributorStageContext {
             ContributorStageContext(
                 contributorID: contributorID,
-                performanceContributors: performanceContributors,
-                performances: performances,
-                stages: stages
+                performanceRows: performanceRows,
+                lineupStages: lineupStages
             )
         }
 
@@ -100,13 +94,7 @@ public struct ContributorDetail {
     }
 
     public enum Action {
-        case destination(Destination.Action)
         case editButtonTapped
-    }
-
-    @Feature
-    public enum Destination {
-        case editContributor(Spawn<EditContributor>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -121,22 +109,44 @@ public struct ContributorDetail {
             .where { $0.id.contributorID.eq(contributorID) }
     }
 
+    static func lineupStagesQuery(
+        contributorID: OMERecord.ID<OMERecord.Contributor>,
+        eventID: OMERecord.Event.ID
+    ) -> some SelectStatementOf<OMERecord.Stage> {
+        let contributorIDValue = contributorID.rawValue.rawValue
+        return OMERecord.Stage
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .where { _ in
+                #sql(
+                    """
+                    EXISTS (
+                      SELECT 1
+                      FROM json_each("stages"."lineup")
+                      WHERE json_each.value = \(bind: contributorIDValue)
+                    )
+                    """,
+                    as: Bool.self
+                )
+            }
+            .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
+    }
+
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .destination:
-                break
-
             case .editButtonTapped:
-                store.withDependencies {
-                    state.destination = .editContributor(
-                        Spawn(
-                            EditContributor.State(
-                                contributorID: state.contributorID,
-                                eventID: state.eventID
-                            )
+                let contributorID = state.contributorID
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editContributor(
+                            eventID: eventID,
+                            contributorID: contributorID
                         )
                     )
+                    await task?.value
                 }
             }
         }
@@ -154,9 +164,6 @@ public struct ContributorDetail {
                 } catch {
                 }
             }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
         }
     }
 }
@@ -186,11 +193,6 @@ public struct ContributorDetailView: View {
                     description: Text(verbatim: store.contributorID.rawValue.rawValue)
                 )
                 .navigationTitle("Contributor")
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).editContributor) { editStore in
-            NavigationStack {
-                EditContributorView(store: editStore)
             }
         }
     }

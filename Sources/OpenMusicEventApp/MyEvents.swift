@@ -9,7 +9,6 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
-import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventLexicon
@@ -392,9 +391,6 @@ struct MyEventsView: View {
         .sheet(item: $store.scope(\.destination, action: \.destination).sourceImport) { downloadStore in
             NavigationStack {
                 TangledSourceDownloadView(store: downloadStore)
-                    .openMusicEventAuthorizationDestination(
-                        store: downloadStore.scope(\.authorization, action: \.authorization)
-                    )
             }
         }
         .navigationDestination(item: $store.scope(\.organizerDetail, action: \.organizerDetail)) { detailStore in

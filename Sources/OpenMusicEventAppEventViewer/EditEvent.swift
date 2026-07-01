@@ -1,7 +1,6 @@
 import ComposableArchitecture2
 import Foundation
 import GRDB
-import OpenMusicEventAuthentication
 import OpenMusicEventSourceEditing
 import SourceEditing
 import SQLiteData
@@ -626,9 +625,6 @@ public struct SourceProposalComposerView: View {
                     .disabled(!store.canCreateSourceProposal)
                 }
             }
-            .openMusicEventAuthorizationDestination(
-                store: store.scope(\.authorization, action: \.authorization)
-            )
         }
     }
 }

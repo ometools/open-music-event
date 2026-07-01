@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventEditors
 import SQLiteData
 import SwiftUI
 
@@ -15,14 +16,9 @@ public struct LocationViewer {
     public struct State {
         public let eventID: OMERecord.Event.ID
         @FetchOne public var event: OMERecord.Event?
-        public var destination: Destination.State?
 
-        public init(
-            eventID: OMERecord.Event.ID,
-            destination: Destination.State? = nil
-        ) {
+        public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
-            self.destination = destination
             _event = FetchOne(
                 OMERecord.Event.where { $0.id.eq(eventID) }
             )
@@ -30,31 +26,22 @@ public struct LocationViewer {
     }
 
     public enum Action {
-        case destination(Destination.Action)
         case editButtonTapped
-    }
-
-    @Feature
-    public enum Destination {
-        case editLocation(Spawn<EditLocation>)
     }
 
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .destination:
-                break
-
             case .editButtonTapped:
-                store.withDependencies {
-                    state.destination = .editLocation(
-                        Spawn(EditLocation.State(eventID: state.eventID))
+                let eventID = state.eventID
+                store.addTask {
+                    let task = try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editLocation(eventID)
                     )
+                    await task?.value
                 }
             }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
         }
     }
 }
@@ -143,11 +130,6 @@ public struct LocationViewerView: View {
                         store.send(.editButtonTapped)
                     }
                 }
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).editLocation) { editStore in
-            NavigationStack {
-                EditLocationView(store: editStore)
             }
         }
     }

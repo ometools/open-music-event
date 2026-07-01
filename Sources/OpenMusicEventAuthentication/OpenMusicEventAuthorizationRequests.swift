@@ -8,6 +8,21 @@ private enum OpenMusicEventSignUpServerConfigurationKey: DependencyKey {
     static var liveValue: OAuthSignUpServerConfiguration {
         OpenMusicEventOAuth.signUpServerConfiguration
     }
+
+    static var testValue: OAuthSignUpServerConfiguration {
+        OAuthSignUpServerConfiguration(
+            defaultServerHost: "bsky.social",
+            options: [
+                OAuthSignUpServerOption(
+                    id: "bsky",
+                    title: "BlueSky",
+                    subtitle: "bsky.social",
+                    metadataSource: "test",
+                    availability: .available(serverHost: "bsky.social")
+                )
+            ]
+        )
+    }
 }
 
 public extension DependencyValues {

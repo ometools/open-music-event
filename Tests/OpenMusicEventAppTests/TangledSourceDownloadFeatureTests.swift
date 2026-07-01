@@ -1,5 +1,4 @@
 import ATProto
-import ATProtoOAuth
 import Clocks
 import ComposableArchitecture2
 import CustomDump
@@ -19,13 +18,15 @@ import OpenMusicEventSourceEditing
 import SourceControlClient
 import SourceEditing
 import SQLiteData
+import Synchronization
 import Testing
 import XRPCClient
 
+@testable import ATProtoOAuth
 @testable import OpenMusicEventApp
 
 @MainActor
-@Suite(.tcaExhaustivity(.off))
+@Suite(.tcaExhaustivity(.off), .dependencies { $0.defaultPort = 443 })
 struct TangledSourceDownloadFeatureTests {
     @Test
     func myEventsPresentsDownloadFeature() throws {
@@ -341,19 +342,18 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func importResumesAfterEmbeddedAuthSuccess() async throws {
+    func importResumesAfterAuthorizationRequestSuccess() async throws {
         let eventID = importedEventID()
         let result = try validationResult(eventID: eventID)
         let requirement = OpenMusicEventOAuth.tangledPublicKeyAuthRequirement
+        let authorizationCenter = AuthorizationRequestCenter()
 
         let store = withDependencies {
             $0.context = .test
-            $0[OAuth.Client.self] = successfulOAuthClient(
-                session: openMusicEventTestSession(permissions: requirement.permissions)
+            $0.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
+                center: authorizationCenter
             )
-            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
-            $0.oauthBrowserStrategy = .webAuthenticationSession
-            $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
+            $0.oauthAuthorizationBroker = authorizationCenter.broker
             $0.tangledSourceImport = TangledSourceImportClient { _ in
                 @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 try await authorizationBroker.authorize(requirement)
@@ -362,30 +362,25 @@ struct TangledSourceDownloadFeatureTests {
         } operation: {
             var initialState = TangledSourceDownload.State()
             initialState.repository = "https://tangled.org/woody.fm/shambhala-ome"
-            return TestStore(initialState: initialState) {
+            return Store(initialState: initialState) {
                 TangledSourceDownload()
             }
         }
 
-        let task = store.send(.importButtonTapped) {
-            $0.isImporting = true
-        }
-        await waitUntil { store.state.authorization.flow != nil }
-        #expect(store.state.authorization.flow?.requirement == requirement)
-
-        store.send(.authorization(.flow(.loginHintChanged("woody.fm"))))
-        let authTask = store.send(.authorization(.flow(.submit)))
-        await authTask?.value
+        let task = store.send(.importButtonTapped)
+        await fulfillAuthorizationRequest(
+            from: authorizationCenter,
+            requirement: requirement
+        )
         await task?.value
 
-        #expect(store.state.importedSummary == result.summary)
-        #expect(store.state.authorization.flow == nil)
-        #expect(store.state.errorMessage == nil)
+        #expect(store.importedSummary == result.summary)
+        #expect(store.errorMessage == nil)
         #expect(store.isPresented == false)
     }
 
     @Test
-    func importRequiredXRPCUsesEmbeddedAuthSession() async throws {
+    func importRequiredXRPCUsesAuthorizedSessionFromRequestCenter() async throws {
         OpenMusicEventOAuth.resetStoredSession()
         var session = OAuth.Session.placeholder
         session.scope = OAuth.Scope(
@@ -398,16 +393,25 @@ struct TangledSourceDownloadFeatureTests {
         let result = try validationResult(eventID: eventID)
         let requirement = OpenMusicEventOAuth.tangledPublicKeyAuthRequirement
         let recorder = ImportAuthorizationRecorder()
+        let authorizationCenter = AuthorizationRequestCenter()
+        let selectedSession = Mutex<OAuth.Session?>(nil)
 
         let store = withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 1_700_000_000))
-            $0[OAuth.Client.self] = successfulOAuthClient(session: session)
+            $0.getDefaultSession = {
+                selectedSession.withLock { $0 } ?? .placeholder
+            }
+            $0.getOptionalDefaultSession = {
+                selectedSession.withLock { $0 }
+            }
             $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
-            $0.oauthBrowserStrategy = .webAuthenticationSession
+            $0.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
+                center: authorizationCenter
+            )
+            $0.oauthAuthorizationBroker = authorizationCenter.broker
             $0.p256Sign = { _, _ in Data(repeating: 0xAB, count: 64) }
             $0.uuid = .constant(UUID(uuidString: "12345678-1234-1234-1234-123456789abc")!)
-            $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = .liveValue
             $0.xrpcAuthorizationGate = .defaultSessionAuthorization
@@ -426,23 +430,22 @@ struct TangledSourceDownloadFeatureTests {
         } operation: {
             var initialState = TangledSourceDownload.State()
             initialState.repository = "https://tangled.org/woody.fm/shambhala-ome"
-            return TestStore(initialState: initialState) {
+            return Store(initialState: initialState) {
                 TangledSourceDownload()
             }
         }
 
-        let task = store.send(.importButtonTapped) {
-            $0.isImporting = true
+        let task = store.send(.importButtonTapped)
+        await fulfillAuthorizationRequest(
+            from: authorizationCenter,
+            requirement: requirement
+        ) {
+            selectedSession.withLock { $0 = session }
         }
-        await waitUntil { store.state.authorization.flow != nil }
-        store.send(.authorization(.flow(.loginHintChanged("woody.fm"))))
-        let authTask = store.send(.authorization(.flow(.submit)))
-        await authTask?.value
         await task?.value
 
-        #expect(store.state.importedSummary == result.summary)
-        #expect(store.state.authorization.flow == nil)
-        #expect(store.state.errorMessage == nil)
+        #expect(store.importedSummary == result.summary)
+        #expect(store.errorMessage == nil)
         #expect(store.isPresented == false)
         #expect(await recorder.requestCount == 1)
         #expect(await recorder.lastAuthorizationHeader == "DPoP \(session.accessToken.rawValue)")
@@ -1377,83 +1380,21 @@ private func tangledSourceProvenance(
     )
 }
 
-private let testCallbackURL = OAuth.App.CallbackURI(
-    URL(string: "app.openmusicevent:/oauth/callback?code=test-code&state=test-nonce&iss=https://bsky.social")!
-)
-
-private func successfulOAuthClient(session: OAuth.Session) -> OAuth.Client {
-    var client = OAuth.Client()
-    client.beginAuthorizationWithPermissions = { _, _ in
-        (
-            URL(string: "https://bsky.social/oauth/authorize")!,
-            try testPendingSession()
-        )
-    }
-    client.exchangeCode = { _, _, _, _ in
-        session
-    }
-    return client
-}
-
-private func openMusicEventTestSession(
-    permissions: Set<OAuth.Permission>
-) -> OAuth.Session {
-    var session = OAuth.Session.placeholder
-    var granted = Set([OAuth.Permission.atproto])
-    granted.formUnion(permissions)
-    session.scope = OAuth.Scope(
-        rawValue: granted
-            .map(\.rawValue)
-            .sorted()
-            .joined(separator: " ")
-    )
-    return session
-}
-
-private func testPendingSession() throws -> OAuth.Session.Pending {
-    let metadata = try JSONDecoder().decode(
-        OAuth.AuthorizationServer.Metadata.self,
-        from: Data("""
-        {
-            "issuer": "https://bsky.social",
-            "authorization_endpoint": "https://bsky.social/oauth/authorize",
-            "token_endpoint": "https://bsky.social/oauth/token",
-            "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
-            "code_challenge_methods_supported": ["S256"],
-            "token_endpoint_auth_methods_supported": ["none"],
-            "token_endpoint_auth_signing_alg_values_supported": ["ES256"],
-            "scopes_supported": ["atproto"],
-            "authorization_response_iss_parameter_supported": true,
-            "require_pushed_authorization_requests": true,
-            "pushed_authorization_request_endpoint": "https://bsky.social/oauth/par",
-            "dpop_signing_alg_values_supported": ["ES256"],
-            "require_request_uri_registration": true,
-            "client_id_metadata_document_supported": true
-        }
-        """.utf8)
-    )
-    return OAuth.Session.Pending(
-        pkceChallenge: OAuth.PKCE.Challenge(verifier: OAuth.PKCE.CodeVerifier("test-verifier")),
-        state: OAuth.Nonce(rawValue: "test-nonce"),
-        redirectURI: OAuth.App.RedirectURI(OpenMusicEventOAuth.redirectURL),
-        authServer: metadata,
-        accountID: OAuth.Session.placeholder.accountID,
-        pdsHost: .init("placeholder.example"),
-        dpopKey: OAuth.DPOP.Key()
-    )
-}
-
 @MainActor
-private func waitUntil(
-    _ condition: @escaping @MainActor () -> Bool,
+private func fulfillAuthorizationRequest(
+    from authorizationCenter: AuthorizationRequestCenter,
+    requirement: OAuth.AuthRequirement,
+    beforeSucceed: () -> Void = {},
     sourceLocation: SourceLocation = #_sourceLocation
 ) async {
-    for _ in 0..<100 {
-        if condition() { return }
-        await Task.yield()
+    let requests = await authorizationCenter.requests()
+    for await request in requests {
+        guard let request else { continue }
+        #expect(request.requirement == requirement, sourceLocation: sourceLocation)
+        beforeSucceed()
+        await authorizationCenter.succeed()
+        break
     }
-    Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
 }
 
 private func localID<Record>(_ string: String) -> OMERecord.ID<Record> {

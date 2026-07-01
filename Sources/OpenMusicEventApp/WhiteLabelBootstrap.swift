@@ -50,7 +50,7 @@ public struct WhiteLabelBootstrap {
     @Dependency(\.whiteLabelSourceRegistry) var sourceRegistry
 
     public var body: some Feature {
-        let _ = Self._logChanges()
+//        let _ = Self._logChanges()
 
         Update { state, action in
             switch action {
