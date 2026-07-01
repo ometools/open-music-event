@@ -973,6 +973,31 @@ struct NavigationTests {
     }
 
     @Test
+    func eventViewerInjectsEventInfoEditingFromAboutDescendant() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-info-edit-intent")
+        let store = try makeEventViewerHarnessStore(eventID: eventID, database: database)
+
+        await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            await store.send(
+                to: \EventViewerHarness.State.eventInfoViewer,
+                EventInfoViewer.Action.editButtonTapped
+            )?.value
+        }
+        await Task.yield()
+
+        #expect(store.state.eventViewer.selectedFeature == .about)
+        #expect(
+            store.state.eventViewer.eventInfoViewer?.destination?.editEventInfo?.eventID
+                == eventID
+        )
+    }
+
+    @Test
     func eventViewerIgnoresSourceRefreshForDifferentEvent() async throws {
         let database = try makePreparedDatabase()
         let viewerEventID = eventID("viewer-refresh-event")

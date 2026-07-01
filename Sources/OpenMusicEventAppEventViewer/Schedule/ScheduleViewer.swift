@@ -2,6 +2,7 @@ import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventViewers
 import ScheduleComponents
 import Sharing
 import SQLiteData
@@ -12,41 +13,7 @@ import Tagged
 public struct ScheduleViewer {
     public init() {}
 
-    public struct ScheduleDivision: Hashable, Identifiable, Sendable {
-        public init(category: OMERecord.Stage.Category?) {
-            self.category = category
-        }
-
-        public var category: OMERecord.Stage.Category?
-        public var id: String { category?.rawValue ?? "schedule" }
-
-        public static let schedule = Self(category: nil)
-
-        var systemImage: String {
-            switch category?.rawValue {
-            case nil:
-                return "calendar"
-            case "workshop":
-                return "figure.mind.and.body"
-            case "discussions":
-                return "bubble.left.and.bubble.right"
-            default:
-                return "square.grid.2x2"
-            }
-        }
-
-        var title: String {
-            switch category?.rawValue {
-            case nil:
-                return "Schedule"
-            case "workshop":
-                return "Workshops"
-            default:
-                return category?.rawValue.scheduleDivisionTitle ?? "Schedule"
-            }
-        }
-
-    }
+    public typealias ScheduleDivision = OpenMusicEventViewers.ScheduleDivision
 
     public enum ScheduleMode: String, CaseIterable, Hashable, Sendable {
         case singleStageAtOnce

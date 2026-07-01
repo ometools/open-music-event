@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import Lexicon
+import OpenMusicEventEditors
 import OpenMusicEventImages
 import SQLiteData
 import SwiftUI
@@ -62,9 +63,11 @@ public struct EventInfoViewer {
                 }
 
             case .editButtonTapped:
-                store.withDependencies {
-                    state.destination = .editEventInfo(
-                        Spawn(EditEventInfo.State(eventID: state.eventID))
+                let eventID = state.eventID
+                store.addTask {
+                    try store.post(
+                        key: EventEditingRequested.self,
+                        value: .editEventInfo(eventID)
                     )
                 }
             }

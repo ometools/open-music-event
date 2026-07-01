@@ -146,6 +146,7 @@ let package = Package(
             name: "OpenMusicEventViewers",
             dependencies: [
                 "OpenMusicEventLexicon",
+                "SwiftUITabFeatures",
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
             ]
         ),
@@ -395,6 +396,18 @@ let package = Package(
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
                 .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventEditorsTests",
+            dependencies: [
+                "OpenMusicEventEditors",
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventViewersTests",
+            dependencies: [
+                "OpenMusicEventViewers",
             ]
         ),
         .testTarget(
