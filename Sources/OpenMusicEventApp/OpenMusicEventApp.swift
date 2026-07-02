@@ -92,18 +92,31 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 ///
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
 /* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
-    @State var store: StoreOf<OpenMusicEventAppRoot>
-
-    /* SKIP @bridge */public init() {
-        self.init(variant: .generic)
+    @MainActor
+    private static let genericStore = StoreOf<OpenMusicEventAppRoot>(
+        initialState: .init(variant: .generic)
+    ) {
+        OpenMusicEventAppRoot()
     }
 
+    let store: StoreOf<OpenMusicEventAppRoot>
+
+    /* SKIP @bridge */public init() {
+        self.store = Self.genericStore
+    }
+
+    @MainActor
+    public init(store: StoreOf<OpenMusicEventAppRoot>) {
+        self.store = store
+    }
+
+    @MainActor
     public init(variant: OpenMusicEventAppVariant) {
-        _store = State(initialValue: StoreOf<OpenMusicEventAppRoot>(
+        self.store = StoreOf<OpenMusicEventAppRoot>(
             initialState: .init(variant: variant)
         ) {
             OpenMusicEventAppRoot()
-        })
+        }
     }
 
     public var body: some View {
