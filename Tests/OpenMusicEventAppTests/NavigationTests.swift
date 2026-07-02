@@ -2981,44 +2981,48 @@ struct NavigationTests {
             try Self.insertContributor(db, eventID: eventID, contributorID: "[IVY]", name: "IVY")
         }
 
-        @Bindable var store = withDependencies {
+        try await withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            Store(initialState: EventViewer.State(eventID: eventID)) {
-                EventViewer()
+            @Bindable var store = Store(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
             }
+            await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
+            @Bindable var eventViewerStore = try #require(store.spawn(\.eventViewer))
+            @Bindable var contributorsStore = try #require(
+                eventViewerStore.spawn(\.contributorsViewer)
+            )
+            await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
+            let detailStore = try #require(
+                $contributorsStore
+                    .scope(\.destination, action: \.destination)
+                    .contributorDetail
+                    .wrappedValue
+            )
+
+            await detailStore.send(.editButtonTapped)?.value
+            await waitUntil {
+                eventViewerStore.destination?.contributorForm?.hasLoadedDraft == true
+            }
+
+            let editContributor = try #require(
+                $eventViewerStore
+                    .scope(\.destination, action: \.destination)
+                    .contributorForm
+                    .wrappedValue
+            )
+
+            #expect(editContributor.hasLoadedDraft)
+            #expect(editContributor.form.value.name == "IVY")
+            #expect(editContributor.mode.contributorID == contributorID)
         }
-        @Bindable var contributorsStore = try #require(store.spawn(\.contributorsViewer))
-        await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
-        let detailStore = try #require(
-            $contributorsStore
-                .scope(\.destination, action: \.destination)
-                .contributorDetail
-                .wrappedValue
-        )
-
-        await detailStore.send(.editButtonTapped)?.value
-        await waitUntil {
-            store.destination?.contributorForm?.hasLoadedDraft == true
-        }
-
-        let editContributor = try #require(
-            $store
-                .scope(\.destination, action: \.destination)
-                .contributorForm
-                .wrappedValue
-        )
-
-        #expect(editContributor.hasLoadedDraft)
-        #expect(editContributor.form.value.name == "IVY")
-        #expect(editContributor.mode.contributorID == contributorID)
     }
 
     @Test
-    func eventViewerContributorFormProjectedStoreRoutesChildActions() async throws {
+    func eventViewerContributorFormDestinationStoreRoutesChildActions() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let contributorID = contributorLocalID("artist-1")
@@ -3053,12 +3057,15 @@ struct NavigationTests {
                 EventViewer()
             }
         }
-        let editContributorStore = try #require(
-            $store
-                .scope(\.destination, action: \.destination)
-                .contributorForm
-                .wrappedValue
-        )
+        let destinationStore = try #require(store.scope(\.destination, action: \.destination))
+        let editContributorStore: StoreOf<EditContributor>
+        switch EventViewer.Destination.switch(store: destinationStore) {
+        case let .contributorForm(store):
+            editContributorStore = store
+        default:
+            Issue.record("Expected contributor form destination")
+            return
+        }
 
         #expect(editContributorStore.form.value.links.isEmpty)
 
@@ -3069,7 +3076,7 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerEditContributorActionSpawnsEditorAndLoadsDraft() async throws {
+    func eventViewerEditContributorEventSpawnsEditorAndLoadsDraft() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let contributorID = contributorLocalID("artist-1")
@@ -3079,36 +3086,44 @@ struct NavigationTests {
             try Self.insertContributor(db, eventID: eventID, contributorID: "artist-1", name: "Artist One")
         }
 
-        @Bindable var store = withDependencies {
+        try await withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            Store(initialState: EventViewer.State(eventID: eventID)) {
-                EventViewer()
+            @Bindable var store = Store(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
             }
-        }
-
-        await store.send(
-            .eventEditingRequested(
-                .editContributor(
-                    eventID: eventID,
-                    contributorID: contributorID
-                )
+            await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
+            @Bindable var eventViewerStore = try #require(store.spawn(\.eventViewer))
+            @Bindable var contributorsStore = try #require(
+                eventViewerStore.spawn(\.contributorsViewer)
             )
-        )?.value
+            await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
+            let detailStore = try #require(
+                $contributorsStore
+                    .scope(\.destination, action: \.destination)
+                    .contributorDetail
+                    .wrappedValue
+            )
 
-        let editContributor = try #require(
-            $store
-                .scope(\.destination, action: \.destination)
-                .contributorForm
-                .wrappedValue
-        )
+            await detailStore.send(.editButtonTapped)?.value
+            await waitUntil {
+                eventViewerStore.destination?.contributorForm?.hasLoadedDraft == true
+            }
 
-        #expect(editContributor.hasLoadedDraft)
-        #expect(editContributor.form.value.name == "Artist One")
-        #expect(editContributor.mode.contributorID == contributorID)
+            let editContributor = try #require(
+                $eventViewerStore
+                    .scope(\.destination, action: \.destination)
+                    .contributorForm
+                    .wrappedValue
+            )
+
+            #expect(editContributor.hasLoadedDraft)
+            #expect(editContributor.form.value.name == "Artist One")
+            #expect(editContributor.mode.contributorID == contributorID)
+        }
     }
 
     @Test
@@ -3129,42 +3144,44 @@ struct NavigationTests {
             )
         }
 
-        @Bindable var store = withDependencies {
+        try await withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            Store(initialState: EventViewer.State(eventID: eventID)) {
-                EventViewer()
+            @Bindable var store = Store(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
             }
+            await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
+            @Bindable var eventViewerStore = try #require(store.spawn(\.eventViewer))
+            @Bindable var stagesStore = try #require(eventViewerStore.spawn(\.stagesViewer))
+            await stagesStore.send(.stageButtonTapped(stageID))?.value
+            let detailStore = try #require(
+                $stagesStore
+                    .scope(\.destination, action: \.destination)
+                    .stageDetail
+                    .wrappedValue
+            )
+
+            await detailStore.send(.editButtonTapped)?.value
+            await waitUntil {
+                eventViewerStore.destination?.stageForm?.hasLoadedDraft == true
+            }
+
+            let editStage = try #require(
+                $eventViewerStore
+                    .scope(\.destination, action: \.destination)
+                    .stageForm
+                    .wrappedValue
+            )
+
+            #expect(editStage.hasLoadedDraft)
+            #expect(editStage.form.value.name == "Meadow")
+            #expect(editStage.form.value.category == "main")
+            #expect(editStage.form.value.sortIndex == "2")
+            #expect(editStage.mode.stageID == stageID)
         }
-        @Bindable var stagesStore = try #require(store.spawn(\.stagesViewer))
-        await stagesStore.send(.stageButtonTapped(stageID))?.value
-        let detailStore = try #require(
-            $stagesStore
-                .scope(\.destination, action: \.destination)
-                .stageDetail
-                .wrappedValue
-        )
-
-        await detailStore.send(.editButtonTapped)?.value
-        await waitUntil {
-            store.destination?.stageForm?.hasLoadedDraft == true
-        }
-
-        let editStage = try #require(
-            $store
-                .scope(\.destination, action: \.destination)
-                .stageForm
-                .wrappedValue
-        )
-
-        #expect(editStage.hasLoadedDraft)
-        #expect(editStage.form.value.name == "Meadow")
-        #expect(editStage.form.value.category == "main")
-        #expect(editStage.form.value.sortIndex == "2")
-        #expect(editStage.mode.stageID == stageID)
     }
 
     @Test

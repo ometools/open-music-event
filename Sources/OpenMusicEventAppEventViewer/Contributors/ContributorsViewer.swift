@@ -611,6 +611,7 @@ public struct EditContributor {
     }
 
     public enum Action {
+        case onAppear
         case addLinkButtonTapped
         case actorIdentityTapped(ActorIdentity)
         case actorSearchSubmitted
@@ -633,7 +634,7 @@ public struct EditContributor {
     @StoreTaskID var actorSearchTask
 
     public var body: some Feature {
-//        let _ = Self._logChanges()
+        let _ = Self._logChanges()
         Scope(\.form, action: \.form) {
             FormFeature()
                 .onSubmit { value in
@@ -784,6 +785,30 @@ public struct EditContributor {
                 state.isSaving = false
                 store.addTask {
                     _ = try? store.dismiss()
+                }
+            case .onAppear:
+                guard !state.hasLoadedDraft else { return }
+
+                guard let contributorID = state.mode.contributorID else {
+                    state.hasLoadedDraft = true
+                    state.errorMessage = nil
+                    return
+                }
+
+                do {
+                    if let contributor = try database.read({ db in
+                        try ContributorDetail.contributorQuery(
+                            contributorID: contributorID,
+                            eventID: state.eventID
+                        )
+                        .fetchOne(db)
+                    }) {
+                        state.load(contributor)
+                    } else {
+                        state.errorMessage = "This contributor could not be loaded."
+                    }
+                } catch {
+                    state.errorMessage = "This contributor could not be loaded."
                 }
             }
         }
@@ -972,6 +997,9 @@ public struct EditContributorView: View {
             }
         }
         .disabled(store.isSaving)
+        .onAppear {
+            store.send(.onAppear)
+        }
         .onChange(of: focusedField) { _, focusedField in
             if store.form.focusedField != focusedField {
                 $store.form.focusedField.wrappedValue = focusedField

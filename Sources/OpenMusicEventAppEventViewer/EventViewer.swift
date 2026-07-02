@@ -552,7 +552,6 @@ public struct EventViewer {
     public enum Action {
         case closeButtonTapped
         case destination(Destination.Action)
-        case eventEditingRequested(EventEditingIntent)
         case eventSearch(EventSearch.Action)
     }
 
@@ -582,9 +581,6 @@ public struct EventViewer {
             case .destination:
                 break
 
-            case let .eventEditingRequested(intent):
-                state.handleEditingIntent(intent)
-
             case .eventSearch:
                 break
             }
@@ -593,10 +589,9 @@ public struct EventViewer {
             guard case let .event(eventID, target) = request, eventID == state.eventID else { return }
             state.navigate(to: target)
         }
-        .onEvent(EventEditingRequested.self) { intent, _ in
-            store.addTask {
-                let task = try store.send(.eventEditingRequested(intent))
-                await task?.value
+        .onEvent(EventEditingRequested.self) { intent, state in
+            store.withDependencies {
+                state.handleEditingIntent(intent)
             }
         }
         .onEvent(SourceDataRefreshRequested.self) { request, state in
@@ -710,9 +705,11 @@ public struct EventViewerView: View {
 
     public var body: some View {
         tabContent
-            .sheet(item: $store.scope(\.destination, action: \.destination)) { destinationStore in
-                NavigationStack {
-                    destinationContent(destinationStore)
+            .sheet(item: $store.scope(\.destination, action: \.destination)) { _ in
+                if let destinationStore = store.scope(\.destination, action: \.destination) {
+                    NavigationStack {
+                        destinationContent(EventViewer.Destination.switch(store: destinationStore))
+                    }
                 }
             }
     }
