@@ -4340,6 +4340,75 @@ struct NavigationTests {
     }
 
     @Test
+    func launchEventViewerContributorEditDestinationSpawnsEditorAndLoadsDraft() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("wicked-woods-ome-2025")
+        let contributorID = contributorLocalID("[IVY]")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Wicked Woods")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "[IVY]", name: "IVY")
+            try AppState.update {
+                $0.organizerID = #bind(eventID.organizerID)
+                $0.eventID = #bind(eventID.eventID)
+            }
+            .execute(db)
+        }
+
+        try await withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            @Bindable var store = Store(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
+            }
+            await waitUntil {
+                store.launchEventViewer != nil
+            }
+
+            @Bindable var eventViewerStore = try #require(store.spawn(\.launchEventViewer))
+            @Bindable var contributorsStore = try #require(
+                eventViewerStore.spawn(\.contributorsViewer)
+            )
+            await contributorsStore.send(.contributorButtonTapped(contributorID))?.value
+            let detailStore = try #require(
+                $contributorsStore
+                    .scope(\.destination, action: \.destination)
+                    .contributorDetail
+                    .wrappedValue
+            )
+
+            await detailStore.send(.editButtonTapped)?.value
+            await waitUntil {
+                eventViewerStore.destination?.contributorForm?.hasLoadedDraft == true
+            }
+
+            let editContributor = try #require(
+                $eventViewerStore
+                    .scope(\.destination, action: \.destination)
+                    .contributorForm
+                    .wrappedValue
+            )
+
+            #expect(editContributor.isPresented)
+            #expect(editContributor.form.value.links.isEmpty)
+            let addLinkTask = editContributor.send(.addLinkButtonTapped)
+            #expect(addLinkTask != nil)
+            await addLinkTask?.value
+            #expect(editContributor.form.value.links.count == 1)
+            #expect(eventViewerStore.destination?.contributorForm?.form.value.links.count == 1)
+
+            await editContributor.send(.onAppear)?.value
+
+            #expect(editContributor.hasLoadedDraft)
+            #expect(editContributor.form.value.name == "IVY")
+            #expect(editContributor.mode.contributorID == contributorID)
+        }
+    }
+
+    @Test
     func modalEventViewerDismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
