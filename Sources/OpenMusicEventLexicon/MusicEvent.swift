@@ -108,28 +108,28 @@ extension OpenMusicEvent {
 
         public var mode: Open<Mode>?
 
-        @Column(as: [Location].JSONRepresentation?.self)
-        public var locations: [Location]?
+        @Column(as: [OpenMusicEvent.Event.Location].JSONRepresentation?.self)
+        public var locations: [OpenMusicEvent.Event.Location]?
 
-        @Column(as: [EventURI].JSONRepresentation?.self)
-        public var uris: [EventURI]?
+        @Column(as: [OpenMusicEvent.Event.EventURI].JSONRepresentation?.self)
+        public var uris: [OpenMusicEvent.Event.EventURI]?
 
         // ome-specific
         public var timeZone: TimeZone
         @Column(as: [OpenMusicEvent.ImageAsset].JSONRepresentation?.self)
         public var images: [OpenMusicEvent.ImageAsset]?
 
-        @Column(as: [ContactNumber].JSONRepresentation?.self)
-        public var contactNumbers: [ContactNumber]?
+        @Column(as: [OpenMusicEvent.Event.ContactNumber].JSONRepresentation?.self)
+        public var contactNumbers: [OpenMusicEvent.Event.ContactNumber]?
 
-        @Column(as: CategoryConfigs.JSONRepresentation?.self)
-        public var categoryConfigs: CategoryConfigs?
+        @Column(as: OpenMusicEvent.Event.CategoryConfigs.JSONRepresentation?.self)
+        public var categoryConfigs: OpenMusicEvent.Event.CategoryConfigs?
 
-        @Column(as: Policies.JSONRepresentation?.self)
-        public var policies: Policies?
+        @Column(as: OpenMusicEvent.Event.Policies.JSONRepresentation?.self)
+        public var policies: OpenMusicEvent.Event.Policies?
 
-        @Column(as: ReportingLink.JSONRepresentation?.self)
-        public var reportingLink: ReportingLink?
+        @Column(as: OpenMusicEvent.Event.ReportingLink.JSONRepresentation?.self)
+        public var reportingLink: OpenMusicEvent.Event.ReportingLink?
 
         public var owner: OME.Contributor.Actor?
     }
