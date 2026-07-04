@@ -3076,6 +3076,111 @@ struct NavigationTests {
     }
 
     @Test
+    func eventViewerReportingLinkEditorUsesDefaultDatabaseWithSourceEditingSession() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+        }
+
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "EventViewerReportingLink-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let workingDatabasePath = temporaryDirectory
+            .appending(path: "working.sqlite")
+            .path()
+        let baselineDatabasePath = temporaryDirectory
+            .appending(path: "baseline.sqlite")
+            .path()
+        let workingDatabase = try DatabasePool(path: workingDatabasePath)
+        let baselineDatabase = try DatabasePool(path: baselineDatabasePath)
+        var migrator = DatabaseMigrator()
+        OMERecord.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(workingDatabase)
+        try migrator.migrate(baselineDatabase)
+        try await workingDatabase.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Working Event")
+        }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: workingDatabasePath,
+            baselineDatabasePath: baselineDatabasePath
+        )
+
+        var state = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            EventViewer.State(eventID: eventID)
+        }
+        state.sourceEditingSession = sourceEditingSession
+        state.handleEditingIntent(.editReportingLink(eventID))
+
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: state) {
+                EventViewer()
+            }
+        }
+
+        let destinationStore = try #require(store.scope(\.destination, action: \.destination))
+        let reportingLinkStore: StoreOf<EditReportingLink>
+        switch EventViewer.Destination.switch(store: destinationStore) {
+        case let .reportingLinkForm(store):
+            reportingLinkStore = store
+        default:
+            Issue.record("Expected reporting link form destination")
+            return
+        }
+
+        await waitUntil {
+            reportingLinkStore.hasLoadedDraft
+        }
+        @Bindable var editableReportingLinkStore = reportingLinkStore
+        $editableReportingLinkStore.isEnabled.wrappedValue = true
+        $editableReportingLinkStore.name.wrappedValue = "Report an Incident"
+        $editableReportingLinkStore.urlString.wrappedValue = "https://example.org/report"
+        $editableReportingLinkStore.description.wrappedValue = "Event support form."
+
+        await editableReportingLinkStore.send(.saveButtonTapped)?.value
+
+        let expectedReportingLink = OMERecord.Event.ReportingLink(
+            name: "Report an Incident",
+            url: try #require(URL(string: "https://example.org/report")),
+            description: "Event support form."
+        )
+        let savedReportingLink = try await database.read { db in
+            try #require(
+                try OMERecord.Event
+                    .where { $0.id.eq(eventID) }
+                    .fetchOne(db)?
+                    .reportingLink
+            )
+        }
+        let workingReportingLink = try await sourceEditingSession.database.read { db in
+            try OMERecord.Event
+                .where { $0.id.eq(eventID) }
+                .fetchOne(db)?
+                .reportingLink
+        }
+
+        expectNoDifference(savedReportingLink, expectedReportingLink)
+        #expect(workingReportingLink == nil)
+    }
+
+    @Test
     func eventViewerEditContributorEventSpawnsEditorAndLoadsDraft() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

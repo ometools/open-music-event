@@ -99,10 +99,7 @@ public struct EventViewer {
             features: [EventFeature]
         ) {
             let sourceEditingSession = try? SourceEditingSession.openMusicEvent(eventID: eventID)
-            let eventTimeZone = Self.eventTimeZone(
-                eventID: eventID,
-                sourceEditingSession: sourceEditingSession
-            )
+            let eventTimeZone = Self.eventTimeZone(eventID: eventID)
 
             self.eventID = eventID
             self.eventTimeZone = eventTimeZone
@@ -174,10 +171,7 @@ public struct EventViewer {
         mutating func reloadAfterSourceDataRefresh() {
             let selectedFeature = self.selectedFeature
             self.sourceEditingSession = try? SourceEditingSession.openMusicEvent(eventID: eventID)
-            self.eventTimeZone = Self.eventTimeZone(
-                eventID: eventID,
-                sourceEditingSession: sourceEditingSession
-            )
+            self.eventTimeZone = Self.eventTimeZone(eventID: eventID)
             let features = withEventDependencies {
                 EventFeature.features(eventID: eventID)
             }
@@ -523,23 +517,16 @@ public struct EventViewer {
             return withDependencies {
                 $0.defaultEventID = eventID
                 $0.defaultEventTimeZone = eventTimeZone
-                if let sourceEditingSession {
-                    $0.defaultDatabase = sourceEditingSession.database
-                    $0.sourceEditingSession = sourceEditingSession
-                }
+                $0.sourceEditingSession = sourceEditingSession
             } operation: {
                 operation()
             }
         }
 
-        private static func eventTimeZone(
-            eventID: OMERecord.Event.ID,
-            sourceEditingSession: SourceEditingSession?
-        ) -> TimeZone {
+        private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {
             @Dependency(\.defaultDatabase) var database
-            let activeDatabase = sourceEditingSession?.database ?? database
             return (
-                try? activeDatabase.read { db in
+                try? database.read { db in
                     try OMERecord.Event
                         .where { $0.id.eq(eventID) }
                         .fetchOne(db)?
@@ -653,12 +640,10 @@ public struct EventViewer {
                 .dependency(\.defaultEventID, store.eventID)
                 .dependency(\.defaultEventTimeZone, store.eventTimeZone)
                 .dependency(\.sourceEditingSession, store.sourceEditingSession)
-                .dependency(\.defaultDatabase, store.sourceEditingSession?.database ?? database)
         }
         .dependency(\.defaultEventID, store.eventID)
         .dependency(\.defaultEventTimeZone, store.eventTimeZone)
         .dependency(\.sourceEditingSession, store.sourceEditingSession)
-        .dependency(\.defaultDatabase, store.sourceEditingSession?.database ?? database)
     }
 }
 
