@@ -50,7 +50,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
         .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
-        .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["Tagged" /*"LazyInitializationByDefault"*/]),
+        .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged" /*"LazyInitializationByDefault"*/]),
         .package(url: "https://github.com/pointfreeco/TCA26", branch: "main", traits: ["Dependencies"]),
 
 
