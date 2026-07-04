@@ -145,7 +145,7 @@ public struct ContributorProfile: Identifiable, Sendable {
     }
 
     private var actorAvatarAsset: OMERecord.ImageAsset? {
-        guard usesActorProfileAsPrimary, let actorProfileAvatar else {
+        guard let actorProfileAvatar else {
             return nil
         }
 

@@ -2,6 +2,7 @@ import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
 import OpenMusicEventViewers
@@ -273,24 +274,51 @@ public struct ScheduleViewer {
         timeZone: TimeZone,
         policy: DateTimeRangeResolutionPolicy = .default
     ) -> String {
-        "\(performanceRowTimeRange(for: performance, timeZone: timeZone)) \(daySegment(for: performance.startTime, timeZone: timeZone, policy: policy))"
+        """
+        \(performanceRowTimeRange(for: performance, timeZone: timeZone))
+        \(daySegment(for: performance.startTime, timeZone: timeZone, policy: policy))
+        """
     }
 
-    private static func performanceRowTimeRange(
+     static func performanceRowTimeRange(
         for performance: OMERecord.Performance,
         timeZone: TimeZone
     ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "h:mm a"
-        return "\(formatter.string(from: performance.startTime)) - \(formatter.string(from: performance.endTime))"
+        formattedTimeRange(
+            start: performance.startTime,
+            end: performance.endTime,
+            timeZone: timeZone
+        )
     }
 
-    private static func daySegment(
+    static func formattedTimeRange(
+        start: Date,
+        end: Date,
+        timeZone: TimeZone
+    ) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let startMeridiem = calendar.component(.hour, from: start) < 12 ? "AM" : "PM"
+        let endMeridiem = calendar.component(.hour, from: end) < 12 ? "AM" : "PM"
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        timeFormatter.timeZone = timeZone
+        timeFormatter.dateFormat = startMeridiem == endMeridiem ? "h:mm" : "h:mm a"
+
+        let endFormatter = DateFormatter()
+        endFormatter.locale = Locale(identifier: "en_US_POSIX")
+        endFormatter.timeZone = timeZone
+        endFormatter.dateFormat = "h:mm a"
+
+        return "\(timeFormatter.string(from: start)) - \(endFormatter.string(from: end))"
+            .lowercased()
+    }
+
+     static func daySegment(
         for date: Date,
         timeZone: TimeZone,
-        policy: DateTimeRangeResolutionPolicy
+        policy: DateTimeRangeResolutionPolicy = .default
     ) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -841,12 +869,23 @@ public struct PerformanceDetailView: View {
                     PerformanceSummaryRow(
                         performance: performance,
                         stage: store.stage,
-                        contributors: store.contributors
+                        contributors: store.contributors,
+                        timeZone: store.timeZone
                     )
+                    
 
                     if let description = performance.displayDescription {
                         Section("About") {
                             Text(description)
+                        }
+
+                    }
+
+                    if !performance.recordings.isEmpty {
+                        Section("Recordings") {
+                            ForEach(Array(performance.recordings.enumerated()), id: \.offset) { _, recording in
+                                PerformanceRecordingRow(recording: recording)
+                            }
                         }
                     }
 
@@ -858,13 +897,7 @@ public struct PerformanceDetailView: View {
                         }
                     }
 
-                    if !performance.recordings.isEmpty {
-                        Section("Recordings") {
-                            ForEach(Array(performance.recordings.enumerated()), id: \.offset) { _, recording in
-                                PerformanceRecordingRow(recording: recording)
-                            }
-                        }
-                    }
+
                 }
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
@@ -895,7 +928,6 @@ struct PerformanceHeroView: View {
 
     var body: some View {
         let summary = PerformanceDetailSummary(
-            performance: performance,
             stage: stage,
             contributors: contributors
         )
@@ -910,56 +942,80 @@ struct PerformanceHeroView: View {
                 performance: performance,
                 stage: stage
             )
-        } overlay: {
-            PerformanceArtistBubbleView(
-                contributor: summary.featuredContributor,
-                fallbackTitle: summary.featuredContributor?.name ?? summary.artistSummary,
-                tint: summary.tint
-            )
-            .frame(width: 118, height: 118)
         }
     }
 }
 
 struct PerformanceSummaryRow: View {
+    @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage?
     let contributors: [ContributorProfile]
+    let timeZone: TimeZone
 
     var body: some View {
         let summary = PerformanceDetailSummary(
-            performance: performance,
             stage: stage,
             contributors: contributors
         )
 
-        HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(summary.tint)
-                .frame(width: 5, height: 54)
+        VStack(alignment: .center, spacing: 10) {
+            HStack(alignment: .center, spacing: 4) {
+                PerformanceContextIdentity(
+                    title: summary.artistSummary,
+                    content: .contributor(
+                        summary.featuredContributor,
+                        fallbackTitle: summary.featuredContributor?.name ?? summary.artistSummary
+                    ),
+                    tint: summary.tint,
+                    placement: .leading
+                )
+                .frame(alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(summary.artistSummary)
-                    .font(.headline)
-                    .lineLimit(1)
-                    #if os(iOS)
-                    .minimumScaleFactor(0.74)
-                    #endif
+                    VStack(spacing: 2) {
+                        Text(
+                            ScheduleViewer.performanceRowTimeRange(for: performance, timeZone: timeZone)
+                        )
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        #if os(iOS)
+                        .minimumScaleFactor(0.55)
+                        #endif
 
-                Text(summary.stageAndTimeSummary)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                        Text(
+                            ScheduleViewer.daySegment(
+                                for: performance.startTime,
+                                timeZone: timeZone,
+                                policy: dateTimeRangeResolutionPolicy
+                            )
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .layoutPriority(1)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+                PerformanceContextIdentity(
+                    title: summary.stageTitle,
+                    content: .stage(stage),
+                    tint: summary.tint,
+                    placement: .trailing
+                )
+                .frame(alignment: .trailing)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
 struct PerformanceDetailSummary {
-    let performance: OMERecord.Performance
     let stage: OMERecord.Stage?
     let contributors: [ContributorProfile]
 
@@ -968,7 +1024,13 @@ struct PerformanceDetailSummary {
     }
 
     var featuredContributor: ContributorProfile? {
-        contributors.first { $0.artworkAsset != nil } ?? contributors.first
+        contributors.first { $0.logoAsset != nil }
+            ?? contributors.first { $0.artworkAsset != nil }
+            ?? contributors.first
+    }
+
+    var stageTitle: String {
+        stage?.name ?? "Stage TBA"
     }
 
     var artistSummary: String {
@@ -983,9 +1045,171 @@ struct PerformanceDetailSummary {
             return "\(contributors[0].name) + \(contributors.count - 1) more"
         }
     }
+}
 
-    var stageAndTimeSummary: String {
-        "\(stage?.name ?? "Stage TBA") / \(performance.timeRangeText)"
+struct PerformanceContextIdentity: View {
+    static let bubbleSize: CGFloat = 70
+    static let itemWidth: CGFloat = 96
+    static let labelHeight: CGFloat = 36
+
+    enum Content {
+        case contributor(ContributorProfile?, fallbackTitle: String)
+        case stage(OMERecord.Stage?)
+    }
+
+    enum Placement {
+        case leading
+        case trailing
+    }
+
+    let title: String
+    let content: Content
+    let tint: Color
+    let placement: Placement
+
+    var body: some View {
+        VStack(spacing: 4) {
+            bubbleSlot
+            titleLabel
+        }
+        .frame(width: Self.itemWidth)
+        .frame(alignment: frameAlignment)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    var bubbleSlot: some View {
+        switch content {
+        case let .contributor(contributor, fallbackTitle):
+            PerformanceArtistBubbleView(
+                contributor: contributor,
+                fallbackTitle: fallbackTitle,
+                tint: tint
+            )
+            .frame(width: Self.bubbleSize, height: Self.bubbleSize)
+            .accessibilityHidden(true)
+
+        case let .stage(stage):
+            PerformanceStageBubbleView(stage: stage, tint: tint)
+                .frame(width: Self.bubbleSize, height: Self.bubbleSize)
+                .accessibilityHidden(true)
+        }
+    }
+
+    var titleLabel: some View {
+        Text(title)
+            .font(.caption)
+            .lineLimit(2)
+            #if os(iOS)
+            .minimumScaleFactor(0.78)
+            #endif
+            .multilineTextAlignment(.center)
+            .frame(width: Self.itemWidth, height: Self.labelHeight, alignment: .top)
+    }
+
+    var frameAlignment: Alignment {
+        switch placement {
+        case .leading:
+            return .leading
+        case .trailing:
+            return .trailing
+        }
+    }
+}
+
+struct PerformanceStageBubbleView: View {
+    let stage: OMERecord.Stage?
+    let tint: Color
+
+    var body: some View {
+        PerformanceScheduleBubbleChrome(tint: tint) {
+            stageIcon
+        }
+    }
+
+    @ViewBuilder
+    var stageIcon: some View {
+        if let stage {
+            ScheduleStageIcon(stage: stage)
+        } else {
+            Text("TBA")
+                .font(.system(size: 18, weight: .heavy))
+                .lineLimit(1)
+                #if os(iOS)
+                .minimumScaleFactor(0.5)
+                #endif
+        }
+    }
+}
+
+struct PerformanceScheduleBubbleChrome<Content: View>: View {
+    let tint: Color
+    let content: Content
+
+    init(
+        tint: Color,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.tint = tint
+        self.content = content()
+    }
+
+    var body: some View {
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
+            glassBubble
+        } else {
+            unselectedBubble
+        }
+        #else
+        unselectedBubble
+        #endif
+    }
+
+    @available(iOS 26, macOS 26, *)
+    var glassBubble: some View {
+        GlassEffectContainer(spacing: 8) {
+            bubbleContent
+                .glassEffect(.clear.interactive(), in: .circle)
+            
+        }
+        .frame(
+            width: PerformanceContextIdentity.bubbleSize,
+            height: PerformanceContextIdentity.bubbleSize
+        )
+    }
+
+    var unselectedBubble: some View {
+        ZStack {
+            Circle()
+                .fill(Color.secondary.opacity(0.12))
+
+            tintedContent
+        }
+        .frame(
+            width: PerformanceContextIdentity.bubbleSize,
+            height: PerformanceContextIdentity.bubbleSize
+        )
+    }
+
+    var bubbleContent: some View {
+        ZStack {
+            Circle()
+                .fill(Color.clear)
+
+            tintedContent
+        }
+        .frame(
+            width: PerformanceContextIdentity.bubbleSize,
+            height: PerformanceContextIdentity.bubbleSize
+        )
+    }
+
+    var tintedContent: some View {
+        content
+            .frame(width: 46, height: 46)
+            .padding(12)
+            .foregroundStyle(tint)
     }
 }
 
@@ -995,21 +1219,142 @@ struct PerformanceArtistBubbleView: View {
     let tint: Color
 
     var body: some View {
-        ImageAssetAsyncImage(
-            asset: contributor?.artworkAsset,
-            cacheContext: contributor?.artworkCacheContext,
-            contentMode: .fill
-        ) {
+        if let logoAsset = contributor?.logoAsset {
+            PerformanceScheduleBubbleChrome(tint: tint) {
+                ImageAssetAsyncImage(
+                    asset: logoAsset,
+                    cacheContext: contributor?.logoCacheContext,
+                    contentMode: .fit
+                ) {
+                    PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
+                }
+            }
+        } else if !photoCandidates.isEmpty {
+            PerformanceArtistPhotoBubbleView(
+                candidates: photoCandidates,
+                fallbackTitle: fallbackTitle,
+                tint: tint
+            )
+        } else {
+            PerformanceScheduleBubbleChrome(tint: tint) {
+                PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
+            }
+        }
+    }
+
+    var photoCandidates: [PerformanceArtistImageCandidate] {
+        guard let contributor else { return [] }
+
+        var candidates: [PerformanceArtistImageCandidate] = []
+        if let artworkAsset = contributor.artworkAsset {
+            candidates.append(
+                PerformanceArtistImageCandidate(
+                    asset: artworkAsset,
+                    cacheContext: contributor.artworkCacheContext
+                )
+            )
+        }
+        if let preferredArtworkAsset = contributor.contributor.preferredArtworkAsset,
+           !candidates.contains(where: { $0.asset == preferredArtworkAsset }) {
+            candidates.append(
+                PerformanceArtistImageCandidate(
+                    asset: preferredArtworkAsset,
+                    cacheContext: LocalImageCacheContext(contributorID: contributor.id)
+                )
+            )
+        }
+        return candidates
+    }
+}
+
+struct PerformanceArtistImageCandidate {
+    let asset: OMERecord.ImageAsset
+    let cacheContext: LocalImageCacheContext?
+}
+
+struct PerformanceArtistPhotoBubbleView: View {
+    let candidates: [PerformanceArtistImageCandidate]
+    let fallbackTitle: String
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.secondary.opacity(0.12))
+
+            imageContent
+                .opacity(0.88)
+                .mask {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                stops: [
+                                    .init(color: .white, location: 0.0),
+                                    .init(color: .white, location: 0.54),
+                                    .init(color: .white.opacity(0.58), location: 0.82),
+                                    .init(color: .clear, location: 1.0),
+                                ],
+                                center: .center,
+                                startRadius: 0,
+                                endRadius: PerformanceContextIdentity.bubbleSize / 2
+                            )
+                        )
+                }
+        }
+        .frame(
+            width: PerformanceContextIdentity.bubbleSize,
+            height: PerformanceContextIdentity.bubbleSize
+        )
+    }
+
+    var imageContent: some View {
+        PerformanceArtistPhotoImageView(
+            candidates: candidates,
+            fallbackTitle: fallbackTitle,
+            tint: tint
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            LinearGradient(
+                colors: [
+                    tint.opacity(0.38),
+                    tint.opacity(0.18),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(Circle())
+    }
+}
+
+struct PerformanceArtistPhotoImageView: View {
+    let candidates: [PerformanceArtistImageCandidate]
+    let fallbackTitle: String
+    let tint: Color
+
+    var body: some View {
+        if let candidate = candidates.first {
+            ImageAssetAsyncImage(
+                asset: candidate.asset,
+                cacheContext: candidate.cacheContext,
+                contentMode: .fill
+            ) { reason in
+                switch reason {
+                case .failure, .unavailable:
+                    PerformanceArtistPhotoImageView(
+                        candidates: Array(candidates.dropFirst()),
+                        fallbackTitle: fallbackTitle,
+                        tint: tint
+                    )
+
+                case .loading:
+                    PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
+                }
+            }
+        } else {
             PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(tint.opacity(0.24))
-        .clipShape(Circle())
-        .overlay {
-            Circle()
-                .stroke(.white.opacity(0.72), lineWidth: 2)
-        }
-        .shadow(color: .black.opacity(0.34), radius: 16, x: 0, y: 8)
     }
 }
 
@@ -1137,10 +1482,11 @@ extension OMERecord.Performance {
     }
 
     var timeRangeText: String {
-        let formatter = DateIntervalFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: startTime, to: endTime)
+        ScheduleViewer.formattedTimeRange(
+            start: startTime,
+            end: endTime,
+            timeZone: .current
+        )
     }
 }
 

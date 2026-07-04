@@ -1830,13 +1830,26 @@ struct NavigationTests {
             ScheduleViewer.performanceRowSubtitle(
                 for: eveningPerformance,
                 timeZone: timeZone
-            ) == "6:00 PM - 7:00 PM Friday Evening"
+            ) == """
+            6:00 - 7:00 pm
+            Friday Evening
+            """
         )
         #expect(
             ScheduleViewer.performanceRowSubtitle(
                 for: afterMidnightPerformance,
                 timeZone: timeZone
-            ) == "1:30 AM - 2:30 AM Friday Night"
+            ) == """
+            1:30 - 2:30 am
+            Friday Night
+            """
+        )
+        #expect(
+            ScheduleViewer.formattedTimeRange(
+                start: try #require(friday.at(hour: 23, minute: 30, in: timeZone)),
+                end: try #require(saturday.at(hour: 1, minute: 15, in: timeZone)),
+                timeZone: timeZone
+            ) == "11:30 pm - 1:15 am"
         )
     }
 
@@ -2005,6 +2018,83 @@ struct NavigationTests {
         #expect(row.matchesSearch("Explicit Alice"))
         #expect(row.matchesSearch("alice.bsky.social"))
         #expect(!row.matchesSearch("Bluesky Alice"))
+    }
+
+    @Test
+    func contributorProfileUsesCachedBlueskyAvatarWhenExplicitContributorHasNoArtwork() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let actor = try #require(OMERecord.Contributor.Actor("alice.bsky.social"))
+        let contributorID = contributorLocalID("speaker-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let profile = BlueskyActorProfile(
+            did: "did:plc:alice123",
+            handle: "alice.bsky.social",
+            displayName: "Bluesky Alice",
+            description: "Bluesky bio",
+            avatar: URL(string: "https://cdn.example/alice-avatar.jpg")
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: selectedEventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: selectedEventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(
+                db,
+                eventID: selectedEventID,
+                contributorID: "speaker-1",
+                name: "Explicit Alice",
+                bio: "OME bio",
+                kind: OMERecord.Contributor.Kind("speaker")
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Talk"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: selectedEventID,
+                performanceID: "talk-1",
+                contributorID: "speaker-1",
+                contributorActor: actor
+            )
+            try BlueskyActorProfile.insert { profile }
+                .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: actor.description,
+                    did: profile.did,
+                    lastFetchedAt: Date(timeIntervalSince1970: 1_000),
+                    lastFetchAttemptAt: Date(timeIntervalSince1970: 1_000)
+                )
+            }
+            .execute(db)
+        }
+
+        let row = try await database.read { db in
+            try #require(
+                ContributorsViewer.contributorRowsQuery(
+                    eventID: selectedEventID,
+                    hydration: .bskyActorProfile
+                )
+                .fetchAll(db)
+                .first { $0.contributorID == contributorID }
+            )
+        }
+        let contributorProfile = row.profile
+
+        #expect(!contributorProfile.usesActorProfileAsPrimary)
+        #expect(contributorProfile.name == "Explicit Alice")
+        #expect(contributorProfile.bio == "OME bio")
+        #expect(contributorProfile.artworkAsset?.url?.absoluteString == "https://cdn.example/alice-avatar.jpg")
+        #expect(contributorProfile.artworkCacheContext == nil)
     }
 
     @Test(arguments: ["alice.bsky.social", "did:plc:alice123"])
