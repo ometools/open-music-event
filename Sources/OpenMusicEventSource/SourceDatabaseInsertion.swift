@@ -368,21 +368,21 @@ public extension OME {
                 scheduleID: scheduleID
             )
 
-//            schedules.append(
-//                OME.Schedule.Draft(
-//                    id: scopedScheduleID,
-//                    date: schedule.date,
-//                    startsAt: try schedule.startsAt?.localTimeDate(
-//                        on: schedule.date,
-//                        in: timeZone
-//                    ),
-//                    endsAt: try schedule.endsAt?.localTimeDate(
-//                        on: schedule.date,
-//                        in: timeZone
-//                    ),
-//                    customTitle: schedule.customTitle
-//                )
-//            )
+            schedules.append(
+                OME.Schedule.Draft(
+                    id: scopedScheduleID,
+                    date: schedule.date,
+                    startsAt: try schedule.startsAt?.localTimeDate(
+                        on: schedule.date,
+                        in: timeZone
+                    ),
+                    endsAt: try schedule.endsAt?.localTimeDate(
+                        on: schedule.date,
+                        in: timeZone
+                    ),
+                    customTitle: schedule.customTitle
+                )
+            )
 
             for stageIDString in schedule.performances.keys.sorted() {
                 let sourcePerformances = schedule.performances[stageIDString] ?? []
