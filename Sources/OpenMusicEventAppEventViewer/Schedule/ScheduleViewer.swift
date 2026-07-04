@@ -3,6 +3,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventEditors
+import OpenMusicEventImages
 import OpenMusicEventViewers
 import ScheduleComponents
 import Sharing
@@ -830,10 +831,17 @@ public struct PerformanceDetailView: View {
     public var body: some View {
         Group {
             if let performance = store.performance {
-                List {
-                    SchedulePerformanceHeader(
+                HeroImageList(title: Text(performance.title)) {
+                    PerformanceHeroView(
                         performance: performance,
-                        stage: store.stage
+                        stage: store.stage,
+                        contributors: store.contributors
+                    )
+                } content: {
+                    PerformanceSummaryRow(
+                        performance: performance,
+                        stage: store.stage,
+                        contributors: store.contributors
                     )
 
                     if let description = performance.displayDescription {
@@ -858,7 +866,6 @@ public struct PerformanceDetailView: View {
                         }
                     }
                 }
-                .navigationTitle(performance.title)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
@@ -881,34 +888,208 @@ public struct PerformanceDetailView: View {
     }
 }
 
-struct SchedulePerformanceHeader: View {
+struct PerformanceHeroView: View {
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage?
+    let contributors: [ContributorProfile]
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Image(systemName: "music.note")
-                        .foregroundStyle(.white)
+        GeometryReader { geometry in
+            let summary = PerformanceDetailSummary(
+                performance: performance,
+                stage: stage,
+                contributors: contributors
+            )
+            let artworkSize = min(max(geometry.size.width * 0.36, 116), 152)
+
+            ZStack {
+                ImageAssetAsyncImage(
+                    asset: stage?.images?.imageAsset(role: .hero),
+                    cacheContext: stage.map { .init(stageID: $0.id) },
+                    contentMode: .fill
+                ) {
+                    PerformanceHeroFallback(
+                        performance: performance,
+                        stage: stage,
+                        tint: summary.tint
+                    )
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(performance.title)
-                    .font(.headline)
+                LinearGradient(
+                    colors: [
+                        .black.opacity(0.22),
+                        .clear,
+                        .black.opacity(0.36),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
 
-                Text(performance.timeRangeText)
-                    .foregroundStyle(.secondary)
-
-                if let stage {
-                    Text(stage.name)
-                        .foregroundStyle(.secondary)
-                }
+                PerformanceArtistBubbleView(
+                    contributor: summary.featuredContributor,
+                    fallbackTitle: summary.artistSummary,
+                    tint: summary.tint
+                )
+                .frame(width: artworkSize, height: artworkSize)
             }
         }
+    }
+}
+
+struct PerformanceSummaryRow: View {
+    let performance: OMERecord.Performance
+    let stage: OMERecord.Stage?
+    let contributors: [ContributorProfile]
+
+    var body: some View {
+        let summary = PerformanceDetailSummary(
+            performance: performance,
+            stage: stage,
+            contributors: contributors
+        )
+
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(summary.tint)
+                .frame(width: 5, height: 54)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(summary.artistSummary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    #if os(iOS)
+                    .minimumScaleFactor(0.74)
+                    #endif
+
+                Text(performance.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                    #if os(iOS)
+                    .minimumScaleFactor(0.78)
+                    #endif
+
+                Text(summary.stageAndTimeSummary)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
+    }
+}
+
+struct PerformanceDetailSummary {
+    let performance: OMERecord.Performance
+    let stage: OMERecord.Stage?
+    let contributors: [ContributorProfile]
+
+    var tint: Color {
+        stage?.color.swiftUIColor ?? .accentColor
+    }
+
+    var featuredContributor: ContributorProfile? {
+        contributors.first { $0.artworkAsset != nil } ?? contributors.first
+    }
+
+    var artistSummary: String {
+        switch contributors.count {
+        case 0:
+            return "Lineup TBA"
+        case 1:
+            return contributors[0].name
+        case 2:
+            return "\(contributors[0].name) / \(contributors[1].name)"
+        default:
+            return "\(contributors[0].name) + \(contributors.count - 1) more"
+        }
+    }
+
+    var stageAndTimeSummary: String {
+        "\(stage?.name ?? "Stage TBA") / \(performance.timeRangeText)"
+    }
+}
+
+struct PerformanceArtistBubbleView: View {
+    let contributor: ContributorProfile?
+    let fallbackTitle: String
+    let tint: Color
+
+    var body: some View {
+        ImageAssetAsyncImage(
+            asset: contributor?.artworkAsset,
+            cacheContext: contributor?.artworkCacheContext,
+            contentMode: .fill
+        ) {
+            PerformanceArtworkFallback(title: fallbackTitle, tint: tint)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .background(tint.opacity(0.26))
+        .clipShape(Circle())
+        .overlay {
+            Circle()
+                .stroke(.white.opacity(0.64), lineWidth: 2)
+        }
+        .shadow(color: .black.opacity(0.34), radius: 16, x: 0, y: 8)
+    }
+}
+
+struct PerformanceHeroFallback: View {
+    let performance: OMERecord.Performance
+    let stage: OMERecord.Stage?
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(tint.opacity(0.22))
+
+            if let stage {
+                StageIconFallback(stage: stage, size: 160)
+                    .foregroundStyle(tint)
+                    .opacity(0.82)
+            } else {
+                PerformanceArtworkFallback(title: performance.title, tint: tint)
+                    .frame(width: 160, height: 160)
+                    .opacity(0.72)
+            }
+        }
+    }
+}
+
+struct PerformanceArtworkFallback: View {
+    let title: String
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(tint.opacity(0.18))
+
+            Text(initials)
+                .font(.system(size: 46, weight: .heavy))
+                .lineLimit(1)
+                #if os(iOS)
+                .minimumScaleFactor(0.35)
+                #endif
+                .foregroundStyle(tint)
+        }
+    }
+
+    var initials: String {
+        let words = title
+            .split(separator: " ")
+            .prefix(2)
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+            .uppercased()
+        return words.isEmpty ? "SET" : words
     }
 }
 

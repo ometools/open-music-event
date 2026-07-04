@@ -37,21 +37,7 @@ public struct CommunicationsViewerView: View {
                 List {
                     Section("Incident Reporting") {
                         Link(destination: reportingLink.url) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text(reportingLink.name)
-                                    .font(.headline.weight(.bold))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .foregroundStyle(.white)
-                                    .background(.red, in: RoundedRectangle(cornerRadius: 8))
-
-                                if let description = reportingLink.displayDescription {
-                                    Text(description)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 6)
+                            ReportingLinkLabel(reportingLink: reportingLink)
                         }
                         .buttonStyle(.plain)
                         .accessibilityHint("Opens this event's reporting link in a browser.")
@@ -73,6 +59,28 @@ public struct CommunicationsViewerView: View {
                 )
             }
         }
+    }
+}
+
+struct ReportingLinkLabel: View {
+    let reportingLink: OMERecord.Event.ReportingLink
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(reportingLink.name)
+                .font(.headline.weight(.bold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .foregroundStyle(.white)
+                .background(.red, in: RoundedRectangle(cornerRadius: 8))
+
+            if let description = reportingLink.displayDescription {
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
     }
 }
 

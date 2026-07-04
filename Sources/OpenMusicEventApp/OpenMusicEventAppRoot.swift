@@ -6,6 +6,9 @@ import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
+#if os(iOS)
+import SafariServices
+#endif
 
 @Feature
 public struct OpenMusicEventAppRoot {
@@ -26,6 +29,7 @@ public struct OpenMusicEventAppRoot {
         public var errorNotifications = Spawn(ErrorNotifications.State())
         public var eventViewer: Spawn<EventViewer>?
         public var hasRestoredSelectedEventAtLaunch = false
+        var inAppBrowserPresentation: InAppBrowserPresentation?
         public var launchEventViewer: Spawn<EventViewer>?
         public var variant: OpenMusicEventAppVariant
         public var whiteLabelBootstrap: Spawn<WhiteLabelBootstrap>? = nil
@@ -108,8 +112,8 @@ public struct OpenMusicEventAppRoot {
                     case let .event(eventID, target):
                         openEventViewer(eventID, target, &state)
 
-                    case .externalURL:
-                        break
+                    case let .externalURL(url):
+                        state.openExternalURL(url)
                     }
 
                 case .openRoute(let route):
@@ -125,9 +129,12 @@ public struct OpenMusicEventAppRoot {
                         return
                     }
 
-                    guard let route = AppRoute(url: url) else { return }
-                    store.addTask {
-                        try store.send(.openRoute(route))
+                    if let route = AppRoute(url: url) {
+                        store.addTask {
+                            try store.send(.openRoute(route))
+                        }
+                    } else {
+                        state.openExternalURL(url)
                     }
 
                 case .task:
@@ -204,6 +211,22 @@ public struct OpenMusicEventAppRootView: View {
             .onOpenURL { url in
                 store.send(.openURL(url))
             }
+            #if os(iOS)
+            .environment(
+                \.openURL,
+                OpenURLAction { url in
+                    guard url.isOpenMusicEventHandledURL else {
+                        return .systemAction
+                    }
+                    store.send(.openURL(url))
+                    return .handled
+                }
+            )
+            .sheet(item: $store.inAppBrowserPresentation) { presentation in
+                InAppSafariView(url: presentation.url)
+                    .ignoresSafeArea()
+            }
+            #endif
     }
 
     @ViewBuilder
@@ -258,6 +281,13 @@ public struct OpenMusicEventAppRootView: View {
 }
 
 private extension OpenMusicEventAppRoot.State {
+    mutating func openExternalURL(_ url: URL) {
+        #if os(iOS)
+        guard url.isInAppBrowserURL else { return }
+        inAppBrowserPresentation = InAppBrowserPresentation(url: url)
+        #endif
+    }
+
     var persistsSelectedEvent: Bool {
         switch variant {
         case .generic:
@@ -267,3 +297,40 @@ private extension OpenMusicEventAppRoot.State {
         }
     }
 }
+
+public struct InAppBrowserPresentation: Identifiable, Equatable, Sendable {
+    let url: URL
+
+    public var id: String {
+        url.absoluteString
+    }
+}
+
+private extension URL {
+    var isInAppBrowserURL: Bool {
+        guard let scheme = scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
+    var isOpenMusicEventHandledURL: Bool {
+        OpenMusicEventOAuth.isCallbackURL(self)
+            || AppRoute(url: self) != nil
+            || isInAppBrowserURL
+    }
+}
+
+#if os(iOS)
+struct InAppSafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
+    }
+
+    func updateUIViewController(
+        _ uiViewController: SFSafariViewController,
+        context: Context
+    ) {
+    }
+}
+#endif
