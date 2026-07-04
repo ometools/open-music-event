@@ -768,7 +768,6 @@ public struct SourceDetail {
 
         var editCalendar: EditCalendar.State?
         var sourceManagement: SourceManagement.State?
-        var destination: Destination.State?
         var isPreparingSourceManagement = false
 
         @DebugSnapshotIgnored
@@ -799,10 +798,6 @@ public struct SourceDetail {
             editableCalendarID != nil
         }
 
-        var canAddEvent: Bool {
-            sourceBaseline != nil && editableCalendarID != nil && organizer != nil
-        }
-
         var canManageSource: Bool {
             sourceBaseline != nil && editableCalendarID != nil
         }
@@ -819,20 +814,13 @@ public struct SourceDetail {
     }
 
     public enum Action {
-        case addEventButtonTapped
         case didPullToRefresh
-        case destination(Destination.Action)
         case editButtonTapped
         case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case manageSourceButtonTapped
         case sourceManagement(SourceManagement.Action)
         case task
-    }
-
-    @Feature
-    public enum Destination {
-        case createEvent(Spawn<CreateEvent>)
     }
 
     @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
@@ -899,9 +887,9 @@ public struct SourceDetail {
         events: [OMERecord.Event],
         sourceBaseline: SourceBaselineRecord?
     ) -> [OMERecord.CalendarEntry] {
-        let sourceEventIDs = Set(events.map(\.id))
+        let eventIDs = Set(events.map(\.id))
         var displayEntries = calendarEntries.filter { entry in
-            entry.event.localEventID.map(sourceEventIDs.contains) ?? false
+            entry.event.localEventID.map(eventIDs.contains) ?? false
         }
 
         guard let sourceBaseline else {
@@ -944,24 +932,6 @@ public struct SourceDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
-            case .addEventButtonTapped:
-                guard let calendarID = state.editableCalendarID,
-                      let organizer = state.organizer,
-                      let sourceBaseline = state.sourceBaseline
-                else { return }
-                state.destination = .createEvent(
-                    Spawn(
-                        CreateEvent.State(
-                            organizerID: organizer.id,
-                            eventOrganizerID: organizer.id,
-                            sourceContext: CreateEvent.State.SourceContext(
-                                sourceBaseline: sourceBaseline,
-                                calendarID: calendarID
-                            )
-                        )
-                    )
-                )
-
             case .didPullToRefresh:
                 let sourceBaselineID = state.sourceBaselineID
                 store.addTask(id: sourceDataRefreshTask) {
@@ -974,9 +944,6 @@ public struct SourceDetail {
                         SourceImportError.parser
                     }
                 }
-
-            case .destination:
-                return
 
             case .editButtonTapped:
                 guard let calendarID = state.editableCalendarID else {
@@ -1032,9 +999,6 @@ public struct SourceDetail {
             case .task:
                 break
             }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
         }
         .ifLet(\.editCalendar, action: \.editCalendar) {
             EditCalendar()
@@ -1134,17 +1098,7 @@ public struct SourceDetailView: View {
                 SourceManagementView(store: sourceManagementStore)
             }
         }
-        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
-            NavigationStack {
-                CreateEventView(store: createEventStore)
-            }
-        }
         .toolbar {
-            if store.canAddEvent {
-                Button("Add Event", systemImage: "plus") {
-                    store.send(.addEventButtonTapped)
-                }
-            }
             if store.canEditCalendar {
                 Button("Edit Calendar", systemImage: "pencil") {
                     store.send(.editButtonTapped)
@@ -1232,6 +1186,8 @@ public struct SourceManagement {
 
         public let calendarID: OMERecord.Calendar.ID
 
+        public var destination: Destination.State?
+
         @DebugSnapshotIgnored
         @Fetch public var editSummary: SourceMetadataEditSummary
 
@@ -1251,6 +1207,8 @@ public struct SourceManagement {
     }
 
     public enum Action {
+        case createEventButtonTapped
+        case destination(Destination.Action)
         case generateSourcePatchButtonTapped
         case proposeChangeButtonTapped
         case sourcePatchGenerationResponse(
@@ -1258,6 +1216,11 @@ public struct SourceManagement {
         )
         case sourceProposal(SourceProposalFlow.Action)
         case sourceProposalDismissed
+    }
+
+    @Feature
+    public enum Destination {
+        case createEvent(Spawn<SourceManagementCreateEvent>)
     }
 
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
@@ -1295,6 +1258,19 @@ public struct SourceManagement {
             }
 
             switch action {
+            case .createEventButtonTapped:
+                state.destination = .createEvent(
+                    Spawn(
+                        SourceManagementCreateEvent.State(
+                            sourceBaselineID: state.sourceBaselineID,
+                            calendarID: state.calendarID
+                        )
+                    )
+                )
+
+            case .destination:
+                return
+
             case .generateSourcePatchButtonTapped:
                 generateSourcePatch(state: &state)
 
@@ -1342,6 +1318,9 @@ public struct SourceManagement {
                 break
             }
         }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
+        }
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()
         }
@@ -1378,6 +1357,11 @@ public struct SourceManagementView: View {
             }
         }
         .navigationTitle("Source")
+        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
+            NavigationStack {
+                SourceManagementCreateEventView(store: createEventStore)
+            }
+        }
         .sheet(
             item: $store.scope(\.sourceProposal, action: \.sourceProposal),
             onDismiss: {
@@ -1385,6 +1369,11 @@ public struct SourceManagementView: View {
             }
         ) { sourceProposalStore in
             SourceProposalComposerView(store: sourceProposalStore)
+        }
+        .toolbar {
+            Button("Create Event", systemImage: "plus") {
+                store.send(.createEventButtonTapped)
+            }
         }
     }
 

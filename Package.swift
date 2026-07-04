@@ -86,6 +86,7 @@ let package = Package(
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),
+                .product(name: "FileTree", package: "swift-file-tree"),
                 .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),

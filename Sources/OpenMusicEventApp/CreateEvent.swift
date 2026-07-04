@@ -11,8 +11,6 @@ import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventLexicon
-import OpenMusicEventSource
-import OpenMusicEventSourceEditing
 import OpenMusicEventTimeZones
 import SQLiteData
 import SwiftUI
@@ -34,7 +32,6 @@ public struct CreateEvent {
     public init() {}
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.date) var date
     @Dependency(\.uuid) var uuid
 
     public struct FormValue: Equatable {
@@ -42,16 +39,11 @@ public struct CreateEvent {
         var eventName = ""
         var hasEndDate = false
         var hasStartDate = false
-        var sourceEventDirectory: String?
         var startDateSelection: Date
         var timeZone: TimeZone = .current
 
-        init(
-            now: Date,
-            sourceEventDirectory: String? = nil
-        ) {
+        init(now: Date) {
             self.endDateSelection = now
-            self.sourceEventDirectory = sourceEventDirectory
             self.startDateSelection = now
         }
     }
@@ -59,80 +51,22 @@ public struct CreateEvent {
     public typealias FormFeature = ComposableForms.Form<FormValue>
 
     public struct State {
-        public struct SourceContext: Equatable, Sendable {
-            public init(
-                sourceBaselineID: SourceBaselineRecord.ID,
-                sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind,
-                sourceReference: String,
-                ref: String?,
-                calendarID: OMERecord.Calendar.ID,
-                sourceEventDirectory: String = ""
-            ) {
-                self.sourceBaselineID = sourceBaselineID
-                self.sourceKind = sourceKind
-                self.sourceReference = sourceReference
-                self.ref = ref
-                self.calendarID = calendarID
-                self.sourceEventDirectory = sourceEventDirectory
-            }
-
-            public init(
-                sourceBaseline: SourceBaselineRecord,
-                calendarID: OMERecord.Calendar.ID,
-                sourceEventDirectory: String = ""
-            ) {
-                self.init(
-                    sourceBaselineID: sourceBaseline.id,
-                    sourceKind: sourceBaseline.sourceKind,
-                    sourceReference: sourceBaseline.sourceReference,
-                    ref: sourceBaseline.ref,
-                    calendarID: calendarID,
-                    sourceEventDirectory: sourceEventDirectory
-                )
-            }
-
-            public var calendarID: OMERecord.Calendar.ID
-            public var ref: String?
-            public var sourceBaselineID: SourceBaselineRecord.ID
-            public var sourceEventDirectory: String
-            public var sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind
-            public var sourceReference: String
-
-            var sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance {
-                OMERecord.SourceDatabaseInsertion.SourceProvenance(
-                    kind: sourceKind,
-                    reference: sourceReference,
-                    ref: ref
-                )
-            }
-
-            var trimmedSourceEventDirectory: String {
-                sourceEventDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-
         public init(
             organizerID: OMERecord.Organizer.ID? = nil,
-            eventOrganizerID: OMERecord.Organizer.ID? = nil,
-            sourceContext: SourceContext? = nil
+            eventOrganizerID: OMERecord.Organizer.ID? = nil
         ) {
             @Dependency(\.appEventOrganizerID) var appEventOrganizerID
             @Dependency(\.date) var date
             let now = date()
             self.organizerID = organizerID ?? appEventOrganizerID
             self.eventOrganizerID = eventOrganizerID
-            self.sourceContext = sourceContext
             self.form = FormFeature.State(
-                value: FormValue(
-                    now: now,
-                    sourceEventDirectory: sourceContext.map(\.sourceEventDirectory)
-                )
+                value: FormValue(now: now)
             )
         }
 
         var organizerID: OMERecord.Organizer.ID
         var eventOrganizerID: OMERecord.Organizer.ID?
-        var sourceContext: SourceContext?
 
         var isSaving = false
         var errorMessage: String?
@@ -170,18 +104,9 @@ public struct CreateEvent {
             set { form.value.hasStartDate = newValue }
         }
 
-        var sourceEventDirectory: String {
-            get { form.value.sourceEventDirectory ?? "" }
-            set { form.value.sourceEventDirectory = newValue }
-        }
-
         var startDateSelection: Date {
             get { form.value.startDateSelection }
             set { form.value.startDateSelection = newValue }
-        }
-
-        var trimmedSourceEventDirectory: String {
-            sourceEventDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         var timeZone: TimeZone {
@@ -230,14 +155,6 @@ public struct CreateEvent {
             if let startDate, let endDate, endDate < startDate {
                 return "End date must be on or after the start date."
             }
-            if sourceContext != nil {
-                if trimmedSourceEventDirectory.isEmpty {
-                    return "Enter a source slug."
-                }
-                if !CreateEvent.isValidSourceEventDirectory(trimmedSourceEventDirectory) {
-                    return "Use a single source slug like 2026-pre-party-kelowna."
-                }
-            }
             return nil
         }
 
@@ -274,14 +191,7 @@ public struct CreateEvent {
                 guard !state.isSaving else { return }
 
                 guard let validationMessage = state.submitValidationMessage else {
-                    let sourceContext = state.sourceContext
-                    let sourceEventDirectory = state.trimmedSourceEventDirectory
-                    let localEventID = sourceContext.map {
-                        OMERecord.SourceDatabaseInsertion.inferredEventID(
-                            eventDirectoryName: sourceEventDirectory,
-                            sourceProvenance: $0.sourceProvenance
-                        )
-                    } ?? Self.makeLocalEventID(from: uuid())
+                    let localEventID = Self.makeLocalEventID(from: uuid())
                     let eventID = OMERecord.Event.ID(
                         organizerID: state.organizerID,
                         eventID: localEventID
@@ -298,21 +208,10 @@ public struct CreateEvent {
                     state.isSaving = true
                     let organizerID = state.organizerID
                     let eventOrganizerID = state.eventOrganizerID
-                    let createdAt = date()
 
                     store.addTask {
                         do {
-                            try database.write { db in
-                                if let sourceContext {
-                                    let duplicateCount = try EventSourceProvenanceRecord
-                                        .where { $0.sourceBaselineID.eq(sourceContext.sourceBaselineID) }
-                                        .where { $0.sourceEventDirectory.eq(sourceEventDirectory) }
-                                        .fetchCount(db)
-                                    guard duplicateCount == 0 else {
-                                        throw SaveError.duplicateSourceEventDirectory
-                                    }
-                                }
-
+                            try await database.write { db in
                                 try Self.insertOrganizerIfNeeded(organizerID, in: db)
 
                                 if let eventOrganizerID, eventOrganizerID != organizerID {
@@ -336,38 +235,6 @@ public struct CreateEvent {
                                     }
                                     .execute(db)
                                 }
-
-                                if let sourceContext {
-                                    try OMERecord.CalendarEntry.insert {
-                                        OMERecord.CalendarEntry.Draft(
-                                            id: .init(
-                                                calendarOwnerID: sourceContext.calendarID.ownerID,
-                                                calendarID: sourceContext.calendarID.calendarID,
-                                                entryID: OMERecord.ID<OMERecord.CalendarEntry>(
-                                                    localEventID.rawValue
-                                                )
-                                            ),
-                                            event: OMERecord.Event.reference(id: eventID),
-                                            createdAt: createdAt,
-                                            note: nil,
-                                            pinned: false
-                                        )
-                                    }
-                                    .execute(db)
-
-                                    try EventSourceProvenanceRecord.insert {
-                                        EventSourceProvenanceRecord(
-                                            id: eventID,
-                                            sourceBaselineID: sourceContext.sourceBaselineID,
-                                            sourceKind: sourceContext.sourceKind,
-                                            sourceReference: sourceContext.sourceReference,
-                                            ref: sourceContext.ref,
-                                            eventIDOrigin: .inferred,
-                                            sourceEventDirectory: sourceEventDirectory
-                                        )
-                                    }
-                                    .execute(db)
-                                }
                             }
                             try store.modify {
                                 $0.errorMessage = nil
@@ -378,11 +245,6 @@ public struct CreateEvent {
                                 value: .event(eventID, nil)
                             )
                             try store.dismiss()
-                        } catch SaveError.duplicateSourceEventDirectory {
-                            try store.modify {
-                                $0.errorMessage = "An event already uses that source slug."
-                                $0.isSaving = false
-                            }
                         } catch {
                             try store.modify {
                                 $0.errorMessage = "Unable to create event."
@@ -418,18 +280,6 @@ public struct CreateEvent {
 
             }
         }
-    }
-
-    private enum SaveError: Error, Sendable {
-        case duplicateSourceEventDirectory
-    }
-
-    static func isValidSourceEventDirectory(_ value: String) -> Bool {
-        !value.isEmpty
-            && value != "."
-            && value != ".."
-            && !value.contains("/")
-            && !value.contains("\\")
     }
 
     static func makeLocalEventID(from uuid: UUID) -> OMERecord.ID<OMERecord.Event> {
@@ -480,7 +330,6 @@ public struct CreateEvent {
 
 private enum CreateEventFormFieldID {
     static var eventName: AnyHashable { AnyHashable(\CreateEvent.FormValue.eventName) }
-    static var sourceEventDirectory: AnyHashable { AnyHashable(\CreateEvent.FormValue.sourceEventDirectory) }
 }
 
 private extension CreateEvent.FormFeature {
@@ -489,21 +338,6 @@ private extension CreateEvent.FormFeature {
             Self.Field(\.eventName) {
                 Validation(error: "Enter an event name.") { value in
                     !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                }
-            }
-
-            Self.Field(\.sourceEventDirectory) {
-                Validation { value -> ValidationResult in
-                    guard let value else { return .valid }
-
-                    let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmedValue.isEmpty else {
-                        return .invalid("Enter a source slug.")
-                    }
-                    guard CreateEvent.isValidSourceEventDirectory(trimmedValue) else {
-                        return .invalid("Use a single source slug like 2026-pre-party-kelowna.")
-                    }
-                    return .valid
                 }
             }
         }
@@ -527,28 +361,6 @@ struct CreateEventView: View {
                 TextField("Event Name", text: $store.form.value.eventName, prompt: Text("Testival 2026"))
 
                 FormFieldValidationStatus(validation: store.form.validation[CreateEventFormFieldID.eventName])
-            }
-
-            if store.sourceContext != nil {
-                Section {
-                    TextField(
-                        "Slug",
-                        text: $store.sourceEventDirectory,
-                        prompt: Text("2026-pre-party-kelowna")
-                    )
-                        #if !os(macOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                        .autocorrectionDisabled()
-
-                    FormFieldValidationStatus(
-                        validation: store.form.validation[CreateEventFormFieldID.sourceEventDirectory]
-                    )
-                } header: {
-                    Text("Source")
-                } footer: {
-                    Text("The proposal will add this event under events/\(store.trimmedSourceEventDirectory.isEmpty ? "slug" : store.trimmedSourceEventDirectory).")
-                }
             }
 
             Section {
