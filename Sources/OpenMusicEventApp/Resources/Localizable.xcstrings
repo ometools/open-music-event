@@ -43,7 +43,7 @@
         }
       }
     },
-    "2026-pre-party-kelowna" : {
+    "2026" : {
 
     },
     "About" : {
@@ -116,9 +116,6 @@
     "Browse feature stub." : {
 
     },
-    "Calendar Changes" : {
-
-    },
     "Calendars" : {
 
     },
@@ -155,6 +152,9 @@
 
     },
     "Create Event" : {
+
+    },
+    "Creates events/%@/event.yml in the organizer workspace." : {
 
     },
     "Dark" : {
@@ -221,13 +221,13 @@
     "Dates are saved as local calendar dates in %@." : {
 
     },
+    "Directory" : {
+
+    },
     "Downloaded Sources" : {
 
     },
     "Edit Calendar" : {
-
-    },
-    "Enter a source slug." : {
 
     },
     "Enter a Tangled repository, not a local source path." : {
@@ -435,9 +435,6 @@
     "New Event" : {
 
     },
-    "No changes to propose" : {
-
-    },
     "No Events" : {
 
     },
@@ -503,9 +500,6 @@
 
     },
     "Previous Events" : {
-
-    },
-    "Propose Change" : {
 
     },
     "Ref" : {
@@ -590,19 +584,13 @@
         }
       }
     },
-    "Slug" : {
-
-    },
     "Source" : {
 
     },
-    "Source baseline missing" : {
-
-    },
-    "Source changes unavailable" : {
-
-    },
     "Source import output can only be used with Tangled repositories." : {
+
+    },
+    "Start with the basics. This creates files in the active organizer workspace so the event can be edited locally." : {
 
     },
     "Start with the basics. This creates the event now so you can come back and fill in artwork, schedule, locations, and the rest later" : {
@@ -644,9 +632,6 @@
 
     },
     "Testival 2026" : {
-
-    },
-    "The proposal will add this event under events/%@." : {
 
     },
     "The repository owner did not resolve to a valid organizer." : {
@@ -738,9 +723,6 @@
     "Upcoming Events" : {
 
     },
-    "Use a single source slug like 2026-pre-party-kelowna." : {
-
-    },
     "Version %@ (%@)" : {
       "comment" : "Settings label showing the current version of the app",
       "localizations" : {
@@ -805,6 +787,12 @@
           }
         }
       }
+    },
+    "Wicked Woods 2026" : {
+
+    },
+    "Workspace" : {
+
     }
   },
   "version" : "1.0"
