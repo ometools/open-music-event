@@ -22,6 +22,56 @@ private typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 @Suite(.tcaExhaustivity(.off))
 struct SourceManagementTests {
     @Test
+    func sourceManagementUsesOrganizerSourceScope() throws {
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "source")
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: SourceManagement.State(
+                    sourceBaselineID: sourceBaselineID,
+                    calendarID: calendarID
+                )
+            ) {
+                SourceManagement()
+            }
+        }
+
+        expectNoDifference(
+            store.state.sourceChangesScope,
+            .source(sourceBaselineID: sourceBaselineID, calendarID: calendarID)
+        )
+    }
+
+    @Test
+    func editEventUsesEventSourceScope() throws {
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
+        let eventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: OMERecord.ID("source-event")
+        )
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            EditEvent.State(eventID: eventID)
+        }
+
+        expectNoDifference(
+            state.sourceChangesScope,
+            .event(eventID)
+        )
+    }
+
+    @Test
     func generatesCalendarSourcePatch() async throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))

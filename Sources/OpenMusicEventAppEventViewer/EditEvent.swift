@@ -90,6 +90,10 @@ public struct EditEvent {
         public var changeCount: Int? {
             editSummary.badgeCount
         }
+
+        public var sourceChangesScope: SourceChangesScope {
+            .event(eventID)
+        }
     }
 
     public enum Action {
@@ -335,75 +339,22 @@ public struct EditEventView: View {
 
     @ViewBuilder
     private var sourceChangesContent: some View {
-        switch store.editSummary.availability {
-        case .available:
-            List {
-                sourceSection
-
-                Section {
-                    HStack {
-                        Label("Proposal", systemImage: "doc.text")
-                        if let fileChangeCount = store.sourcePatchStatus.fileChangeCount {
-                            Spacer()
-                            Text(fileChangeCount, format: .number)
-                                .font(.headline)
-                                .monospacedDigit()
-                        }
-                    }
-                }
-
-                Section {
-                    SourcePatchStatusView(status: store.sourcePatchStatus)
-
-                    if case let .generated(patch) = store.sourcePatchStatus {
-                        if patch.isEmpty {
-                            Label("No changes to propose", systemImage: "checkmark.circle")
-                        } else {
-                            Button {
-                                store.send(.proposeChangeButtonTapped)
-                            } label: {
-                                Label("Propose Change", systemImage: "paperplane")
-                            }
-                            .disabled(store.sourceProposalStatus.isProposing)
-                        }
-                    } else {
-                        Button {
-                            store.send(.generateSourcePatchButtonTapped)
-                        } label: {
-                            Label(
-                                store.sourcePatchStatus.reviewButtonTitle,
-                                systemImage: "arrow.triangle.2.circlepath"
-                            )
-                        }
-                        .disabled(store.sourcePatchStatus.isGenerating)
-                    }
-
-                    SourceProposalStatusView(status: store.sourceProposalStatus)
-                }
-
-                resetEditsSection
-
-                if case let .generated(patch) = store.sourcePatchStatus {
-                    if !patch.isEmpty {
-                        SourceProposalSummarySections(summary: store.editSummary)
-                    }
-                }
+        SourceChangesReviewPanel(
+            availability: SourceChangesAvailability(store.editSummary.availability),
+            groups: store.editSummary.groups,
+            mode: .proposal,
+            sourcePatchStatus: store.sourcePatchStatus,
+            sourceProposalStatus: store.sourceProposalStatus,
+            onReviewChanges: {
+                store.send(.generateSourcePatchButtonTapped)
+            },
+            onProposeChange: {
+                store.send(.proposeChangeButtonTapped)
             }
-
-        case .missingBaseline:
-            ContentUnavailableView(
-                "Baseline Missing",
-                systemImage: "externaldrive.badge.questionmark"
-            )
-
-        case .notSourceBacked:
-            ContentUnavailableView(
-                "Not Source Backed",
-                systemImage: "doc.badge.ellipsis"
-            )
-
-        case let .unavailable(reason):
-            SourceChangeUnavailableView(reason: reason)
+        ) {
+            sourceSection
+        } auxiliarySection: {
+            resetEditsSection
         }
     }
 
@@ -455,6 +406,157 @@ public struct EditEventView: View {
     }
 }
 
+public enum SourceChangesScope: Equatable, Sendable {
+    case event(OMERecord.Event.ID)
+    case source(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        calendarID: OMERecord.Calendar.ID
+    )
+}
+
+public enum SourceChangesAvailability: Equatable, Sendable {
+    case available
+    case missingBaseline
+    case notSourceBacked
+    case unavailable(SourceChangeSummary.UnavailableReason)
+
+    public init(_ availability: EventEditSummary.Availability) {
+        switch availability {
+        case .available:
+            self = .available
+        case .missingBaseline:
+            self = .missingBaseline
+        case .notSourceBacked:
+            self = .notSourceBacked
+        case let .unavailable(reason):
+            self = .unavailable(reason)
+        }
+    }
+
+    public init(_ availability: SourceMetadataEditSummary.Availability) {
+        switch availability {
+        case .available:
+            self = .available
+        case .missingBaseline:
+            self = .missingBaseline
+        case let .unavailable(reason):
+            self = .unavailable(reason)
+        }
+    }
+}
+
+public enum SourceChangesReviewMode: Equatable, Sendable {
+    case proposal
+    case workspace
+}
+
+public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: View>: View {
+    let availability: SourceChangesAvailability
+    let auxiliarySection: AuxiliarySection
+    let groups: [SourceChangeGroup]
+    let mode: SourceChangesReviewMode
+    let onProposeChange: (() -> Void)?
+    let onReviewChanges: () -> Void
+    let sourcePatchStatus: EditEvent.SourcePatchStatus
+    let sourceProposalStatus: EditEvent.SourceProposalStatus
+    let sourceSection: SourceSection
+
+    public init(
+        availability: SourceChangesAvailability,
+        groups: [SourceChangeGroup],
+        mode: SourceChangesReviewMode,
+        sourcePatchStatus: EditEvent.SourcePatchStatus,
+        sourceProposalStatus: EditEvent.SourceProposalStatus = .idle,
+        onReviewChanges: @escaping () -> Void,
+        onProposeChange: (() -> Void)? = nil,
+        @ViewBuilder sourceSection: () -> SourceSection,
+        @ViewBuilder auxiliarySection: () -> AuxiliarySection
+    ) {
+        self.availability = availability
+        self.auxiliarySection = auxiliarySection()
+        self.groups = groups
+        self.mode = mode
+        self.onProposeChange = onProposeChange
+        self.onReviewChanges = onReviewChanges
+        self.sourcePatchStatus = sourcePatchStatus
+        self.sourceProposalStatus = sourceProposalStatus
+        self.sourceSection = sourceSection()
+    }
+
+    public var body: some View {
+        switch availability {
+        case .available:
+            List {
+                sourceSection
+
+                Section {
+                    HStack {
+                        Label(mode.sectionTitle, systemImage: mode.sectionSystemImage)
+                        if let fileChangeCount = sourcePatchStatus.fileChangeCount {
+                            Spacer()
+                            Text(fileChangeCount, format: .number)
+                                .font(.headline)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+
+                Section {
+                    SourcePatchStatusView(status: sourcePatchStatus, mode: mode)
+
+                    if case let .generated(patch) = sourcePatchStatus {
+                        if patch.isEmpty {
+                            Label(mode.noChangesTitle, systemImage: "checkmark.circle")
+                        } else if mode == .proposal, let onProposeChange {
+                            Button {
+                                onProposeChange()
+                            } label: {
+                                Label("Propose Change", systemImage: "paperplane")
+                            }
+                            .disabled(sourceProposalStatus.isProposing)
+                        }
+                    } else {
+                        Button {
+                            onReviewChanges()
+                        } label: {
+                            Label(
+                                sourcePatchStatus.reviewButtonTitle,
+                                systemImage: "arrow.triangle.2.circlepath"
+                            )
+                        }
+                        .disabled(sourcePatchStatus.isGenerating)
+                    }
+
+                    if mode == .proposal {
+                        SourceProposalStatusView(status: sourceProposalStatus)
+                    }
+                }
+
+                auxiliarySection
+
+                if case let .generated(patch) = sourcePatchStatus, !patch.isEmpty {
+                    SourceProposalSummarySections(groups: groups)
+                }
+            }
+
+        case .missingBaseline:
+            ContentUnavailableView(
+                "Baseline Missing",
+                systemImage: "externaldrive.badge.questionmark"
+            )
+
+        case .notSourceBacked:
+            ContentUnavailableView(
+                "Not Source Backed",
+                systemImage: "doc.badge.ellipsis"
+            )
+
+        case let .unavailable(reason):
+            SourceChangeUnavailableView(reason: reason)
+        }
+    }
+}
+
 struct SourceIndicatorView: View {
     let sourceProvenance: EventSourceProvenanceRecord
 
@@ -482,9 +584,14 @@ struct SourceIndicatorView: View {
 
 public struct SourcePatchStatusView: View {
     let status: EditEvent.SourcePatchStatus
+    let mode: SourceChangesReviewMode
 
-    public init(status: EditEvent.SourcePatchStatus) {
+    public init(
+        status: EditEvent.SourcePatchStatus,
+        mode: SourceChangesReviewMode = .proposal
+    ) {
         self.status = status
+        self.mode = mode
     }
 
     public var body: some View {
@@ -500,7 +607,7 @@ public struct SourcePatchStatusView: View {
 
         case let .generated(patch):
             HStack {
-                Text(patch.isEmpty ? "No changes to propose" : "Ready to propose")
+                Text(patch.isEmpty ? mode.noChangesTitle : mode.readyTitle)
                 Spacer()
                 Text(patch.fileChanges.count, format: .number)
                     .font(.headline)
@@ -522,7 +629,7 @@ public struct SourcePatchStatusView: View {
             }
 
         case .notGenerated:
-            Text("Review changes before creating a proposal")
+            Text(mode.notGeneratedTitle)
                 .foregroundStyle(.secondary)
         }
     }
@@ -773,6 +880,53 @@ private extension EditEvent.SourcePatchStatus {
     var fileChangeCount: Int? {
         guard case let .generated(patch) = self else { return nil }
         return patch.fileChanges.count
+    }
+}
+
+private extension SourceChangesReviewMode {
+    var noChangesTitle: String {
+        switch self {
+        case .proposal:
+            "No changes to propose"
+        case .workspace:
+            "No changes"
+        }
+    }
+
+    var notGeneratedTitle: String {
+        switch self {
+        case .proposal:
+            "Review changes before creating a proposal"
+        case .workspace:
+            "Review source changes"
+        }
+    }
+
+    var readyTitle: String {
+        switch self {
+        case .proposal:
+            "Ready to propose"
+        case .workspace:
+            "Changes ready"
+        }
+    }
+
+    var sectionSystemImage: String {
+        switch self {
+        case .proposal:
+            "doc.text"
+        case .workspace:
+            "folder"
+        }
+    }
+
+    var sectionTitle: String {
+        switch self {
+        case .proposal:
+            "Proposal"
+        case .workspace:
+            "Source Changes"
+        }
     }
 }
 

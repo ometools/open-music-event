@@ -1180,6 +1180,9 @@ public struct SourceManagement {
                     calendarID: calendarID
                 )
             )
+            self._sourceBaseline = FetchOne(
+                SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
+            )
         }
 
         public var id: SourceBaselineRecord.ID { sourceBaselineID }
@@ -1191,11 +1194,21 @@ public struct SourceManagement {
         @DebugSnapshotIgnored
         @Fetch public var editSummary: SourceMetadataEditSummary
 
+        @DebugSnapshotIgnored
+        @FetchOne public var sourceBaseline: SourceBaselineRecord?
+
         public let sourceBaselineID: SourceBaselineRecord.ID
         public var sourcePatchStatus: EditEvent.SourcePatchStatus = .notGenerated
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
         public var sourceProposalStatus: EditEvent.SourceProposalStatus = .idle
+
+        public var sourceChangesScope: SourceChangesScope {
+            .source(
+                sourceBaselineID: sourceBaselineID,
+                calendarID: calendarID
+            )
+        }
 
         var canCreateSourceProposal: Bool {
             guard case let .generated(patch) = sourcePatchStatus,
@@ -1335,40 +1348,24 @@ public struct SourceManagementView: View {
     }
 
     public var body: some View {
-        List {
-            switch store.editSummary.availability {
-            case .available:
-                sourceProposalSections
-
-            case .missingBaseline:
-                Section {
-                    Text("Source baseline missing")
-                        .foregroundStyle(.secondary)
-                }
-
-            case let .unavailable(reason):
-                Section {
-                    Text("Source changes unavailable")
-                    Text(String(describing: reason))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+        SourceChangesReviewPanel(
+            availability: SourceChangesAvailability(store.editSummary.availability),
+            groups: store.editSummary.groups,
+            mode: .workspace,
+            sourcePatchStatus: store.sourcePatchStatus,
+            onReviewChanges: {
+                store.send(.generateSourcePatchButtonTapped)
             }
+        ) {
+            sourceSection
+        } auxiliarySection: {
+            EmptyView()
         }
         .navigationTitle("Source")
         .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
             NavigationStack {
                 SourceManagementCreateEventView(store: createEventStore)
             }
-        }
-        .sheet(
-            item: $store.scope(\.sourceProposal, action: \.sourceProposal),
-            onDismiss: {
-                store.send(.sourceProposalDismissed)
-            }
-        ) { sourceProposalStore in
-            SourceProposalComposerView(store: sourceProposalStore)
         }
         .toolbar {
             Button("Create Event", systemImage: "plus") {
@@ -1378,72 +1375,57 @@ public struct SourceManagementView: View {
     }
 
     @ViewBuilder
-    private var sourceProposalSections: some View {
-        Section {
-            HStack {
-                Text("Calendar Changes")
-                Spacer()
-                Text(store.editSummary.totalCount, format: .number)
-                    .font(.headline)
-                    .monospacedDigit()
+    private var sourceSection: some View {
+        if let sourceBaseline = store.sourceBaseline {
+            Section("Source") {
+                SourceBaselineIndicatorView(sourceBaseline: sourceBaseline)
             }
-        }
-
-        Section {
-            SourcePatchStatusView(status: displayedSourcePatchStatus)
-
-            if case let .generated(patch) = store.sourcePatchStatus {
-                if patch.isEmpty {
-                    Text("No changes to propose")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button("Propose Change") {
-                        store.send(.proposeChangeButtonTapped)
-                    }
-                    .disabled(store.sourceProposalStatus.isProposing)
-                }
-            } else {
-                Button(sourcePatchReviewButtonTitle) {
-                    store.send(.generateSourcePatchButtonTapped)
-                }
-                .disabled(sourcePatchIsGenerating)
-            }
-
-            SourceProposalStatusView(status: store.sourceProposalStatus)
-        }
-
-        if case let .generated(patch) = store.sourcePatchStatus,
-           !patch.isEmpty {
-            SourceProposalSummarySections(groups: store.editSummary.groups)
-        }
-    }
-
-    private var sourcePatchIsGenerating: Bool {
-        store.sourcePatchStatus == .generating
-    }
-
-    private var displayedSourcePatchStatus: EditEvent.SourcePatchStatus {
-        switch store.sourcePatchStatus {
-        case .failed:
-            .notGenerated
-        default:
-            store.sourcePatchStatus
-        }
-    }
-
-    private var sourcePatchReviewButtonTitle: String {
-        switch store.sourcePatchStatus {
-        case .failed:
-            "Try Again"
-        case .generating:
-            "Checking Changes"
-        default:
-            "Review Changes"
         }
     }
 }
 
 private struct SourceManagementSourcePatchGenerationError: Error {}
+
+struct SourceBaselineIndicatorView: View {
+    let sourceBaseline: SourceBaselineRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(sourceBaseline.sourceKind.sourceIndicatorTitle, systemImage: "folder")
+
+            Text(sourceBaseline.sourceReference)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sourceBaseline.sourceRefTitle)
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private extension OMERecord.SourceDatabaseInsertion.SourceKind {
+    var sourceIndicatorTitle: String {
+        switch self {
+        case .local:
+            "Local Source"
+        case .tangled:
+            "Tangled Source"
+        }
+    }
+}
+
+private extension SourceBaselineRecord {
+    var sourceRefTitle: String {
+        ref ?? "default ref"
+    }
+}
 
 private extension OMERecord.Event {
     var sortDate: LocalDate? {
