@@ -199,7 +199,14 @@ struct OpenMusicEventSourceTests {
                 "closing-set",
             ]
         )
-        #expect(performances[0].contributorIDs?.first?.rawValue.rawValue == "artist-one")
+        expectNoDifference(
+            performances[0].contributors,
+            [
+                ScheduleDTO.Performance.Contributor(
+                    subject: .id(OME.ID<OME.Contributor>(.init("artist-one")))
+                )
+            ]
+        )
         expectNoDifference(
             performances[0].recordings,
             [
@@ -214,7 +221,14 @@ struct OpenMusicEventSourceTests {
                 ),
             ]
         )
-        #expect(performances[1].contributorNames == ["Guest Artist"])
+        expectNoDifference(
+            performances[1].contributors,
+            [
+                ScheduleDTO.Performance.Contributor(
+                    subject: .name("Guest Artist")
+                )
+            ]
+        )
 
         let minimal = try #require(
             repository.events.first { $0.directoryName == "minimal-event" }?.components
@@ -341,9 +355,9 @@ struct OpenMusicEventSourceTests {
             - title: Actor Set
               startTime: "18:00"
               endTime: "19:00"
-              contributorActors:
-                - WOODY.FM
-                - did:plc:actor123
+              contributors:
+                - actor: WOODY.FM
+                - actor: did:plc:actor123
         """
         .write(
             to: eventURL
@@ -378,10 +392,10 @@ struct OpenMusicEventSourceTests {
 
         let performance = try #require(event.schedules?.first?.data.performances["main"]?.first)
         expectNoDifference(
-            performance.contributorActors?.map(\.description),
+            performance.contributors?.map(\.subject),
             [
-                "woody.fm",
-                "did:plc:actor123",
+                .actor(try #require(OME.Contributor.Actor("woody.fm"))),
+                .actor(try #require(OME.Contributor.Actor("did:plc:actor123"))),
             ]
         )
 
@@ -390,6 +404,104 @@ struct OpenMusicEventSourceTests {
         let roundTripped = try tree.read(from: outputURL).output.requiredValue
 
         expectNoDifference(roundTripped, repository)
+    }
+
+    @Test
+    func performanceContributorCreditsRoundTripThroughYAML() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "credits-event", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: eventURL.appending(path: "stages", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: eventURL.appending(path: "schedules", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+
+        try """
+        name: Credits Event
+        timeZone: America/Denver
+        """
+        .write(to: eventURL.appending(path: "event.yml"), atomically: true, encoding: .utf8)
+
+        try """
+        name: Main
+        color: "0x00aaee"
+        """
+        .write(
+            to: eventURL
+                .appending(path: "stages", directoryHint: .isDirectory)
+                .appending(path: "main.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try """
+        date: 2026-08-01
+        performances:
+          main:
+            - title: Mixed Credits
+              startTime: "18:00"
+              endTime: "19:00"
+              contributors:
+                - id: headliner
+                - actor: HEADLINER.BSKY.SOCIAL
+                  role: dj
+                - name: Dance Crew
+                  billing: supporting
+                  role: dancer
+        """
+        .write(
+            to: eventURL
+                .appending(path: "schedules", directoryHint: .isDirectory)
+                .appending(path: "saturday.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let repository = try tree.read(from: repositoryURL).output.requiredValue
+        let performance = try #require(
+            repository.events.first?.components.schedules?.first?.data.performances["main"]?.first
+        )
+
+        expectNoDifference(
+            performance.contributors,
+            [
+                ScheduleDTO.Performance.Contributor(
+                    subject: .id(OME.ID<OME.Contributor>(.init("headliner")))
+                ),
+                ScheduleDTO.Performance.Contributor(
+                    subject: .actor(try #require(OME.Contributor.Actor("headliner.bsky.social"))),
+                    role: "dj"
+                ),
+                ScheduleDTO.Performance.Contributor(
+                    subject: .name("Dance Crew"),
+                    billing: .supporting,
+                    role: "dancer"
+                ),
+            ]
+        )
+
+        let outputURL = try temporaryRepositoryURL()
+        _ = try tree.write(repository, to: outputURL)
+        let roundTripped = try tree.read(from: outputURL).output.requiredValue
+        let scheduleText = try String(
+            contentsOf: outputURL
+                .appending(path: "events", directoryHint: .isDirectory)
+                .appending(path: "credits-event", directoryHint: .isDirectory)
+                .appending(path: "schedules", directoryHint: .isDirectory)
+                .appending(path: "saturday.yml"),
+            encoding: .utf8
+        )
+
+        expectNoDifference(roundTripped, repository)
+        #expect(scheduleText.contains("billing: supporting"))
+        #expect(scheduleText.contains("role: dancer"))
+        #expect(!scheduleText.contains("billing: primary"))
     }
 
     @Test

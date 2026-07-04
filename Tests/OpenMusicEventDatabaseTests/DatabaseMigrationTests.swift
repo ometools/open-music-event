@@ -674,6 +674,9 @@ struct DatabaseMigrationTests {
                 sql: #"SELECT "name" FROM pragma_table_info('performanceContributors')"#
             )
             #expect(performanceContributorColumns.contains("contributorActor"))
+            #expect(performanceContributorColumns.contains("billing"))
+            #expect(performanceContributorColumns.contains("role"))
+            #expect(performanceContributorColumns.contains("sortIndex"))
         }
     }
 

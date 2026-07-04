@@ -447,6 +447,26 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Add OpenMusicEvent performance contributor credits") { db in
+                try #sql("""
+                    ALTER TABLE "performanceContributors"
+                    ADD COLUMN "billing" TEXT NOT NULL DEFAULT 'primary'
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    ALTER TABLE "performanceContributors"
+                    ADD COLUMN "role" TEXT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    ALTER TABLE "performanceContributors"
+                    ADD COLUMN "sortIndex" INTEGER NOT NULL DEFAULT 0
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

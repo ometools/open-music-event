@@ -182,9 +182,9 @@ extension ContributorProfile {
             .where { $0.id.eventID.eq(eventID.eventID) }
             .where { contributor in
                 OMERecord.Performance.Contributors
-                    .where { $0.organizerID.eq(eventID.organizerID) }
-                    .where { $0.eventID.eq(eventID.eventID) }
-                    .where { $0.performanceID.eq(performanceID) }
+                    .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
+                    .where { $0.performanceID.eventID.eq(eventID.eventID) }
+                    .where { $0.performanceID.performanceID.eq(performanceID) }
                     .where { $0.contributorID.eq(contributor.id.contributorID) }
                     .exists()
             }

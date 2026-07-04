@@ -355,27 +355,30 @@ fileprivate enum EditPerformanceDrafts {
         performanceID: OMERecord.ID<OMERecord.Performance>
     ) -> [OMERecord.Performance.Contributors.Draft] {
         var drafts: [OMERecord.Performance.Contributors.Draft] = []
+        let scopedPerformanceID = OMERecord.Performance.ID(
+            organizerID: request.eventID.organizerID,
+            eventID: request.eventID.eventID,
+            performanceID: performanceID
+        )
         if let contributorIDString = request.contributorIDString {
             drafts.append(
                 OMERecord.Performance.Contributors.Draft(
-                    organizerID: request.eventID.organizerID,
-                    eventID: request.eventID.eventID,
-                    performanceID: performanceID,
+                    performanceID: scopedPerformanceID,
                     contributorID: OMERecord.ID<OMERecord.Contributor>(.init(contributorIDString)),
                     anonymousName: nil,
-                    contributorActor: nil
+                    contributorActor: nil,
+                    sortIndex: drafts.count
                 )
             )
         }
         if let anonymousContributorName = request.anonymousContributorName {
             drafts.append(
                 OMERecord.Performance.Contributors.Draft(
-                    organizerID: request.eventID.organizerID,
-                    eventID: request.eventID.eventID,
-                    performanceID: performanceID,
+                    performanceID: scopedPerformanceID,
                     contributorID: nil,
                     anonymousName: anonymousContributorName,
-                    contributorActor: nil
+                    contributorActor: nil,
+                    sortIndex: drafts.count
                 )
             )
         }

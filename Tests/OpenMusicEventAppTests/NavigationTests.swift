@@ -4757,9 +4757,11 @@ struct NavigationTests {
     ) throws {
         try OMERecord.Performance.Contributors.insert {
             OMERecord.Performance.Contributors.Draft(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                performanceID: performanceLocalID(performanceID),
+                performanceID: OMERecord.Performance.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    performanceID: performanceLocalID(performanceID)
+                ),
                 contributorID: contributorLocalID(contributorID),
                 anonymousName: nil,
                 contributorActor: contributorActor

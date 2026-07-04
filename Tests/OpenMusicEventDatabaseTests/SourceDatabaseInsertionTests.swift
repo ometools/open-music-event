@@ -157,16 +157,12 @@ struct SourceDatabaseInsertionTests {
             insertion.performanceContributors,
             [
                 OME.Performance.Contributors.Draft(
-                    organizerID: organizerID,
-                    eventID: id(resolvedEventID),
-                    performanceID: id("opening-set"),
+                    performanceID: performanceID("opening-set", eventID: resolvedEventID, organizerID: organizerID),
                     contributorID: id("artist-one"),
                     anonymousName: nil
                 ),
                 OME.Performance.Contributors.Draft(
-                    organizerID: organizerID,
-                    eventID: id(resolvedEventID),
-                    performanceID: id("saturday-meadow-2"),
+                    performanceID: performanceID("saturday-meadow-2", eventID: resolvedEventID, organizerID: organizerID),
                     contributorID: nil,
                     anonymousName: "Guest Artist"
                 ),
@@ -307,7 +303,9 @@ struct SourceDatabaseInsertionTests {
                         title: "Actor Set",
                         startTime: "18:00",
                         endTime: "19:00",
-                        contributorActors: [actor]
+                        contributors: [
+                            .init(subject: .actor(actor))
+                        ]
                     )
                 ]
             ]
@@ -328,13 +326,69 @@ struct SourceDatabaseInsertionTests {
             insertion.performanceContributors,
             [
                 OME.Performance.Contributors.Draft(
-                    organizerID: organizerID,
-                    eventID: id("testival-source-testival-2026"),
-                    performanceID: id("actor-set"),
+                    performanceID: performanceID("actor-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
                     contributorID: nil,
                     anonymousName: nil,
                     contributorActor: OME.Contributor.Actor("artist.bsky.social")
                 )
+            ]
+        )
+    }
+
+    @Test
+    func performanceContributorCreditsPreserveBillingRoleAndOrder() throws {
+        let source = try makeSourceRepository(
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("credited-set"),
+                        title: "Credited Set",
+                        startTime: "18:00",
+                        endTime: "19:00",
+                        contributors: [
+                            .init(
+                                subject: .id(id("artist-one")),
+                                role: "dj"
+                            ),
+                            .init(
+                                subject: .name("Dance Crew"),
+                                billing: .supporting,
+                                role: "dancer"
+                            ),
+                        ]
+                    )
+                ]
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        expectNoDifference(
+            insertion.performanceContributors,
+            [
+                OME.Performance.Contributors.Draft(
+                    performanceID: performanceID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                    contributorID: id("artist-one"),
+                    anonymousName: nil,
+                    billing: .primary,
+                    role: "dj",
+                    sortIndex: 0
+                ),
+                OME.Performance.Contributors.Draft(
+                    performanceID: performanceID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                    contributorID: nil,
+                    anonymousName: "Dance Crew",
+                    billing: .supporting,
+                    role: "dancer",
+                    sortIndex: 1
+                ),
             ]
         )
     }
@@ -351,7 +405,9 @@ struct SourceDatabaseInsertionTests {
                         title: "Guest Set",
                         startTime: "18:00",
                         endTime: "19:00",
-                        contributorNames: ["Guest Artist"]
+                        contributors: [
+                            .init(subject: .name("Guest Artist"))
+                        ]
                     )
                 ]
             ]
@@ -387,9 +443,7 @@ struct SourceDatabaseInsertionTests {
             insertion.performanceContributors,
             [
                 OME.Performance.Contributors.Draft(
-                    organizerID: organizerID,
-                    eventID: id("testival-source-testival-2026"),
-                    performanceID: id("guest-set"),
+                    performanceID: performanceID("guest-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
                     contributorID: id("schedule-name-Guest%20Artist"),
                     anonymousName: "Guest Artist"
                 )
@@ -410,7 +464,9 @@ struct SourceDatabaseInsertionTests {
                         title: "Actor Set",
                         startTime: "18:00",
                         endTime: "19:00",
-                        contributorActors: [actor]
+                        contributors: [
+                            .init(subject: .actor(actor))
+                        ]
                     )
                 ]
             ]
@@ -446,9 +502,7 @@ struct SourceDatabaseInsertionTests {
             insertion.performanceContributors,
             [
                 OME.Performance.Contributors.Draft(
-                    organizerID: organizerID,
-                    eventID: id("testival-source-testival-2026"),
-                    performanceID: id("actor-set"),
+                    performanceID: performanceID("actor-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
                     contributorID: id("schedule-actor-artist.bsky.social"),
                     anonymousName: nil,
                     contributorActor: actor
@@ -468,7 +522,9 @@ struct SourceDatabaseInsertionTests {
                         title: "Artist Set",
                         startTime: "18:00",
                         endTime: "19:00",
-                        contributorNames: ["Artist One"]
+                        contributors: [
+                            .init(subject: .name("Artist One"))
+                        ]
                     )
                 ]
             ]
@@ -497,9 +553,7 @@ struct SourceDatabaseInsertionTests {
             insertion.performanceContributors,
             [
                 OME.Performance.Contributors.Draft(
-                    organizerID: organizerID,
-                    eventID: id("testival-source-testival-2026"),
-                    performanceID: id("artist-set"),
+                    performanceID: performanceID("artist-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
                     contributorID: id("artist-one"),
                     anonymousName: "Artist One"
                 )
@@ -2800,12 +2854,16 @@ struct SourceDatabaseInsertionTests {
                     title: "Opening Set",
                     startTime: "18:00",
                     endTime: "19:00",
-                    contributorIDs: [id("artist-one")]
+                    contributors: [
+                        .init(subject: .id(id("artist-one")))
+                    ]
                 ),
                 .init(
                     title: "Late Set",
                     startTime: "20:00",
-                    contributorNames: ["Guest Artist"]
+                    contributors: [
+                        .init(subject: .name("Guest Artist"))
+                    ]
                 ),
                 .init(
                     id: id("closing-set"),

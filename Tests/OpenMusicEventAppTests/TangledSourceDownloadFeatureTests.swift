@@ -233,7 +233,7 @@ struct TangledSourceDownloadFeatureTests {
         expectNoDifference(channels.map(\.id.eventID), [secondEventID.eventID])
         expectNoDifference(posters.map(\.id.eventID), [secondEventID.eventID])
         expectNoDifference(performances.map(\.id.eventID), [secondEventID.eventID])
-        expectNoDifference(performanceContributors.map(\.eventID), [secondEventID.eventID])
+        expectNoDifference(performanceContributors.map(\.performanceID.eventID), [secondEventID.eventID])
         expectNoDifference(sourceBaselines.map(\.id), [secondSourceBaselineID])
         expectNoDifference(sourceProvenances.map(\.id), [secondEventID])
         expectNoDifference(downloadedSources.map(\.id), [secondSourceBaselineID])
@@ -1084,9 +1084,11 @@ private func insertImportedEventData(
         .execute(db)
         try OMERecord.Performance.Contributors.insert {
             OMERecord.Performance.Contributors.Draft(
-                organizerID: eventID.organizerID,
-                eventID: eventID.eventID,
-                performanceID: localID("opening"),
+                performanceID: OMERecord.Performance.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    performanceID: localID("opening")
+                ),
                 contributorID: localID("artist"),
                 anonymousName: nil
             )

@@ -543,32 +543,48 @@ extension OpenMusicEvent.Performance {
     @Table("performanceContributors")
     public struct Contributors: Equatable, Sendable, Codable {
         public init(
-            organizerID: OME.Organizer.ID,
-            eventID: OME.ID<OME.Event>,
-            performanceID: OME.ID<OME.Performance>,
+            performanceID: OME.Performance.ID,
             contributorID: OME.ID<OME.Contributor>? = nil,
             anonymousName: String? = nil,
-            contributorActor: OME.Contributor.Actor? = nil
+            contributorActor: OME.Contributor.Actor? = nil,
+            billing: Billing = .primary,
+            role: Role? = nil,
+            sortIndex: Int = 0
         ) {
-            self.organizerID = organizerID
-            self.eventID = eventID
             self.performanceID = performanceID
             self.contributorID = contributorID
             self.anonymousName = anonymousName
             self.contributorActor = contributorActor
+            self.billing = billing
+            self.role = role
+            self.sortIndex = sortIndex
         }
 
-        public var organizerID: OME.Organizer.ID
-        public var eventID: OME.ID<OME.Event>
-        public var performanceID: OME.ID<OME.Performance>
+        public var performanceID: OME.Performance.ID
         public var contributorID: OME.ID<OME.Contributor>?
         public var anonymousName: String?
         public var contributorActor: OME.Contributor.Actor?
+        public var billing: Billing
+        public var role: Role?
+        public var sortIndex: Int
     }
 }
 
 extension OpenMusicEvent.Performance.Contributors {
     public typealias Draft = Self
+
+    public enum Billing: String, Codable, Equatable, Hashable, Sendable, SQLiteType {
+        case primary
+        case supporting
+    }
+
+    public struct Role: Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral, RawRepresentable, SQLiteType {
+        public var type: String
+        public var rawValue: String { type }
+        public init(stringLiteral value: String) { self.type = value }
+        public init(_ type: String) { self.type = type }
+        public init(rawValue: String) { self.type = rawValue }
+    }
 }
 
 // MARK: - Contributor  (app.openmusicevent.contributor)

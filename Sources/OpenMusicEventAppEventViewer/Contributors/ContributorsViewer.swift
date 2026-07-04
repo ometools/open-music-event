@@ -82,8 +82,8 @@ public struct ContributorsViewer {
         eventID: OMERecord.Event.ID
     ) -> some SelectStatementOf<OMERecord.Performance.Contributors> {
         OMERecord.Performance.Contributors
-            .where { $0.organizerID.eq(eventID.organizerID) }
-            .where { $0.eventID.eq(eventID.eventID) }
+            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
+            .where { $0.performanceID.eventID.eq(eventID.eventID) }
     }
 
     public var body: some Feature {
