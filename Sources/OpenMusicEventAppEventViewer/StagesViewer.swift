@@ -873,16 +873,16 @@ public struct StageDetailView: View {
     public var body: some View {
         Group {
             if let stage = store.stage {
-                let logoAsset = stage.images?.imageAsset(role: .logo)
+                let heroImageSources = stage.heroImageSources
+                let heroImageTitleSources = stage.heroImageTitleSources
                 HeroImageList(
                     title: Text(stage.name),
-                    showsNavigationTitleBeforeScroll: logoAsset != nil
+                    showsNavigationTitleBeforeScroll: heroImageTitleSources.containsLogo
                 ) {
                     HeroImage(
                         title: Text(stage.name),
-                        asset: stage.images?.imageAsset(role: .hero),
-                        cacheContext: .init(stageID: stage.id),
-                        logoAsset: logoAsset,
+                        sources: heroImageSources,
+                        titleSources: heroImageTitleSources,
                         tint: stage.color.swiftUIColor
                     ) {
                         StageIconFallback(stage: stage, size: 150)

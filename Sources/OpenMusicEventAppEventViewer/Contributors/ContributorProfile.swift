@@ -80,6 +80,12 @@ public struct ContributorProfile: Identifiable, Sendable {
         actorAvatarAsset == nil ? .init(contributorID: contributor.id) : nil
     }
 
+    var artworkDisplayImage: DisplayImageAsset? {
+        artworkAsset.map {
+            DisplayImageAsset(asset: $0, cacheContext: artworkCacheContext)
+        }
+    }
+
     var kindDisplayName: String? {
         contributor.kind?.displayName
     }
@@ -94,6 +100,26 @@ public struct ContributorProfile: Identifiable, Sendable {
 
     var logoCacheContext: LocalImageCacheContext? {
         logoAsset == nil ? nil : .init(contributorID: contributor.id)
+    }
+
+    var logoDisplayImage: DisplayImageAsset? {
+        logoAsset.map {
+            DisplayImageAsset(asset: $0, cacheContext: logoCacheContext)
+        }
+    }
+
+    var heroImageSources: [HeroImageSource] {
+        [
+            artworkDisplayImage.map(HeroImageSource.primaryImage),
+            logoDisplayImage.map(HeroImageSource.logo),
+        ].compactMap { $0 }
+    }
+
+    var heroImageTitleSources: [HeroImageTitleSource] {
+        [
+            logoDisplayImage.map(HeroImageTitleSource.logo),
+            .title,
+        ].compactMap { $0 }
     }
 
     var usesActorProfileAsPrimary: Bool {

@@ -167,9 +167,8 @@ public struct CalendarDetailView: View {
         HeroImageList(title: Text(calendarTitle)) {
             HeroImage(
                 title: Text(calendarTitle),
-                asset: store.calendar?.images?.imageAsset(role: .hero),
-                cacheContext: calendarImageCacheContext,
-                logoAsset: store.calendar?.images?.imageAsset(role: .logo)
+                sources: store.calendar?.heroImageSources ?? [],
+                titleSources: store.calendar?.heroImageTitleSources ?? [.title]
             ) {
                 Image(systemName: "calendar")
                     .font(.system(size: 82, weight: .semibold))
@@ -220,10 +219,6 @@ public struct CalendarDetailView: View {
             return nil
         }
         return description
-    }
-
-    private var calendarImageCacheContext: LocalImageCacheContext {
-        LocalImageCacheContext(calendarID: store.calendar?.id ?? store.calendarID)
     }
 
     private var entryRows: CalendarDetail.EntryRows {

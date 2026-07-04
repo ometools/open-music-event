@@ -894,46 +894,29 @@ struct PerformanceHeroView: View {
     let contributors: [ContributorProfile]
 
     var body: some View {
-        GeometryReader { geometry in
-            let summary = PerformanceDetailSummary(
+        let summary = PerformanceDetailSummary(
+            performance: performance,
+            stage: stage,
+            contributors: contributors
+        )
+
+        HeroImage(
+            title: Text(performance.title),
+            sources: stage?.heroImageSources ?? [],
+            titleSources: [.title],
+            tint: summary.tint
+        ) {
+            PerformanceHeroPlaceholder(
                 performance: performance,
-                stage: stage,
-                contributors: contributors
+                stage: stage
             )
-            let artworkSize = min(max(geometry.size.width * 0.36, 116), 152)
-
-            ZStack {
-                ImageAssetAsyncImage(
-                    asset: stage?.images?.imageAsset(role: .hero),
-                    cacheContext: stage.map { .init(stageID: $0.id) },
-                    contentMode: .fill
-                ) {
-                    PerformanceHeroFallback(
-                        performance: performance,
-                        stage: stage,
-                        tint: summary.tint
-                    )
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
-
-                LinearGradient(
-                    colors: [
-                        .black.opacity(0.22),
-                        .clear,
-                        .black.opacity(0.36),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-
-                PerformanceArtistBubbleView(
-                    contributor: summary.featuredContributor,
-                    fallbackTitle: summary.artistSummary,
-                    tint: summary.tint
-                )
-                .frame(width: artworkSize, height: artworkSize)
-            }
+        } overlay: {
+            PerformanceArtistBubbleView(
+                contributor: summary.featuredContributor,
+                fallbackTitle: summary.featuredContributor?.name ?? summary.artistSummary,
+                tint: summary.tint
+            )
+            .frame(width: 118, height: 118)
         }
     }
 }
@@ -957,18 +940,10 @@ struct PerformanceSummaryRow: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(summary.artistSummary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.headline)
                     .lineLimit(1)
                     #if os(iOS)
                     .minimumScaleFactor(0.74)
-                    #endif
-
-                Text(performance.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                    #if os(iOS)
-                    .minimumScaleFactor(0.78)
                     #endif
 
                 Text(summary.stageAndTimeSummary)
@@ -1025,64 +1000,64 @@ struct PerformanceArtistBubbleView: View {
             cacheContext: contributor?.artworkCacheContext,
             contentMode: .fill
         ) {
-            PerformanceArtworkFallback(title: fallbackTitle, tint: tint)
+            PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
-        .background(tint.opacity(0.26))
+        .background(tint.opacity(0.24))
         .clipShape(Circle())
         .overlay {
             Circle()
-                .stroke(.white.opacity(0.64), lineWidth: 2)
+                .stroke(.white.opacity(0.72), lineWidth: 2)
         }
         .shadow(color: .black.opacity(0.34), radius: 16, x: 0, y: 8)
     }
 }
 
-struct PerformanceHeroFallback: View {
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage?
-    let tint: Color
-
-    var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(tint.opacity(0.22))
-
-            if let stage {
-                StageIconFallback(stage: stage, size: 160)
-                    .foregroundStyle(tint)
-                    .opacity(0.82)
-            } else {
-                PerformanceArtworkFallback(title: performance.title, tint: tint)
-                    .frame(width: 160, height: 160)
-                    .opacity(0.72)
-            }
-        }
-    }
-}
-
-struct PerformanceArtworkFallback: View {
+struct PerformanceArtistBubbleFallback: View {
     let title: String
     let tint: Color
 
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(tint.opacity(0.18))
+        Text(initials)
+            .font(.system(size: 38, weight: .heavy))
+            .lineLimit(1)
+            #if os(iOS)
+            .minimumScaleFactor(0.35)
+            #endif
+            .foregroundStyle(tint)
+    }
 
+    var initials: String {
+        let words = title
+            .split(separator: " ")
+            .prefix(2)
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+            .uppercased()
+        return words.isEmpty ? "SET" : words
+    }
+}
+
+struct PerformanceHeroPlaceholder: View {
+    let performance: OMERecord.Performance
+    let stage: OMERecord.Stage?
+
+    var body: some View {
+        if let stage {
+            StageIconFallback(stage: stage, size: 150)
+        } else {
             Text(initials)
                 .font(.system(size: 46, weight: .heavy))
                 .lineLimit(1)
                 #if os(iOS)
                 .minimumScaleFactor(0.35)
                 #endif
-                .foregroundStyle(tint)
         }
     }
 
     var initials: String {
-        let words = title
+        let words = performance.title
             .split(separator: " ")
             .prefix(2)
             .compactMap(\.first)

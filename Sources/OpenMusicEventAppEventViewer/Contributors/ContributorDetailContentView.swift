@@ -12,16 +12,15 @@ struct ContributorDetailContentView: View {
     let editButtonTapped: () -> Void
 
     var body: some View {
+        let heroImageTitleSources = profile.heroImageTitleSources
         HeroImageList(
             title: Text(profile.name),
-            showsNavigationTitleBeforeScroll: profile.logoAsset != nil
+            showsNavigationTitleBeforeScroll: heroImageTitleSources.containsLogo
         ) {
             HeroImage(
                 title: Text(profile.name),
-                asset: profile.artworkAsset,
-                cacheContext: profile.artworkCacheContext,
-                logoAsset: profile.logoAsset,
-                logoCacheContext: profile.logoCacheContext,
+                sources: profile.heroImageSources,
+                titleSources: heroImageTitleSources,
                 tint: stageContext.primaryStage?.color.swiftUIColor ?? .accentColor
             ) {
                 Image(systemName: "person.crop.square")

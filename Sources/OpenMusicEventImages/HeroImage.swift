@@ -2,14 +2,44 @@ import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SwiftUI
 
-public struct HeroImage<Placeholder: View>: View {
+public struct HeroImage<Placeholder: View, Overlay: View>: View {
     let title: Text
-    let asset: OME.ImageAsset?
-    let cacheContext: LocalImageCacheContext?
-    let logoAsset: OME.ImageAsset?
-    let logoCacheContext: LocalImageCacheContext?
+    let sources: [HeroImageSource]
+    let titleSources: [HeroImageTitleSource]
     let tint: Color
     @ViewBuilder var placeholder: () -> Placeholder
+    @ViewBuilder var overlay: () -> Overlay
+
+    public init(
+        title: Text,
+        sources: [HeroImageSource],
+        titleSources: [HeroImageTitleSource],
+        tint: Color = .accentColor,
+        @ViewBuilder placeholder: @escaping () -> Placeholder
+    ) where Overlay == EmptyView {
+        self.title = title
+        self.sources = sources
+        self.titleSources = titleSources
+        self.tint = tint
+        self.placeholder = placeholder
+        self.overlay = { EmptyView() }
+    }
+
+    public init(
+        title: Text,
+        sources: [HeroImageSource],
+        titleSources: [HeroImageTitleSource],
+        tint: Color = .accentColor,
+        @ViewBuilder placeholder: @escaping () -> Placeholder,
+        @ViewBuilder overlay: @escaping () -> Overlay
+    ) {
+        self.title = title
+        self.sources = sources
+        self.titleSources = titleSources
+        self.tint = tint
+        self.placeholder = placeholder
+        self.overlay = overlay
+    }
 
     public init(
         title: Text,
@@ -17,42 +47,97 @@ public struct HeroImage<Placeholder: View>: View {
         cacheContext: LocalImageCacheContext?,
         logoAsset: OME.ImageAsset? = nil,
         logoCacheContext: LocalImageCacheContext? = nil,
+        titleSources: [HeroImageTitleSource],
         tint: Color = .accentColor,
         @ViewBuilder placeholder: @escaping () -> Placeholder
+    ) where Overlay == EmptyView {
+        self.init(
+            title: title,
+            asset: asset,
+            cacheContext: cacheContext,
+            logoAsset: logoAsset,
+            logoCacheContext: logoCacheContext,
+            titleSources: titleSources,
+            tint: tint,
+            placeholder: placeholder,
+            overlay: { EmptyView() }
+        )
+    }
+
+    public init(
+        title: Text,
+        asset: OME.ImageAsset?,
+        cacheContext: LocalImageCacheContext?,
+        logoAsset: OME.ImageAsset? = nil,
+        logoCacheContext: LocalImageCacheContext? = nil,
+        titleSources: [HeroImageTitleSource],
+        tint: Color = .accentColor,
+        @ViewBuilder placeholder: @escaping () -> Placeholder,
+        @ViewBuilder overlay: @escaping () -> Overlay
     ) {
+        let logoImage = logoAsset.map {
+            DisplayImageAsset(asset: $0, cacheContext: logoCacheContext ?? cacheContext)
+        }
         self.title = title
-        self.asset = asset
-        self.cacheContext = cacheContext
-        self.logoAsset = logoAsset
-        self.logoCacheContext = logoCacheContext ?? cacheContext
+        self.sources = [
+            asset.map {
+                .primaryImage(DisplayImageAsset(asset: $0, cacheContext: cacheContext))
+            },
+            logoImage.map(HeroImageSource.logo),
+        ].compactMap { $0 }
+        self.titleSources = titleSources
         self.tint = tint
         self.placeholder = placeholder
+        self.overlay = overlay
     }
 
     public var body: some View {
         GeometryReader { geometry in
-            ImageAssetAsyncImage(
-                asset: asset,
-                cacheContext: cacheContext,
-                contentMode: .fill
+            HeroImageBackground(
+                sources: sources,
+                tint: tint
             ) {
-                HeroImageFallback(tint: tint) {
-                    placeholder()
-                }
+                placeholder()
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()
             .overlay(alignment: .bottomLeading) {
                 HeroImageBottomChrome(
                     title: title,
-                    logoAsset: logoAsset,
-                    logoCacheContext: logoCacheContext,
-                    tint: tint
+                    titleSources: titleSources,
+                    tint: tint,
+                    overlay: overlay
                 )
                 .frame(width: geometry.size.width, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+public struct HeroImageBackground<Placeholder: View>: View {
+    let sources: [HeroImageSource]
+    let tint: Color
+    @ViewBuilder var placeholder: () -> Placeholder
+    @Environment(\.heroImageRendering) var heroImageRendering
+
+    public init(
+        sources: [HeroImageSource],
+        tint: Color = .accentColor,
+        @ViewBuilder placeholder: @escaping () -> Placeholder
+    ) {
+        self.sources = sources
+        self.tint = tint
+        self.placeholder = placeholder
+    }
+
+    public var body: some View {
+        HeroImageSourceChain(
+            sources: sources[...],
+            rendering: heroImageRendering,
+            tint: tint,
+            placeholder: placeholder
+        )
     }
 }
 
@@ -213,6 +298,69 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
     }
 }
 
+struct HeroImageSourceChain<Placeholder: View>: View {
+    let sources: ArraySlice<HeroImageSource>
+    let rendering: HeroImageRendering
+    let tint: Color
+    @ViewBuilder var placeholder: () -> Placeholder
+
+    @ViewBuilder
+    var body: some View {
+        if let source = sources.first {
+            switch rendering.renderer(for: source.kind) {
+            case .fullBleedImage:
+                ImageAssetAsyncImage(
+                    image: source.image,
+                    contentMode: .fill
+                ) {
+                    HeroImageSourceChain(
+                        sources: sources.dropFirst(),
+                        rendering: rendering,
+                        tint: tint,
+                        placeholder: placeholder
+                    )
+                }
+
+            case .centeredLogo:
+                HeroImageFallback(tint: tint) {
+                    ImageAssetAsyncImage(
+                        image: source.image,
+                        contentMode: .fit
+                    ) { reason in
+                        switch reason {
+                        case .loading:
+                            Color.clear
+                        case .failure, .unavailable:
+                            centeredFallbackContent
+                        }
+                    }
+                    .frame(maxWidth: 260, maxHeight: 160)
+                    .padding(.horizontal, 48)
+                    .padding(.vertical, 56)
+                }
+            }
+        } else {
+            HeroImageFallback(tint: tint) {
+                placeholder()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var centeredFallbackContent: some View {
+        if sources.dropFirst().isEmpty {
+            placeholder()
+        } else {
+            HeroImageSourceChain(
+                sources: sources.dropFirst(),
+                rendering: rendering,
+                tint: tint,
+                placeholder: placeholder
+            )
+        }
+    }
+}
+
 struct HeroImageFallback<Content: View>: View {
     let tint: Color
     @ViewBuilder var content: () -> Content
@@ -230,40 +378,35 @@ struct HeroImageFallback<Content: View>: View {
     }
 }
 
-struct HeroImageBottomChrome: View {
+struct HeroImageBottomChrome<Overlay: View>: View {
     let title: Text
-    let logoAsset: OME.ImageAsset?
-    let logoCacheContext: LocalImageCacheContext?
+    let titleSources: [HeroImageTitleSource]
     let tint: Color
+    @ViewBuilder var overlay: () -> Overlay
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        HStack {
-            if let logoAsset {
-                ImageAssetAsyncImage(
-                    asset: logoAsset,
-                    cacheContext: logoCacheContext,
-                    contentMode: .fit
-                ) {
-                    HeroImageName(title: title)
-                }
-                .frame(width: 164, height: 72, alignment: .leading)
-                .accessibilityLabel(title)
-            } else {
-                HeroImageName(title: title)
-            }
-        }
-            .padding(.horizontal, 16)
-            .padding(.top, 56)
-            .padding(.bottom, 18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                LinearGradient(
-                    colors: [.clear, chromeColor.opacity(0.86)],
-                    startPoint: .top,
-                    endPoint: .bottom
+        VStack(alignment: .leading, spacing: 12) {
+            overlay()
+
+            HStack {
+                HeroImageTitleSourceChain(
+                    title: title,
+                    sources: titleSources[...]
                 )
             }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 56)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(
+                colors: [.clear, chromeColor.opacity(0.86)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
     }
 
     private var chromeColor: Color {
@@ -275,6 +418,46 @@ struct HeroImageBottomChrome: View {
         @unknown default:
             .black
         }
+    }
+}
+
+struct HeroImageTitleSourceChain: View {
+    let title: Text
+    let sources: ArraySlice<HeroImageTitleSource>
+
+    @ViewBuilder
+    var body: some View {
+        if let source = sources.first {
+            switch source {
+            case let .logo(image):
+                ImageAssetAsyncImage(
+                    image: image,
+                    contentMode: .fit
+                ) { reason in
+                    switch reason {
+                    case .loading:
+                        Color.clear
+                    case .failure, .unavailable:
+                        nextSource
+                    }
+                }
+                .frame(width: 164, height: 72, alignment: .leading)
+                .accessibilityLabel(title)
+
+            case .title:
+                HeroImageName(title: title)
+            }
+        } else {
+            HeroImageName(title: title)
+        }
+    }
+
+    @ViewBuilder
+    private var nextSource: some View {
+        HeroImageTitleSourceChain(
+            title: title,
+            sources: sources.dropFirst()
+        )
     }
 }
 

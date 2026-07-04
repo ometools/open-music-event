@@ -3,11 +3,17 @@ import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SwiftUI
 
+public enum ImageAssetPlaceholderReason: Equatable, Sendable {
+    case loading
+    case failure
+    case unavailable
+}
+
 public struct ImageAssetAsyncImage<Placeholder: View>: View {
     let asset: OME.ImageAsset?
     let cacheContext: LocalImageCacheContext?
     var contentMode: ContentMode?
-    @ViewBuilder var placeholder: () -> Placeholder
+    @ViewBuilder var placeholder: (ImageAssetPlaceholderReason) -> Placeholder
     @Dependency(\.lazyImageCache) var lazyImageCache
     @Dependency(\.localImageDisplayCache) var localImageDisplayCache
     @State var cachedAsset: OME.ImageAsset?
@@ -24,17 +30,51 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         self.asset = asset
         self.cacheContext = cacheContext
         self.contentMode = contentMode
+        self.placeholder = { _ in placeholder() }
+    }
+
+    public init(
+        asset: OME.ImageAsset?,
+        cacheContext: LocalImageCacheContext? = nil,
+        contentMode: ContentMode? = nil,
+        @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
+    ) {
+        self.asset = asset
+        self.cacheContext = cacheContext
+        self.contentMode = contentMode
+        self.placeholder = placeholder
+    }
+
+    public init(
+        image: DisplayImageAsset?,
+        contentMode: ContentMode? = nil,
+        @ViewBuilder placeholder: @escaping () -> Placeholder
+    ) {
+        self.asset = image?.asset
+        self.cacheContext = image?.cacheContext
+        self.contentMode = contentMode
+        self.placeholder = { _ in placeholder() }
+    }
+
+    public init(
+        image: DisplayImageAsset?,
+        contentMode: ContentMode? = nil,
+        @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
+    ) {
+        self.asset = image?.asset
+        self.cacheContext = image?.cacheContext
+        self.contentMode = contentMode
         self.placeholder = placeholder
     }
 
     public var body: some View {
         if shouldShowCachePlaceholder {
-            placeholder()
+            placeholder(.loading)
                 .task(id: cacheTaskID) {
                     await cacheLazyImageIfNeeded()
                 }
         } else if shouldResolveDisplayCache {
-            placeholder()
+            placeholder(.loading)
                 .task(id: cacheTaskID) {
                     await resolveCachedImageIfAvailable()
                 }
@@ -42,20 +82,20 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .empty:
-                    placeholder()
+                    placeholder(.loading)
                 case let .success(image):
                     image
                         .renderingMode(displayAsset?.isTemplateLike == true ? .template : .original)
                         .resizable()
                         .aspectRatio(contentMode: resolvedContentMode)
                 case .failure:
-                    placeholder()
+                    placeholder(.failure)
                 @unknown default:
-                    placeholder()
+                    placeholder(.unavailable)
                 }
             }
         } else {
-            placeholder()
+            placeholder(.unavailable)
         }
     }
 

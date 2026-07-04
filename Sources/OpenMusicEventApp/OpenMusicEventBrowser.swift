@@ -609,8 +609,8 @@ public struct OrganizerDetailView: View {
         HeroImageList(title: Text(organizerTitle)) {
             HeroImage(
                 title: Text(organizerTitle),
-                asset: nil,
-                cacheContext: nil
+                sources: [],
+                titleSources: [.title]
             ) {
                 Image(systemName: "person.crop.circle")
                     .font(.system(size: 82, weight: .semibold))
@@ -1060,9 +1060,8 @@ public struct SourceDetailView: View {
         HeroImageList(title: Text(calendarTitle)) {
             HeroImage(
                 title: Text(calendarTitle),
-                asset: store.calendar?.images?.imageAsset(role: .hero),
-                cacheContext: calendarImageCacheContext,
-                logoAsset: store.calendar?.images?.imageAsset(role: .logo)
+                sources: store.calendar?.heroImageSources ?? [],
+                titleSources: store.calendar?.heroImageTitleSources ?? [.title]
             ) {
                 Image(systemName: "calendar")
                     .font(.system(size: 82, weight: .semibold))
@@ -1172,10 +1171,6 @@ public struct SourceDetailView: View {
         ?? store.sourceBaseline?.sourceReference
         ?? store.organizer?.id.description
         ?? store.sourceBaselineID.rawValue
-    }
-
-    private var calendarImageCacheContext: LocalImageCacheContext? {
-        store.editableCalendarID.map(LocalImageCacheContext.init(calendarID:))
     }
 
     private var entryRows: CalendarDetail.EntryRows {

@@ -71,16 +71,16 @@ public struct EventInfoViewerView: View {
     public var body: some View {
         Group {
             if let event = store.event {
-                let logoAsset = event.images?.imageAsset(role: .icon)
+                let heroImageSources = event.heroImageSources
+                let heroImageTitleSources = event.heroImageTitleSources
                 HeroImageList(
                     title: Text(event.name),
-                    showsNavigationTitleBeforeScroll: logoAsset != nil
+                    showsNavigationTitleBeforeScroll: heroImageTitleSources.containsLogo
                 ) {
                     HeroImage(
                         title: Text(event.name),
-                        asset: event.images?.imageAsset(role: .hero),
-                        cacheContext: .init(eventID: event.id),
-                        logoAsset: logoAsset
+                        sources: heroImageSources,
+                        titleSources: heroImageTitleSources
                     ) {
                         Image(systemName: "music.note")
                             .font(.system(size: 82, weight: .semibold))
