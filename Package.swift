@@ -262,6 +262,7 @@ let package = Package(
                 .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "FileTree", package: "swift-file-tree"),
+                .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Gzip", package: "gzipswift"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),

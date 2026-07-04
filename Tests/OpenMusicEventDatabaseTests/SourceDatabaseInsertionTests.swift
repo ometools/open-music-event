@@ -834,7 +834,75 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryUsesSourceEditingSessionDatabase() async throws {
+    func sourceEditSummaryIncludesEventChangesForSourceBaseline() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+        let database = try makeCoreDatabase()
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        try await database.write { db in
+            try OME.Stage
+                .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
+                .update { $0.name = "Updated Meadow" }
+                .execute(db)
+        }
+
+        let summary = try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+        } operation: {
+            try await database.read { db in
+                try SourceEditSummaryRequest(
+                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
+                    calendarID: calendarID(organizerID: organizerID)
+                )
+                .fetch(db)
+            }
+        }
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 1)
+        #expect(summary.badgeCount == 1)
+        let stageGroup = try #require(
+            summary.groups.first { $0.id == OME.Stage.tableName }
+        )
+        #expect(stageGroup.displayName == "Stage")
+        #expect(stageGroup.added == 0)
+        #expect(stageGroup.modified == 1)
+        #expect(stageGroup.deleted == 0)
+        let stageRecord = try #require(stageGroup.records.first)
+        #expect(stageRecord.kind == .modified)
+        #expect(stageRecord.recordDiff?.contains("Updated Meadow") == true)
+        expectNoDifference(
+            stageRecord.fieldChanges,
+            [
+                SourceFieldChange(
+                    columnName: "name",
+                    baselineValue: "Meadow".databaseValue,
+                    workingValue: "Updated Meadow".databaseValue
+                )
+            ]
+        )
+    }
+
+    @Test
+    func eventEditSummaryUsesDefaultDatabaseAgainstSourceReference() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -862,29 +930,19 @@ struct SourceDatabaseInsertionTests {
             try await insertion.insert(into: database)
         }
 
-        let session = try withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceEditingWorkingDatabasePath = workingDatabasePath
-        } operation: {
-            try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
-        }
-
-        try await session.database.write { db in
+        try await database.write { db in
             try OME.Stage
                 .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
-                .update { $0.name = "Changed through session" }
+                .update { $0.name = "Changed through default database" }
                 .execute(db)
         }
 
         let summary = try await withDependencies {
-            $0.defaultDatabase = session.database
+            $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceEditingSession = session
         } operation: {
-            try await session.database.read { db in
+            try await database.read { db in
                 try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
@@ -901,21 +959,21 @@ struct SourceDatabaseInsertionTests {
         #expect(stageGroup.deleted == 0)
         let stageRecord = try #require(stageGroup.records.first)
         #expect(stageRecord.kind == .modified)
-        #expect(stageRecord.recordDiff?.contains("Changed through session") == true)
+        #expect(stageRecord.recordDiff?.contains("Changed through default database") == true)
         expectNoDifference(
             stageRecord.fieldChanges,
             [
                 SourceFieldChange(
                     columnName: "name",
                     baselineValue: "Meadow".databaseValue,
-                    workingValue: "Changed through session".databaseValue
+                    workingValue: "Changed through default database".databaseValue
                 )
             ]
         )
     }
 
     @Test
-    func eventEditSummaryCountsAddedPerformanceInSourceEditingSession() async throws {
+    func eventEditSummaryCountsAddedPerformanceInDefaultDatabase() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -945,18 +1003,9 @@ struct SourceDatabaseInsertionTests {
             try await insertion.insert(into: database)
         }
 
-        let session = try withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceEditingWorkingDatabasePath = workingDatabasePath
-        } operation: {
-            try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
-        }
-
         let startTime = try localDate(scheduleDate, atHour: 21, in: timeZone)
         let endTime = try localDate(scheduleDate, atHour: 22, in: timeZone)
-        try await session.database.write { db in
+        try await database.write { db in
             try OME.Performance.insert {
                 OME.Performance.Draft(
                     id: performanceID(
@@ -977,12 +1026,11 @@ struct SourceDatabaseInsertionTests {
         }
 
         let summary = try await withDependencies {
-            $0.defaultDatabase = session.database
+            $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceEditingSession = session
         } operation: {
-            try await session.database.read { db in
+            try await database.read { db in
                 try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
@@ -1014,7 +1062,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func resetOpenMusicEventEditsRestoresRealSchemaRows() async throws {
+    func openMusicEventEditResetterRestoresRealSchemaRows() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -1042,16 +1090,7 @@ struct SourceDatabaseInsertionTests {
             try await insertion.insert(into: database)
         }
 
-        let session = try withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceEditingWorkingDatabasePath = workingDatabasePath
-        } operation: {
-            try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
-        }
-
-        try await session.database.write { db in
+        try await database.write { db in
             try OME.Event
                 .find(openedEventID)
                 .update { $0.name = "Changed Event" }
@@ -1063,34 +1102,40 @@ struct SourceDatabaseInsertionTests {
         }
 
         let changedSummary = try await withDependencies {
-            $0.defaultDatabase = session.database
+            $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceEditingSession = session
         } operation: {
-            try await session.database.read { db in
+            try await database.read { db in
                 try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
         #expect(changedSummary.availability == .available)
         #expect(changedSummary.totalCount == 2)
 
-        try session.resetOpenMusicEventEdits(eventID: openedEventID)
+        try withDependencies {
+            $0.defaultDatabase = database
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.openMusicEventEditResetter = .openMusicEvent
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+        } operation: {
+            @Dependency(\.openMusicEventEditResetter) var resetter
+            try resetter.reset(openedEventID)
+        }
 
         let resetSummary = try await withDependencies {
-            $0.defaultDatabase = session.database
+            $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-            $0.sourceEditingSession = session
         } operation: {
-            try await session.database.read { db in
+            try await database.read { db in
                 try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
         #expect(resetSummary.availability == .available)
         #expect(resetSummary.totalCount == 0)
 
-        let restoredRows = try await session.database.read { db in
+        let restoredRows = try await database.read { db in
             let event = try #require(try OME.Event.find(openedEventID).fetchOne(db))
             let stage = try #require(
                 try OME.Stage
@@ -1104,7 +1149,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func sourceEditingSessionPrefersSourceLocalReferenceDatabase() async throws {
+    func eventEditSummaryUsesSourceLocalReferenceDatabase() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("source-testival-2026", organizerID: organizerID)
@@ -1124,27 +1169,39 @@ struct SourceDatabaseInsertionTests {
                 sourceProvenance: sourceProvenance
             )
         )
-        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
-        let database = try makeCoreDatabase(path: workingDatabasePath)
-        let sourceReferenceDatabaseURL = try SourceReferenceDatabaseClient.referenceDatabaseURL(
-            repositoryURL: repositoryURL
+        let database = try makeCoreDatabase(
+            path: directoryURL.appendingPathComponent("working.sqlite").path
         )
-
         try await insertion.insert(into: database)
 
-        let session = try withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceEditingWorkingDatabasePath = workingDatabasePath
-        } operation: {
-            try #require(try SourceEditingSession.openMusicEvent(eventID: openedEventID))
-        }
-
-        #expect(session.baselineDatabasePath == sourceReferenceDatabaseURL.path)
         #expect(
             FileManager.default.fileExists(
                 atPath: repositoryURL.appending(path: ".ome/reference.sqlite").path()
             )
         )
+
+        try await database.write { db in
+            try OME.Stage
+                .find(stageID("meadow", eventID: "source-testival-2026", organizerID: organizerID))
+                .update { $0.name = "Changed through default database" }
+                .execute(db)
+        }
+
+        let summary = try await withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            try await database.read { db in
+                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            }
+        }
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 1)
+        let stageGroup = try #require(
+            summary.groups.first { $0.id == OME.Stage.tableName }
+        )
+        let stageRecord = try #require(stageGroup.records.first)
+        #expect(stageRecord.recordDiff?.contains("Changed through default database") == true)
     }
 
     @Test

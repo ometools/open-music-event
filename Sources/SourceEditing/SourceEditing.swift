@@ -342,32 +342,88 @@ public extension SourceEditingSession {
         scope: SourceRecordScope = .all
     ) throws {
         try database.write { db in
-            for descriptor in descriptors.reversed() {
-                try deleteAddedRows(
-                    descriptor: descriptor,
-                    baselineSchemaName: baselineSchemaName,
-                    scope: scope,
-                    in: db
-                )
-            }
+            try SourceEditingResetter().reset(
+                in: db,
+                baselineSchemaName: baselineSchemaName,
+                descriptors: descriptors,
+                scope: scope
+            )
+        }
+    }
+}
 
-            for descriptor in descriptors {
-                try insertDeletedRows(
-                    descriptor: descriptor,
-                    baselineSchemaName: baselineSchemaName,
-                    scope: scope,
-                    in: db
-                )
-            }
+public struct SourceEditingResetter: Sendable {
+    public init() {}
 
-            for descriptor in descriptors {
-                try resetModifiedRows(
-                    descriptor: descriptor,
-                    baselineSchemaName: baselineSchemaName,
-                    scope: scope,
-                    in: db
-                )
-            }
+    public func reset(
+        in db: Database,
+        baselineDatabase: SourceBaselineDatabase,
+        descriptors: [SourceTableDescriptor],
+        scope: SourceRecordScope = .all
+    ) throws {
+        try reset(
+            in: db,
+            baselineDatabasePath: baselineDatabase.path,
+            descriptors: descriptors,
+            scope: scope
+        )
+    }
+
+    public func reset(
+        in db: Database,
+        baselineDatabasePath: String,
+        descriptors: [SourceTableDescriptor],
+        scope: SourceRecordScope = .all
+    ) throws {
+        let baselineSchemaName = "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
+
+        try #sql(
+            "ATTACH DATABASE \(bind: baselineDatabasePath) AS \(quote: baselineSchemaName)"
+        )
+        .execute(db)
+        defer {
+            try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+        }
+
+        try reset(
+            in: db,
+            baselineSchemaName: baselineSchemaName,
+            descriptors: descriptors,
+            scope: scope
+        )
+    }
+
+    public func reset(
+        in db: Database,
+        baselineSchemaName: String,
+        descriptors: [SourceTableDescriptor],
+        scope: SourceRecordScope = .all
+    ) throws {
+        for descriptor in descriptors.reversed() {
+            try deleteAddedRows(
+                descriptor: descriptor,
+                baselineSchemaName: baselineSchemaName,
+                scope: scope,
+                in: db
+            )
+        }
+
+        for descriptor in descriptors {
+            try insertDeletedRows(
+                descriptor: descriptor,
+                baselineSchemaName: baselineSchemaName,
+                scope: scope,
+                in: db
+            )
+        }
+
+        for descriptor in descriptors {
+            try resetModifiedRows(
+                descriptor: descriptor,
+                baselineSchemaName: baselineSchemaName,
+                scope: scope,
+                in: db
+            )
         }
     }
 }

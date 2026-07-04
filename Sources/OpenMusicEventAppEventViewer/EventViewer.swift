@@ -98,12 +98,10 @@ public struct EventViewer {
             eventID: OMERecord.Event.ID,
             features: [EventFeature]
         ) {
-            let sourceEditingSession = try? SourceEditingSession.openMusicEvent(eventID: eventID)
             let eventTimeZone = Self.eventTimeZone(eventID: eventID)
 
             self.eventID = eventID
             self.eventTimeZone = eventTimeZone
-            self.sourceEditingSession = sourceEditingSession
             self._eventViewerState = Shared(.eventViewerState(eventID))
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
@@ -170,7 +168,6 @@ public struct EventViewer {
 
         mutating func reloadAfterSourceDataRefresh() {
             let selectedFeature = self.selectedFeature
-            self.sourceEditingSession = try? SourceEditingSession.openMusicEvent(eventID: eventID)
             self.eventTimeZone = Self.eventTimeZone(eventID: eventID)
             let features = withEventDependencies {
                 EventFeature.features(eventID: eventID)
@@ -193,8 +190,6 @@ public struct EventViewer {
 
         public let eventID: OMERecord.Event.ID
         public var eventTimeZone: TimeZone
-        @DebugSnapshotIgnored
-        public var sourceEditingSession: SourceEditingSession?
         @Shared public var eventViewerState: EventViewerState
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
@@ -513,11 +508,9 @@ public struct EventViewer {
         private func withEventDependencies<Value>(_ operation: () -> Value) -> Value {
             let eventID = self.eventID
             let eventTimeZone = self.eventTimeZone
-            let sourceEditingSession = self.sourceEditingSession
             return withDependencies {
                 $0.defaultEventID = eventID
                 $0.defaultEventTimeZone = eventTimeZone
-                $0.sourceEditingSession = sourceEditingSession
             } operation: {
                 operation()
             }
@@ -639,11 +632,9 @@ public struct EventViewer {
             Destination.body
                 .dependency(\.defaultEventID, store.eventID)
                 .dependency(\.defaultEventTimeZone, store.eventTimeZone)
-                .dependency(\.sourceEditingSession, store.sourceEditingSession)
         }
         .dependency(\.defaultEventID, store.eventID)
         .dependency(\.defaultEventTimeZone, store.eventTimeZone)
-        .dependency(\.sourceEditingSession, store.sourceEditingSession)
     }
 }
 

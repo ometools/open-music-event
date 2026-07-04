@@ -1170,12 +1170,12 @@ public struct SourceManagement {
             self.sourceBaselineID = sourceBaselineID
             self.calendarID = calendarID
             self._editSummary = Fetch(
-                wrappedValue: SourceMetadataEditSummary(
+                wrappedValue: SourceEditSummary(
                     sourceBaselineID: sourceBaselineID,
                     availability: .missingBaseline,
                     groups: []
                 ),
-                SourceMetadataEditSummaryRequest(
+                SourceEditSummaryRequest(
                     sourceBaselineID: sourceBaselineID,
                     calendarID: calendarID
                 )
@@ -1192,7 +1192,7 @@ public struct SourceManagement {
         public var destination: Destination.State?
 
         @DebugSnapshotIgnored
-        @Fetch public var editSummary: SourceMetadataEditSummary
+        @Fetch public var editSummary: SourceEditSummary
 
         @DebugSnapshotIgnored
         @FetchOne public var sourceBaseline: SourceBaselineRecord?

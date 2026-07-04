@@ -5,7 +5,9 @@ import SQLiteData
 import SourceEditing
 
 public enum OpenMusicEventEditResetError: Error, Equatable, Sendable {
-    case missingSourceEditingSession
+    case missingBaseline(OME.Event.ID)
+    case notSourceBacked(OME.Event.ID)
+    case unconfigured
 }
 
 public struct OpenMusicEventEditResetter: Sendable {
@@ -16,69 +18,38 @@ public struct OpenMusicEventEditResetter: Sendable {
     }
 }
 
-public extension SourceEditingSession {
-    static func openMusicEvent(eventID: OME.Event.ID) throws -> Self? {
-        @Dependency(\.defaultDatabase) var database
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
-        @Dependency(\.sourceEditingWorkingDatabasePath) var workingDatabasePath
+public extension OpenMusicEventEditResetter {
+    static var openMusicEvent: Self {
+        OpenMusicEventEditResetter { eventID in
+            @Dependency(\.defaultDatabase) var database
+            @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
 
-        guard let workingDatabasePath else {
-            return nil
-        }
+            try database.write { db in
+                guard let provenance = try (EventSourceProvenanceRecord
+                    .where { $0.id.eq(eventID) }
+                    .fetchOne(db))
+                else {
+                    throw OpenMusicEventEditResetError.notSourceBacked(eventID)
+                }
+                guard let sourceBaselineID = provenance.sourceBaselineID,
+                      try (SourceBaselineRecord
+                        .where { $0.id.eq(sourceBaselineID) }
+                        .fetchOne(db)) != nil,
+                      let baselineDatabase = try sourceReferenceDatabase.existing(
+                        provenance.sourceProvenance
+                      )
+                else {
+                    throw OpenMusicEventEditResetError.missingBaseline(eventID)
+                }
 
-        let sourceContext: (
-            provenance: EventSourceProvenanceRecord,
-            baseline: SourceBaselineRecord
-        )? = try database.read { db -> (
-            provenance: EventSourceProvenanceRecord,
-            baseline: SourceBaselineRecord
-        )? in
-            let fetchedProvenance = try EventSourceProvenanceRecord
-                .where { $0.id.eq(eventID) }
-                .fetchOne(db)
-            guard let provenance = fetchedProvenance,
-                  let sourceBaselineID = provenance.sourceBaselineID
-            else {
-                return nil
+                try SourceEditingResetter().reset(
+                    in: db,
+                    baselineDatabase: baselineDatabase,
+                    descriptors: OME.sourceTableDescriptors,
+                    scope: .openMusicEvent(eventID: eventID)
+                )
             }
-            guard let baseline = try SourceBaselineRecord.where({
-                $0.id.eq(sourceBaselineID)
-            }).fetchOne(db) else {
-                return nil
-            }
-            return (provenance, baseline)
         }
-        guard let sourceContext else {
-            return nil
-        }
-
-        var configuration = Configuration()
-        configuration.busyMode = .timeout(5)
-        configuration.foreignKeysEnabled = true
-
-        guard let sourceLocalDatabase = try sourceReferenceDatabase.existing(
-            sourceContext.provenance.sourceProvenance
-        ) else {
-            return nil
-        }
-
-        let session = try Self(
-            workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: sourceLocalDatabase.path,
-            configuration: configuration
-        )
-        try session.database.write { db in
-            try sourcePatchInvalidations.installTriggers(db)
-        }
-        return session
-    }
-
-    func resetOpenMusicEventEdits(eventID: OME.Event.ID) throws {
-        try reset(
-            descriptors: OME.sourceTableDescriptors,
-            scope: .openMusicEvent(eventID: eventID)
-        )
     }
 }
 
@@ -108,18 +79,12 @@ public extension DependencyValues {
 
 private enum OpenMusicEventEditResetterKey: DependencyKey {
     static var liveValue: OpenMusicEventEditResetter {
-        OpenMusicEventEditResetter { eventID in
-            @Dependency(\.sourceEditingSession) var sourceEditingSession
-            guard let sourceEditingSession else {
-                throw OpenMusicEventEditResetError.missingSourceEditingSession
-            }
-            try sourceEditingSession.resetOpenMusicEventEdits(eventID: eventID)
-        }
+        .openMusicEvent
     }
 
     static var testValue: OpenMusicEventEditResetter {
         OpenMusicEventEditResetter { _ in
-            throw OpenMusicEventEditResetError.missingSourceEditingSession
+            throw OpenMusicEventEditResetError.unconfigured
         }
     }
 }

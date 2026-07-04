@@ -433,7 +433,7 @@ public enum SourceChangesAvailability: Equatable, Sendable {
         }
     }
 
-    public init(_ availability: SourceMetadataEditSummary.Availability) {
+    public init(_ availability: SourceEditSummary.Availability) {
         switch availability {
         case .available:
             self = .available
