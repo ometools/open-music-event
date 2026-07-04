@@ -505,6 +505,99 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
+    func legacyPerformanceContributorKeysReadAsCredits() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "legacy-credits-event", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: eventURL.appending(path: "stages", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: eventURL.appending(path: "schedules", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+
+        try """
+        name: Legacy Credits Event
+        timeZone: America/Denver
+        """
+        .write(to: eventURL.appending(path: "event.yml"), atomically: true, encoding: .utf8)
+
+        try """
+        name: Main
+        color: "0x00aaee"
+        """
+        .write(
+            to: eventURL
+                .appending(path: "stages", directoryHint: .isDirectory)
+                .appending(path: "main.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try """
+        date: 2026-08-01
+        performances:
+          main:
+            - title: Legacy Credits
+              startTime: "18:00"
+              endTime: "19:00"
+              contributorIDs:
+                - headliner
+              contributorNames:
+                - Dance Crew
+              contributorActors:
+                - HEADLINER.BSKY.SOCIAL
+        """
+        .write(
+            to: eventURL
+                .appending(path: "schedules", directoryHint: .isDirectory)
+                .appending(path: "saturday.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let repository = try tree.read(from: repositoryURL).output.requiredValue
+        let performance = try #require(
+            repository.events.first?.components.schedules?.first?.data.performances["main"]?.first
+        )
+
+        expectNoDifference(
+            performance.contributors,
+            [
+                ScheduleDTO.Performance.Contributor(
+                    subject: .id(OME.ID<OME.Contributor>(.init("headliner")))
+                ),
+                ScheduleDTO.Performance.Contributor(
+                    subject: .name("Dance Crew")
+                ),
+                ScheduleDTO.Performance.Contributor(
+                    subject: .actor(try #require(OME.Contributor.Actor("headliner.bsky.social")))
+                ),
+            ]
+        )
+
+        let outputURL = try temporaryRepositoryURL()
+        _ = try tree.write(repository, to: outputURL)
+        let scheduleText = try String(
+            contentsOf: outputURL
+                .appending(path: "events", directoryHint: .isDirectory)
+                .appending(path: "legacy-credits-event", directoryHint: .isDirectory)
+                .appending(path: "schedules", directoryHint: .isDirectory)
+                .appending(path: "saturday.yml"),
+            encoding: .utf8
+        )
+
+        #expect(scheduleText.contains("contributors:"))
+        #expect(!scheduleText.contains("contributorIDs:"))
+        #expect(!scheduleText.contains("contributorNames:"))
+        #expect(!scheduleText.contains("contributorActors:"))
+    }
+
+    @Test
     func eventReportingLinkRoundTripsThroughYAML() throws {
         let repositoryURL = try temporaryRepositoryURL()
         let eventURL = repositoryURL

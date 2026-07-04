@@ -57,6 +57,69 @@ extension ScheduleDTO {
             self.recordings = recordings
         }
 
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case title
+            case description
+            case startTime
+            case endTime
+            case contributors
+            case contributorIDs
+            case contributorNames
+            case contributorActors
+            case recordings
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.id = try container.decodeIfPresent(
+                OMERecord.ID<OMERecord.Performance>.self,
+                forKey: .id
+            )
+            self.title = try container.decode(String.self, forKey: .title)
+            self.description = try container.decodeIfPresent(String.self, forKey: .description)
+            self.startTime = try container.decode(String.self, forKey: .startTime)
+            self.endTime = try container.decodeIfPresent(String.self, forKey: .endTime)
+            self.contributors = try container.decodeIfPresent([Contributor].self, forKey: .contributors)
+                ?? Self.legacyContributors(from: container)
+            self.recordings = try container.decodeIfPresent([ExternalPlatform.Asset].self, forKey: .recordings)
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encodeIfPresent(id, forKey: .id)
+            try container.encode(title, forKey: .title)
+            try container.encodeIfPresent(description, forKey: .description)
+            try container.encode(startTime, forKey: .startTime)
+            try container.encodeIfPresent(endTime, forKey: .endTime)
+            try container.encodeIfPresent(contributors, forKey: .contributors)
+            try container.encodeIfPresent(recordings, forKey: .recordings)
+        }
+
+        private static func legacyContributors(
+            from container: KeyedDecodingContainer<CodingKeys>
+        ) throws -> [Contributor]? {
+            var contributors: [Contributor] = []
+
+            contributors.append(
+                contentsOf: try container
+                    .decodeIfPresent([OMERecord.ID<OMERecord.Contributor>].self, forKey: .contributorIDs)?
+                    .map { Contributor(subject: .id($0)) } ?? []
+            )
+            contributors.append(
+                contentsOf: try container
+                    .decodeIfPresent([String].self, forKey: .contributorNames)?
+                    .map { Contributor(subject: .name($0)) } ?? []
+            )
+            contributors.append(
+                contentsOf: try container
+                    .decodeIfPresent([OMERecord.Contributor.Actor].self, forKey: .contributorActors)?
+                    .map { Contributor(subject: .actor($0)) } ?? []
+            )
+
+            return contributors.isEmpty ? nil : contributors
+        }
+
         public struct Contributor: Codable, Equatable, Hashable, Sendable {
             public init(
                 subject: Subject,
