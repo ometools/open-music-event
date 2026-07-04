@@ -212,8 +212,8 @@ private func deleteEventOwnedRecords(
 ) throws {
     for eventID in eventIDs.uniqued() {
         try OMERecord.Performance.Contributors
-            .where { $0.organizerID.eq(eventID.organizerID) }
-            .where { $0.eventID.eq(eventID.eventID) }
+            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
+            .where { $0.performanceID.eventID.eq(eventID.eventID) }
             .delete()
             .execute(db)
         try OMERecord.Performance

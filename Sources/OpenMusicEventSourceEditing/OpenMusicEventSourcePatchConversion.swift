@@ -52,8 +52,8 @@ public extension OpenMusicEventSourcePatchConversion {
                     .fetchAll(db)
 
                 let performanceContributors = try OME.Performance.Contributors
-                    .where { $0.organizerID.eq(request.eventID.organizerID) }
-                    .where { $0.eventID.eq(request.eventID.eventID) }
+                    .where { $0.performanceID.organizerID.eq(request.eventID.organizerID) }
+                    .where { $0.performanceID.eventID.eq(request.eventID.eventID) }
                     .fetchAll(db)
 
                 return (
@@ -165,7 +165,7 @@ private extension OpenMusicEventSourceEvent {
         }
         let contributorsByPerformanceID = Dictionary(
             grouping: performanceContributors,
-            by: \.performanceID
+            by: \.performanceID.performanceID
         )
         let contributorIDsWithDID = Set(
             contributors.compactMap { contributor in
@@ -680,9 +680,7 @@ private func sourcePerformances(
 private struct SourcePerformance {
     var id: OME.ID<OME.Performance>?
     var hasExplicitEndTime: Bool
-    var contributorIDs: [OME.ID<OME.Contributor>]?
-    var contributorNames: [String]?
-    var contributorActors: [OME.Contributor.Actor]?
+    var contributors: [ScheduleDTO.Performance.Contributor]?
 }
 
 private extension ScheduleDTO {
@@ -701,9 +699,7 @@ private extension ScheduleDTO {
                         SourcePerformance(
                             id: performance.id,
                             hasExplicitEndTime: performance.endTime != nil,
-                            contributorIDs: performance.contributorIDs,
-                            contributorNames: performance.contributorNames,
-                            contributorActors: performance.contributorActors
+                            contributors: performance.contributors
                         )
                     )
                 }
@@ -788,23 +784,14 @@ private extension OME.Performance {
         contributorIDsWithDID: Set<OME.ID<OME.Contributor>>,
         eventTimeZone: TimeZone
     ) -> ScheduleDTO.Performance {
-        let contributorIDs = contributors.compactMap { contributor -> OME.ID<OME.Contributor>? in
-            guard contributor.anonymousName == nil,
-                  let contributorID = contributor.contributorID
-            else { return nil }
-
-            return contributor.contributorActor == nil || contributorIDsWithDID.contains(contributorID)
-                ? contributorID
-                : nil
-        }
-        let contributorNames = contributors.compactMap(\.anonymousName)
-        let contributorActors = contributors.compactMap { contributor -> OME.Contributor.Actor? in
-            if let contributorID = contributor.contributorID,
-               contributorIDsWithDID.contains(contributorID) {
-                return nil
+        let contributorCredits = contributors
+            .sorted { lhs, rhs in
+                if lhs.sortIndex != rhs.sortIndex { return lhs.sortIndex < rhs.sortIndex }
+                return lhs.sourceOrderKey < rhs.sourceOrderKey
             }
-            return contributor.contributorActor
-        }
+            .compactMap {
+                $0.sourceContributorCredit(contributorIDsWithDID: contributorIDsWithDID)
+            }
         return ScheduleDTO.Performance(
             id: source?.id ?? (id.performanceID == inferredID ? nil : id.performanceID),
             title: title,
@@ -815,17 +802,9 @@ private extension OME.Performance {
                 nextPerformance: nextPerformance,
                 eventTimeZone: eventTimeZone
             ),
-            contributorIDs: contributorIDs.sourceOrdered(
-                preserving: source?.contributorIDs,
-                by: { $0.rawValue.rawValue }
-            ),
-            contributorNames: contributorNames.sourceOrdered(
-                preserving: source?.contributorNames,
-                by: { $0 }
-            ),
-            contributorActors: contributorActors.sourceOrdered(
-                preserving: source?.contributorActors,
-                by: { $0.description }
+            contributors: contributorCredits.sourceOrdered(
+                preserving: source?.contributors,
+                by: \.sourceOrderKey
             ),
             recordings: recordings.isEmpty ? nil : recordings
         )
@@ -841,6 +820,57 @@ private extension OME.Performance {
             return nil
         }
         return endTime.sourceLocalTime(in: eventTimeZone)
+    }
+}
+
+private extension OME.Performance.Contributors {
+    var sourceOrderKey: String {
+        if let anonymousName {
+            return "name:\(anonymousName)"
+        }
+        if let contributorActor {
+            return "actor:\(contributorActor.description)"
+        }
+        if let contributorID {
+            return "id:\(contributorID.rawValue.rawValue)"
+        }
+        return ""
+    }
+
+    func sourceContributorCredit(
+        contributorIDsWithDID: Set<OME.ID<OME.Contributor>>
+    ) -> ScheduleDTO.Performance.Contributor? {
+        let subject: ScheduleDTO.Performance.Contributor.Subject
+
+        if let anonymousName {
+            subject = .name(anonymousName)
+        } else if let contributorID,
+                  contributorActor == nil || contributorIDsWithDID.contains(contributorID) {
+            subject = .id(contributorID)
+        } else if let contributorActor {
+            subject = .actor(contributorActor)
+        } else {
+            return nil
+        }
+
+        return ScheduleDTO.Performance.Contributor(
+            subject: subject,
+            billing: billing,
+            role: role
+        )
+    }
+}
+
+private extension ScheduleDTO.Performance.Contributor {
+    var sourceOrderKey: String {
+        switch subject {
+        case let .id(id):
+            return "id:\(id.rawValue.rawValue)"
+        case let .name(name):
+            return "name:\(name)"
+        case let .actor(actor):
+            return "actor:\(actor.description)"
+        }
     }
 }
 

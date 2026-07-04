@@ -433,38 +433,15 @@ public extension OME {
                     )
 
                     performanceContributors.append(
-                        contentsOf: (sourcePerformance.contributorIDs ?? []).map {
+                        contentsOf: (sourcePerformance.contributors ?? []).enumerated().map { sortIndex, contributor in
                             OME.Performance.Contributors.Draft(
-                                organizerID: organizerID,
-                                eventID: eventID,
-                                performanceID: performanceID,
-                                contributorID: $0,
-                                anonymousName: nil,
-                                contributorActor: nil
-                            )
-                        }
-                    )
-                    performanceContributors.append(
-                        contentsOf: (sourcePerformance.contributorNames ?? []).map { name in
-                            OME.Performance.Contributors.Draft(
-                                organizerID: organizerID,
-                                eventID: eventID,
-                                performanceID: performanceID,
-                                contributorID: scheduleContributorIndex.contributorID(forName: name),
-                                anonymousName: name,
-                                contributorActor: nil
-                            )
-                        }
-                    )
-                    performanceContributors.append(
-                        contentsOf: (sourcePerformance.contributorActors ?? []).map { actor in
-                            OME.Performance.Contributors.Draft(
-                                organizerID: organizerID,
-                                eventID: eventID,
-                                performanceID: performanceID,
-                                contributorID: scheduleContributorIndex.contributorID(forActor: actor),
-                                anonymousName: nil,
-                                contributorActor: actor
+                                performanceID: scopedPerformanceID,
+                                contributorID: Self.contributorID(for: contributor, in: scheduleContributorIndex),
+                                anonymousName: Self.anonymousName(for: contributor),
+                                contributorActor: Self.actor(for: contributor),
+                                billing: contributor.billing,
+                                role: contributor.role,
+                                sortIndex: sortIndex
                             )
                         }
                     )
@@ -485,6 +462,72 @@ public extension OME {
 
             func contributorID(forActor actor: OME.Contributor.Actor) -> OME.ID<OME.Contributor>? {
                 actors[actor]
+            }
+
+            mutating func addGeneratedContributor(
+                for contributor: ScheduleDTO.Performance.Contributor,
+                organizerID: OME.Organizer.ID,
+                eventID: OME.ID<OME.Event>,
+                usedContributorIDs: inout Set<OME.ID<OME.Contributor>>
+            ) {
+                switch contributor.subject {
+                case .id:
+                    return
+
+                case let .name(name):
+                    guard let displayName = SourceDatabaseInsertion.scheduleContributorDisplayName(forName: name),
+                          let key = Self.nameKey(displayName),
+                          names[key] == nil
+                    else { return }
+
+                    let contributorID = SourceDatabaseInsertion.generatedScheduleContributorID(
+                        prefix: "schedule-name",
+                        value: displayName,
+                        usedContributorIDs: &usedContributorIDs
+                    )
+                    names[key] = contributorID
+                    generatedContributors.append(
+                        OME.Contributor.Draft(
+                            id: .init(
+                                organizerID: organizerID,
+                                eventID: eventID,
+                                contributorID: contributorID
+                            ),
+                            name: displayName,
+                            did: nil,
+                            bio: nil,
+                            images: nil,
+                            kind: nil,
+                            links: nil
+                        )
+                    )
+
+                case let .actor(actor):
+                    guard actors[actor] == nil else { return }
+
+                    let displayName = actor.description
+                    let contributorID = SourceDatabaseInsertion.generatedScheduleContributorID(
+                        prefix: "schedule-actor",
+                        value: displayName,
+                        usedContributorIDs: &usedContributorIDs
+                    )
+                    actors[actor] = contributorID
+                    generatedContributors.append(
+                        OME.Contributor.Draft(
+                            id: .init(
+                                organizerID: organizerID,
+                                eventID: eventID,
+                                contributorID: contributorID
+                            ),
+                            name: displayName,
+                            did: actor.didValue,
+                            bio: nil,
+                            images: nil,
+                            kind: nil,
+                            links: nil
+                        )
+                    )
+                }
             }
 
             static func nameKey(_ name: String) -> String? {
@@ -518,59 +561,12 @@ public extension OME {
             for schedule in sourceEvent.schedules ?? [] {
                 for stageID in schedule.data.performances.keys.sorted() {
                     for performance in schedule.data.performances[stageID] ?? [] {
-                        for name in performance.contributorNames ?? [] {
-                            guard let displayName = scheduleContributorDisplayName(forName: name),
-                                  let key = ScheduleContributorIndex.nameKey(displayName),
-                                  index.names[key] == nil
-                            else { continue }
-
-                            let contributorID = generatedScheduleContributorID(
-                                prefix: "schedule-name",
-                                value: displayName,
+                        for contributor in performance.contributors ?? [] {
+                            index.addGeneratedContributor(
+                                for: contributor,
+                                organizerID: organizerID,
+                                eventID: eventID,
                                 usedContributorIDs: &usedContributorIDs
-                            )
-                            index.names[key] = contributorID
-                            index.generatedContributors.append(
-                                OME.Contributor.Draft(
-                                    id: .init(
-                                        organizerID: organizerID,
-                                        eventID: eventID,
-                                        contributorID: contributorID
-                                    ),
-                                    name: displayName,
-                                    did: nil,
-                                    bio: nil,
-                                    images: nil,
-                                    kind: nil,
-                                    links: nil
-                                )
-                            )
-                        }
-
-                        for actor in performance.contributorActors ?? [] {
-                            guard index.actors[actor] == nil else { continue }
-
-                            let displayName = actor.description
-                            let contributorID = generatedScheduleContributorID(
-                                prefix: "schedule-actor",
-                                value: displayName,
-                                usedContributorIDs: &usedContributorIDs
-                            )
-                            index.actors[actor] = contributorID
-                            index.generatedContributors.append(
-                                OME.Contributor.Draft(
-                                    id: .init(
-                                        organizerID: organizerID,
-                                        eventID: eventID,
-                                        contributorID: contributorID
-                                    ),
-                                    name: displayName,
-                                    did: actor.didValue,
-                                    bio: nil,
-                                    images: nil,
-                                    kind: nil,
-                                    links: nil
-                                )
                             )
                         }
                     }
@@ -578,6 +574,34 @@ public extension OME {
             }
 
             return index
+        }
+
+        private static func contributorID(
+            for contributor: ScheduleDTO.Performance.Contributor,
+            in index: ScheduleContributorIndex
+        ) -> OME.ID<OME.Contributor>? {
+            switch contributor.subject {
+            case let .id(contributorID):
+                return contributorID
+            case let .name(name):
+                return index.contributorID(forName: name)
+            case let .actor(actor):
+                return index.contributorID(forActor: actor)
+            }
+        }
+
+        private static func anonymousName(
+            for contributor: ScheduleDTO.Performance.Contributor
+        ) -> String? {
+            guard case let .name(name) = contributor.subject else { return nil }
+            return name
+        }
+
+        private static func actor(
+            for contributor: ScheduleDTO.Performance.Contributor
+        ) -> OME.Contributor.Actor? {
+            guard case let .actor(actor) = contributor.subject else { return nil }
+            return actor
         }
 
         private static func scheduleContributorDisplayName(forName name: String) -> String? {

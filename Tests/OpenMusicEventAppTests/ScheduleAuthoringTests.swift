@@ -195,7 +195,7 @@ struct ScheduleAuthoringTests {
         #expect(performance.endTime == endTime)
         #expect(performance.title == "Evening Set")
         #expect(performance.description == "Main stage performance.")
-        #expect(contributor.performanceID == performance.id.performanceID)
+        #expect(contributor.performanceID == performance.id)
         #expect(contributor.contributorID == fixture.contributor.id.contributorID)
         #expect(contributor.anonymousName == nil)
         #expect(contributor.contributorActor == nil)
@@ -301,7 +301,7 @@ struct ScheduleAuthoringTests {
         #expect(rows.performances.count == 1)
         #expect(rows.contributors.count == 1)
         #expect(performance.title == "Surprise Set")
-        #expect(contributor.performanceID == performance.id.performanceID)
+        #expect(contributor.performanceID == performance.id)
         #expect(contributor.contributorID == nil)
         #expect(contributor.anonymousName == "Surprise Guest")
         #expect(contributor.contributorActor == nil)
@@ -355,7 +355,7 @@ struct ScheduleAuthoringTests {
         #expect(rows.performance.startTime == updatedStartTime)
         #expect(rows.performance.endTime == updatedEndTime)
         #expect(rows.contributors.count == 1)
-        #expect(rows.contributors.first?.performanceID == performance.id.performanceID)
+        #expect(rows.contributors.first?.performanceID == performance.id)
         #expect(rows.contributors.first?.contributorID == fixture.contributor.id.contributorID)
     }
 
@@ -382,12 +382,19 @@ struct ScheduleAuthoringTests {
         }
         state.selectedFeature = .contributors
 
-        state.handleEditingIntent(
-            .editPerformance(
-                eventID: fixture.eventID,
-                performanceID: performance.id.performanceID
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = fixture.eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            state.handleEditingIntent(
+                .editPerformance(
+                    eventID: fixture.eventID,
+                    performanceID: performance.id.performanceID
+                )
             )
-        )
+        }
 
         let editPerformance = try #require(state.destination?.performanceForm)
         #expect(state.selectedFeature == .contributors)
@@ -703,9 +710,7 @@ struct ScheduleAuthoringTests {
             .execute(db)
             try OMERecord.Performance.Contributors.insert {
                 OMERecord.Performance.Contributors.Draft(
-                    organizerID: fixture.eventID.organizerID,
-                    eventID: fixture.eventID.eventID,
-                    performanceID: performanceID.performanceID,
+                    performanceID: performanceID,
                     contributorID: fixture.contributor.id.contributorID,
                     anonymousName: nil,
                     contributorActor: nil

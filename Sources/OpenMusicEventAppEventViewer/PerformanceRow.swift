@@ -75,9 +75,9 @@ extension PerformanceRow {
             .where { $0.id.eventID.eq(eventID.eventID) }
             .where { performance in
                 OMERecord.Performance.Contributors
-                    .where { $0.organizerID.eq(eventID.organizerID) }
-                    .where { $0.eventID.eq(eventID.eventID) }
-                    .where { $0.performanceID.eq(performance.id.performanceID) }
+                    .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
+                    .where { $0.performanceID.eventID.eq(eventID.eventID) }
+                    .where { $0.performanceID.performanceID.eq(performance.id.performanceID) }
                     .where { $0.contributorID.eq(contributorID) }
                     .exists()
             }

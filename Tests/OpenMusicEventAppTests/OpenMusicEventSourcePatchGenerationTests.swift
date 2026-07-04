@@ -331,9 +331,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
             .execute(db)
             try OME.Performance.Contributors.insert {
                 OME.Performance.Contributors.Draft(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    performanceID: performanceID.performanceID,
+                    performanceID: performanceID,
                     contributorID: contributorID.contributorID,
                     anonymousName: nil,
                     contributorActor: OME.Contributor.Actor("did:plc:artist123")
@@ -409,8 +407,10 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(scheduleText.contains("Artist One"))
         #expect(scheduleText.contains("20:00"))
         #expect(scheduleText.contains("21:30"))
-        #expect(scheduleText.contains("contributorIDs:"))
+        #expect(scheduleText.contains("contributors:"))
+        #expect(scheduleText.contains("id: artist-one"))
         #expect(!scheduleText.contains("contributorActors:"))
+        #expect(!scheduleText.contains("contributorIDs:"))
         #expect(posterText.contains("wicked-woods-2026-lineup.png"))
         #expect(!FileManager.default.fileExists(atPath: repositoryURL.appending(path: "events/2026").path))
     }
@@ -1505,10 +1505,10 @@ struct OpenMusicEventSourcePatchGenerationTests {
             .execute(db)
             try OME.Performance.Contributors.insert {
                 OME.Performance.Contributors.Draft(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    performanceID: performanceID.performanceID,
-                    anonymousName: "Guest Artist"
+                    performanceID: performanceID,
+                    anonymousName: "Guest Artist",
+                    billing: .supporting,
+                    role: "dancer"
                 )
             }
             .execute(db)
@@ -1550,6 +1550,9 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(newText.contains("20:00"))
         #expect(newText.contains("21:30"))
         #expect(newText.contains("Guest Artist"))
+        #expect(newText.contains("billing: supporting"))
+        #expect(newText.contains("role: dancer"))
+        #expect(!newText.contains("billing: primary"))
         #expect(!newText.contains("Old Set"))
     }
 
@@ -1681,9 +1684,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
             .execute(db)
             try OME.Performance.Contributors.insert {
                 OME.Performance.Contributors.Draft(
-                    organizerID: eventID.organizerID,
-                    eventID: eventID.eventID,
-                    performanceID: performanceID.performanceID,
+                    performanceID: performanceID,
                     contributorID: contributorID.contributorID,
                     anonymousName: "Guest Artist"
                 )
@@ -1725,9 +1726,11 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(change.kind == .modified)
         let newContents = try #require(change.newContents)
         let newText = String(decoding: newContents, as: UTF8.self)
-        #expect(newText.contains("contributorNames:"))
+        #expect(newText.contains("contributors:"))
+        #expect(newText.contains("name: Guest Artist"))
         #expect(newText.contains("Guest Artist"))
         #expect(!newText.contains("contributorIDs:"))
+        #expect(!newText.contains("contributorNames:"))
     }
 
     private func makePreparedDatabase() throws -> any DatabaseWriter {
