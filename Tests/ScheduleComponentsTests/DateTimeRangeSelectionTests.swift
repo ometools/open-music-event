@@ -38,6 +38,61 @@ struct DateTimeRangeSelectionTests {
     }
 
     @Test
+    func durationSelectionUpdatesEndFromStart() throws {
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        var selection = DateTimeRangeSelection(
+            start: try date(2026, 8, 7, 23, 30, in: timeZone),
+            end: try date(2026, 8, 8, 0, 30, in: timeZone),
+            timeZone: timeZone,
+            anchorDate: try date(2026, 8, 7, 0, in: timeZone)
+        )
+
+        selection.durationMinutesSelection = 105
+
+        let expectedEnd = try date(2026, 8, 8, 1, 15, in: timeZone)
+        #expect(selection.end == expectedEnd)
+        #expect(selection.durationMinutesSelection == 105)
+    }
+
+    @Test
+    func changingStartDayPreservesDuration() throws {
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        var selection = DateTimeRangeSelection(
+            start: try date(2026, 8, 7, 20, in: timeZone),
+            end: try date(2026, 8, 7, 22, in: timeZone),
+            timeZone: timeZone,
+            anchorDate: try date(2026, 8, 7, 0, in: timeZone)
+        )
+
+        selection.startDayOffset = 1
+
+        let expectedStart = try date(2026, 8, 8, 20, in: timeZone)
+        let expectedEnd = try date(2026, 8, 8, 22, in: timeZone)
+        #expect(selection.start == expectedStart)
+        #expect(selection.end == expectedEnd)
+        #expect(selection.durationMinutesSelection == 120)
+    }
+
+    @Test
+    func changingStartClockTimePreservesShortDuration() throws {
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        var selection = DateTimeRangeSelection(
+            start: try date(2026, 8, 7, 20, in: timeZone),
+            end: try date(2026, 8, 7, 20, 30, in: timeZone),
+            timeZone: timeZone,
+            anchorDate: try date(2026, 8, 7, 0, in: timeZone)
+        )
+
+        selection.startClockTimeSelection = try date(2026, 8, 7, 21, in: timeZone)
+
+        let expectedStart = try date(2026, 8, 7, 21, in: timeZone)
+        let expectedEnd = try date(2026, 8, 7, 21, 30, in: timeZone)
+        #expect(selection.start == expectedStart)
+        #expect(selection.end == expectedEnd)
+        #expect(selection.durationMinutesSelection == 30)
+    }
+
+    @Test
     func explicitDayOffsetCanOverrideDefaultPolicy() throws {
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
         var selection = DateTimeRangeSelection(

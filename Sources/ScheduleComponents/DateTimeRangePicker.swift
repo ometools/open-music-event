@@ -39,6 +39,19 @@ public struct DateTimeRangeSelection: Equatable, Sendable {
         end.timeIntervalSince(start)
     }
 
+    public var durationMinutesSelection: Int {
+        get { max(5, Int((duration / 60).rounded())) }
+        set { setDuration(minutes: newValue) }
+    }
+
+    public var durationMinuteRange: ClosedRange<Int> {
+        5...max(24 * 60, durationMinutesSelection)
+    }
+
+    public var durationLabel: String {
+        Self.durationLabel(minutes: durationMinutesSelection)
+    }
+
     public var endDayOffset: Int {
         get { dayOffset(for: end) }
         set { setEndDayOffset(newValue) }
@@ -80,7 +93,7 @@ public struct DateTimeRangeSelection: Equatable, Sendable {
         preservingDuration duration: TimeInterval? = nil,
         policy: DateTimeRangeResolutionPolicy
     ) {
-        let oldDuration = max(duration ?? self.duration, 60 * 60)
+        let oldDuration = max(duration ?? self.duration, Self.minimumDuration)
         start = resolvedDate(
             matchingClockTimeOf: date,
             after: nil,
@@ -101,14 +114,18 @@ public struct DateTimeRangeSelection: Equatable, Sendable {
     }
 
     public mutating func setStartDayOffset(_ dayOffset: Int) {
+        let duration = validDuration
         start = moving(start, toDayOffset: dayOffset)
-        if end <= start {
-            end = calendar.date(byAdding: .hour, value: 1, to: start) ?? start.addingTimeInterval(60 * 60)
-        }
+        end = start.addingTimeInterval(duration)
     }
 
     public mutating func setEndDayOffset(_ dayOffset: Int) {
         end = moving(end, toDayOffset: dayOffset)
+    }
+
+    public mutating func setDuration(minutes: Int) {
+        let minutes = max(5, minutes)
+        end = start.addingTimeInterval(TimeInterval(minutes * 60))
     }
 
     public func dayLabel(for date: Date) -> String {
@@ -118,6 +135,22 @@ public struct DateTimeRangeSelection: Equatable, Sendable {
         if offset == -1 { return "Previous day" }
         if offset > 1 { return "+\(offset) days" }
         return "\(offset) days"
+    }
+
+    public static func durationLabel(minutes: Int) -> String {
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+
+        switch (hours, remainingMinutes) {
+        case (0, let minutes):
+            return "\(minutes) min"
+        case (let hours, 0):
+            return hours == 1 ? "1 hr" : "\(hours) hr"
+        case (1, let minutes):
+            return "1 hr \(minutes) min"
+        case (let hours, let minutes):
+            return "\(hours) hr \(minutes) min"
+        }
     }
 
     private var calendar: Calendar {
@@ -227,6 +260,12 @@ public struct DateTimeRangeSelection: Equatable, Sendable {
         [-1, 0, 1, 2]
     }
 
+    private var validDuration: TimeInterval {
+        max(duration, Self.minimumDuration)
+    }
+
+    private static let minimumDuration: TimeInterval = 5 * 60
+
     private func uniqueDayOffsets(_ offsets: [Int]) -> [Int] {
         var seen = Set<Int>()
         return offsets.compactMap { offset in
@@ -295,21 +334,16 @@ public struct DateTimeRangePicker: View {
                 LabeledContent("Start Day", value: selection.dayLabel(for: selection.start))
             }
 
-            DatePicker(
-                endLabel,
-                selection: $selection.endClockTimeSelection,
-                displayedComponents: .hourAndMinute
-            )
-            .environment(\.timeZone, selection.timeZone)
+            Stepper(
+                value: $selection.durationMinutesSelection,
+                in: selection.durationMinuteRange,
+                step: 5
+            ) {
+                LabeledContent("Duration", value: selection.durationLabel)
+            }
 
-            if selection.shouldChooseEndDayExplicitly {
-                Picker("End Day", selection: $selection.endDayOffset) {
-                    ForEach(selection.endDayOffsetOptions, id: \.self) { offset in
-                        Text(dayOffsetLabel(offset)).tag(offset)
-                    }
-                }
-            } else if selection.endDayOffset != selection.startDayOffset {
-                LabeledContent("End Day", value: selection.dayLabel(for: selection.end))
+            LabeledContent(endLabel) {
+                Text(endSummaryLabel)
             }
         }
         .onAppear { updateResolutionPolicy() }
@@ -322,6 +356,22 @@ public struct DateTimeRangePicker: View {
         if offset == -1 { return "Previous day" }
         if offset > 1 { return "+\(offset) days" }
         return "\(offset) days"
+    }
+
+    private var endSummaryLabel: String {
+        let clockTime = clockTimeLabel(for: selection.end)
+        if selection.endDayOffset == selection.startDayOffset {
+            return clockTime
+        }
+        return "\(clockTime), \(selection.dayLabel(for: selection.end))"
+    }
+
+    private func clockTimeLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        formatter.timeZone = selection.timeZone
+        return formatter.string(from: date)
     }
 
     private func updateResolutionPolicy() {
