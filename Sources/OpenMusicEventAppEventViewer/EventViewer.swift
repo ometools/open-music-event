@@ -430,6 +430,9 @@ public struct EventViewer {
                 return try database.read { db in
                     let schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
                     let stages = try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+                    let contributors = try ContributorProfile
+                        .all(eventID: eventID, hydration: .none)
+                        .fetchAll(db)
                     guard !stages.isEmpty else { return nil }
 
                     let resolvedScheduleID = scheduleID.flatMap { scheduleID in
@@ -446,7 +449,8 @@ public struct EventViewer {
                         eventID: eventID,
                         schedule: schedule,
                         stages: stages,
-                        timeZone: eventTimeZone
+                        timeZone: eventTimeZone,
+                        contributors: contributors
                     )
                 }
             } catch {
@@ -464,18 +468,29 @@ public struct EventViewer {
                     let performanceRows = try PerformanceRow.all(eventID: eventID).fetchAll(db)
                     let schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
                     let stages = try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+                    let contributors = try ContributorProfile
+                        .all(eventID: eventID, hydration: .none)
+                        .fetchAll(db)
                     guard
                         let row = performanceRows.first(where: { $0.performanceID == performanceID }),
                         let scheduleID = row.performance.scheduleID,
                         let schedule = schedules.first(where: { $0.id.scheduleID == scheduleID })
                     else { return nil }
+                    let performanceContributors = try EditPerformance
+                        .performanceContributorsQuery(
+                            performanceID: performanceID,
+                            eventID: eventID
+                        )
+                        .fetchAll(db)
 
                     return EditPerformance.State(
                         eventID: eventID,
                         schedule: schedule,
                         stages: stages,
                         timeZone: eventTimeZone,
-                        performance: row.performance
+                        performance: row.performance,
+                        contributors: contributors,
+                        performanceContributors: performanceContributors
                     )
                 }
             } catch {

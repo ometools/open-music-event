@@ -1,3 +1,4 @@
+import ATProto
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
@@ -5,6 +6,7 @@ import Foundation
 import ScheduleComponents
 import SQLiteData
 import Testing
+import XRPCClient
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
@@ -160,14 +162,16 @@ struct ScheduleAuthoringTests {
         let scheduleDate = fixture.schedule.date
         let startTime = try #require(scheduleDate.at(hour: 20, in: timeZone))
         let endTime = try #require(scheduleDate.at(hour: 21, minute: 30, in: timeZone))
-        let store = makePerformanceStore(
+        let store = try makePerformanceStore(
             database: database,
             fixture: fixture,
             timeZone: timeZone
         ) {
             $0.title = "Evening Set"
             $0.description = "Main stage performance."
-            $0.contributorIDString = "artist-one"
+            $0.appendContribution(
+                selection: .existingContributor(fixture.contributor.id.contributorID)
+            )
             $0.startTimeSelection = startTime
             $0.endTimeSelection = endTime
         }
@@ -181,13 +185,16 @@ struct ScheduleAuthoringTests {
         let rows = try await database.read { db in
             (
                 performances: try OMERecord.Performance.fetchAll(db),
-                contributors: try OMERecord.Performance.Contributors.fetchAll(db)
+                contributors: try OMERecord.Performance.Contributors.fetchAll(db),
+                relationships: try OMERecord.Relationship.fetchAll(db)
             )
         }
         let performance = try #require(rows.performances.first)
         let contributor = try #require(rows.contributors.first)
+        let relationship = try #require(rows.relationships.first)
         #expect(rows.performances.count == 1)
         #expect(rows.contributors.count == 1)
+        #expect(rows.relationships.count == 1)
         #expect(performance.id.performanceID.rawValue.rawValue == "saturday-main-stage-evening-set")
         #expect(performance.stageID == fixture.stage.id.stageID)
         #expect(performance.scheduleID == fixture.schedule.id.scheduleID)
@@ -199,6 +206,117 @@ struct ScheduleAuthoringTests {
         #expect(contributor.contributorID == fixture.contributor.id.contributorID)
         #expect(contributor.anonymousName == nil)
         #expect(contributor.contributorActor == nil)
+        #expect(contributor.role == nil)
+        #expect(
+            relationship.subject
+                == .known(.record(.init(contributorID: fixture.contributor.id)))
+        )
+        #expect(relationship.role == .performer)
+        #expect(
+            relationship.object
+                == .known(.record(.init(performanceID: performance.id)))
+        )
+    }
+
+    @Test
+    func createsPerformanceRowsWithMultipleContributors() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let scheduleDate = fixture.schedule.date
+        let store = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        ) {
+            $0.title = "Shared Set"
+            $0.appendContribution(
+                selection: .existingContributor(fixture.contributor.id.contributorID)
+            )
+            $0.appendContribution(
+                selection: .performanceDisplayName(name: "Mystery Guest")
+            )
+            $0.startTimeSelection = try #require(scheduleDate.at(hour: 22, in: timeZone))
+            $0.endTimeSelection = try #require(scheduleDate.at(hour: 23, in: timeZone))
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let rows = try await database.read { db in
+            (
+                performance: try #require(OMERecord.Performance.fetchAll(db).first),
+                contributors: try OMERecord.Performance.Contributors
+                    .fetchAll(db)
+                    .sorted { $0.sortIndex < $1.sortIndex },
+                relationships: try OMERecord.Relationship.fetchAll(db)
+            )
+        }
+        #expect(rows.contributors.count == 2)
+        #expect(rows.contributors[0].performanceID == rows.performance.id)
+        #expect(rows.contributors[0].contributorID == fixture.contributor.id.contributorID)
+        #expect(rows.contributors[0].anonymousName == nil)
+        #expect(rows.contributors[0].role == nil)
+        #expect(rows.contributors[0].sortIndex == 0)
+        #expect(rows.contributors[1].performanceID == rows.performance.id)
+        #expect(rows.contributors[1].contributorID == nil)
+        #expect(rows.contributors[1].anonymousName == "Mystery Guest")
+        #expect(rows.contributors[1].role == nil)
+        #expect(rows.contributors[1].sortIndex == 1)
+        #expect(rows.relationships.count == 1)
+        #expect(
+            rows.relationships.first?.subject
+                == .known(.record(.init(contributorID: fixture.contributor.id)))
+        )
+    }
+
+    @Test
+    func createsPerformanceRowWithNewManualContributor() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let scheduleDate = fixture.schedule.date
+        let store = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        ) {
+            $0.title = "Manual Contributor Set"
+            $0.appendContribution(selection: .newContributor(name: "Guest Artist"))
+            $0.startTimeSelection = try #require(scheduleDate.at(hour: 22, in: timeZone))
+            $0.endTimeSelection = try #require(scheduleDate.at(hour: 23, in: timeZone))
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let rows = try await database.read { db in
+            (
+                contributors: try OMERecord.Contributor.fetchAll(db),
+                performanceContributors: try OMERecord.Performance.Contributors.fetchAll(db),
+                relationships: try OMERecord.Relationship.fetchAll(db)
+            )
+        }
+        let newContributor = try #require(
+            rows.contributors.first { $0.name == "Guest Artist" }
+        )
+        let performanceContributor = try #require(rows.performanceContributors.first)
+        let relationship = try #require(rows.relationships.first)
+        #expect(rows.contributors.count == 2)
+        #expect(newContributor.id.contributorID.rawValue.rawValue == "guest-artist")
+        #expect(newContributor.did == nil)
+        #expect(performanceContributor.contributorID == newContributor.id.contributorID)
+        #expect(performanceContributor.anonymousName == nil)
+        #expect(performanceContributor.contributorActor == nil)
+        #expect(
+            relationship.subject
+                == .known(.record(.init(contributorID: newContributor.id)))
+        )
+        #expect(relationship.role == .performer)
     }
 
     @Test
@@ -210,7 +328,7 @@ struct ScheduleAuthoringTests {
             timeZone: timeZone
         )
         let startTime = try #require(fixture.schedule.date.at(hour: 20, in: timeZone))
-        let store = makePerformanceStore(
+        let store = try makePerformanceStore(
             database: database,
             fixture: fixture,
             timeZone: timeZone
@@ -248,7 +366,7 @@ struct ScheduleAuthoringTests {
             dayOffset: 1,
             in: timeZone
         )
-        let store = makePerformanceStore(
+        let store = try makePerformanceStore(
             database: database,
             fixture: fixture,
             timeZone: timeZone
@@ -283,7 +401,9 @@ struct ScheduleAuthoringTests {
             timeZone: timeZone
         ) {
             $0.title = "Surprise Set"
-            $0.anonymousContributorName = "Surprise Guest"
+            $0.appendContribution(
+                selection: .performanceDisplayName(name: "Surprise Guest")
+            )
             $0.startTimeSelection = try #require(scheduleDate.at(hour: 22, in: timeZone))
             $0.endTimeSelection = try #require(scheduleDate.at(hour: 23, in: timeZone))
         }
@@ -293,18 +413,196 @@ struct ScheduleAuthoringTests {
         let rows = try await database.read { db in
             (
                 performances: try OMERecord.Performance.fetchAll(db),
-                contributors: try OMERecord.Performance.Contributors.fetchAll(db)
+                contributors: try OMERecord.Performance.Contributors.fetchAll(db),
+                relationships: try OMERecord.Relationship.fetchAll(db)
             )
         }
         let performance = try #require(rows.performances.first)
         let contributor = try #require(rows.contributors.first)
         #expect(rows.performances.count == 1)
         #expect(rows.contributors.count == 1)
+        #expect(rows.relationships.isEmpty)
         #expect(performance.title == "Surprise Set")
         #expect(contributor.performanceID == performance.id)
         #expect(contributor.contributorID == nil)
         #expect(contributor.anonymousName == "Surprise Guest")
         #expect(contributor.contributorActor == nil)
+    }
+
+    @Test
+    func createsPerformanceRowWithIdentityRelationship() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let artistDID = try #require(DID("did:plc:artist123"))
+        let artistActor = try #require(OMERecord.Contributor.Actor("did:plc:artist123"))
+        let scheduleDate = fixture.schedule.date
+        let store = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        ) {
+            $0.title = "Identity Set"
+            $0.appendContribution(
+                selection: .identityOnly(
+                    actor: artistActor,
+                    displayTitle: "Artist"
+                ),
+                roleSelection: .dj
+            )
+            $0.startTimeSelection = try #require(scheduleDate.at(hour: 22, in: timeZone))
+            $0.endTimeSelection = try #require(scheduleDate.at(hour: 23, in: timeZone))
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let rows = try await database.read { db in
+            (
+                performances: try OMERecord.Performance.fetchAll(db),
+                contributors: try OMERecord.Performance.Contributors.fetchAll(db),
+                relationships: try OMERecord.Relationship.fetchAll(db)
+            )
+        }
+        let performance = try #require(rows.performances.first)
+        let contributor = try #require(rows.contributors.first)
+        let relationship = try #require(rows.relationships.first)
+        #expect(rows.performances.count == 1)
+        #expect(rows.contributors.count == 1)
+        #expect(rows.relationships.count == 1)
+        #expect(contributor.performanceID == performance.id)
+        #expect(contributor.contributorID == nil)
+        #expect(contributor.anonymousName == nil)
+        #expect(contributor.contributorActor == artistActor)
+        #expect(contributor.role == "dj")
+        #expect(relationship.subject == .known(.identity(did: artistDID)))
+        #expect(relationship.role == .dj)
+        #expect(relationship.object == .known(.record(.init(performanceID: performance.id))))
+    }
+
+    @Test
+    func createsPerformanceRowWithContributorFromIdentity() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let identity = ActorIdentity(
+            did: try #require(DID("did:plc:identityartist")),
+            handle: Atmosphere.Account.Handle(rawValue: "identityartist.bsky.social"),
+            displayName: "Identity Artist",
+            source: .typeahead
+        )
+        let scheduleDate = fixture.schedule.date
+        let store = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        ) {
+            $0.title = "Identity Contributor Set"
+            $0.appendContribution(
+                selection: .newContributorFromIdentity(
+                    ContributorRelationshipPicker.SelectedActorIdentity(identity)
+                ),
+                roleSelection: .dj
+            )
+            $0.startTimeSelection = try #require(scheduleDate.at(hour: 22, in: timeZone))
+            $0.endTimeSelection = try #require(scheduleDate.at(hour: 23, in: timeZone))
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let rows = try await database.read { db in
+            (
+                contributors: try OMERecord.Contributor.fetchAll(db),
+                performanceContributors: try OMERecord.Performance.Contributors.fetchAll(db),
+                relationships: try OMERecord.Relationship.fetchAll(db)
+            )
+        }
+        let createdContributor = try #require(
+            rows.contributors.first { $0.did == identity.did }
+        )
+        let performanceContributor = try #require(rows.performanceContributors.first)
+        let relationship = try #require(rows.relationships.first)
+        #expect(rows.contributors.count == 2)
+        #expect(createdContributor.name == "Identity Artist")
+        #expect(createdContributor.id.contributorID.rawValue.rawValue == "identity-artist")
+        #expect(performanceContributor.contributorID == createdContributor.id.contributorID)
+        #expect(performanceContributor.anonymousName == nil)
+        #expect(performanceContributor.contributorActor == nil)
+        #expect(performanceContributor.role == "dj")
+        #expect(
+            relationship.subject
+                == .known(.record(.init(contributorID: createdContributor.id)))
+        )
+        #expect(relationship.role == .dj)
+    }
+
+    @Test
+    func reusesContributorWithMatchingIdentityDid() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let did = try #require(DID("did:plc:knownartist"))
+        let knownContributorID = OMERecord.Contributor.ID(
+            organizerID: fixture.eventID.organizerID,
+            eventID: fixture.eventID.eventID,
+            contributorID: contributorLocalID("known-artist")
+        )
+        try await database.write { db in
+            try OMERecord.Contributor.insert {
+                OMERecord.Contributor.Draft(
+                    id: knownContributorID,
+                    name: "Known Artist",
+                    did: did,
+                    bio: nil,
+                    images: nil,
+                    kind: nil,
+                    links: nil
+                )
+            }
+            .execute(db)
+        }
+        let identity = ActorIdentity(
+            did: did,
+            handle: Atmosphere.Account.Handle(rawValue: "knownartist.bsky.social"),
+            displayName: "Known Artist Profile",
+            source: .typeahead
+        )
+        let scheduleDate = fixture.schedule.date
+        let store = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        ) {
+            $0.title = "Known Identity Set"
+            $0.appendContribution(
+                selection: .newContributorFromIdentity(
+                    ContributorRelationshipPicker.SelectedActorIdentity(identity)
+                )
+            )
+            $0.startTimeSelection = try #require(scheduleDate.at(hour: 22, in: timeZone))
+            $0.endTimeSelection = try #require(scheduleDate.at(hour: 23, in: timeZone))
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let rows = try await database.read { db in
+            (
+                contributors: try OMERecord.Contributor.fetchAll(db),
+                performanceContributor: try #require(OMERecord.Performance.Contributors.fetchAll(db).first),
+                relationship: try #require(OMERecord.Relationship.fetchAll(db).first)
+            )
+        }
+        #expect(rows.contributors.count == 2)
+        #expect(rows.performanceContributor.contributorID == knownContributorID.contributorID)
+        #expect(rows.relationship.subject == .known(.record(.init(contributorID: knownContributorID))))
     }
 
     @Test
@@ -322,7 +620,7 @@ struct ScheduleAuthoringTests {
         )
         let updatedStartTime = try #require(fixture.schedule.date.at(hour: 21, in: timeZone))
         let updatedEndTime = try #require(fixture.schedule.date.at(hour: 22, in: timeZone))
-        let store = makePerformanceStore(
+        let store = try makePerformanceStore(
             database: database,
             fixture: fixture,
             timeZone: timeZone,
@@ -357,6 +655,284 @@ struct ScheduleAuthoringTests {
         #expect(rows.contributors.count == 1)
         #expect(rows.contributors.first?.performanceID == performance.id)
         #expect(rows.contributors.first?.contributorID == fixture.contributor.id.contributorID)
+    }
+
+    @Test
+    func editsPerformanceContributorRelationship() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let performance = try await seedPerformance(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        )
+        let artistDID = try #require(DID("did:plc:artist456"))
+        let artistActor = try #require(OMERecord.Contributor.Actor("did:plc:artist456"))
+        let store = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone,
+            performance: performance
+        ) {
+            #expect(
+                $0.contributions.map(\.selection)
+                    == [.existingContributor(fixture.contributor.id.contributorID)]
+            )
+            let contributionID = try #require($0.contributions.first?.id)
+            $0.contributions[0].selection = .identityOnly(
+                actor: artistActor,
+                displayTitle: "Artist"
+            )
+            $0.setContributionRole(id: contributionID, roleSelection: .dj)
+        }
+
+        await store.send(.saveButtonTapped)?.value
+
+        let rows = try await database.read { db in
+            (
+                contributors: try OMERecord.Performance.Contributors.fetchAll(db),
+                relationships: try OMERecord.Relationship.fetchAll(db)
+            )
+        }
+        let contributor = try #require(rows.contributors.first)
+        let relationship = try #require(rows.relationships.first)
+        #expect(rows.contributors.count == 1)
+        #expect(rows.relationships.count == 1)
+        #expect(contributor.performanceID == performance.id)
+        #expect(contributor.contributorID == nil)
+        #expect(contributor.contributorActor == artistActor)
+        #expect(contributor.role == "dj")
+        #expect(relationship.subject == .known(.identity(did: artistDID)))
+        #expect(relationship.role == .dj)
+        #expect(relationship.object == .known(.record(.init(performanceID: performance.id))))
+    }
+
+    @Test
+    func loadsCommonAndCustomRelationshipRoles() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let performance = try await seedPerformance(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone
+        )
+
+        try await database.write { db in
+            try #sql("""
+                UPDATE "performanceContributors"
+                SET "role" = 'dj'
+                WHERE "organizerID" = \(fixture.eventID.organizerID)
+                  AND "eventID" = \(fixture.eventID.eventID)
+                  AND "performanceID" = \(performance.id.performanceID)
+                """)
+                .execute(db)
+        }
+
+        _ = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone,
+            performance: performance
+        ) {
+            let contribution = try #require($0.contributions.first)
+            #expect(contribution.roleSelection == .dj)
+            #expect(contribution.customRelationshipRole == "")
+        }
+
+        try await database.write { db in
+            try #sql("""
+                UPDATE "performanceContributors"
+                SET "role" = 'lightingDesigner'
+                WHERE "organizerID" = \(fixture.eventID.organizerID)
+                  AND "eventID" = \(fixture.eventID.eventID)
+                  AND "performanceID" = \(performance.id.performanceID)
+                """)
+                .execute(db)
+        }
+
+        _ = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone,
+            performance: performance
+        ) {
+            let contribution = try #require($0.contributions.first)
+            #expect(contribution.roleSelection == .custom)
+            #expect(contribution.customRelationshipRole == "lightingDesigner")
+        }
+    }
+
+    @Test
+    func contributorRelationshipPickerSearchesLocalFirstAndLooksUpExactIdentityOnSubmit() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let contributors = try await database.read { db in
+            try ContributorProfile
+                .all(eventID: fixture.eventID, hydration: .none)
+                .fetchAll(db)
+        }
+        let exactLookupInputs = ScheduleAuthoringObservationRecorder<String>()
+        let typeaheadQueries = ScheduleAuthoringObservationRecorder<String>()
+        let exactIdentity = ActorIdentity(
+            did: try #require(DID("did:plc:exactartist")),
+            handle: Atmosphere.Account.Handle(rawValue: "exactartist.bsky.social"),
+            displayName: "Exact Artist",
+            source: .canonicalResolution
+        )
+        let typeaheadIdentity = ActorIdentity(
+            did: try #require(DID("did:plc:typeaheadartist")),
+            handle: Atmosphere.Account.Handle(rawValue: "typeaheadartist.bsky.social"),
+            displayName: "Typeahead Artist",
+            source: .typeahead
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.actorTypeaheadSearch.search = { query in
+                await typeaheadQueries.record(query.normalizedText)
+                return [typeaheadIdentity]
+            }
+            $0.actorIdentityLookup.resolve = { input in
+                await exactLookupInputs.record(input)
+                return exactIdentity
+            }
+        } operation: {
+            TestStore(initialState: ContributorRelationshipPicker.State(contributors: contributors)) {
+                ContributorRelationshipPicker()
+            }
+        }
+        expectNoDifference(store.state.filteredContributors.map(\.name), [])
+
+        await store.send(.searchQueryChanged(" artist "))?.value
+
+        expectNoDifference(
+            store.state.filteredContributors.map(\.name),
+            ["Artist One"]
+        )
+        expectNoDifference(store.state.actorSearchSections.map(\.title), ["Profiles"])
+        expectNoDifference(
+            store.state.actorSearchSections.flatMap(\.results),
+            [typeaheadIdentity]
+        )
+        #expect(await typeaheadQueries.values == ["artist"])
+        #expect(await exactLookupInputs.values == [])
+
+        await store.send(.actorSearchSubmitted)?.value
+
+        expectNoDifference(store.state.actorSearchSections.map(\.title), ["Exact match"])
+        expectNoDifference(
+            store.state.actorSearchSections.flatMap(\.results),
+            [exactIdentity]
+        )
+        #expect(await exactLookupInputs.values == ["artist"])
+    }
+
+    @Test
+    func contributorRelationshipPickerRowActionsSelectExpectedSubjectKinds() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let contributors = try await database.read { db in
+            try ContributorProfile
+                .all(eventID: fixture.eventID, hydration: .none)
+                .fetchAll(db)
+        }
+        var initialState = ContributorRelationshipPicker.State(contributors: contributors)
+        initialState.searchQuery = "Guest Artist"
+        let identity = ActorIdentity(
+            did: try #require(DID("did:plc:rowactionartist")),
+            handle: Atmosphere.Account.Handle(rawValue: "rowactionartist.bsky.social"),
+            displayName: "Row Action Artist",
+            source: .typeahead
+        )
+        let actor = try #require(OMERecord.Contributor.Actor(identity.did.description))
+        let selectedIdentity = ContributorRelationshipPicker.SelectedActorIdentity(identity)
+        let store = TestStore(initialState: initialState) {
+            ContributorRelationshipPicker()
+        }
+
+        store.send(.existingContributorTapped(fixture.contributor.id.contributorID)) {
+            $0.selection = .existingContributor(fixture.contributor.id.contributorID)
+        }
+        store.send(.createContributorButtonTapped) {
+            $0.selection = .newContributor(name: "Guest Artist")
+        }
+        store.send(.performanceDisplayNameButtonTapped) {
+            $0.selection = .performanceDisplayName(name: "Guest Artist")
+        }
+        store.send(.identityLinkOnlyButtonTapped(identity)) {
+            $0.selection = .identityOnly(
+                actor: actor,
+                displayTitle: "Row Action Artist"
+            )
+            $0.actorSearchErrorMessage = nil
+        }
+        store.send(.identityCreateContributorButtonTapped(identity)) {
+            $0.selection = .newContributorFromIdentity(selectedIdentity)
+            $0.actorSearchErrorMessage = nil
+        }
+    }
+
+    @Test
+    func performanceContributorSearchSelectionAddsRowWithNilRole() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let contributors = try await database.read { db in
+            try ContributorProfile
+                .all(eventID: fixture.eventID, hydration: .none)
+                .fetchAll(db)
+        }
+        var initialState = EditPerformance.State(
+            eventID: fixture.eventID,
+            schedule: fixture.schedule,
+            stages: [fixture.stage],
+            timeZone: timeZone,
+            contributors: contributors
+        )
+        initialState.contributorRelationshipPicker.searchQuery = "Artist"
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: initialState) {
+                EditPerformance()
+            }
+        }
+
+        store.send(
+            .contributorRelationshipPicker(
+                .existingContributorTapped(fixture.contributor.id.contributorID)
+            )
+        ) {
+            $0.contributions = [
+                EditPerformance.State.Contribution(
+                    id: 0,
+                    selection: .existingContributor(fixture.contributor.id.contributorID)
+                )
+            ]
+            $0.nextContributionID = 1
+            $0.contributorRelationshipPicker.searchQuery = ""
+        }
+
+        #expect(store.state.contributions.first?.roleSelection == nil)
     }
 
     @Test
@@ -528,26 +1104,43 @@ struct ScheduleAuthoringTests {
         timeZone: TimeZone,
         performance: OMERecord.Performance? = nil,
         update: (inout EditPerformance.State) throws -> Void
-    ) rethrows -> TestStore<EditPerformance> {
+    ) throws -> TestStore<EditPerformance> {
         try withDependencies {
             $0.context = .test
+            $0.date.now = Date(timeIntervalSince1970: 1_779_800_000)
             $0.defaultDatabase = database
         } operation: {
+            let contributors = try database.read { db in
+                try ContributorProfile
+                    .all(eventID: fixture.eventID, hydration: .none)
+                    .fetchAll(db)
+            }
             var state: EditPerformance.State
             if let performance {
+                let performanceContributors = try database.read { db in
+                    try EditPerformance
+                        .performanceContributorsQuery(
+                            performanceID: performance.id.performanceID,
+                            eventID: fixture.eventID
+                        )
+                        .fetchAll(db)
+                }
                 state = EditPerformance.State(
                     eventID: fixture.eventID,
                     schedule: fixture.schedule,
                     stages: [fixture.stage],
                     timeZone: timeZone,
-                    performance: performance
+                    performance: performance,
+                    contributors: contributors,
+                    performanceContributors: performanceContributors
                 )
             } else {
                 state = EditPerformance.State(
                     eventID: fixture.eventID,
                     schedule: fixture.schedule,
                     stages: [fixture.stage],
-                    timeZone: timeZone
+                    timeZone: timeZone,
+                    contributors: contributors
                 )
             }
             try update(&state)
@@ -733,6 +1326,18 @@ private struct ScheduleAuthoringFixture {
     var schedule: OMERecord.Schedule
     var stage: OMERecord.Stage
     var contributor: OMERecord.Contributor
+}
+
+private actor ScheduleAuthoringObservationRecorder<Value: Sendable> {
+    private var recordedValues: [Value] = []
+
+    var values: [Value] {
+        recordedValues
+    }
+
+    func record(_ value: Value) {
+        recordedValues.append(value)
+    }
 }
 
 private func eventLocalID(_ string: String) -> OMERecord.ID<OMERecord.Event> {

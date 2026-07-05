@@ -1,3 +1,4 @@
+import ATProto
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -11,6 +12,7 @@ public struct EditPerformance {
     public init() {}
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
 
     public struct State: Identifiable {
         public struct StageOption: Equatable, Sendable {
@@ -24,11 +26,159 @@ public struct EditPerformance {
             public var rawID: String { id.rawValue.rawValue }
         }
 
+        public enum RelationshipRoleSelection: String, CaseIterable, Equatable, Hashable, Sendable {
+            case performer
+            case dj
+            case dancer
+            case visualArtist
+            case soundTech
+            case stageHand
+            case custom
+
+            init(role: OMERecord.Relationship.Role) {
+                switch role {
+                case .performer:
+                    self = .performer
+                case .dj:
+                    self = .dj
+                case .dancer:
+                    self = .dancer
+                case .visualArtist:
+                    self = .visualArtist
+                case .soundTech:
+                    self = .soundTech
+                case .stageHand:
+                    self = .stageHand
+                default:
+                    self = .custom
+                }
+            }
+
+            var role: OMERecord.Relationship.Role? {
+                switch self {
+                case .performer:
+                    return .performer
+                case .dj:
+                    return .dj
+                case .dancer:
+                    return .dancer
+                case .visualArtist:
+                    return .visualArtist
+                case .soundTech:
+                    return .soundTech
+                case .stageHand:
+                    return .stageHand
+                case .custom:
+                    return nil
+                }
+            }
+
+            var title: String {
+                switch self {
+                case .performer:
+                    return "Performer"
+                case .dj:
+                    return "DJ"
+                case .dancer:
+                    return "Dancer"
+                case .visualArtist:
+                    return "Visual Artist"
+                case .soundTech:
+                    return "Sound Tech"
+                case .stageHand:
+                    return "Stage Hand"
+                case .custom:
+                    return "Custom"
+                }
+            }
+
+            static var commonCases: [Self] {
+                allCases.filter { $0 != .custom }
+            }
+        }
+
+        public struct Contribution: Identifiable, Equatable, Sendable {
+            public init(
+                id: Int,
+                selection: ContributorRelationshipPicker.Selection,
+                billing: OMERecord.Performance.Contributors.Billing = .primary,
+                roleSelection: RelationshipRoleSelection? = nil,
+                customRelationshipRole: String = ""
+            ) {
+                self.id = id
+                self.selection = selection
+                self.billing = billing
+                self.roleSelection = roleSelection
+                self.customRelationshipRole = customRelationshipRole
+            }
+
+            public var id: Int
+            public var selection: ContributorRelationshipPicker.Selection
+            public var billing: OMERecord.Performance.Contributors.Billing
+            public var roleSelection: RelationshipRoleSelection?
+            public var customRelationshipRole: String
+
+            var roleTitle: String {
+                guard let roleSelection else { return "Role" }
+                if roleSelection == .custom {
+                    return trimmedCustomRelationshipRole.nilIfEmpty ?? "Custom"
+                }
+                return roleSelection.title
+            }
+
+            var hasEmptyCustomRelationshipRole: Bool {
+                roleSelection == .custom && trimmedCustomRelationshipRole.isEmpty
+            }
+
+            var trimmedCustomRelationshipRole: String {
+                customRelationshipRole.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            fileprivate var contributorSubject: EditPerformanceContributorSubject {
+                switch selection {
+                case .none:
+                    return .none
+
+                case let .existingContributor(contributorID):
+                    return .contributor(contributorID)
+
+                case let .identityOnly(actor, _):
+                    return .identity(actor)
+
+                case let .newContributor(name):
+                    return .newContributor(name)
+
+                case let .newContributorFromIdentity(identity):
+                    return .newContributorFromIdentity(identity)
+
+                case let .performanceDisplayName(name):
+                    return .displayName(name)
+                }
+            }
+
+            fileprivate var performanceContributorRole: OMERecord.Performance.Contributors.Role? {
+                guard roleSelection != nil else { return nil }
+                let role = relationshipRole
+                return role == .performer
+                    ? nil
+                    : OMERecord.Performance.Contributors.Role(role.rawValue)
+            }
+
+            fileprivate var relationshipRole: OMERecord.Relationship.Role {
+                roleSelection?.role
+                    ?? OMERecord.Relationship.Role(
+                        trimmedCustomRelationshipRole.nilIfEmpty
+                            ?? OMERecord.Relationship.Role.performer.rawValue
+                    )
+            }
+        }
+
         public init(
             eventID: OMERecord.Event.ID,
             schedule: OMERecord.Schedule,
             stages: [OMERecord.Stage],
-            timeZone: TimeZone
+            timeZone: TimeZone,
+            contributors: [ContributorProfile] = []
         ) {
             let startTime = schedule.date.at(hour: 12, in: timeZone)
                 ?? schedule.date.atStartOfDay(in: timeZone)
@@ -36,6 +186,9 @@ public struct EditPerformance {
                 ?? schedule.date.atStartOfDay(in: timeZone)
             self.eventID = eventID
             self.schedule = schedule
+            self.contributorRelationshipPicker = ContributorRelationshipPicker.State(
+                contributors: contributors
+            )
             self.selectedStageID = stages.first?.id.stageID
             self.stageOptions = stages.map(StageOption.init)
             self.timeRangeSelection = DateTimeRangeSelection(
@@ -53,13 +206,16 @@ public struct EditPerformance {
             schedule: OMERecord.Schedule,
             stages: [OMERecord.Stage],
             timeZone: TimeZone,
-            performance: OMERecord.Performance
+            performance: OMERecord.Performance,
+            contributors: [ContributorProfile] = [],
+            performanceContributors: [OMERecord.Performance.Contributors] = []
         ) {
             self.init(
                 eventID: eventID,
                 schedule: schedule,
                 stages: stages,
-                timeZone: timeZone
+                timeZone: timeZone,
+                contributors: contributors
             )
             self.description = performance.description ?? ""
             self.performanceID = performance.id.performanceID
@@ -67,6 +223,7 @@ public struct EditPerformance {
             self.timeRangeSelection.end = performance.endTime
             self.timeRangeSelection.start = performance.startTime
             self.title = performance.title
+            self.loadContributions(performanceContributors)
         }
 
         public let eventID: OMERecord.Event.ID
@@ -75,11 +232,12 @@ public struct EditPerformance {
         @DebugSnapshotIgnored
         public let timeZone: TimeZone
 
-        public var anonymousContributorName = ""
-        public var contributorIDString = ""
+        var contributorRelationshipPicker: ContributorRelationshipPicker.State
+        public var contributions: [Contribution] = []
         public var description = ""
         public var errorMessage: String?
         public var isSaving = false
+        var nextContributionID = 0
         public var performanceID: OMERecord.ID<OMERecord.Performance>?
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
         public var timeRangeSelection: DateTimeRangeSelection
@@ -121,14 +279,6 @@ public struct EditPerformance {
             set { timeRangeSelection.start = newValue }
         }
 
-        public var trimmedAnonymousContributorName: String {
-            anonymousContributorName.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        public var trimmedContributorIDString: String {
-            contributorIDString.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
         public var trimmedDescription: String {
             description.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -147,20 +297,83 @@ public struct EditPerformance {
             if endTimeSelection <= startTimeSelection {
                 return "End time must be after the start time."
             }
-            if isCreating,
-               !trimmedContributorIDString.isEmpty,
-               !Self.isValidLocalID(trimmedContributorIDString) {
-                return "Use a contributor ID like artist-name."
+            if contributions.contains(where: \.hasEmptyCustomRelationshipRole) {
+                return "Enter a relationship role."
             }
             return nil
         }
 
-        private static func isValidLocalID(_ value: String) -> Bool {
-            !value.isEmpty
-                && value != "."
-                && value != ".."
-                && !value.contains("/")
-                && !value.contains("\\")
+        mutating func appendContribution(
+            selection: ContributorRelationshipPicker.Selection,
+            billing: OMERecord.Performance.Contributors.Billing = .primary,
+            roleSelection: RelationshipRoleSelection? = nil,
+            customRelationshipRole: String = ""
+        ) {
+            guard !selection.isNone else { return }
+            contributions.append(
+                Contribution(
+                    id: nextContributionID,
+                    selection: selection,
+                    billing: billing,
+                    roleSelection: roleSelection,
+                    customRelationshipRole: customRelationshipRole
+                )
+            )
+            nextContributionID += 1
+        }
+
+        mutating func deleteContribution(id: Int) {
+            contributions.removeAll { $0.id == id }
+        }
+
+        mutating func setContributionCustomRole(id: Int, customRelationshipRole: String) {
+            guard let index = contributions.firstIndex(where: { $0.id == id }) else { return }
+            contributions[index].customRelationshipRole = customRelationshipRole
+        }
+
+        mutating func setContributionRole(
+            id: Int,
+            roleSelection: RelationshipRoleSelection?
+        ) {
+            guard let index = contributions.firstIndex(where: { $0.id == id }) else { return }
+            contributions[index].roleSelection = roleSelection
+            if roleSelection != .custom {
+                contributions[index].customRelationshipRole = ""
+            }
+        }
+
+        private mutating func loadContributions(
+            _ performanceContributors: [OMERecord.Performance.Contributors]
+        ) {
+            for contributor in performanceContributors.sorted(by: { $0.sortIndex < $1.sortIndex }) {
+                guard let selection = Self.selection(for: contributor) else { continue }
+                let role = contributor.role.map { OMERecord.Relationship.Role($0.rawValue) }
+                let roleSelection = role.map(RelationshipRoleSelection.init(role:))
+                appendContribution(
+                    selection: selection,
+                    billing: contributor.billing,
+                    roleSelection: roleSelection,
+                    customRelationshipRole: roleSelection == .custom ? role?.rawValue ?? "" : ""
+                )
+            }
+        }
+
+        private static func selection(
+            for contributor: OMERecord.Performance.Contributors
+        ) -> ContributorRelationshipPicker.Selection? {
+            if let contributorID = contributor.contributorID {
+                return .existingContributor(contributorID)
+            }
+            if let contributorActor = contributor.contributorActor {
+                return .identityOnly(
+                    actor: contributorActor,
+                    displayTitle: contributorActor.description
+                )
+            }
+            if let anonymousName = contributor.anonymousName {
+                return .performanceDisplayName(name: anonymousName)
+            }
+            return nil
         }
 
         private static func preferredWindow(for schedule: OMERecord.Schedule) -> DateInterval? {
@@ -173,12 +386,54 @@ public struct EditPerformance {
     }
 
     public enum Action {
+        case contributionCustomRoleChanged(Int, String)
+        case contributionDeleteButtonTapped(Int)
+        case contributionRoleButtonTapped(Int, State.RelationshipRoleSelection?)
+        case contributorRelationshipPicker(ContributorRelationshipPicker.Action)
         case saveButtonTapped
     }
 
     public var body: some Feature {
+        Scope(\.contributorRelationshipPicker, action: \.contributorRelationshipPicker) {
+            ContributorRelationshipPicker()
+        }
         Update { state, action in
             switch action {
+            case let .contributionCustomRoleChanged(id, customRelationshipRole):
+                state.setContributionCustomRole(
+                    id: id,
+                    customRelationshipRole: customRelationshipRole
+                )
+
+            case let .contributionDeleteButtonTapped(id):
+                state.deleteContribution(id: id)
+
+            case let .contributionRoleButtonTapped(id, roleSelection):
+                state.setContributionRole(
+                    id: id,
+                    roleSelection: roleSelection
+                )
+
+            case let .contributorRelationshipPicker(action):
+                switch action {
+                case .createContributorButtonTapped,
+                     .existingContributorTapped(_),
+                     .identityCreateContributorButtonTapped(_),
+                     .identityLinkOnlyButtonTapped(_),
+                     .performanceDisplayNameButtonTapped:
+                    let selection = state.contributorRelationshipPicker.selection
+                    state.appendContribution(selection: selection)
+                    if !selection.isNone {
+                        state.contributorRelationshipPicker.resetSearch()
+                    }
+
+                case .actorSearchResponse,
+                     .actorSearchSubmitted,
+                     .clearSelectionButtonTapped,
+                     .searchQueryChanged:
+                    break
+                }
+
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
                 guard let validationMessage = state.validationMessage else {
@@ -191,7 +446,8 @@ public struct EditPerformance {
                     state.isSaving = true
                     let request = EditPerformanceSaveRequest(
                         state: state,
-                        stageID: stageID
+                        stageID: stageID,
+                        createdAt: Self.relationshipCreatedAt(now)
                     )
 
                     store.addTask {
@@ -218,11 +474,42 @@ public struct EditPerformance {
             }
         }
     }
+
+    static func performanceContributorsQuery(
+        performanceID: OMERecord.ID<OMERecord.Performance>,
+        eventID: OMERecord.Event.ID
+    ) -> some SelectStatementOf<OMERecord.Performance.Contributors> {
+        OMERecord.Performance.Contributors
+            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
+            .where { $0.performanceID.eventID.eq(eventID.eventID) }
+            .where { $0.performanceID.performanceID.eq(performanceID) }
+            .order { $0.sortIndex }
+    }
+
+    private static func relationshipCreatedAt(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+}
+
+fileprivate enum EditPerformanceContributorSubject: Equatable, Sendable {
+    case none
+    case contributor(OMERecord.ID<OMERecord.Contributor>)
+    case identity(OMERecord.Contributor.Actor)
+    case newContributor(String)
+    case newContributorFromIdentity(ContributorRelationshipPicker.SelectedActorIdentity)
+    case displayName(String)
+
+    var identityDID: DID? {
+        guard case let .identity(actor) = self,
+              case let .did(did) = actor.identifier
+        else { return nil }
+        return did
+    }
 }
 
 fileprivate struct EditPerformanceSaveRequest: Sendable {
-    var anonymousContributorName: String?
-    var contributorIDString: String?
+    var contributions: [EditPerformance.State.Contribution]
+    var createdAt: String
     var description: String?
     var endTime: Date
     var eventID: OMERecord.Event.ID
@@ -232,9 +519,13 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
     var startTime: Date
     var title: String
 
-    init(state: EditPerformance.State, stageID: OMERecord.ID<OMERecord.Stage>) {
-        self.anonymousContributorName = state.trimmedAnonymousContributorName.nilIfEmpty
-        self.contributorIDString = state.trimmedContributorIDString.nilIfEmpty
+    init(
+        state: EditPerformance.State,
+        stageID: OMERecord.ID<OMERecord.Stage>,
+        createdAt: String
+    ) {
+        self.contributions = state.contributions
+        self.createdAt = createdAt
         self.description = state.trimmedDescription.nilIfEmpty
         self.endTime = state.endTimeSelection
         self.eventID = state.eventID
@@ -254,6 +545,9 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
 
 fileprivate enum EditPerformanceDrafts {
     static func save(_ request: EditPerformanceSaveRequest, in db: Database) throws {
+        var request = request
+        try resolveContributorSubjects(in: &request, db: db)
+
         if let performanceID = request.performanceID {
             try update(request, performanceID: performanceID, in: db)
         } else {
@@ -278,6 +572,16 @@ fileprivate enum EditPerformanceDrafts {
         if !contributorDrafts.isEmpty {
             try OMERecord.Performance.Contributors.insert {
                 contributorDrafts
+            }
+            .execute(db)
+        }
+        let relationshipDrafts = relationshipDrafts(
+            for: request,
+            performanceID: performanceID
+        )
+        if !relationshipDrafts.isEmpty {
+            try OMERecord.Relationship.insert {
+                relationshipDrafts
             }
             .execute(db)
         }
@@ -308,6 +612,39 @@ fileprivate enum EditPerformanceDrafts {
                 $0.title = #bind(request.title)
             }
             .execute(db)
+
+        try OMERecord.Performance.Contributors
+            .where { $0.performanceID.organizerID.eq(request.eventID.organizerID) }
+            .where { $0.performanceID.eventID.eq(request.eventID.eventID) }
+            .where { $0.performanceID.performanceID.eq(performanceID) }
+            .delete()
+            .execute(db)
+        try deletePerformanceRelationships(
+            performanceID: id,
+            in: db
+        )
+
+        let contributorDrafts = contributorDrafts(
+            for: request,
+            performanceID: performanceID
+        )
+        if !contributorDrafts.isEmpty {
+            try OMERecord.Performance.Contributors.insert {
+                contributorDrafts
+            }
+            .execute(db)
+        }
+
+        let relationshipDrafts = relationshipDrafts(
+            for: request,
+            performanceID: performanceID
+        )
+        if !relationshipDrafts.isEmpty {
+            try OMERecord.Relationship.insert {
+                relationshipDrafts
+            }
+            .execute(db)
+        }
     }
 
     static func performanceID(
@@ -360,29 +697,228 @@ fileprivate enum EditPerformanceDrafts {
             eventID: request.eventID.eventID,
             performanceID: performanceID
         )
-        if let contributorIDString = request.contributorIDString {
-            drafts.append(
-                OMERecord.Performance.Contributors.Draft(
-                    performanceID: scopedPerformanceID,
-                    contributorID: OMERecord.ID<OMERecord.Contributor>(.init(contributorIDString)),
-                    anonymousName: nil,
-                    contributorActor: nil,
-                    sortIndex: drafts.count
+
+        for (sortIndex, contribution) in request.contributions.enumerated() {
+            switch contribution.contributorSubject {
+            case .none:
+                break
+
+            case let .contributor(contributorID):
+                drafts.append(
+                    OMERecord.Performance.Contributors.Draft(
+                        performanceID: scopedPerformanceID,
+                        contributorID: contributorID,
+                        anonymousName: nil,
+                        contributorActor: nil,
+                        billing: contribution.billing,
+                        role: contribution.performanceContributorRole,
+                        sortIndex: sortIndex
+                    )
                 )
-            )
-        }
-        if let anonymousContributorName = request.anonymousContributorName {
-            drafts.append(
-                OMERecord.Performance.Contributors.Draft(
-                    performanceID: scopedPerformanceID,
-                    contributorID: nil,
-                    anonymousName: anonymousContributorName,
-                    contributorActor: nil,
-                    sortIndex: drafts.count
+
+            case let .identity(actor):
+                drafts.append(
+                    OMERecord.Performance.Contributors.Draft(
+                        performanceID: scopedPerformanceID,
+                        contributorID: nil,
+                        anonymousName: nil,
+                        contributorActor: actor,
+                        billing: contribution.billing,
+                        role: contribution.performanceContributorRole,
+                        sortIndex: sortIndex
+                    )
                 )
-            )
+
+            case .newContributor, .newContributorFromIdentity:
+                break
+
+            case let .displayName(name):
+                drafts.append(
+                    OMERecord.Performance.Contributors.Draft(
+                        performanceID: scopedPerformanceID,
+                        contributorID: nil,
+                        anonymousName: name,
+                        contributorActor: nil,
+                        billing: contribution.billing,
+                        role: contribution.performanceContributorRole,
+                        sortIndex: sortIndex
+                    )
+                )
+            }
         }
+
         return drafts
+    }
+
+    static func relationshipDrafts(
+        for request: EditPerformanceSaveRequest,
+        performanceID: OMERecord.ID<OMERecord.Performance>
+    ) -> [OMERecord.Relationship] {
+        let scopedPerformanceID = OMERecord.Performance.ID(
+            organizerID: request.eventID.organizerID,
+            eventID: request.eventID.eventID,
+            performanceID: performanceID
+        )
+        let object = OMERecord.Relationship.RecordReference(performanceID: scopedPerformanceID)
+        var relationships: [OMERecord.Relationship] = []
+
+        for contribution in request.contributions {
+            switch contribution.contributorSubject {
+            case .none, .displayName:
+                break
+
+            case let .contributor(contributorID):
+                let scopedContributorID = OMERecord.Contributor.ID(
+                    organizerID: request.eventID.organizerID,
+                    eventID: request.eventID.eventID,
+                    contributorID: contributorID
+                )
+                relationships.append(
+                    OMERecord.Relationship(
+                        subject: .record(.init(contributorID: scopedContributorID)),
+                        role: contribution.relationshipRole,
+                        object: .record(object),
+                        createdAt: request.createdAt
+                    )
+                )
+
+            case let .identity(actor):
+                guard case let .did(did) = actor.identifier else { break }
+                relationships.append(
+                    OMERecord.Relationship(
+                        subject: .identity(did: did),
+                        role: contribution.relationshipRole,
+                        object: .record(object),
+                        createdAt: request.createdAt
+                    )
+                )
+
+            case .newContributor, .newContributorFromIdentity:
+                break
+            }
+        }
+
+        return relationships
+    }
+
+    static func resolveContributorSubjects(
+        in request: inout EditPerformanceSaveRequest,
+        db: Database
+    ) throws {
+        for index in request.contributions.indices {
+            switch request.contributions[index].contributorSubject {
+            case .none, .contributor, .displayName, .identity:
+                break
+
+            case let .newContributor(name):
+                let contributorID = try contributorID(for: name, eventID: request.eventID, in: db)
+                try insertContributor(
+                    contributorID: contributorID,
+                    did: nil,
+                    eventID: request.eventID,
+                    name: name,
+                    in: db
+                )
+                request.contributions[index].selection = .existingContributor(contributorID)
+
+            case let .newContributorFromIdentity(identity):
+                if let contributorID = try contributorID(
+                    matching: identity.did,
+                    eventID: request.eventID,
+                    in: db
+                ) {
+                    request.contributions[index].selection = .existingContributor(contributorID)
+                    continue
+                }
+
+                let contributorID = try contributorID(
+                    for: identity.contributorName,
+                    eventID: request.eventID,
+                    in: db
+                )
+                try insertContributor(
+                    contributorID: contributorID,
+                    did: identity.did,
+                    eventID: request.eventID,
+                    name: identity.contributorName,
+                    in: db
+                )
+                request.contributions[index].selection = .existingContributor(contributorID)
+            }
+        }
+    }
+
+    static func contributorID(
+        matching did: DID,
+        eventID: OMERecord.Event.ID,
+        in db: Database
+    ) throws -> OMERecord.ID<OMERecord.Contributor>? {
+        try OMERecord.Contributor
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .fetchAll(db)
+            .first { $0.did == did }?
+            .id.contributorID
+    }
+
+    static func contributorID(
+        for name: String,
+        eventID: OMERecord.Event.ID,
+        in db: Database
+    ) throws -> OMERecord.ID<OMERecord.Contributor> {
+        let base = slug(for: name)
+        var candidate = base
+        var suffix = 2
+
+        while try ContributorDetail.contributorQuery(
+            contributorID: OMERecord.ID<OMERecord.Contributor>(.init(candidate)),
+            eventID: eventID
+        )
+        .fetchOne(db) != nil {
+            candidate = "\(base)-\(suffix)"
+            suffix += 1
+        }
+
+        return OMERecord.ID<OMERecord.Contributor>(.init(candidate))
+    }
+
+    static func insertContributor(
+        contributorID: OMERecord.ID<OMERecord.Contributor>,
+        did: DID?,
+        eventID: OMERecord.Event.ID,
+        name: String,
+        in db: Database
+    ) throws {
+        try OMERecord.Contributor.insert {
+            OMERecord.Contributor.Draft(
+                id: OMERecord.Contributor.ID(
+                    organizerID: eventID.organizerID,
+                    eventID: eventID.eventID,
+                    contributorID: contributorID
+                ),
+                name: name,
+                did: did,
+                bio: nil,
+                images: nil,
+                kind: nil,
+                links: nil
+            )
+        }
+        .execute(db)
+    }
+
+    static func deletePerformanceRelationships(
+        performanceID: OMERecord.Performance.ID,
+        in db: Database
+    ) throws {
+        let recordURI = OMERecord.Relationship.RecordReference(performanceID: performanceID).uri.description
+        try db.execute(
+            sql: #"""
+            DELETE FROM "relationships"
+            WHERE json_extract("object", '$.uri') = ?
+            """#,
+            arguments: [recordURI]
+        )
     }
 
     private static func localID(_ string: String) -> OMERecord.ID<OMERecord.Performance> {
@@ -425,9 +961,7 @@ public struct EditPerformanceView: View {
             performanceSection
             stageSection
             timeSection
-            if store.isCreating {
-                contributorSection
-            }
+            contributorSection
             messages
         }
         .disabled(store.isSaving)
@@ -475,15 +1009,81 @@ public struct EditPerformanceView: View {
         }
     }
 
+    @ViewBuilder
     private var contributorSection: some View {
-        Section("Contributor") {
-            TextField("Contributor ID", text: $store.contributorIDString, prompt: Text("artist-name"))
-                #if !os(macOS)
-                .textInputAutocapitalization(.never)
-                #endif
-                .autocorrectionDisabled()
-            TextField("Name", text: $store.anonymousContributorName, prompt: Text("Guest Artist"))
+        if !store.contributions.isEmpty {
+            Section("Contributors") {
+                ForEach(store.contributions) { contribution in
+                    let summary = store.contributorRelationshipPicker.summary(
+                        for: contribution.selection
+                    )
+                    EditPerformanceContributionRow(
+                        title: summary?.title ?? "Contributor",
+                        subtitle: summary?.subtitle,
+                        roleTitle: contribution.roleTitle,
+                        roleButtonTapped: { roleSelection in
+                            store.send(
+                                .contributionRoleButtonTapped(
+                                    contribution.id,
+                                    roleSelection
+                                )
+                            )
+                        },
+                        deleteButtonTapped: {
+                            store.send(.contributionDeleteButtonTapped(contribution.id))
+                        }
+                    )
+                    .swipeActions {
+                        Button("Delete", role: .destructive) {
+                            store.send(.contributionDeleteButtonTapped(contribution.id))
+                        }
+                    }
+                    .contextMenu {
+                        Button("Delete", role: .destructive) {
+                            store.send(.contributionDeleteButtonTapped(contribution.id))
+                        }
+                    }
+
+                    if contribution.roleSelection == .custom {
+                        TextField(
+                            "Custom Role",
+                            text: customRelationshipRoleBinding(for: contribution.id),
+                            prompt: Text("performer")
+                        )
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .autocorrectionDisabled()
+                    }
+                }
+            }
         }
+
+        ContributorRelationshipPickerView(
+            store: store.scope(
+                \.contributorRelationshipPicker,
+                action: \.contributorRelationshipPicker
+            ),
+            title: "Add Contributor"
+        )
+    }
+
+    private func customRelationshipRoleBinding(for contributionID: Int) -> Binding<String> {
+        Binding(
+            get: {
+                store.contributions.first { $0.id == contributionID }?
+                    .customRelationshipRole
+                    ?? ""
+            },
+            set: { customRelationshipRole in
+                store.send(
+                    .contributionCustomRoleChanged(
+                        contributionID,
+                        customRelationshipRole
+                    )
+                )
+            }
+        )
     }
 
     @ViewBuilder
@@ -502,6 +1102,53 @@ public struct EditPerformanceView: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+struct EditPerformanceContributionRow: View {
+    let title: String
+    let subtitle: String?
+    let roleTitle: String
+    let roleButtonTapped: (EditPerformance.State.RelationshipRoleSelection?) -> Void
+    let deleteButtonTapped: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Menu {
+                Button("No role") {
+                    roleButtonTapped(nil)
+                }
+                Divider()
+                ForEach(
+                    EditPerformance.State.RelationshipRoleSelection.commonCases,
+                    id: \.self
+                ) { roleSelection in
+                    Button(roleSelection.title) {
+                        roleButtonTapped(roleSelection)
+                    }
+                }
+                Button("Custom") {
+                    roleButtonTapped(.custom)
+                }
+                Divider()
+                Button("Delete", role: .destructive) {
+                    deleteButtonTapped()
+                }
+            } label: {
+                Text(roleTitle)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
