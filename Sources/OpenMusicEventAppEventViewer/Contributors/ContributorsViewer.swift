@@ -1054,7 +1054,7 @@ struct EditContributorActorProfileSection: View {
 
     var body: some View {
         Section("ATProto Identity") {
-            TextField("Search Bluesky profiles", text: $query)
+            TextField("Search profiles", text: $query)
                 .autocorrectionDisabled()
                 #if os(iOS)
                 .textInputAutocapitalization(.never)

@@ -50,6 +50,7 @@ extension OME {
     public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
         try dependencies.bootstrapDatabase()
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
+        OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         dependencies.sourceControl = LibGit2SourceControlClient.live
         dependencies.tangledSourceCheckout = .git
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
