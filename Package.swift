@@ -44,6 +44,7 @@ let package = Package(
         .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0"),
 
         .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
+        .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
@@ -243,6 +244,7 @@ let package = Package(
             dependencies: [
                 "OpenMusicEventTimeZones",
                 .product(name: "ATProto", package: "swift-composable-atmosphere"),
+                .product(name: "CasePaths", package: "swift-case-paths"),
                 .product(name: "Lexicon", package: "swift-composable-atmosphere"),
                 .product(name: "LexiconSQLiteData", package: "swift-composable-atmosphere"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
@@ -357,6 +359,14 @@ let package = Package(
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventLexiconTests",
+            dependencies: [
+                "OpenMusicEventLexicon",
+                .product(name: "ATProto", package: "swift-composable-atmosphere"),
+                .product(name: "Lexicon", package: "swift-composable-atmosphere"),
             ]
         ),
         .testTarget(
