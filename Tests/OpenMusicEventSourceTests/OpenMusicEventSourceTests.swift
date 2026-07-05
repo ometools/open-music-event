@@ -274,6 +274,72 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
+    func inlineSingletonScheduleRoundTripsInEventYAML() throws {
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let eventDate = try #require(LocalDate("2026-08-01"))
+        let repository = OpenMusicEventSourceRepository(
+            events: [
+                DirectoryContent(
+                    directoryName: "one-night",
+                    components: OpenMusicEventSourceEvent(
+                        event: EventDTO(
+                            id: nil,
+                            name: "One Night",
+                            description: nil,
+                            startDate: eventDate,
+                            endDate: nil,
+                            status: .known(.scheduled),
+                            mode: .known(.inPerson),
+                            locations: nil,
+                            uris: nil,
+                            timeZone: try #require(TimeZone(identifier: "America/Denver")),
+                            images: nil,
+                            contactNumbers: nil,
+                            categoryConfigs: nil,
+                            schedule: InlineScheduleDTO(
+                                performances: [
+                                    "main": [
+                                        ScheduleDTO.Performance(
+                                            title: "Opening Set",
+                                            startTime: "20:00",
+                                            endTime: "21:00"
+                                        )
+                                    ]
+                                ]
+                            )
+                        )
+                    )
+                )
+            ]
+        )
+        let outputURL = try temporaryRepositoryURL()
+
+        _ = try tree.write(repository, to: outputURL)
+        let writtenRepository = try tree.read(from: outputURL).output.requiredValue
+
+        expectNoDifference(writtenRepository, repository)
+        let eventText = try String(
+            contentsOf: outputURL
+                .appending(path: "events", directoryHint: .isDirectory)
+                .appending(path: "one-night", directoryHint: .isDirectory)
+                .appending(path: "event.yml"),
+            encoding: .utf8
+        )
+        #expect(eventText.contains("schedule:"))
+        #expect(eventText.contains("performances:"))
+        #expect(!eventText.contains("  date:"))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: outputURL
+                    .appending(path: "events", directoryHint: .isDirectory)
+                    .appending(path: "one-night", directoryHint: .isDirectory)
+                    .appending(path: "schedules", directoryHint: .isDirectory)
+                    .path()
+            )
+        )
+    }
+
+    @Test
     func missingCalendarYAMLReadsAsNilAndDoesNotWriteFile() throws {
         let repositoryURL = try temporaryRepositoryURL()
         let eventURL = repositoryURL

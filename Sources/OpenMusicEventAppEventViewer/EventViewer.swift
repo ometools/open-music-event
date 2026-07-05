@@ -431,7 +431,10 @@ public struct EventViewer {
             @Dependency(\.defaultDatabase) var database
 
             do {
-                return try database.read { db in
+                return try database.write { db in
+                    let event = try OMERecord.Event
+                        .where { $0.id.eq(eventID) }
+                        .fetchOne(db)
                     let schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
                     let stages = try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
                     let contributors = try ContributorProfile
@@ -444,9 +447,16 @@ public struct EventViewer {
                             ? scheduleID
                             : nil
                     }
-                    let schedule = resolvedScheduleID.flatMap { scheduleID in
+                    var schedule = resolvedScheduleID.flatMap { scheduleID in
                         schedules.first { $0.id.scheduleID == scheduleID }
                     } ?? schedules.first
+                    if schedule == nil {
+                        schedule = try Self.insertSingletonSchedule(
+                            event: event,
+                            eventID: eventID,
+                            in: db
+                        )
+                    }
                     guard let schedule else { return nil }
 
                     return EditPerformance.State(
@@ -461,6 +471,32 @@ public struct EventViewer {
             } catch {
                 return nil
             }
+        }
+
+        private static func insertSingletonSchedule(
+            event: OMERecord.Event?,
+            eventID: OMERecord.Event.ID,
+            in db: Database
+        ) throws -> OMERecord.Schedule? {
+            guard let scheduleDate = event?.startDate else { return nil }
+            let scheduleID = OMERecord.Schedule.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                scheduleID: OMERecord.Schedule.singletonID
+            )
+            try OMERecord.Schedule.insert {
+                OMERecord.Schedule.Draft(
+                    id: scheduleID,
+                    date: scheduleDate,
+                    startsAt: nil,
+                    endsAt: nil,
+                    customTitle: nil
+                )
+            }
+            .execute(db)
+            return try OMERecord.Schedule
+                .find(scheduleID)
+                .fetchOne(db)
         }
 
         private func editPerformanceState(

@@ -29,6 +29,28 @@ public struct ScheduleDTO: Codable, Equatable, Sendable {
     }
 }
 
+public struct InlineScheduleDTO: Codable, Equatable, Sendable {
+    public var date: LocalDate?
+    public var startsAt: String?
+    public var endsAt: String?
+    public var customTitle: String?
+    public var performances: [String: [ScheduleDTO.Performance]]
+
+    public init(
+        date: LocalDate? = nil,
+        startsAt: String? = nil,
+        endsAt: String? = nil,
+        customTitle: String? = nil,
+        performances: [String: [ScheduleDTO.Performance]]
+    ) {
+        self.date = date
+        self.startsAt = startsAt
+        self.endsAt = endsAt
+        self.customTitle = customTitle
+        self.performances = performances
+    }
+}
+
 extension ScheduleDTO {
     public struct Performance: Codable, Equatable, Sendable {
         public var id: OMERecord.ID<OMERecord.Performance>?

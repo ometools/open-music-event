@@ -477,6 +477,7 @@ extension OpenMusicEvent {
     @Table("schedules")
     public struct Schedule: Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.schedule")
+        public static let singletonID = OME.ID<OME.Schedule>(.init("schedule"))
 
         @Selection public struct ID: Codable, Hashable, Sendable {
             public init(

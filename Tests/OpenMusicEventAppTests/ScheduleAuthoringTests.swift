@@ -27,10 +27,7 @@ struct ScheduleAuthoringTests {
             eventID: eventID,
             timeZone: timeZone,
             now: try #require(scheduleDate.at(hour: 12, in: timeZone))
-        ) {
-            $0.customTitle = "Saturday"
-            $0.sourceFileName = "saturday"
-        }
+        ) { _ in }
 
         await store.send(.saveButtonTapped)?.value
 
@@ -43,11 +40,11 @@ struct ScheduleAuthoringTests {
         }
         #expect(schedule.id.organizerID == eventID.organizerID)
         #expect(schedule.id.eventID == eventID.eventID)
-        #expect(schedule.id.scheduleID.rawValue.rawValue == "saturday")
+        #expect(schedule.id.scheduleID.rawValue.rawValue == "2026-08-01")
         #expect(schedule.date == scheduleDate)
         #expect(schedule.startsAt == nil)
         #expect(schedule.endsAt == nil)
-        #expect(schedule.customTitle == "Saturday")
+        #expect(schedule.customTitle == nil)
     }
 
     @Test
@@ -94,7 +91,7 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
-    func dateSelectionUpdatesGeneratedTitleAndSourceFileName() throws {
+    func dateSelectionUpdatesGeneratedSourceFileName() throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
         let eventID = OMERecord.Event.ID(
@@ -111,15 +108,16 @@ struct ScheduleAuthoringTests {
             now: try #require(friday.at(hour: 12, in: timeZone))
         ) { _ in }
 
-        expectNoDifference(store.state.customTitle, "Friday")
-        expectNoDifference(store.state.sourceFileName, "friday")
+        expectNoDifference(store.state.customTitle, "")
+        expectNoDifference(store.state.inferredTitle, "Friday")
+        expectNoDifference(store.state.sourceFileName, "2026-08-07")
 
         store.modify {
             $0.dateSelection = saturdaySelection
         } changes: {
-            $0.customTitle = "Saturday"
-            $0.sourceFileName = "saturday"
+            $0.sourceFileName = "2026-08-08"
         }
+        expectNoDifference(store.state.inferredTitle, "Saturday")
     }
 
     @Test
@@ -190,6 +188,39 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
+    func scheduleViewerCanAddPerformanceWhileSchedulelessEventIsLoading() throws {
+        let eventID = OMERecord.Event.ID(
+            organizerID: OMERecord.Organizer.ID("did:web:wickedwoods.example")!,
+            eventID: eventLocalID("wicked-woods-2026")
+        )
+        let stage = OMERecord.Stage(
+            id: OMERecord.Stage.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                stageID: stageLocalID("main-stage")
+            ),
+            name: "Main Stage",
+            color: 0x00bbcc,
+            category: nil,
+            sortIndex: nil,
+            images: nil,
+            systemIconName: nil,
+            iconShortCode: nil,
+            lineup: nil
+        )
+
+        expectNoDifference(
+            ScheduleViewer.canAddPerformance(
+                selectedScheduleID: nil,
+                schedules: [],
+                stages: [stage],
+                event: nil
+            ),
+            true
+        )
+    }
+
+    @Test
     func eventViewerAddPerformanceIntentSeedsSelectedScheduleAndStage() async throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
@@ -242,6 +273,69 @@ struct ScheduleAuthoringTests {
         )
         expectNoDifference(editPerformance.startTimeSelection, expectedStart)
         expectNoDifference(editPerformance.endTimeSelection, expectedEnd)
+    }
+
+    @Test
+    func eventViewerAddPerformanceIntentCreatesSingletonScheduleWhenEventHasNoSchedule() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let scheduleDate = try #require(LocalDate("2026-08-01"))
+        let eventID = try await seedEvent(
+            database: database,
+            timeZone: timeZone,
+            startDate: scheduleDate
+        )
+        let stageID = OMERecord.Stage.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            stageID: stageLocalID("main-stage")
+        )
+        try await database.write { db in
+            try OMERecord.Stage.insert {
+                OMERecord.Stage.Draft(
+                    id: stageID,
+                    name: "Main Stage",
+                    color: 0x00bbcc,
+                    sortIndex: 1
+                )
+            }
+            .execute(db)
+        }
+        var state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            EventViewer.State(eventID: eventID)
+        }
+
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            state.handleEditingIntent(
+                .addPerformance(
+                    eventID: eventID,
+                    scheduleID: nil,
+                    stageID: stageID.stageID
+                )
+            )
+        }
+
+        let editPerformance = try #require(state.destination?.performanceForm)
+        expectNoDifference(
+            editPerformance.schedule.id.scheduleID,
+            OMERecord.Schedule.singletonID
+        )
+        expectNoDifference(editPerformance.schedule.date, scheduleDate)
+        expectNoDifference(editPerformance.selectedStageID, stageID.stageID)
+        let schedules = try await database.read { db in
+            try OMERecord.Schedule.fetchAll(db)
+        }
+        expectNoDifference(schedules.map(\.id.scheduleID), [OMERecord.Schedule.singletonID])
     }
 
     @Test
@@ -1344,7 +1438,8 @@ struct ScheduleAuthoringTests {
 
     private func seedEvent(
         database: any DatabaseWriter,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        startDate: LocalDate? = nil
     ) async throws -> OMERecord.Event.ID {
         let eventID = OMERecord.Event.ID(
             organizerID: OMERecord.Organizer.ID("did:web:wickedwoods.example")!,
@@ -1360,7 +1455,7 @@ struct ScheduleAuthoringTests {
                     id: eventID,
                     name: "Wicked Woods 2026",
                     description: nil,
-                    startDate: nil,
+                    startDate: startDate,
                     endDate: nil,
                     status: .known(.planned),
                     mode: .known(.inPerson),

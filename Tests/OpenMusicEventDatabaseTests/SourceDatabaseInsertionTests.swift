@@ -194,6 +194,109 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func importsInlineSingletonScheduleFromEventSource() throws {
+        let source = try makeInlineScheduleSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let scheduleDate = try #require(LocalDate("2026-08-01"))
+
+        expectNoDifference(
+            insertion.schedules,
+            [
+                OME.Schedule.Draft(
+                    id: scheduleID("schedule", eventID: "testival-2026", organizerID: organizerID),
+                    date: scheduleDate,
+                    startsAt: nil,
+                    endsAt: nil,
+                    customTitle: nil
+                )
+            ]
+        )
+        expectNoDifference(
+            insertion.performances.map(\.id?.performanceID.rawValue.rawValue),
+            [
+                "opening-set",
+                "schedule-meadow-2",
+                "closing-set",
+            ]
+        )
+        expectNoDifference(
+            insertion.performances.map(\.scheduleID?.rawValue.rawValue),
+            [
+                "schedule",
+                "schedule",
+                "schedule",
+            ]
+        )
+    }
+
+    @Test
+    func throwsWhenInlineSingletonScheduleHasNoDateSource() throws {
+        var source = try makeInlineScheduleSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        source.events[0].components.event.startDate = nil
+
+        do {
+            _ = try OME.SourceDatabaseInsertion(
+                .init(source: source, organizerID: organizerID)
+            )
+            Issue.record("Expected inline schedule without event date to throw.")
+        } catch let error as OME.SourceDatabaseInsertion.Error {
+            expectNoDifference(
+                error,
+                .missingInlineScheduleDate(
+                    OME.Event.ID(
+                        organizerID: organizerID,
+                        eventID: id("testival-2026")
+                    )
+                )
+            )
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
+    func throwsWhenInlineSingletonScheduleDuplicatesFileScheduleID() throws {
+        var source = try makeInlineScheduleSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let scheduleDate = try #require(LocalDate("2026-08-01"))
+        source.events[0].components.schedules = [
+            try FileContent(
+                fileName: "schedule",
+                fileType: nil,
+                data: ScheduleDTO(
+                    id: nil,
+                    eventID: nil,
+                    date: scheduleDate,
+                    startsAt: nil,
+                    endsAt: nil,
+                    customTitle: nil,
+                    performances: [:]
+                )
+            )
+        ]
+
+        do {
+            _ = try OME.SourceDatabaseInsertion(
+                .init(source: source, organizerID: organizerID)
+            )
+            Issue.record("Expected duplicate inline and file schedule IDs to throw.")
+        } catch let error as OME.SourceDatabaseInsertion.Error {
+            expectNoDifference(
+                error,
+                .duplicateScheduleID(
+                    scheduleID("schedule", eventID: "testival-2026", organizerID: organizerID)
+                )
+            )
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
     func sourceContributorDIDImportsIntoContributorRecord() throws {
         let did = try #require(DID("did:plc:artist123"))
         let source = try makeSourceRepository(contributorDID: did)
@@ -3164,6 +3267,16 @@ struct SourceDatabaseInsertionTests {
                 )
             ]
         )
+    }
+
+    private func makeInlineScheduleSourceRepository() throws -> OpenMusicEventSourceRepository {
+        var source = try makeSourceRepository()
+        let performances = try #require(source.events[0].components.schedules?.first?.data.performances)
+        source.events[0].components.event.schedule = InlineScheduleDTO(
+            performances: performances
+        )
+        source.events[0].components.schedules = nil
+        return source
     }
 
     private func eventEditSummary(

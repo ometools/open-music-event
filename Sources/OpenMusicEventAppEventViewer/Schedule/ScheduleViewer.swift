@@ -114,6 +114,11 @@ public struct ScheduleViewer {
             performanceRows.map(\.performance)
         }
 
+        var usesSingletonSchedule: Bool {
+            schedules.count == 1
+                && schedules.first?.id.scheduleID == OMERecord.Schedule.singletonID
+        }
+
         public func selectedSchedule(
             selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
         ) -> OMERecord.Schedule? {
@@ -395,12 +400,17 @@ public struct ScheduleViewer {
     static func canAddPerformance(
         selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
         schedules: [OMERecord.Schedule],
-        stages: [OMERecord.Stage]
+        stages: [OMERecord.Stage],
+        event: OMERecord.Event?
     ) -> Bool {
-        !stages.isEmpty && Self.resolvedSelectedScheduleID(
+        guard !stages.isEmpty else { return false }
+        if Self.resolvedSelectedScheduleID(
             selectedScheduleID,
             schedules: schedules
-        ) != nil
+        ) != nil {
+            return true
+        }
+        return schedules.isEmpty && (event == nil || event?.startDate != nil)
     }
 
     static func resolvedSelectedScheduleID(
@@ -418,16 +428,22 @@ public struct ScheduleViewer {
         Update { state, action in
             switch action {
             case let .addPerformanceButtonTapped(selectedScheduleID):
-                guard let schedule = state.selectedSchedule(selectedScheduleID: selectedScheduleID),
-                      let selectedStageID = state.resolvedSelectedStageID
+                guard let selectedStageID = state.resolvedSelectedStageID,
+                      Self.canAddPerformance(
+                        selectedScheduleID: selectedScheduleID,
+                        schedules: state.schedules,
+                        stages: state.stages,
+                        event: state.event
+                      )
                 else { return }
                 let eventID = state.eventID
+                let scheduleID = state.resolvedSelectedScheduleID(selectedScheduleID)
                 store.addTask {
                     let task = try store.post(
                         key: EventEditingRequested.self,
                         value: .addPerformance(
                             eventID: eventID,
-                            scheduleID: schedule.id.scheduleID,
+                            scheduleID: scheduleID,
                             stageID: selectedStageID
                         )
                     )
@@ -592,10 +608,12 @@ public struct ScheduleViewerView: View {
             }
         }
         .toolbarTitleMenu {
-            ForEach(store.schedules) { schedule in
-                Button(ScheduleViewer.scheduleTitle(schedule)) {
-                    $selectedScheduleID.withLock {
-                        $0 = schedule.id.scheduleID
+            if !store.state.usesSingletonSchedule {
+                ForEach(store.schedules) { schedule in
+                    Button(ScheduleViewer.scheduleTitle(schedule)) {
+                        $selectedScheduleID.withLock {
+                            $0 = schedule.id.scheduleID
+                        }
                     }
                 }
             }
@@ -651,7 +669,8 @@ struct ScheduleAddMenu: View {
                 !ScheduleViewer.canAddPerformance(
                     selectedScheduleID: selectedScheduleID,
                     schedules: store.schedules,
-                    stages: store.stages
+                    stages: store.stages,
+                    event: store.event
                 )
             )
         } label: {

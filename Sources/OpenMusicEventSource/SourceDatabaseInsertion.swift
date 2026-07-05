@@ -53,6 +53,8 @@ public extension OME {
                 stageID: OME.ID<OME.Stage>,
                 performanceIndex: Int
             )
+            case missingInlineScheduleDate(OME.Event.ID)
+            case duplicateScheduleID(OME.Schedule.ID)
         }
 
         public struct PendingFileImageAsset: Equatable, Sendable {
@@ -367,54 +369,109 @@ public extension OME {
                 } ?? []
             )
 
-            for schedule in sourceEvent.schedules ?? [] {
+            var resolvedScheduleIDs: Set<OME.ID<OME.Schedule>> = []
+            if let inlineSchedule = sourceEvent.event.schedule {
                 try append(
-                    schedule: schedule.data,
-                    scheduleFileName: schedule.fileName,
+                    sourceSchedule: try SourceSchedule(
+                        inlineSchedule,
+                        eventID: eventID,
+                        eventStartDate: event.startDate
+                    ),
                     organizerID: organizerID,
                     eventID: localEventID,
                     timeZone: event.timeZone,
-                    scheduleContributorIndex: scheduleContributorIndex
+                    scheduleContributorIndex: scheduleContributorIndex,
+                    resolvedScheduleIDs: &resolvedScheduleIDs
+                )
+            }
+            for schedule in sourceEvent.schedules ?? [] {
+                try append(
+                    sourceSchedule: SourceSchedule(schedule.data, scheduleFileName: schedule.fileName),
+                    organizerID: organizerID,
+                    eventID: localEventID,
+                    timeZone: event.timeZone,
+                    scheduleContributorIndex: scheduleContributorIndex,
+                    resolvedScheduleIDs: &resolvedScheduleIDs
                 )
             }
         }
 
+        private struct SourceSchedule {
+            var id: OME.ID<OME.Schedule>
+            var date: LocalDate
+            var startsAt: String?
+            var endsAt: String?
+            var customTitle: String?
+            var performances: [String: [ScheduleDTO.Performance]]
+
+            init(
+                _ schedule: ScheduleDTO,
+                scheduleFileName: String
+            ) {
+                self.id = schedule.id ?? SourceDatabaseInsertion.localID(scheduleFileName)
+                self.date = schedule.date
+                self.startsAt = schedule.startsAt
+                self.endsAt = schedule.endsAt
+                self.customTitle = schedule.customTitle
+                self.performances = schedule.performances
+            }
+
+            init(
+                _ schedule: InlineScheduleDTO,
+                eventID: OME.Event.ID,
+                eventStartDate: LocalDate?
+            ) throws {
+                guard let date = schedule.date ?? eventStartDate else {
+                    throw Error.missingInlineScheduleDate(eventID)
+                }
+                self.id = OME.Schedule.singletonID
+                self.date = date
+                self.startsAt = schedule.startsAt
+                self.endsAt = schedule.endsAt
+                self.customTitle = schedule.customTitle
+                self.performances = schedule.performances
+            }
+        }
+
         private mutating func append(
-            schedule: ScheduleDTO,
-            scheduleFileName: String,
+            sourceSchedule: SourceSchedule,
             organizerID: OME.Organizer.ID,
             eventID: OME.ID<OME.Event>,
             timeZone: TimeZone,
-            scheduleContributorIndex: ScheduleContributorIndex
+            scheduleContributorIndex: ScheduleContributorIndex,
+            resolvedScheduleIDs: inout Set<OME.ID<OME.Schedule>>
         ) throws {
-            let scheduleID = schedule.id ?? Self.localID(scheduleFileName)
+            let scheduleID = sourceSchedule.id
             let scopedScheduleID = OME.Schedule.ID(
                 organizerID: organizerID,
                 eventID: eventID,
                 scheduleID: scheduleID
             )
+            guard resolvedScheduleIDs.insert(scheduleID).inserted else {
+                throw Error.duplicateScheduleID(scopedScheduleID)
+            }
 
             schedules.append(
                 OME.Schedule.Draft(
                     id: scopedScheduleID,
-                    date: schedule.date,
-                    startsAt: try schedule.startsAt?.localTimeDate(
-                        on: schedule.date,
+                    date: sourceSchedule.date,
+                    startsAt: try sourceSchedule.startsAt?.localTimeDate(
+                        on: sourceSchedule.date,
                         in: timeZone
                     ),
-                    endsAt: try schedule.endsAt?.localTimeDate(
-                        on: schedule.date,
+                    endsAt: try sourceSchedule.endsAt?.localTimeDate(
+                        on: sourceSchedule.date,
                         in: timeZone
                     ),
-                    customTitle: schedule.customTitle
+                    customTitle: sourceSchedule.customTitle
                 )
             )
 
-            for stageIDString in schedule.performances.keys.sorted() {
-                let sourcePerformances = schedule.performances[stageIDString] ?? []
+            for stageIDString in sourceSchedule.performances.keys.sorted() {
+                let sourcePerformances = sourceSchedule.performances[stageIDString] ?? []
                 let stageID = OME.ID<OME.Stage>(.init(stageIDString))
                 let resolvedStarts = try sourcePerformances.resolvedStartTimes(
-                    on: schedule.date,
+                    on: sourceSchedule.date,
                     in: timeZone
                 )
 
@@ -432,7 +489,7 @@ public extension OME {
 
                     if let explicitEndTime = sourcePerformance.endTime {
                         endTime = try explicitEndTime.localTimeDate(
-                            on: schedule.date,
+                            on: sourceSchedule.date,
                             in: timeZone
                         ).advancedPast(startTime, in: timeZone)
                     } else if sourcePerformances.indices.contains(offset + 1) {
@@ -564,6 +621,26 @@ public extension OME {
                 }
             }
 
+            mutating func addGeneratedScheduleContributors(
+                from performancesByStageID: [String: [ScheduleDTO.Performance]],
+                organizerID: OME.Organizer.ID,
+                eventID: OME.ID<OME.Event>,
+                usedContributorIDs: inout Set<OME.ID<OME.Contributor>>
+            ) {
+                for stageID in performancesByStageID.keys.sorted() {
+                    for performance in performancesByStageID[stageID] ?? [] {
+                        for contributor in performance.contributors ?? [] {
+                            addGeneratedContributor(
+                                for: contributor,
+                                organizerID: organizerID,
+                                eventID: eventID,
+                                usedContributorIDs: &usedContributorIDs
+                            )
+                        }
+                    }
+                }
+            }
+
             static func nameKey(_ name: String) -> String? {
                 let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed.lowercased()
@@ -592,19 +669,22 @@ public extension OME {
                 index.names[key] = contributorID
             }
 
+            if let inlineSchedule = sourceEvent.event.schedule {
+                index.addGeneratedScheduleContributors(
+                    from: inlineSchedule.performances,
+                    organizerID: organizerID,
+                    eventID: eventID,
+                    usedContributorIDs: &usedContributorIDs
+                )
+            }
+
             for schedule in sourceEvent.schedules ?? [] {
-                for stageID in schedule.data.performances.keys.sorted() {
-                    for performance in schedule.data.performances[stageID] ?? [] {
-                        for contributor in performance.contributors ?? [] {
-                            index.addGeneratedContributor(
-                                for: contributor,
-                                organizerID: organizerID,
-                                eventID: eventID,
-                                usedContributorIDs: &usedContributorIDs
-                            )
-                        }
-                    }
-                }
+                index.addGeneratedScheduleContributors(
+                    from: schedule.data.performances,
+                    organizerID: organizerID,
+                    eventID: eventID,
+                    usedContributorIDs: &usedContributorIDs
+                )
             }
 
             return index
@@ -912,6 +992,12 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
 
         case let .missingPerformanceEndTime(scheduleID, stageID, performanceIndex):
             return "Missing end time for performance \(performanceIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'."
+
+        case let .missingInlineScheduleDate(eventID):
+            return "Inline schedule for event '\(eventID.eventID.rawValue.rawValue)' is missing a date. Add schedule.date or event.startDate."
+
+        case let .duplicateScheduleID(scheduleID):
+            return "Source resolves more than one schedule to '\(scheduleID.scheduleID.rawValue.rawValue)' for event '\(scheduleID.eventID.rawValue.rawValue)'. Give each schedule a unique ID."
         }
     }
 }

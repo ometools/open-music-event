@@ -50,6 +50,10 @@ public struct EditSchedule {
             LocalDate(dateSelection, in: timeZone)
         }
 
+        public var inferredTitle: String {
+            Self.weekdayTitle(for: scheduleDate, in: timeZone)
+        }
+
         public var trimmedCustomTitle: String {
             customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -154,10 +158,9 @@ public struct EditSchedule {
             for scheduleDate: LocalDate,
             in timeZone: TimeZone
         ) -> Defaults {
-            let customTitle = weekdayTitle(for: scheduleDate, in: timeZone)
             return Defaults(
-                customTitle: customTitle,
-                sourceFileName: customTitle.lowercased()
+                customTitle: "",
+                sourceFileName: scheduleDate.description
             )
         }
 
@@ -249,8 +252,8 @@ public struct EditScheduleView: View {
             }
 
             Section("Details") {
-                TextField("Title", text: $store.customTitle, prompt: Text("Friday"))
-                TextField("Source File", text: $store.sourceFileName, prompt: Text("friday"))
+                TextField("Title", text: $store.customTitle, prompt: Text(store.inferredTitle))
+                TextField("Source File", text: $store.sourceFileName, prompt: Text(store.scheduleDate.description))
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
                     #endif

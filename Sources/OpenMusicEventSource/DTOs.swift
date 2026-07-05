@@ -68,7 +68,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
         categoryConfigs: OMERecord.Event.CategoryConfigs?,
         policies: OMERecord.Event.Policies? = nil,
         reportingLink: OMERecord.Event.ReportingLink? = nil,
-        owner: OMERecord.Contributor.Actor? = nil
+        owner: OMERecord.Contributor.Actor? = nil,
+        schedule: InlineScheduleDTO? = nil
     ) {
         self.id = id
         self.name = name
@@ -86,6 +87,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         self.policies = policies
         self.reportingLink = reportingLink
         self.owner = owner
+        self.schedule = schedule
     }
 
     public init(
@@ -106,7 +108,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
         categoryConfigs: OMERecord.Event.CategoryConfigs?,
         policies: OMERecord.Event.Policies? = nil,
         reportingLink: OMERecord.Event.ReportingLink? = nil,
-        owner: OMERecord.Contributor.Actor? = nil
+        owner: OMERecord.Contributor.Actor? = nil,
+        schedule: InlineScheduleDTO? = nil
     ) {
         self.init(
             id: id,
@@ -128,7 +131,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             categoryConfigs: categoryConfigs,
             policies: policies,
             reportingLink: reportingLink,
-            owner: owner
+            owner: owner,
+            schedule: schedule
         )
     }
 
@@ -149,7 +153,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             categoryConfigs: draft.categoryConfigs,
             policies: draft.policies,
             reportingLink: draft.reportingLink,
-            owner: draft.owner
+            owner: draft.owner,
+            schedule: nil
         )
     }
 
@@ -169,6 +174,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
     public var policies: OMERecord.Event.Policies?
     public var reportingLink: OMERecord.Event.ReportingLink?
     public var owner: OMERecord.Contributor.Actor?
+    public var schedule: InlineScheduleDTO?
 
     public var recordDraft: OMERecord.Event.Draft {
         OMERecord.Event.Draft(
@@ -223,6 +229,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         case policies
         case reportingLink
         case owner
+        case schedule
     }
 
     public init(from decoder: any Decoder) throws {
@@ -250,7 +257,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             categoryConfigs: try container.decodeIfPresent(OMERecord.Event.CategoryConfigs.self, forKey: .categoryConfigs),
             policies: try container.decodeIfPresent(OMERecord.Event.Policies.self, forKey: .policies),
             reportingLink: try container.decodeIfPresent(OMERecord.Event.ReportingLink.self, forKey: .reportingLink),
-            owner: try container.decodeIfPresent(OMERecord.Contributor.Actor.self, forKey: .owner)
+            owner: try container.decodeIfPresent(OMERecord.Contributor.Actor.self, forKey: .owner),
+            schedule: try container.decodeIfPresent(InlineScheduleDTO.self, forKey: .schedule)
         )
     }
 
@@ -272,6 +280,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         try container.encodeIfPresent(policies, forKey: .policies)
         try container.encodeIfPresent(reportingLink, forKey: .reportingLink)
         try container.encodeIfPresent(owner, forKey: .owner)
+        try container.encodeIfPresent(schedule, forKey: .schedule)
     }
 
     private static func legacyImages(

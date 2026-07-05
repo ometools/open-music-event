@@ -2480,13 +2480,22 @@ struct NavigationTests {
         }
         state.selectedFeature = .contributors
 
-        state.handleEditingIntent(.addSchedule(eventID))
+        withDependencies {
+            $0.context = .test
+            $0.date = .constant(now)
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            state.handleEditingIntent(.addSchedule(eventID))
+        }
 
         let editSchedule = try #require(state.destination?.scheduleForm)
         expectNoDifference(state.selectedFeature, .contributors)
         expectNoDifference(editSchedule.scheduleDate, eventStartDate)
-        expectNoDifference(editSchedule.customTitle, "Friday")
-        expectNoDifference(editSchedule.sourceFileName, "friday")
+        expectNoDifference(editSchedule.customTitle, "")
+        expectNoDifference(editSchedule.inferredTitle, "Friday")
+        expectNoDifference(editSchedule.sourceFileName, "2026-08-07")
     }
 
     @Test
