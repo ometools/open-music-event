@@ -86,6 +86,9 @@ struct CreateEventTests {
         let organizers = try await database.read { db in
             try OMERecord.Organizer.fetchAll(db)
         }
+        let stages = try await database.read { db in
+            try OMERecord.Stage.fetchAll(db)
+        }
         let schedules = try await database.read { db in
             try OMERecord.Schedule.fetchAll(db)
         }
@@ -94,11 +97,13 @@ struct CreateEventTests {
         }
         #expect(events.count == 1)
         #expect(organizers.count == 1)
+        #expect(stages.count == 1)
         #expect(schedules.count == 1)
         #expect(eventOrganizerCount == 0)
 
         let event = try #require(events.first)
         let organizer = try #require(organizers.first)
+        let stage = try #require(stages.first)
         let schedule = try #require(schedules.first)
         let organizerID = OMERecord.Organizer.ID("did:web:local.openmusicevent")!
         #expect(organizer.id == organizerID)
@@ -118,6 +123,13 @@ struct CreateEventTests {
         #expect(event.siteMapImageURL == nil)
         #expect(event.contactNumbers == nil)
         #expect(event.categoryConfigs == nil)
+        #expect(stage.id.organizerID == event.id.organizerID)
+        #expect(stage.id.eventID == event.id.eventID)
+        #expect(stage.id.stageID == OMERecord.Stage.singletonID)
+        #expect(stage.name == OMERecord.Stage.singletonName)
+        #expect(stage.color == OMERecord.Stage.singletonColor)
+        #expect(stage.category == nil)
+        #expect(stage.sortIndex == nil)
         #expect(schedule.id.organizerID == event.id.organizerID)
         #expect(schedule.id.eventID == event.id.eventID)
         #expect(schedule.id.scheduleID == OMERecord.Schedule.singletonID)

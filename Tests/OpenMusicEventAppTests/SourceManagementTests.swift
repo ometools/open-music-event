@@ -315,6 +315,7 @@ struct SourceManagementTests {
                 events: try OMERecord.Event.fetchAll(db),
                 organizers: try OMERecord.Organizer.fetchAll(db),
                 eventOrganizers: try OMERecord.EventOrganizer.fetchAll(db),
+                stages: try OMERecord.Stage.fetchAll(db),
                 schedules: try OMERecord.Schedule.fetchAll(db),
                 calendarEntries: try OMERecord.CalendarEntry.fetchAll(db),
                 sourceProvenances: try EventSourceProvenanceRecord.fetchAll(db)
@@ -322,6 +323,7 @@ struct SourceManagementTests {
         }
         let event = try #require(rows.events.first)
         let eventOrganizer = try #require(rows.eventOrganizers.first)
+        let stage = try #require(rows.stages.first)
         let schedule = try #require(rows.schedules.first)
         let calendarEntry = try #require(rows.calendarEntries.first)
         let sourceProvenanceRecord = try #require(rows.sourceProvenances.first)
@@ -329,6 +331,7 @@ struct SourceManagementTests {
         #expect(rows.events.count == 1)
         expectNoDifference(rows.organizers.map(\.id), [organizerID])
         #expect(rows.eventOrganizers.count == 1)
+        #expect(rows.stages.count == 1)
         #expect(rows.schedules.count == 1)
         #expect(rows.calendarEntries.count == 1)
         #expect(rows.sourceProvenances.count == 1)
@@ -339,6 +342,13 @@ struct SourceManagementTests {
         #expect(eventOrganizer.id.organizerID == expectedEventID.organizerID)
         #expect(eventOrganizer.id.eventID == expectedEventID.eventID)
         #expect(eventOrganizer.id.eventOrganizerID == organizerID)
+        #expect(stage.id.organizerID == expectedEventID.organizerID)
+        #expect(stage.id.eventID == expectedEventID.eventID)
+        #expect(stage.id.stageID == OMERecord.Stage.singletonID)
+        #expect(stage.name == OMERecord.Stage.singletonName)
+        #expect(stage.color == OMERecord.Stage.singletonColor)
+        #expect(stage.category == nil)
+        #expect(stage.sortIndex == nil)
         #expect(schedule.id.organizerID == expectedEventID.organizerID)
         #expect(schedule.id.eventID == expectedEventID.eventID)
         #expect(schedule.id.scheduleID == OMERecord.Schedule.singletonID)
@@ -371,6 +381,14 @@ struct SourceManagementTests {
         #expect(eventYML.contains("performances:"))
         #expect(!eventYML.contains("  date:"))
         #expect(!eventYML.contains("id:"))
+        let stageYMLURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "2026", directoryHint: .isDirectory)
+            .appending(path: "stages", directoryHint: .isDirectory)
+            .appending(path: "stage.yml")
+        let stageYML = try String(contentsOf: stageYMLURL, encoding: .utf8)
+        #expect(stageYML.contains("name: Stage"))
+        #expect(stageYML.contains("color: \(OMERecord.Stage.singletonColor.rawValue)"))
     }
 
     @Test

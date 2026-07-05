@@ -15,13 +15,14 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SQLiteData
-import SwiftUI
 
 @Feature
 public struct MyEvents {
     public struct State {
+        var deleteCreatedEventIDs: [OMERecord.Event.ID] = []
         var destination: Destination.State?
         var errorMessage: String?
+        var isDeleteCreatedEventsConfirmationPresented = false
         var organizerDetail: OrganizerDetail.State?
         var sourceDetail: SourceDetail.State?
 
@@ -35,6 +36,9 @@ public struct MyEvents {
     }
 
     public enum Action {
+        case deleteCreatedEventsButtonTapped([OMERecord.Event.ID])
+        case deleteCreatedEventsConfirmationDeleteButtonTapped
+        case deleteCreatedEventsConfirmationPresentedChanged(Bool)
         case didTapCreateEvent
         case didTapDownloadedSource(SourceBaselineRecord.ID)
         case didTapEvent(OMERecord.Event)
@@ -83,13 +87,19 @@ public struct MyEvents {
         let _ = Self._logChanges()
         Update { state, action in
             switch action {
+            case let .deleteCreatedEventsButtonTapped(eventIDs):
+                let eventIDs = eventIDs.uniqued()
+                guard !eventIDs.isEmpty else { return }
+                state.deleteCreatedEventIDs = eventIDs
+                state.isDeleteCreatedEventsConfirmationPresented = true
+
             case .deleteDownloadedSources(let sourceBaselineIDs):
                 store.addTask {
                     do {
                         let sourceProvenances = try database.write { db in
                             var sourceProvenances: [OMERecord.SourceDatabaseInsertion.SourceProvenance] = []
                             for sourceBaselineID in sourceBaselineIDs {
-                                let sourceData = try deleteDownloadedSource(sourceBaselineID, in: db)
+                                let sourceData = try MyEventsDeletion.deleteDownloadedSource(sourceBaselineID, in: db)
                                 sourceProvenances.append(contentsOf: sourceData.sourceProvenances)
                             }
                             return sourceProvenances
@@ -109,6 +119,32 @@ public struct MyEvents {
                             $0.errorMessage = "Unable to delete source."
                         }
                     }
+                }
+
+            case .deleteCreatedEventsConfirmationDeleteButtonTapped:
+                let eventIDs = state.deleteCreatedEventIDs
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            try MyEventsDeletion.deleteCreatedLocalEvents(eventIDs, in: db)
+                        }
+                        try store.modify {
+                            $0.deleteCreatedEventIDs = []
+                            $0.errorMessage = nil
+                            $0.isDeleteCreatedEventsConfirmationPresented = false
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.isDeleteCreatedEventsConfirmationPresented = false
+                            $0.errorMessage = "Unable to delete event."
+                        }
+                    }
+                }
+
+            case let .deleteCreatedEventsConfirmationPresentedChanged(isPresented):
+                state.isDeleteCreatedEventsConfirmationPresented = isPresented
+                if !isPresented {
+                    state.deleteCreatedEventIDs = []
                 }
 
             case .didTapCreateEvent:
@@ -179,416 +215,5 @@ public struct DownloadedSourceRow: Equatable, Identifiable, Sendable {
 
     public var refTitle: String {
         sourceBaseline.ref ?? "default ref"
-    }
-}
-
-private func deleteDownloadedSource(
-    _ sourceBaselineID: SourceBaselineRecord.ID,
-    in db: Database
-) throws -> OMERecord.DeletedOrganizerSourceData {
-    let sourceData = try OMERecord.deleteDownloadedSourceData(
-        for: sourceBaselineID,
-        in: db
-    )
-    let eventIDs = sourceData.eventIDs
-    let appState = try AppState.find(1).fetchOne(db)
-    if let selectedEventID = appState?.selectedEventID,
-       eventIDs.contains(selectedEventID) {
-        try AppState.update {
-            $0.organizerID = #bind(nil as OMERecord.Organizer.ID?)
-            $0.eventID = #bind(nil as OMERecord.ID<OMERecord.Event>?)
-        }
-        .execute(db)
-    }
-
-    try deleteEventOwnedRecords(eventIDs, in: db)
-    try deleteUnreferencedOrganizers(eventIDs.map(\.organizerID), in: db)
-    return sourceData
-}
-
-private func deleteEventOwnedRecords(
-    _ eventIDs: [OMERecord.Event.ID],
-    in db: Database
-) throws {
-    for eventID in eventIDs.uniqued() {
-        try deleteRelationshipsOwnedByEvent(eventID, in: db)
-
-        try OMERecord.Performance.Contributors
-            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
-            .where { $0.performanceID.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.Performance
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.Poster
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.Channel
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.Contributor.Claim
-            .where { $0.contributorID.organizerID.eq(eventID.organizerID) }
-            .where { $0.contributorID.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.Schedule
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.Stage
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.EventOrganizer
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try OMERecord.Event
-            .where { $0.id.eq(eventID) }
-            .delete()
-            .execute(db)
-
-        try EventViewerState
-            .where { $0.id.eq(eventID) }
-            .delete()
-            .execute(db)
-        try ScheduleViewerState
-            .where { $0.id.eventID.eq(eventID) }
-            .delete()
-            .execute(db)
-        try ContributorPreferences
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try PerformancePreferences
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try ChannelPreferences
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try PosterPreferences
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-        try LocalImageBlob
-            .where { $0.organizerID.eq(eventID.organizerID) }
-            .where { $0.eventID.eq(eventID.eventID) }
-            .delete()
-            .execute(db)
-    }
-}
-
-private func deleteRelationshipsOwnedByEvent(
-    _ eventID: OMERecord.Event.ID,
-    in db: Database
-) throws {
-    var recordURIs = [
-        OMERecord.Relationship.RecordReference(eventID: eventID).uri.description
-    ]
-    recordURIs.append(
-        contentsOf: try OMERecord.Performance
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .fetchAll(db)
-            .map { OMERecord.Relationship.RecordReference(performanceID: $0.id).uri.description }
-    )
-    recordURIs.append(
-        contentsOf: try OMERecord.Contributor
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .fetchAll(db)
-            .map { OMERecord.Relationship.RecordReference(contributorID: $0.id).uri.description }
-    )
-
-    for recordURI in recordURIs.uniqued() {
-        try db.execute(
-            sql: #"""
-            DELETE FROM "relationships"
-            WHERE json_extract("subject", '$.uri') = ?
-               OR json_extract("object", '$.uri') = ?
-            """#,
-            arguments: [recordURI, recordURI]
-        )
-    }
-}
-
-private func deleteUnreferencedOrganizers(
-    _ organizerIDs: [OMERecord.Organizer.ID],
-    in db: Database
-) throws {
-    for organizerID in organizerIDs.uniqued() {
-        let eventOrganizerCount = try OMERecord.EventOrganizer
-            .where { $0.id.eventOrganizerID.eq(organizerID) }
-            .fetchCount(db)
-        let ownedEventCount = try OMERecord.Event
-            .where { $0.id.organizerID.eq(organizerID) }
-            .fetchCount(db)
-        if eventOrganizerCount == 0 && ownedEventCount == 0 {
-            try OrganizerPreferences
-                .where { $0.organizerID.eq(organizerID) }
-                .delete()
-                .execute(db)
-            try OMERecord.Organizer
-                .where { $0.id.eq(organizerID) }
-                .delete()
-                .execute(db)
-        }
-    }
-}
-
-private extension Sequence where Element: Hashable {
-    func uniqued() -> [Element] {
-        var seen: Set<Element> = []
-        var result: [Element] = []
-        for element in self where seen.insert(element).inserted {
-            result.append(element)
-        }
-        return result
-    }
-}
-
-struct MyEventsView: View {
-    @Bindable var store: StoreOf<MyEvents>
-
-    var body: some View {
-        List {
-            if let errorMessage = store.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-            }
-
-            if !store.downloadedSources.isEmpty {
-                Section("Downloaded Sources") {
-                    ForEach(store.downloadedSources) { downloadedSource in
-                        Button {
-                            store.send(.didTapDownloadedSource(downloadedSource.id))
-                        } label: {
-                            DownloadedSourceRowView(downloadedSource: downloadedSource)
-                        }
-                    }
-                    .onDelete { offsets in
-                        deleteDownloadedSources(at: offsets)
-                    }
-                }
-            }
-
-            if !store.events.isEmpty {
-                Section("Events") {
-                    ForEach(store.events) { event in
-                        Button {
-                            store.send(.didTapEvent(event))
-                        } label: {
-                            EventRowView(event: event)
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle("My Events")
-        .listStyle(.plain)
-        .toolbar {
-            Button("Import Source", systemImage: "arrow.down.doc") {
-                store.send(.didTapImportSource)
-            }
-
-            Button("Create Event", systemImage: "plus") {
-                store.send(.didTapCreateEvent)
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
-            NavigationStack {
-                CreateEventView(store: createEventStore)
-            }
-        }
-        .sheet(item: $store.scope(\.destination, action: \.destination).sourceImport) { downloadStore in
-            NavigationStack {
-                TangledSourceDownloadView(store: downloadStore)
-            }
-        }
-        .navigationDestination(item: $store.scope(\.organizerDetail, action: \.organizerDetail)) { detailStore in
-            OrganizerDetailView(store: detailStore)
-        }
-        .navigationDestination(item: $store.scope(\.sourceDetail, action: \.sourceDetail)) { detailStore in
-            SourceDetailView(store: detailStore)
-        }
-    }
-
-    func deleteDownloadedSources(at offsets: IndexSet) {
-        let sourceBaselineIDs = offsets.compactMap { offset in
-            store.downloadedSources.indices.contains(offset)
-                ? store.downloadedSources[offset].id
-                : nil
-        }
-        store.send(.deleteDownloadedSources(sourceBaselineIDs))
-    }
-}
-
-#Preview {
-    NavigationStack {
-        MyEventsView(store: Store(initialState: .init(), feature: {
-            MyEvents()
-        }))
-    }
-}
-
-import SwiftUI
-
-struct OrganizerRowView: View {
-    var organizer: OMERecord.Organizer
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "person.crop.circle")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 60, height: 60)
-
-            Text(organizer.id.description)
-                .lineLimit(1)
-
-            Spacer()
-        }
-        .foregroundStyle(.primary)
-    }
-}
-
-struct DownloadedSourceRowView: View {
-    var downloadedSource: DownloadedSourceRow
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "folder")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 60, height: 60)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(downloadedSource.sourceBaseline.sourceReference)
-                    .lineLimit(1)
-                Text(
-                    "\(downloadedSource.refTitle) - \(downloadedSource.organizer.id.description)"
-                )
-                    .lineLimit(1)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-        .foregroundStyle(.primary)
-    }
-}
-
-struct EventRowView: View {
-    var event: OMERecord.Event
-    
-    var eventDateString: String? {
-        event.eventDateText(dateStyle: .long)
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            EventIconImageView(event: event)
-                .frame(width: 60, height: 60)
-            //                    .foregroundColor(.label)
-            //                .invertForLightMode()
-
-            HStack {
-                VStack(alignment: .leading) {
-                    Text(event.name)
-                    if let eventDateString {
-                        Text(eventDateString)
-                            .lineLimit(1)
-                            .font(.caption2)
-                    }
-                }
-            }
-
-            Spacer()
-        }
-        .foregroundStyle(.primary)
-    }
-
-
-    struct EventIconImageView: View {
-        let event: OMERecord.Event
-
-        var body: some View {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.secondary.opacity(0.12))
-
-                ImageAssetAsyncImage(
-                    asset: event.images?.imageAsset(role: .icon),
-                    cacheContext: .init(eventID: event.id),
-                    contentMode: .fit
-                ) {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(10)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-    }
-}
-
-private extension OMERecord.Event {
-    func eventDateText(dateStyle: DateFormatter.Style) -> String? {
-        switch (startDate, endDate) {
-        case let (.some(startDate), .some(endDate)):
-            let formatter = DateIntervalFormatter()
-            formatter.timeZone = timeZone
-            formatter.dateStyle = .long
-            formatter.timeStyle = .none
-            return formatter.string(
-                from: startDate.atStartOfDay(in: timeZone),
-                to: endDate.atStartOfDay(in: timeZone)
-            )
-
-        case let (.some(startDate), .none):
-            return startDate.formatted(dateStyle: dateStyle, in: timeZone)
-
-        case let (.none, .some(endDate)):
-            return endDate.formatted(dateStyle: dateStyle, in: timeZone)
-
-        case (.none, .none):
-            return nil
-        }
-    }
-}
-
-private extension LocalDate {
-    func formatted(dateStyle: DateFormatter.Style, in timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.timeZone = timeZone
-        formatter.dateStyle = dateStyle
-        formatter.timeStyle = .none
-        return formatter.string(from: atStartOfDay(in: timeZone))
     }
 }

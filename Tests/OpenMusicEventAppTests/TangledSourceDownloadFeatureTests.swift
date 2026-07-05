@@ -242,6 +242,138 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func myEventsConfirmsCreatedEventDeletion() throws {
+        let database = try makePreparedDatabase()
+        let eventID = createdEventID("delete-me")
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: MyEvents.State()) {
+                MyEvents()
+            }
+        }
+
+        store.send(.deleteCreatedEventsButtonTapped([eventID]))
+
+        expectNoDifference(store.state.deleteCreatedEventIDs, [eventID])
+        #expect(store.state.isDeleteCreatedEventsConfirmationPresented)
+    }
+
+    @Test
+    func myEventsDeletesCreatedEventAfterConfirmation() async throws {
+        let database = try makePreparedDatabase()
+        let deletedEventID = createdEventID("delete-me")
+        let retainedEventID = createdEventID("keep-me")
+        let sourceEventID = importedEventID("source-event")
+        let sourceProvenance = tangledSourceProvenance("wicked-woods-ome")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+
+        try await insertCreatedEvent(deletedEventID, name: "Delete Me", into: database)
+        try await insertCreatedEvent(retainedEventID, name: "Keep Me", into: database)
+        try await insertImportedEventData(deletedEventID, into: database)
+        try await insertDownloadedSource(
+            eventID: sourceEventID,
+            sourceProvenance: sourceProvenance,
+            into: database
+        )
+        try await database.write { db in
+            let calendarID = OMERecord.Calendar.ID(
+                ownerID: deletedEventID.organizerID,
+                calendarID: OMERecord.Calendar.defaultID
+            )
+            try OMERecord.Calendar.insert {
+                OMERecord.Calendar.Draft(
+                    id: calendarID,
+                    name: "Local Calendar"
+                )
+            }
+            .execute(db)
+            try OMERecord.CalendarEntry.insert {
+                OMERecord.CalendarEntry.Draft(
+                    id: OMERecord.CalendarEntry.ID(
+                        calendarOwnerID: calendarID.ownerID,
+                        calendarID: calendarID.calendarID,
+                        entryID: localID("delete-me")
+                    ),
+                    event: OMERecord.Event.reference(id: deletedEventID),
+                    createdAt: Date(timeIntervalSince1970: 0),
+                    pinned: false
+                )
+            }
+            .execute(db)
+            try OMERecord.CalendarEntry.insert {
+                OMERecord.CalendarEntry.Draft(
+                    id: OMERecord.CalendarEntry.ID(
+                        calendarOwnerID: calendarID.ownerID,
+                        calendarID: calendarID.calendarID,
+                        entryID: localID("keep-me")
+                    ),
+                    event: OMERecord.Event.reference(id: retainedEventID),
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    pinned: false
+                )
+            }
+            .execute(db)
+            try AppState.update {
+                $0.organizerID = #bind(deletedEventID.organizerID)
+                $0.eventID = #bind(deletedEventID.eventID)
+            }
+            .execute(db)
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: MyEvents.State()) {
+                MyEvents()
+            }
+        }
+
+        store.send(.deleteCreatedEventsButtonTapped([deletedEventID]))
+        await store.send(.deleteCreatedEventsConfirmationDeleteButtonTapped)?.value
+
+        let events = try await database.read { db in
+            try OMERecord.Event.fetchAll(db)
+        }
+        let visibleCreatedEvents = try await database.read { db in
+            try MyEvents.query.fetchAll(db)
+        }
+        let calendarEntries = try await database.read { db in
+            try OMERecord.CalendarEntry.fetchAll(db)
+        }
+        let stages = try await database.read { db in
+            try OMERecord.Stage.fetchAll(db)
+        }
+        let schedules = try await database.read { db in
+            try OMERecord.Schedule.fetchAll(db)
+        }
+        let performances = try await database.read { db in
+            try OMERecord.Performance.fetchAll(db)
+        }
+        let sourceProvenances = try await database.read { db in
+            try EventSourceProvenanceRecord.fetchAll(db)
+        }
+        let downloadedSources = try await database.read { db in
+            try MyEvents.downloadedSourcesQuery.fetchAll(db)
+        }
+        let appState = try await database.read { db in
+            try AppState.fetchOne(db)
+        }
+
+        #expect(store.state.errorMessage == nil)
+        expectNoDifference(Set(events.map(\.id)), Set([retainedEventID, sourceEventID]))
+        expectNoDifference(visibleCreatedEvents.map(\.id), [retainedEventID])
+        expectNoDifference(calendarEntries.compactMap(\.event.localEventID), [retainedEventID])
+        #expect(stages.allSatisfy { $0.id.eventID != deletedEventID.eventID })
+        #expect(schedules.allSatisfy { $0.id.eventID != deletedEventID.eventID })
+        #expect(performances.allSatisfy { $0.id.eventID != deletedEventID.eventID })
+        expectNoDifference(sourceProvenances.map(\.id), [sourceEventID])
+        expectNoDifference(downloadedSources.map(\.id), [sourceBaselineID])
+        #expect(appState?.selectedEventID == nil)
+    }
+
+    @Test
     func importsTangledSourceUsingRepositoryRef() async throws {
         let recorder = ImportRecorder()
         let eventID = importedEventID()
@@ -1131,6 +1263,30 @@ private func insertImportedEvent(
     }
 }
 
+private func insertCreatedEvent(
+    _ eventID: OMERecord.Event.ID,
+    name: String,
+    into database: any DatabaseWriter
+) async throws {
+    try await database.write { db in
+        try OMERecord.Organizer.insert {
+            OMERecord.Organizer.Draft(id: eventID.organizerID)
+        } onConflict: {
+            $0.id
+        }
+        .execute(db)
+        try OMERecord.Event.insert {
+            CreateEvent.makeEventDraft(
+                id: eventID,
+                name: name,
+                startDate: nil,
+                endDate: nil
+            )
+        }
+        .execute(db)
+    }
+}
+
 private func insertDownloadedSource(
     eventID: OMERecord.Event.ID,
     sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance,
@@ -1365,6 +1521,14 @@ private func validationResult(
 
 private func importedEventID(_ eventID: String = "imported-event") -> OMERecord.Event.ID {
     let organizerID = OMERecord.Organizer.ID("did:plc:imported")!
+    return OMERecord.Event.ID(
+        organizerID: organizerID,
+        eventID: OMERecord.ID<OMERecord.Event>(.init(eventID))
+    )
+}
+
+private func createdEventID(_ eventID: String = "created-event") -> OMERecord.Event.ID {
+    let organizerID = OMERecord.Organizer.ID("did:web:local.openmusicevent")!
     return OMERecord.Event.ID(
         organizerID: organizerID,
         eventID: OMERecord.ID<OMERecord.Event>(.init(eventID))

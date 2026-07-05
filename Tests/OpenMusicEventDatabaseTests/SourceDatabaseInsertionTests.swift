@@ -194,6 +194,63 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func importsSingletonStageWhenSourceEventHasNoStages() throws {
+        var source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        source.events[0].components.stages = nil
+        source.events[0].components.schedules = nil
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+
+        expectNoDifference(
+            insertion.stages,
+            [
+                OME.Stage.Draft(
+                    id: stageID("stage", eventID: "testival-2026", organizerID: organizerID),
+                    name: "Stage",
+                    color: 0x336699,
+                    category: nil,
+                    sortIndex: nil,
+                    images: nil,
+                    systemIconName: nil,
+                    iconShortCode: nil,
+                    lineup: nil
+                )
+            ]
+        )
+    }
+
+    @Test
+    func importsReferencedSingletonStageWhenSourceEventHasNoStageFiles() throws {
+        var source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        source.events[0].components.stages = nil
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+
+        expectNoDifference(
+            insertion.stages,
+            [
+                OME.Stage.Draft(
+                    id: stageID("meadow", eventID: "testival-2026", organizerID: organizerID),
+                    name: "Meadow",
+                    color: 0x336699,
+                    category: nil,
+                    sortIndex: nil,
+                    images: nil,
+                    systemIconName: nil,
+                    iconShortCode: nil,
+                    lineup: nil
+                )
+            ]
+        )
+    }
+
+    @Test
     func importsInlineSingletonScheduleFromEventSource() throws {
         let source = try makeInlineScheduleSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))

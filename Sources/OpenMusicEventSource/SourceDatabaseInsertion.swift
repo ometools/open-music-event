@@ -1,4 +1,5 @@
 import ATProto
+import FileTree
 import Foundation
 import OpenMusicEventLexicon
 
@@ -264,16 +265,7 @@ public extension OME {
                 )
             )
 
-            let sourceStages = sourceEvent.stages ?? [
-                try FileContent(
-                    fileName: OME.Stage.singletonID.rawValue.rawValue,
-                    fileType: "yml",
-                    data: StageDTO(
-                        name: OME.Stage.singletonName,
-                        color: OME.Stage.singletonColor
-                    )
-                )
-            ]
+            let sourceStages = try sourceEvent.stages ?? Self.inferredStageFiles(for: sourceEvent)
             stages.append(
                 contentsOf: try sourceStages.map { stage in
                     var draft = stage.data.recordDraft
@@ -404,6 +396,39 @@ public extension OME {
                     resolvedScheduleIDs: &resolvedScheduleIDs
                 )
             }
+        }
+
+        private static func inferredStageFiles(
+            for sourceEvent: OpenMusicEventSourceEvent
+        ) throws -> [FileContent<StageDTO>] {
+            let inlinePerformances = sourceEvent.event.schedule.map { [$0.performances] } ?? []
+            let scheduleFilePerformances = sourceEvent.schedules?.map(\.data.performances) ?? []
+            let stageIDs = Set(
+                (inlinePerformances + scheduleFilePerformances)
+                    .flatMap(\.keys)
+            )
+            let fileNames = stageIDs.isEmpty
+                ? [OME.Stage.singletonID.rawValue.rawValue]
+                : stageIDs.sorted()
+            return try fileNames.map { fileName in
+                try FileContent(
+                    fileName: fileName,
+                    fileType: "yml",
+                    data: StageDTO(
+                        name: Self.inferredStageName(for: fileName),
+                        color: OME.Stage.singletonColor
+                    )
+                )
+            }
+        }
+
+        private static func inferredStageName(for fileName: String) -> String {
+            let words = fileName
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                .map { word in
+                    word.prefix(1).uppercased() + String(word.dropFirst())
+                }
+            return words.isEmpty ? OME.Stage.singletonName : words.joined(separator: " ")
         }
 
         private struct SourceSchedule {
