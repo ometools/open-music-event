@@ -2900,6 +2900,103 @@ struct NavigationTests {
     }
 
     @Test
+    func performanceDetailDisplaysPrimaryContributorsAtStageAndSupportBelow() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertContributor(
+                db,
+                eventID: eventID,
+                contributorID: "stylust",
+                name: "STYLUST"
+            )
+            try Self.insertContributor(
+                db,
+                eventID: eventID,
+                contributorID: "oodra",
+                name: "Oodra Movement"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "stylust-set",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "STYLUST"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "stylust-set",
+                contributorID: "oodra",
+                billing: .supporting,
+                role: "dancer",
+                sortIndex: 0
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "stylust-set",
+                contributorID: "stylust",
+                billing: .primary,
+                role: "dj",
+                sortIndex: 1
+            )
+        }
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            PerformanceDetail.State(
+                performanceID: performanceLocalID("stylust-set"),
+                eventID: eventID
+            )
+        }
+
+        expectNoDifference(state.headlineContributors.map(\.name), ["STYLUST"])
+        expectNoDifference(
+            state.displayedContributors.map(\.name),
+            ["STYLUST", "Oodra Movement"]
+        )
+        expectNoDifference(
+            state.displayedContributorCredits.compactMap(\.roleTitle),
+            ["DJ", "Dancer"]
+        )
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            TestStore(
+                initialState: PerformanceDetail.State(
+                    performanceID: performanceLocalID("stylust-set"),
+                    eventID: eventID
+                )
+            ) {
+                PerformanceDetail()
+            }
+        }
+        store.send(.contributorButtonTapped(contributorLocalID("stylust")))
+        #expect(
+            store.state.destination?.contributorDetail?.contributorID
+                == contributorLocalID("stylust")
+        )
+    }
+
+    @Test
     func editContributorSavesChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -4798,7 +4895,10 @@ struct NavigationTests {
         eventID: OMERecord.Event.ID,
         performanceID: String,
         contributorID: String,
-        contributorActor: OMERecord.Contributor.Actor? = nil
+        contributorActor: OMERecord.Contributor.Actor? = nil,
+        billing: OMERecord.Performance.Contributors.Billing = .primary,
+        role: OMERecord.Performance.Contributors.Role? = nil,
+        sortIndex: Int = 0
     ) throws {
         try OMERecord.Performance.Contributors.insert {
             OMERecord.Performance.Contributors.Draft(
@@ -4809,7 +4909,10 @@ struct NavigationTests {
                 ),
                 contributorID: contributorLocalID(contributorID),
                 anonymousName: nil,
-                contributorActor: contributorActor
+                contributorActor: contributorActor,
+                billing: billing,
+                role: role,
+                sortIndex: sortIndex
             )
         }
         .execute(db)

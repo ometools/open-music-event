@@ -1140,6 +1140,20 @@ public struct EditPerformanceView: View {
                         store.send(.contributionDeleteButtonTapped(contribution.id))
                     }
                 }
+                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    if contribution.billing == .supporting {
+                        Button {
+                            store.send(
+                                .contributionBillingButtonTapped(
+                                    contribution.id,
+                                    .primary
+                                )
+                            )
+                        } label: {
+                            Label("Primary", systemImage: "star.fill")
+                        }
+                    }
+                }
                 .contextMenu {
                     if contribution.billing == .primary {
                         Button("Remove as primary") {
@@ -1216,7 +1230,7 @@ struct EditPerformanceContributionRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     if isPrimary {
-                        Image(systemName: "star")
+                        Image(systemName: "star.fill")
                             .font(.caption)
                             .foregroundStyle(.tint)
                             .accessibilityLabel("Primary contributor")

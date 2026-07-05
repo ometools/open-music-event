@@ -75,7 +75,7 @@ public struct ScheduleViewer {
         @DebugSnapshotIgnored
         public var timeZone: TimeZone
         public let scheduleDivision: ScheduleDivision
-        public var destination: Destination.State?
+        public var destination: Destination.State? = nil
         @Shared public var scheduleViewerState: ScheduleViewerState
 
         @FetchOne public var event: OMERecord.Event?
@@ -740,6 +740,12 @@ public struct PerformanceDetail {
                     eventID: self.eventID
                 )
             )
+            _performanceContributors = FetchAll(
+                EditPerformance.performanceContributorsQuery(
+                    performanceID: performanceID,
+                    eventID: self.eventID
+                )
+            )
             _schedules = FetchAll(
                 ScheduleViewer.schedulesQuery(eventID: self.eventID)
             )
@@ -754,7 +760,9 @@ public struct PerformanceDetail {
         public let timeZone: TimeZone
 
         @FetchAll var contributors: [ContributorProfile]
+        public var destination: Destination.State?
         @FetchOne public var performance: OMERecord.Performance?
+        @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
         @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
 
@@ -777,10 +785,81 @@ public struct PerformanceDetail {
         var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
             contributors.actorProfileLoadRequests
         }
+
+        var displayedContributors: [ContributorProfile] {
+            displayedContributorCredits.map(\.profile)
+        }
+
+        var displayedContributorCredits: [ContributorCredit] {
+            orderedContributorCredits(for: .primary)
+                + orderedContributorCredits(for: .supporting)
+                + unorderedContributorCredits
+        }
+
+        var headlineContributors: [ContributorProfile] {
+            let primaryContributors = orderedContributorCredits(for: .primary).map(\.profile)
+            return primaryContributors.isEmpty
+                ? displayedContributors
+                : primaryContributors
+        }
+
+        private var unorderedContributorCredits: [ContributorCredit] {
+            let orderedIDs = Set(
+                performanceContributors.compactMap(\.contributorID)
+            )
+            return contributors
+                .filter { !orderedIDs.contains($0.contributorID) }
+                .map { ContributorCredit(profile: $0, performanceContributor: nil) }
+        }
+
+        private func orderedContributorCredits(
+            for billing: OMERecord.Performance.Contributors.Billing
+        ) -> [ContributorCredit] {
+            let contributorsByID = Dictionary(
+                uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
+            )
+            return performanceContributors
+                .filter { $0.billing == billing }
+                .compactMap { performanceContributor in
+                    performanceContributor.contributorID
+                        .flatMap { contributorsByID[$0] }
+                        .map {
+                            ContributorCredit(
+                                profile: $0,
+                                performanceContributor: performanceContributor
+                            )
+                        }
+                }
+        }
+
+        struct ContributorCredit: Identifiable {
+            var profile: ContributorProfile
+            var performanceContributor: OMERecord.Performance.Contributors?
+
+            var id: OMERecord.Contributor.ID {
+                profile.id
+            }
+
+            var contributorID: OMERecord.ID<OMERecord.Contributor> {
+                profile.contributorID
+            }
+
+            var roleTitle: String? {
+                guard let performanceContributor else { return nil }
+                return performanceContributor.role?.displayTitle ?? "Performer"
+            }
+        }
     }
 
     public enum Action {
+        case contributorButtonTapped(OMERecord.ID<OMERecord.Contributor>)
+        case destination(Destination.Action)
         case editButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case contributorDetail(Spawn<ContributorDetail>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -810,6 +889,24 @@ public struct PerformanceDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case let .contributorButtonTapped(contributorID):
+                guard state.displayedContributors.contains(where: { $0.contributorID == contributorID }) else {
+                    return
+                }
+                store.withDependencies {
+                    state.destination = .contributorDetail(
+                        Spawn(
+                            ContributorDetail.State(
+                                contributorID: contributorID,
+                                eventID: state.eventID
+                            )
+                        )
+                    )
+                }
+
+            case .destination:
+                break
+
             case .editButtonTapped:
                 guard state.performance != nil,
                       state.schedule != nil
@@ -827,6 +924,9 @@ public struct PerformanceDetail {
                     await task?.value
                 }
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
         .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
             guard !requests.isEmpty else { return }
@@ -863,13 +963,13 @@ public struct PerformanceDetailView: View {
                     PerformanceHeroView(
                         performance: performance,
                         stage: store.stage,
-                        contributors: store.contributors
+                        contributors: store.headlineContributors
                     )
                 } content: {
                     PerformanceSummaryRow(
                         performance: performance,
                         stage: store.stage,
-                        contributors: store.contributors,
+                        contributors: store.headlineContributors,
                         timeZone: store.timeZone
                     )
                     
@@ -889,10 +989,19 @@ public struct PerformanceDetailView: View {
                         }
                     }
 
-                    if !store.contributors.isEmpty {
+                    if !store.displayedContributors.isEmpty {
                         Section("Contributors") {
-                            ForEach(store.contributors) { contributor in
-                                ContributorsRowView(profile: contributor)
+                            ForEach(store.displayedContributorCredits) { credit in
+                                Button {
+                                    store.send(.contributorButtonTapped(credit.contributorID))
+                                } label: {
+                                    ContributorsRowView(
+                                        profile: credit.profile,
+                                        subtitle: credit.roleTitle
+                                    )
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -917,6 +1026,9 @@ public struct PerformanceDetailView: View {
                 )
                 .navigationTitle("Performance")
             }
+        }
+        .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
+            ContributorDetailView(store: detailStore)
         }
     }
 }
@@ -1044,6 +1156,36 @@ struct PerformanceDetailSummary {
         default:
             return "\(contributors[0].name) + \(contributors.count - 1) more"
         }
+    }
+}
+
+private extension OMERecord.Performance.Contributors.Role {
+    var displayTitle: String {
+        let role = OMERecord.Relationship.Role(rawValue)
+        let selection = EditPerformance.State.RelationshipRoleSelection(role: role)
+        return selection == .custom
+            ? rawValue.identifierDisplayTitle
+            : selection.title
+    }
+}
+
+private extension String {
+    var identifierDisplayTitle: String {
+        let spaced = replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(
+                of: "([a-z0-9])([A-Z])",
+                with: "$1 $2",
+                options: .regularExpression
+            )
+        return spaced
+            .split(separator: " ")
+            .map { word in
+                word.uppercased() == "DJ"
+                    ? "DJ"
+                    : word.prefix(1).uppercased() + String(word.dropFirst())
+            }
+            .joined(separator: " ")
     }
 }
 

@@ -206,21 +206,26 @@ struct ContributorListButton: View {
 struct ContributorsRowView: View {
     let profile: ContributorProfile
     let stageContext: ContributorStageContext?
+    let subtitle: String?
 
     init(
         profile: ContributorProfile,
-        stageContext: ContributorStageContext? = nil
+        stageContext: ContributorStageContext? = nil,
+        subtitle: String? = nil
     ) {
         self.profile = profile
         self.stageContext = stageContext
+        self.subtitle = subtitle
     }
 
     init(
         contributor: OMERecord.Contributor,
-        stageContext: ContributorStageContext? = nil
+        stageContext: ContributorStageContext? = nil,
+        subtitle: String? = nil
     ) {
         self.profile = ContributorProfile(contributor: contributor)
         self.stageContext = stageContext
+        self.subtitle = subtitle
     }
 
     var body: some View {
@@ -242,7 +247,7 @@ struct ContributorsRowView: View {
                 Text(profile.name)
                     .lineLimit(1)
 
-                if let subtitle = profile.subtitle {
+                if let subtitle = subtitle ?? profile.subtitle {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
