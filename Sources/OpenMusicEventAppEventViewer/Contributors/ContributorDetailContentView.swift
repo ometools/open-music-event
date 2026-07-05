@@ -97,10 +97,11 @@ struct ContributorScheduleSection: View {
 }
 
 struct ContributorStageLineupsSection: View {
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let stages: [OMERecord.Stage]
 
     var body: some View {
-        if !stages.isEmpty {
+        if needsStageDisambiguation, !stages.isEmpty {
             Section("Stage Lineups") {
                 ForEach(stages) { stage in
                     StageRowView(stage: stage)

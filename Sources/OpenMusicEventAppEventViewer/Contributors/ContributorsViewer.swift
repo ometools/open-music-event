@@ -204,6 +204,7 @@ struct ContributorListButton: View {
 }
 
 struct ContributorsRowView: View {
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let profile: ContributorProfile
     let stageContext: ContributorStageContext?
     let subtitle: String?
@@ -236,7 +237,7 @@ struct ContributorsRowView: View {
                 size: 60
             )
 
-            if let stageContext, !stageContext.stages.isEmpty {
+            if needsStageDisambiguation, let stageContext, !stageContext.stages.isEmpty {
                 ContributorStageIndicatorView(
                     colors: stageContext.stages.map { $0.color.swiftUIColor }
                 )

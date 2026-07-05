@@ -126,7 +126,7 @@ public struct EditPerformance {
                 customRelationshipRole.trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
-            var roleMenuTitle: String {
+            var roleTitle: String {
                 guard let roleSelection else { return "No role" }
                 if roleSelection == .custom {
                     return trimmedCustomRelationshipRole.nilIfEmpty ?? roleSelection.title
@@ -1033,6 +1033,7 @@ private struct EditPerformanceSaveError: Error {}
 
 public struct EditPerformanceView: View {
     @Environment(\.dismiss) var dismiss
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Bindable var store: StoreOf<EditPerformance>
 
     public init(store: StoreOf<EditPerformance>) {
@@ -1077,9 +1078,11 @@ public struct EditPerformanceView: View {
 
     private var lineupSection: some View {
         Section("Lineup") {
-            Picker("Stage", selection: $store.selectedStageID) {
-                ForEach(store.stageOptions, id: \.rawID) { stage in
-                    Text(stage.name).tag(Optional(stage.id))
+            if needsStageDisambiguation {
+                Picker("Stage", selection: $store.selectedStageID) {
+                    ForEach(store.stageOptions, id: \.rawID) { stage in
+                        Text(stage.name).tag(Optional(stage.id))
+                    }
                 }
             }
 
@@ -1130,9 +1133,9 @@ public struct EditPerformanceView: View {
                     title: summary?.title ?? "Contributor",
                     subtitle: summary?.subtitle,
                     isPrimary: contribution.billing == .primary,
-                    roleTitle: contribution.roleMenuTitle,
+                    roleTitle: contribution.roleTitle,
                     roleSelection: contribution.roleSelection,
-                    roleButtonTapped: { roleSelection in
+                    roleChanged: { roleSelection in
                         store.send(
                             .contributionRoleButtonTapped(
                                 contribution.id,
@@ -1229,7 +1232,7 @@ struct EditPerformanceContributionRow: View {
     let isPrimary: Bool
     let roleTitle: String
     let roleSelection: EditPerformance.State.RelationshipRoleSelection?
-    let roleButtonTapped: (EditPerformance.State.RelationshipRoleSelection?) -> Void
+    let roleChanged: (EditPerformance.State.RelationshipRoleSelection?) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1251,29 +1254,35 @@ struct EditPerformanceContributionRow: View {
             }
             Spacer()
 
-            Menu {
-                Button("No role") {
-                    roleButtonTapped(nil)
-                }
+            Picker("Role", selection: roleSelectionBinding) {
+                Text("No role")
+                    .tag(EditPerformance.State.RelationshipRoleSelection?.none)
                 ForEach(
                     EditPerformance.State.RelationshipRoleSelection.allCases,
                     id: \.self
                 ) { role in
-                    Button(role.title) {
-                        roleButtonTapped(role)
-                    }
-                }
-            } label: {
-                if roleSelection == nil {
-                    Text(roleTitle)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(roleTitle)
-                        .foregroundStyle(.tint)
+                    Text(title(for: role))
+                        .tag(Optional(role))
                 }
             }
+            .labelsHidden()
         }
         .padding(.vertical, 2)
+    }
+
+    private var roleSelectionBinding: Binding<EditPerformance.State.RelationshipRoleSelection?> {
+        Binding(
+            get: { roleSelection },
+            set: { roleChanged($0) }
+        )
+    }
+
+    private func title(
+        for role: EditPerformance.State.RelationshipRoleSelection
+    ) -> String {
+        role == .custom && roleSelection == .custom
+            ? roleTitle
+            : role.title
     }
 }
 

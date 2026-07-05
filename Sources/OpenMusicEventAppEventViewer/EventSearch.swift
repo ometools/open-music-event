@@ -228,12 +228,13 @@ struct EventSearchContentView: View {
 }
 
 struct EventSearchDashboardView: View {
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let dashboard: EventSearchDashboard
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
         List {
-            if !dashboard.stageRows.isEmpty {
+            if needsStageDisambiguation, !dashboard.stageRows.isEmpty {
                 Section("Stages") {
                     ForEach(dashboard.stageRows) { row in
                         Button {

@@ -103,6 +103,7 @@ public struct EventViewer {
             self.eventID = eventID
             self.eventTimeZone = eventTimeZone
             self._eventViewerState = Shared(.eventViewerState(eventID))
+            self._stages = FetchAll(ScheduleViewer.stagesQuery(eventID: eventID))
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
             self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
@@ -191,6 +192,7 @@ public struct EventViewer {
         public let eventID: OMERecord.Event.ID
         public var eventTimeZone: TimeZone
         @Shared public var eventViewerState: EventViewerState
+        @FetchAll public var stages: [OMERecord.Stage]
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
 
@@ -211,6 +213,10 @@ public struct EventViewer {
         public var destination: Destination.State?
 
         public var id: OMERecord.Event.ID { eventID }
+
+        public var needsStageDisambiguation: Bool {
+            stages.count > 1
+        }
 
         mutating func navigate(to target: EventTarget?) {
             guard let target else {
@@ -737,11 +743,13 @@ public struct EventViewerView: View {
 
     public var body: some View {
         tabContent
+            .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
             .sheet(item: $store.scope(\.destination, action: \.destination)) { _ in
                 if let destinationStore = store.scope(\.destination, action: \.destination) {
                     NavigationStack {
                         destinationContent(EventViewer.Destination.switch(store: destinationStore))
                     }
+                    .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
                 }
             }
     }

@@ -2595,6 +2595,41 @@ struct NavigationTests {
     }
 
     @Test
+    func eventViewerNeedsStageDisambiguationOnlyWithMultipleStages() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: OMERecord.Stage.singletonID.rawValue.rawValue,
+                name: OMERecord.Stage.singletonName,
+                sortIndex: 1
+            )
+        }
+
+        func state() -> EventViewer.State {
+            withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+                $0.defaultEventID = eventID
+            } operation: {
+                EventViewer.State(eventID: eventID)
+            }
+        }
+
+        #expect(state().needsStageDisambiguation == false)
+
+        try await database.write { db in
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 2)
+        }
+
+        #expect(state().needsStageDisambiguation)
+    }
+
+    @Test
     func scheduleViewerBuildsDivisionsFromStageCategories() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

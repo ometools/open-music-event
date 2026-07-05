@@ -14,10 +14,22 @@ struct ScheduleSingleStageAtOnceView: View {
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
 
     var body: some View {
+        content
+            .onAppear {
+                resolveSelectedStage()
+            }
+            .onChange(of: resolvedSelectedStageID) { _, _ in
+                resolveSelectedStage()
+            }
+    }
+
+    @ViewBuilder
+    var content: some View {
         #if os(iOS)
-        if #available(iOS 26.0, *), !stages.isEmpty {
+        if #available(iOS 26.0, *), shouldShowStageSelector {
             timeline
                 .safeAreaBar(edge: .top) {
                     stageSelector
@@ -40,7 +52,7 @@ struct ScheduleSingleStageAtOnceView: View {
 
     @ViewBuilder
     var stageSelector: some View {
-        if !stages.isEmpty {
+        if shouldShowStageSelector {
             OMEScheduleStageSelector(
                 stages: stages,
                 selectedStageID: $selectedStageID
@@ -50,7 +62,7 @@ struct ScheduleSingleStageAtOnceView: View {
 
     @ViewBuilder
     var inlineStageSelector: some View {
-        if !stages.isEmpty {
+        if shouldShowStageSelector {
             stageSelector
             Divider()
         }
@@ -83,9 +95,9 @@ struct ScheduleSingleStageAtOnceView: View {
             )
         } else {
             ContentUnavailableView(
-                selectedStage?.name ?? scheduleDivisionTitle,
+                emptyStageTitle,
                 systemImage: "calendar.day.timeline.leading",
-                description: Text("No performances have been added to this stage yet.")
+                description: Text(emptyStageDescription)
             )
         }
     }
@@ -102,6 +114,35 @@ struct ScheduleSingleStageAtOnceView: View {
             CGFloat(timeRange.duration / 3600) * schedulePointsPerHour,
             420
         )
+    }
+
+    var shouldShowStageSelector: Bool {
+        needsStageDisambiguation && !stages.isEmpty
+    }
+
+    var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
+        if let selectedStageID,
+           stages.contains(where: { $0.id.stageID == selectedStageID }) {
+            return selectedStageID
+        }
+        return stages.first?.id.stageID
+    }
+
+    func resolveSelectedStage() {
+        guard selectedStageID != resolvedSelectedStageID else { return }
+        selectedStageID = resolvedSelectedStageID
+    }
+
+    var emptyStageTitle: String {
+        needsStageDisambiguation
+            ? selectedStage?.name ?? scheduleDivisionTitle
+            : scheduleDivisionTitle
+    }
+
+    var emptyStageDescription: String {
+        needsStageDisambiguation
+            ? "No performances have been added to this stage yet."
+            : "No performances have been added yet."
     }
 }
 

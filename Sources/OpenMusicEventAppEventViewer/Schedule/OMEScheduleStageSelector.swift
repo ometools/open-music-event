@@ -18,6 +18,7 @@ struct OMEScheduleStageSelector: View {
     let stages: [OMERecord.Stage]
     @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
 
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Environment(\.showStageNameLabels) var showStageNameLabels
 
     var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
@@ -29,15 +30,17 @@ struct OMEScheduleStageSelector: View {
     }
 
     var body: some View {
-        #if os(iOS) || os(macOS)
-        if #available(iOS 26, macOS 26, *) {
-            liquidGlassPicker
-        } else {
+        if needsStageDisambiguation {
+            #if os(iOS) || os(macOS)
+            if #available(iOS 26, macOS 26, *) {
+                liquidGlassPicker
+            } else {
+                standardPicker
+            }
+            #else
             standardPicker
+            #endif
         }
-        #else
-        standardPicker
-        #endif
     }
 
     @available(iOS 26, macOS 26, *)

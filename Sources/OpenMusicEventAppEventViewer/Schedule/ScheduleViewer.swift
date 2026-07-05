@@ -680,6 +680,7 @@ struct ScheduleAddMenu: View {
 }
 
 struct ScheduleModeMenu: View {
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Bindable var store: StoreOf<ScheduleViewer>
 
     var body: some View {
@@ -698,9 +699,11 @@ struct ScheduleModeMenu: View {
                 }
             }
 
-            Section("Display") {
-                Toggle(isOn: $store.showStageNameLabels.animation()) {
-                    Label("Show Stage Labels", systemImage: "tag")
+            if needsStageDisambiguation {
+                Section("Display") {
+                    Toggle(isOn: $store.showStageNameLabels.animation()) {
+                        Label("Show Stage Labels", systemImage: "tag")
+                    }
                 }
             }
         } label: {
@@ -1093,6 +1096,7 @@ struct PerformanceHeroView: View {
 
 struct PerformanceSummaryRow: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage?
     let contributors: [ContributorProfile]
@@ -1117,41 +1121,43 @@ struct PerformanceSummaryRow: View {
                 )
                 .frame(alignment: .leading)
 
-                    VStack(spacing: 2) {
-                        Text(
-                            ScheduleViewer.performanceRowTimeRange(for: performance, timeZone: timeZone)
-                        )
-                        .font(.headline)
-                        .fontWeight(.bold)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                        #if os(iOS)
-                        .minimumScaleFactor(0.55)
-                        #endif
+                VStack(spacing: 2) {
+                    Text(
+                        ScheduleViewer.performanceRowTimeRange(for: performance, timeZone: timeZone)
+                    )
+                    .font(.headline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                    #if os(iOS)
+                    .minimumScaleFactor(0.55)
+                    #endif
 
-                        Text(
-                            ScheduleViewer.daySegment(
-                                for: performance.startTime,
-                                timeZone: timeZone,
-                                policy: dateTimeRangeResolutionPolicy
-                            )
+                    Text(
+                        ScheduleViewer.daySegment(
+                            for: performance.startTime,
+                            timeZone: timeZone,
+                            policy: dateTimeRangeResolutionPolicy
                         )
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .layoutPriority(1)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-                PerformanceContextIdentity(
-                    title: summary.stageTitle,
-                    content: .stage(stage),
-                    tint: summary.tint,
-                    placement: .trailing
-                )
-                .frame(alignment: .trailing)
+                if needsStageDisambiguation {
+                    PerformanceContextIdentity(
+                        title: summary.stageTitle,
+                        content: .stage(stage),
+                        tint: summary.tint,
+                        placement: .trailing
+                    )
+                    .frame(alignment: .trailing)
+                }
             }
         }
         .padding(.horizontal, 5)
@@ -1560,11 +1566,12 @@ struct PerformanceArtistBubbleFallback: View {
 }
 
 struct PerformanceHeroPlaceholder: View {
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage?
 
     var body: some View {
-        if let stage {
+        if needsStageDisambiguation, let stage {
             StageIconFallback(stage: stage, size: 150)
         } else {
             Text(initials)
@@ -1605,18 +1612,21 @@ struct PerformanceRecordingRow: View {
 }
 
 struct SchedulePerformanceRow: View {
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let row: PerformanceRow
     let subtitle: String
 
     var body: some View {
         HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(row.stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
-                .frame(width: 5)
+            if needsStageDisambiguation {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(row.stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
+                    .frame(width: 5)
 
-            stageIcon
-                .frame(width: 60, height: 60)
-                .foregroundStyle(.primary)
+                stageIcon
+                    .frame(width: 60, height: 60)
+                    .foregroundStyle(.primary)
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.title)
