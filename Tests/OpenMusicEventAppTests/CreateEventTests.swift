@@ -44,6 +44,22 @@ struct CreateEventTests {
     }
 
     @Test
+    func rejectsMissingStartDate() {
+        let store = TestStore(
+            initialState: makeState {
+                $0.eventName = "Testival"
+                $0.hasStartDate = false
+            }
+        ) {
+            CreateEvent()
+        }
+
+        store.send(.saveButtonTapped) {
+            $0.errorMessage = "Choose a start date."
+        }
+    }
+
+    @Test
     func savesMinimalEvent() async throws {
         let database = try makePreparedDatabase()
         let store = makeStore(
@@ -70,15 +86,20 @@ struct CreateEventTests {
         let organizers = try await database.read { db in
             try OMERecord.Organizer.fetchAll(db)
         }
+        let schedules = try await database.read { db in
+            try OMERecord.Schedule.fetchAll(db)
+        }
         let eventOrganizerCount = try await database.read { db in
             try OMERecord.EventOrganizer.fetchCount(db)
         }
         #expect(events.count == 1)
         #expect(organizers.count == 1)
+        #expect(schedules.count == 1)
         #expect(eventOrganizerCount == 0)
 
         let event = try #require(events.first)
         let organizer = try #require(organizers.first)
+        let schedule = try #require(schedules.first)
         let organizerID = OMERecord.Organizer.ID("did:web:local.openmusicevent")!
         #expect(organizer.id == organizerID)
         #expect(event.id.organizerID == organizerID)
@@ -97,6 +118,13 @@ struct CreateEventTests {
         #expect(event.siteMapImageURL == nil)
         #expect(event.contactNumbers == nil)
         #expect(event.categoryConfigs == nil)
+        #expect(schedule.id.organizerID == event.id.organizerID)
+        #expect(schedule.id.eventID == event.id.eventID)
+        #expect(schedule.id.scheduleID == OMERecord.Schedule.singletonID)
+        #expect(schedule.date == event.startDate)
+        #expect(schedule.startsAt == nil)
+        #expect(schedule.endsAt == nil)
+        #expect(schedule.customTitle == nil)
     }
 
     @Test

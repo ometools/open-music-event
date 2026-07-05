@@ -38,7 +38,7 @@ public struct CreateEvent {
         var endDateSelection: Date
         var eventName = ""
         var hasEndDate = false
-        var hasStartDate = false
+        var hasStartDate = true
         var startDateSelection: Date
         var timeZone: TimeZone = .current
 
@@ -152,6 +152,9 @@ public struct CreateEvent {
             if !eventName.isEmpty && trimmedEventName.isEmpty {
                 return "Enter an event name."
             }
+            if !hasStartDate {
+                return "Choose a start date."
+            }
             if let startDate, let endDate, endDate < startDate {
                 return "End date must be on or after the start date."
             }
@@ -222,6 +225,14 @@ public struct CreateEvent {
                                     event
                                 }
                                 .execute(db)
+
+                                if let startDate = event.startDate {
+                                    try EventSingletonSchedule.insert(
+                                        eventID: eventID,
+                                        date: startDate,
+                                        in: db
+                                    )
+                                }
 
                                 if let eventOrganizerID {
                                     try OMERecord.EventOrganizer.insert {

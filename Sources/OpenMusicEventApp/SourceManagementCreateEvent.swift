@@ -19,7 +19,7 @@ public struct SourceManagementCreateEvent {
         var eventDirectoryName = "2026"
         var eventName = ""
         var hasEndDate = false
-        var hasStartDate = false
+        var hasStartDate = true
         var startDateSelection: Date
         var timeZone: TimeZone = .current
 
@@ -146,6 +146,9 @@ public struct SourceManagementCreateEvent {
             }
             if !OrganizerSourcePathComponent.isValid(trimmedEventDirectoryName) {
                 return "Use a single directory name like 2026-pre-party-kelowna."
+            }
+            if !hasStartDate {
+                return "Choose a start date."
             }
             if let startDate, let endDate, endDate < startDate {
                 return "End date must be on or after the start date."

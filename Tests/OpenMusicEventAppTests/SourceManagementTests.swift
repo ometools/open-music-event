@@ -288,6 +288,10 @@ struct SourceManagementTests {
         )
         initialState.eventName = "Wicked Woods 2026"
         initialState.timeZone = TimeZone(identifier: "America/Denver")!
+        initialState.hasStartDate = true
+        initialState.startDateSelection = try #require(
+            LocalDate("2026-08-01")?.at(hour: 12, in: initialState.timeZone)
+        )
         let store = makeCreateEventStore(
             initialState: initialState,
             database: database
@@ -311,26 +315,37 @@ struct SourceManagementTests {
                 events: try OMERecord.Event.fetchAll(db),
                 organizers: try OMERecord.Organizer.fetchAll(db),
                 eventOrganizers: try OMERecord.EventOrganizer.fetchAll(db),
+                schedules: try OMERecord.Schedule.fetchAll(db),
                 calendarEntries: try OMERecord.CalendarEntry.fetchAll(db),
                 sourceProvenances: try EventSourceProvenanceRecord.fetchAll(db)
             )
         }
         let event = try #require(rows.events.first)
         let eventOrganizer = try #require(rows.eventOrganizers.first)
+        let schedule = try #require(rows.schedules.first)
         let calendarEntry = try #require(rows.calendarEntries.first)
         let sourceProvenanceRecord = try #require(rows.sourceProvenances.first)
 
         #expect(rows.events.count == 1)
         expectNoDifference(rows.organizers.map(\.id), [organizerID])
         #expect(rows.eventOrganizers.count == 1)
+        #expect(rows.schedules.count == 1)
         #expect(rows.calendarEntries.count == 1)
         #expect(rows.sourceProvenances.count == 1)
         #expect(event.id == expectedEventID)
         #expect(event.name == "Wicked Woods 2026")
+        #expect(event.startDate == LocalDate("2026-08-01"))
         #expect(event.timeZone.identifier == "America/Denver")
         #expect(eventOrganizer.id.organizerID == expectedEventID.organizerID)
         #expect(eventOrganizer.id.eventID == expectedEventID.eventID)
         #expect(eventOrganizer.id.eventOrganizerID == organizerID)
+        #expect(schedule.id.organizerID == expectedEventID.organizerID)
+        #expect(schedule.id.eventID == expectedEventID.eventID)
+        #expect(schedule.id.scheduleID == OMERecord.Schedule.singletonID)
+        #expect(schedule.date == event.startDate)
+        #expect(schedule.startsAt == nil)
+        #expect(schedule.endsAt == nil)
+        #expect(schedule.customTitle == nil)
         #expect(calendarEntry.id.calendarOwnerID == calendarID.ownerID)
         #expect(calendarEntry.id.calendarID == calendarID.calendarID)
         #expect(calendarEntry.id.entryID.rawValue.rawValue == expectedLocalEventID.rawValue.rawValue)
@@ -349,7 +364,12 @@ struct SourceManagementTests {
             .appending(path: "event.yml")
         let eventYML = try String(contentsOf: eventYMLURL, encoding: .utf8)
         #expect(eventYML.contains("name: Wicked Woods 2026"))
+        #expect(eventYML.contains("startDate:"))
+        #expect(eventYML.contains("2026-08-01"))
         #expect(eventYML.contains("timeZone: America/Denver"))
+        #expect(eventYML.contains("schedule:"))
+        #expect(eventYML.contains("performances:"))
+        #expect(!eventYML.contains("  date:"))
         #expect(!eventYML.contains("id:"))
     }
 
@@ -387,6 +407,33 @@ struct SourceManagementTests {
             store.send(.saveButtonTapped) {
                 $0.errorMessage = expectedMessage
             }
+        }
+    }
+
+    @Test
+    func createEventRejectsMissingStartDate() throws {
+        let organizerID = try #require(OMERecord.Organizer.ID("did:web:wickedwoods.example"))
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        var initialState = makeCreateEventState(
+            sourceBaselineID: SourceBaselineRecord.ID(rawValue: "wicked-woods"),
+            calendarID: calendarID
+        )
+        initialState.eventName = "Wicked Woods 2026"
+        initialState.hasStartDate = false
+        let store = withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+        } operation: {
+            TestStore(initialState: initialState) {
+                SourceManagementCreateEvent()
+            }
+        }
+
+        store.send(.saveButtonTapped) {
+            $0.errorMessage = "Choose a start date."
         }
     }
 
