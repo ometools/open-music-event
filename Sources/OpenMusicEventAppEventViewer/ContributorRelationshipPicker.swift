@@ -268,96 +268,104 @@ struct ContributorRelationshipPickerView: View {
 
     var body: some View {
         Section(title) {
-            TextField("Search or add contributor", text: $store.searchQuery)
-                .autocorrectionDisabled()
-                #if !os(macOS)
-                .textInputAutocapitalization(.never)
-                #endif
-                .onSubmit {
-                    store.send(.actorSearchSubmitted)
-                }
-                .onChange(of: store.searchQuery) { _, query in
-                    store.send(.searchQueryChanged(query))
-                }
+            ContributorRelationshipPickerRows(store: store)
+        }
+    }
+}
 
-            if !store.filteredContributors.isEmpty {
-                ContributorRelationshipGroupHeader(title: "Event contributors")
-                ForEach(store.filteredContributors, id: \.rawID) { contributor in
-                    Button {
-                        store.send(.existingContributorTapped(contributor.id))
-                    } label: {
-                        ContributorRelationshipOptionRow(
-                            title: contributor.name,
-                            subtitle: contributor.subtitle ?? contributor.rawID,
-                            accessory: isSelectedContributor(contributor.id) ? "Selected" : nil
-                        )
+struct ContributorRelationshipPickerRows: View {
+    @Bindable var store: StoreOf<ContributorRelationshipPicker>
+
+    var body: some View {
+        TextField("Search or add contributor", text: $store.searchQuery)
+            .autocorrectionDisabled()
+            #if !os(macOS)
+            .textInputAutocapitalization(.never)
+            #endif
+            .onSubmit {
+                store.send(.actorSearchSubmitted)
+            }
+            .onChange(of: store.searchQuery) { _, query in
+                store.send(.searchQueryChanged(query))
+            }
+
+        if !store.filteredContributors.isEmpty {
+            ContributorRelationshipGroupHeader(title: "Event contributors")
+            ForEach(store.filteredContributors, id: \.rawID) { contributor in
+                Button {
+                    store.send(.existingContributorTapped(contributor.id))
+                } label: {
+                    ContributorRelationshipOptionRow(
+                        title: contributor.name,
+                        subtitle: contributor.subtitle ?? contributor.rawID,
+                        accessory: isSelectedContributor(contributor.id) ? "Selected" : nil
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+
+        if store.hasManualOptions,
+           let manualName = store.manualName {
+            ContributorRelationshipGroupHeader(title: "Manual")
+            Button {
+                store.send(.createContributorButtonTapped)
+            } label: {
+                ContributorRelationshipOptionRow(
+                    title: "Create contributor",
+                    subtitle: manualName
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                store.send(.performanceDisplayNameButtonTapped)
+            } label: {
+                ContributorRelationshipOptionRow(
+                    title: "Use on this performance only",
+                    subtitle: manualName
+                )
+            }
+            .buttonStyle(.plain)
+        }
+
+        if store.actorSearchIsLoading {
+            ProgressView()
+        }
+
+        ForEach(store.actorSearchSections) { section in
+            ContributorRelationshipGroupHeader(title: section.title)
+            ForEach(section.results) { identity in
+                ContributorRelationshipActorRow(
+                    identity: identity,
+                    identityOnlyTapped: {
+                        store.send(.identityLinkOnlyButtonTapped(identity))
+                    },
+                    createContributorTapped: {
+                        store.send(.identityCreateContributorButtonTapped(identity))
                     }
-                    .buttonStyle(.plain)
-                }
+                )
             }
+        }
 
-            if store.hasManualOptions,
-               let manualName = store.manualName {
-                ContributorRelationshipGroupHeader(title: "Manual")
-                Button {
-                    store.send(.createContributorButtonTapped)
-                } label: {
-                    ContributorRelationshipOptionRow(
-                        title: "Create contributor",
-                        subtitle: manualName
-                    )
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    store.send(.performanceDisplayNameButtonTapped)
-                } label: {
-                    ContributorRelationshipOptionRow(
-                        title: "Use on this performance only",
-                        subtitle: manualName
-                    )
-                }
-                .buttonStyle(.plain)
+        if store.searchQuery.trimmedForContributorPicker.count >= 2 {
+            Button("Look up exact handle or DID") {
+                store.send(.actorSearchSubmitted)
             }
+            .disabled(store.actorSearchIsLoading)
+        }
 
-            if store.actorSearchIsLoading {
-                ProgressView()
-            }
+        if let errorMessage = store.actorSearchErrorMessage {
+            Text(errorMessage)
+                .foregroundStyle(.red)
+        }
 
-            ForEach(store.actorSearchSections) { section in
-                ContributorRelationshipGroupHeader(title: section.title)
-                ForEach(section.results) { identity in
-                    ContributorRelationshipActorRow(
-                        identity: identity,
-                        identityOnlyTapped: {
-                            store.send(.identityLinkOnlyButtonTapped(identity))
-                        },
-                        createContributorTapped: {
-                            store.send(.identityCreateContributorButtonTapped(identity))
-                        }
-                    )
-                }
-            }
-
-            if store.searchQuery.trimmedForContributorPicker.count >= 2 {
-                Button("Look up exact handle or DID") {
-                    store.send(.actorSearchSubmitted)
-                }
-                .disabled(store.actorSearchIsLoading)
-            }
-
-            if let errorMessage = store.actorSearchErrorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-            }
-
-            ForEach(store.actorSearchFailures, id: \.sourceID) { failure in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(failure.title)
-                    Text(failure.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        ForEach(store.actorSearchFailures, id: \.sourceID) { failure in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(failure.title)
+                Text(failure.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

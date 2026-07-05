@@ -237,7 +237,8 @@ struct ScheduleAuthoringTests {
                 selection: .existingContributor(fixture.contributor.id.contributorID)
             )
             $0.appendContribution(
-                selection: .performanceDisplayName(name: "Mystery Guest")
+                selection: .performanceDisplayName(name: "Mystery Guest"),
+                billing: .supporting
             )
             $0.startTimeSelection = try #require(scheduleDate.at(hour: 22, in: timeZone))
             $0.endTimeSelection = try #require(scheduleDate.at(hour: 23, in: timeZone))
@@ -258,11 +259,13 @@ struct ScheduleAuthoringTests {
         #expect(rows.contributors[0].performanceID == rows.performance.id)
         #expect(rows.contributors[0].contributorID == fixture.contributor.id.contributorID)
         #expect(rows.contributors[0].anonymousName == nil)
+        #expect(rows.contributors[0].billing == .primary)
         #expect(rows.contributors[0].role == nil)
         #expect(rows.contributors[0].sortIndex == 0)
         #expect(rows.contributors[1].performanceID == rows.performance.id)
         #expect(rows.contributors[1].contributorID == nil)
         #expect(rows.contributors[1].anonymousName == "Mystery Guest")
+        #expect(rows.contributors[1].billing == .supporting)
         #expect(rows.contributors[1].role == nil)
         #expect(rows.contributors[1].sortIndex == 1)
         #expect(rows.relationships.count == 1)
@@ -932,6 +935,89 @@ struct ScheduleAuthoringTests {
         }
 
         #expect(store.state.contributions.first?.roleSelection == nil)
+    }
+
+    @Test
+    func performanceTitleTracksPrimaryContributorNamesUntilEdited() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let contributors = try await database.read { db in
+            try ContributorProfile
+                .all(eventID: fixture.eventID, hydration: .none)
+                .fetchAll(db)
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: EditPerformance.State(
+                    eventID: fixture.eventID,
+                    schedule: fixture.schedule,
+                    stages: [fixture.stage],
+                    timeZone: timeZone,
+                    contributors: contributors
+                )
+            ) {
+                EditPerformance()
+            }
+        }
+
+        store.send(
+            .contributorRelationshipPicker(
+                .existingContributorTapped(fixture.contributor.id.contributorID)
+            )
+        ) {
+            $0.contributions = [
+                EditPerformance.State.Contribution(
+                    id: 0,
+                    selection: .existingContributor(fixture.contributor.id.contributorID)
+                )
+            ]
+            $0.generatedTitle = "Artist One"
+            $0.nextContributionID = 1
+            $0.title = "Artist One"
+        }
+
+        store.modify {
+            $0.contributorRelationshipPicker.searchQuery = "Guest Artist"
+        }
+        store.send(.contributorRelationshipPicker(.performanceDisplayNameButtonTapped)) {
+            $0.contributions = [
+                EditPerformance.State.Contribution(
+                    id: 0,
+                    selection: .existingContributor(fixture.contributor.id.contributorID)
+                ),
+                EditPerformance.State.Contribution(
+                    id: 1,
+                    selection: .performanceDisplayName(name: "Guest Artist")
+                ),
+            ]
+            $0.contributorRelationshipPicker.searchQuery = ""
+            $0.generatedTitle = "Artist One b2b Guest Artist"
+            $0.nextContributionID = 2
+            $0.title = "Artist One b2b Guest Artist"
+        }
+
+        store.send(.contributionBillingButtonTapped(1, .supporting)) {
+            $0.contributions[1].billing = .supporting
+            $0.generatedTitle = "Artist One"
+            $0.title = "Artist One"
+        }
+
+        store.send(.titleTextChanged("Custom Set")) {
+            $0.title = "Custom Set"
+            $0.titleIsGenerated = false
+        }
+        store.send(.contributionBillingButtonTapped(1, .primary)) {
+            $0.contributions[1].billing = .primary
+            $0.generatedTitle = "Artist One b2b Guest Artist"
+        }
+        #expect(store.state.title == "Custom Set")
     }
 
     @Test

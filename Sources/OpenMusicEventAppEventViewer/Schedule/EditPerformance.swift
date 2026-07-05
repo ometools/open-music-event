@@ -126,6 +126,13 @@ public struct EditPerformance {
                 return roleSelection.title
             }
 
+            var rowAccessoryTitle: String {
+                guard roleSelection != nil else { return billing.title }
+                return billing == .primary
+                    ? roleTitle
+                    : "\(roleTitle) - \(billing.title)"
+            }
+
             var hasEmptyCustomRelationshipRole: Bool {
                 roleSelection == .custom && trimmedCustomRelationshipRole.isEmpty
             }
@@ -225,6 +232,7 @@ public struct EditPerformance {
             self.timeRangeSelection.start = performance.startTime
             self.title = performance.title
             self.loadContributions(performanceContributors)
+            self.titleIsGenerated = !self.generatedTitle.isEmpty && self.title == self.generatedTitle
         }
 
         public let eventID: OMERecord.Event.ID
@@ -237,10 +245,12 @@ public struct EditPerformance {
         public var contributions: [Contribution] = []
         public var description = ""
         public var errorMessage: String?
+        var generatedTitle = ""
         public var isSaving = false
         var nextContributionID = 0
         public var performanceID: OMERecord.ID<OMERecord.Performance>?
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+        var titleIsGenerated = true
         public var timeRangeSelection: DateTimeRangeSelection
         public var title = ""
 
@@ -304,6 +314,14 @@ public struct EditPerformance {
             return nil
         }
 
+        var primaryContributions: [Contribution] {
+            contributions.filter { $0.billing == .primary }
+        }
+
+        var supportingContributions: [Contribution] {
+            contributions.filter { $0.billing == .supporting }
+        }
+
         mutating func appendContribution(
             selection: ContributorRelationshipPicker.Selection,
             billing: OMERecord.Performance.Contributors.Billing = .primary,
@@ -321,10 +339,21 @@ public struct EditPerformance {
                 )
             )
             nextContributionID += 1
+            refreshGeneratedTitle()
         }
 
         mutating func deleteContribution(id: Int) {
             contributions.removeAll { $0.id == id }
+            refreshGeneratedTitle()
+        }
+
+        mutating func setContributionBilling(
+            id: Int,
+            billing: OMERecord.Performance.Contributors.Billing
+        ) {
+            guard let index = contributions.firstIndex(where: { $0.id == id }) else { return }
+            contributions[index].billing = billing
+            refreshGeneratedTitle()
         }
 
         mutating func setContributionCustomRole(id: Int, customRelationshipRole: String) {
@@ -341,6 +370,41 @@ public struct EditPerformance {
             if roleSelection != .custom {
                 contributions[index].customRelationshipRole = ""
             }
+        }
+
+        mutating func setTitleFromEditor(_ title: String) {
+            self.title = title
+            if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                titleIsGenerated = true
+                refreshGeneratedTitle()
+            } else {
+                titleIsGenerated = title == generatedTitle
+            }
+        }
+
+        private mutating func refreshGeneratedTitle() {
+            let shouldReplaceTitle = titleIsGenerated
+                && (trimmedTitle.isEmpty || title == generatedTitle)
+            let newGeneratedTitle = generatedPerformanceTitle()
+            generatedTitle = newGeneratedTitle
+
+            if shouldReplaceTitle {
+                title = newGeneratedTitle
+                titleIsGenerated = true
+            } else if title != newGeneratedTitle {
+                titleIsGenerated = false
+            }
+        }
+
+        private func generatedPerformanceTitle() -> String {
+            primaryContributions
+                .compactMap { contribution in
+                    contributorRelationshipPicker
+                        .summary(for: contribution.selection)?
+                        .title
+                        .nilIfEmpty
+                }
+                .joined(separator: " b2b ")
         }
 
         private mutating func loadContributions(
@@ -387,11 +451,16 @@ public struct EditPerformance {
     }
 
     public enum Action {
+        case contributionBillingButtonTapped(
+            Int,
+            OMERecord.Performance.Contributors.Billing
+        )
         case contributionCustomRoleChanged(Int, String)
         case contributionDeleteButtonTapped(Int)
         case contributionRoleButtonTapped(Int, State.RelationshipRoleSelection?)
         case contributorRelationshipPicker(ContributorRelationshipPicker.Action)
         case saveButtonTapped
+        case titleTextChanged(String)
     }
 
     public var body: some Feature {
@@ -400,6 +469,12 @@ public struct EditPerformance {
         }
         Update { state, action in
             switch action {
+            case let .contributionBillingButtonTapped(id, billing):
+                state.setContributionBilling(
+                    id: id,
+                    billing: billing
+                )
+
             case let .contributionCustomRoleChanged(id, customRelationshipRole):
                 state.setContributionCustomRole(
                     id: id,
@@ -472,6 +547,9 @@ public struct EditPerformance {
                 }
 
                 state.errorMessage = validationMessage
+
+            case let .titleTextChanged(title):
+                state.setTitleFromEditor(title)
             }
         }
     }
@@ -958,10 +1036,9 @@ public struct EditPerformanceView: View {
 
     public var body: some View {
         Form {
+            lineupSection
             performanceSection
-            stageSection
             timeSection
-            contributorSection
             messages
         }
         .disabled(store.isSaving)
@@ -987,19 +1064,36 @@ public struct EditPerformanceView: View {
 
     private var performanceSection: some View {
         Section("Performance") {
-            TextField("Title", text: $store.title, prompt: Text("Main Stage Set"))
+            TextField("Title", text: performanceTitleBinding, prompt: Text("Artist Set"))
             TextField("Description", text: $store.description, axis: .vertical)
                 .lineLimit(3...8)
         }
     }
 
-    private var stageSection: some View {
-        Section("Stage") {
+    private var lineupSection: some View {
+        Section("Lineup") {
             Picker("Stage", selection: $store.selectedStageID) {
                 ForEach(store.stageOptions, id: \.rawID) { stage in
                     Text(stage.name).tag(Optional(stage.id))
                 }
             }
+
+            contributionRows(
+                store.primaryContributions,
+                title: "Primary Contributors"
+            )
+            contributionRows(
+                store.supportingContributions,
+                title: "Supporting Contributors"
+            )
+
+            ContributorRelationshipGroupHeader(title: "Add Contributor")
+            ContributorRelationshipPickerRows(
+                store: store.scope(
+                    \.contributorRelationshipPicker,
+                    action: \.contributorRelationshipPicker
+                )
+            )
         }
     }
 
@@ -1007,65 +1101,6 @@ public struct EditPerformanceView: View {
         Section("Time") {
             DateTimeRangePicker(selection: $store.timeRangeSelection)
         }
-    }
-
-    @ViewBuilder
-    private var contributorSection: some View {
-        if !store.contributions.isEmpty {
-            Section("Contributors") {
-                ForEach(store.contributions) { contribution in
-                    let summary = store.contributorRelationshipPicker.summary(
-                        for: contribution.selection
-                    )
-                    EditPerformanceContributionRow(
-                        title: summary?.title ?? "Contributor",
-                        subtitle: summary?.subtitle,
-                        roleTitle: contribution.roleTitle,
-                        roleButtonTapped: { roleSelection in
-                            store.send(
-                                .contributionRoleButtonTapped(
-                                    contribution.id,
-                                    roleSelection
-                                )
-                            )
-                        },
-                        deleteButtonTapped: {
-                            store.send(.contributionDeleteButtonTapped(contribution.id))
-                        }
-                    )
-                    .swipeActions {
-                        Button("Delete", role: .destructive) {
-                            store.send(.contributionDeleteButtonTapped(contribution.id))
-                        }
-                    }
-                    .contextMenu {
-                        Button("Delete", role: .destructive) {
-                            store.send(.contributionDeleteButtonTapped(contribution.id))
-                        }
-                    }
-
-                    if contribution.roleSelection == .custom {
-                        TextField(
-                            "Custom Role",
-                            text: customRelationshipRoleBinding(for: contribution.id),
-                            prompt: Text("performer")
-                        )
-                        #if !os(macOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                        .autocorrectionDisabled()
-                    }
-                }
-            }
-        }
-
-        ContributorRelationshipPickerView(
-            store: store.scope(
-                \.contributorRelationshipPicker,
-                action: \.contributorRelationshipPicker
-            ),
-            title: "Add Contributor"
-        )
     }
 
     private func customRelationshipRoleBinding(for contributionID: Int) -> Binding<String> {
@@ -1083,6 +1118,74 @@ public struct EditPerformanceView: View {
                     )
                 )
             }
+        )
+    }
+
+    @ViewBuilder
+    private func contributionRows(
+        _ contributions: [EditPerformance.State.Contribution],
+        title: String
+    ) -> some View {
+        if !contributions.isEmpty {
+            ContributorRelationshipGroupHeader(title: title)
+            ForEach(contributions) { contribution in
+                let summary = store.contributorRelationshipPicker.summary(
+                    for: contribution.selection
+                )
+                EditPerformanceContributionRow(
+                    title: summary?.title ?? "Contributor",
+                    subtitle: summary?.subtitle,
+                    accessoryTitle: contribution.rowAccessoryTitle,
+                    billingButtonTapped: { billing in
+                        store.send(
+                            .contributionBillingButtonTapped(
+                                contribution.id,
+                                billing
+                            )
+                        )
+                    },
+                    roleButtonTapped: { roleSelection in
+                        store.send(
+                            .contributionRoleButtonTapped(
+                                contribution.id,
+                                roleSelection
+                            )
+                        )
+                    },
+                    deleteButtonTapped: {
+                        store.send(.contributionDeleteButtonTapped(contribution.id))
+                    }
+                )
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        store.send(.contributionDeleteButtonTapped(contribution.id))
+                    }
+                }
+                .contextMenu {
+                    Button("Delete", role: .destructive) {
+                        store.send(.contributionDeleteButtonTapped(contribution.id))
+                    }
+                }
+
+                if contribution.roleSelection == .custom {
+                    TextField(
+                        "Custom Role",
+                        text: customRelationshipRoleBinding(for: contribution.id),
+                        prompt: Text("performer")
+                    )
+                    #if !os(macOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .autocorrectionDisabled()
+                }
+            }
+        }
+    }
+
+    private var performanceTitleBinding: Binding<String> {
+        Binding(
+            get: { store.title },
+            set: { store.send(.titleTextChanged($0)) }
         )
     }
 
@@ -1108,7 +1211,8 @@ public struct EditPerformanceView: View {
 struct EditPerformanceContributionRow: View {
     let title: String
     let subtitle: String?
-    let roleTitle: String
+    let accessoryTitle: String
+    let billingButtonTapped: (OMERecord.Performance.Contributors.Billing) -> Void
     let roleButtonTapped: (EditPerformance.State.RelationshipRoleSelection?) -> Void
     let deleteButtonTapped: () -> Void
 
@@ -1124,6 +1228,13 @@ struct EditPerformanceContributionRow: View {
             }
             Spacer()
             Menu {
+                Button("Primary contributor") {
+                    billingButtonTapped(.primary)
+                }
+                Button("Supporting contributor") {
+                    billingButtonTapped(.supporting)
+                }
+                Divider()
                 Button("No role") {
                     roleButtonTapped(nil)
                 }
@@ -1144,11 +1255,22 @@ struct EditPerformanceContributionRow: View {
                     deleteButtonTapped()
                 }
             } label: {
-                Text(roleTitle)
+                Text(accessoryTitle)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+private extension OMERecord.Performance.Contributors.Billing {
+    var title: String {
+        switch self {
+        case .primary:
+            return "Primary"
+        case .supporting:
+            return "Supporting"
+        }
     }
 }
 
