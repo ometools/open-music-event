@@ -122,6 +122,7 @@ extension OrganizerSourceWorkspaceClient {
                 )
                 var sourceFile = OpenMusicEventSourceEvent(event: event)
                 sourceFile.event.id = nil
+                sourceFile.stages = [try EventSingletonStage.sourceFile()]
                 if request.startDate != nil {
                     sourceFile.event.schedule = InlineScheduleDTO(performances: [:])
                 }
@@ -158,6 +159,13 @@ extension OrganizerSourceWorkspaceClient {
                         importedEvent
                     }
                     .execute(db)
+
+                    if !insertion.stages.isEmpty {
+                        try OMERecord.Stage.insert {
+                            insertion.stages
+                        }
+                        .execute(db)
+                    }
 
                     if !insertion.schedules.isEmpty {
                         try OMERecord.Schedule.insert {

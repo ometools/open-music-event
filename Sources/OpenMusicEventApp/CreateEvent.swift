@@ -226,6 +226,11 @@ public struct CreateEvent {
                                 }
                                 .execute(db)
 
+                                try EventSingletonStage.insert(
+                                    eventID: eventID,
+                                    in: db
+                                )
+
                                 if let startDate = event.startDate {
                                     try EventSingletonSchedule.insert(
                                         eventID: eventID,

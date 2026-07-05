@@ -380,6 +380,9 @@ extension OpenMusicEvent {
     @Table("stages")
     public struct Stage: Codable, Equatable, Sendable, Identifiable {
         public static let nsid = ATProto.NSID("app.openmusicevent.stage")
+        public static let singletonID = OME.ID<OME.Stage>(.init("stage"))
+        public static let singletonName = "Stage"
+        public static let singletonColor: OMEColor = 0x336699
 
         @Selection public struct ID: Codable, Hashable, Sendable {
             public init(

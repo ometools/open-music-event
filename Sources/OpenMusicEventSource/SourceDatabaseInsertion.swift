@@ -264,8 +264,18 @@ public extension OME {
                 )
             )
 
+            let sourceStages = sourceEvent.stages ?? [
+                try FileContent(
+                    fileName: OME.Stage.singletonID.rawValue.rawValue,
+                    fileType: "yml",
+                    data: StageDTO(
+                        name: OME.Stage.singletonName,
+                        color: OME.Stage.singletonColor
+                    )
+                )
+            ]
             stages.append(
-                contentsOf: try sourceEvent.stages?.map { stage in
+                contentsOf: try sourceStages.map { stage in
                     var draft = stage.data.recordDraft
                     let stageID = draft.id ?? .init(
                         organizerID: organizerID,
@@ -282,7 +292,7 @@ public extension OME {
                         sourceDirectoryURL: eventDirectoryURL
                     )
                     return draft
-                } ?? []
+                }
             )
 
             let explicitContributors: [OME.Contributor.Draft] = try sourceEvent.contributors?.map { contributor in
