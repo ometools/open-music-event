@@ -533,7 +533,6 @@ public extension OME {
                             did: nil,
                             bio: nil,
                             images: nil,
-                            kind: nil,
                             links: nil
                         )
                     )
@@ -559,7 +558,6 @@ public extension OME {
                             did: actor.didValue,
                             bio: nil,
                             images: nil,
-                            kind: nil,
                             links: nil
                         )
                     )

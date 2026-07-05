@@ -263,7 +263,6 @@ public struct EditContributor {
 
     public struct FormValue: Equatable {
         var bio = ""
-        var kind = ""
         var links: [EditableContributorLink] = []
         var name = ""
 
@@ -271,7 +270,6 @@ public struct EditContributor {
 
         init(contributor: OMERecord.Contributor) {
             bio = contributor.bio ?? ""
-            kind = contributor.kind?.rawValue ?? ""
             links = (contributor.links ?? []).map(EditableContributorLink.init)
             name = contributor.name
         }
@@ -391,7 +389,6 @@ public struct EditContributor {
             let bio: String?
             let did: DID?
             let eventID: OMERecord.Event.ID
-            let kind: OMERecord.Contributor.Kind?
             let links: [ExternalPlatform.Link]?
             let logoImages: [ImageAssetPicker.ImageValue]
             let mode: Mode
@@ -403,8 +400,6 @@ public struct EditContributor {
                 self.bio = state.form.value.bio.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 self.did = state.contributorDID
                 self.eventID = state.eventID
-                self.kind = state.form.value.kind.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                    .map { OMERecord.Contributor.Kind($0) }
                 self.links = state.preparedLinks.nilIfEmpty
                 self.logoImages = state.logoImagePicker.images
                 self.mode = state.mode
@@ -460,7 +455,6 @@ public struct EditContributor {
                         did: did,
                         bio: bio,
                         images: preparedImages.images.isEmpty ? nil : preparedImages.images,
-                        kind: kind,
                         links: links
                     ),
                     preparedImages.blobs
@@ -916,7 +910,6 @@ public struct EditContributorView: View {
                 SwiftUI.Form {
                     Section("Contributor") {
                         nameField
-                        TextField("Kind", text: $store.form.value.kind)
                     }
 
                     EditContributorActorProfileSection(
@@ -1300,7 +1293,6 @@ extension OMERecord.Contributor {
             && matchesActor
             && displayBio == nil
             && !hasImages
-            && kind == nil
             && !hasLinks
     }
 }
@@ -1368,13 +1360,6 @@ private extension UserFacingText {
 
 private extension ErrorOperation {
     static let contributorProfileLookup = Self("contributor.profile.lookup")
-}
-
-extension OMERecord.Contributor.Kind {
-    var displayName: String? {
-        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
 }
 
 private extension ExternalPlatform.Link {

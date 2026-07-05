@@ -733,6 +733,7 @@ struct DatabaseMigrationTests {
                 sql: #"SELECT "name" FROM pragma_table_info('contributors')"#
             )
             #expect(contributorColumns.contains("did"))
+            #expect(!contributorColumns.contains("kind"))
 
             let performanceContributorColumns = try String.fetchAll(
                 db,

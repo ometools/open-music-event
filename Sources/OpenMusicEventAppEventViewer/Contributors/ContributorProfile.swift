@@ -61,7 +61,7 @@ public struct ContributorProfile: Identifiable, Sendable {
     }
 
     var subtitle: String? {
-        handle.map { "@\($0)" } ?? kindDisplayName
+        handle.map { "@\($0)" }
     }
 
     var bio: String? {
@@ -84,10 +84,6 @@ public struct ContributorProfile: Identifiable, Sendable {
         artworkAsset.map {
             DisplayImageAsset(asset: $0, cacheContext: artworkCacheContext)
         }
-    }
-
-    var kindDisplayName: String? {
-        contributor.kind?.displayName
     }
 
     var links: [ExternalPlatform.Link]? {
@@ -139,7 +135,6 @@ public struct ContributorProfile: Identifiable, Sendable {
 
     func matchesSearch(_ query: String) -> Bool {
         name.localizedStandardContains(query)
-            || kindDisplayName?.localizedStandardContains(query) == true
             || handle?.localizedStandardContains(query) == true
             || bio?.localizedStandardContains(query) == true
     }

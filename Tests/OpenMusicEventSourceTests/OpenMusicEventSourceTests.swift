@@ -270,6 +270,7 @@ struct OpenMusicEventSourceTests {
         #expect(contributorText.hasPrefix("---\n"))
         #expect(contributorText.contains("Artist One writes sturdy test fixtures."))
         #expect(!contributorText.contains("bio:"))
+        #expect(!contributorText.contains("kind:"))
     }
 
     @Test
@@ -759,7 +760,9 @@ struct OpenMusicEventSourceTests {
         let roundTripped = try ContributorMarkdownConversion().apply(printed)
 
         expectNoDifference(roundTripped, contributor)
-        #expect(!String(decoding: printed.data, as: UTF8.self).contains("bio:"))
+        let printedText = String(decoding: printed.data, as: UTF8.self)
+        #expect(!printedText.contains("bio:"))
+        #expect(!printedText.contains("kind:"))
     }
 
     @Test

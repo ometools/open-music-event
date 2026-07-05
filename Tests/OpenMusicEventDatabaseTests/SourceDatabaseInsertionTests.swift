@@ -531,7 +531,6 @@ struct SourceDatabaseInsertionTests {
                     name: "Guest Artist",
                     bio: nil,
                     images: nil,
-                    kind: nil,
                     links: nil
                 )
             ]
@@ -613,7 +612,6 @@ struct SourceDatabaseInsertionTests {
                     name: "artist.bsky.social",
                     bio: nil,
                     images: nil,
-                    kind: nil,
                     links: nil
                 )
             ]
@@ -3116,7 +3114,6 @@ struct SourceDatabaseInsertionTests {
                                     did: contributorDID,
                                     bio: nil,
                                     images: contributorImages,
-                                    kind: nil,
                                     links: nil
                                 )
                             )

@@ -277,7 +277,6 @@ private struct SourceComparableContributor: Equatable, Sendable {
     var name: String
     var bio: String?
     var images: [SourceComparableImageAsset]?
-    var kind: OME.Contributor.Kind?
     var links: [ExternalPlatform.Link]?
 
     init(_ contributor: OME.Contributor) {
@@ -285,7 +284,6 @@ private struct SourceComparableContributor: Equatable, Sendable {
         self.name = contributor.name
         self.bio = contributor.bio
         self.images = sourceComparableImages(contributor.images)
-        self.kind = contributor.kind
         self.links = contributor.links
     }
 }

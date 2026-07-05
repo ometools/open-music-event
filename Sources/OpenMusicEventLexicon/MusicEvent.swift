@@ -617,20 +617,9 @@ extension OpenMusicEvent {
         public var bio: String?
         @Column(as: [OpenMusicEvent.ImageAsset].JSONRepresentation?.self)
         public var images: [OpenMusicEvent.ImageAsset]?
-        public var kind: Kind?
 
         @Column(as: [ExternalPlatform.Link].JSONRepresentation?.self)
         public var links: [ExternalPlatform.Link]?
-    }
-}
-
-extension OpenMusicEvent.Contributor {
-    public struct Kind: Codable, Sendable, Equatable, ExpressibleByStringLiteral, RawRepresentable, SQLiteType {
-        public var type: String
-        public var rawValue: String { type }
-        public init(stringLiteral value: String) { self.type = value }
-        public init(_ type: String) { self.type = type }
-        public init(rawValue: String) { self.type = rawValue }
     }
 }
 

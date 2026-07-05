@@ -51,12 +51,6 @@ struct ContributorDetailSectionsView: View {
     let timeZone: TimeZone
 
     var body: some View {
-//        if let kind = contributor.kind?.displayName {
-//            Section("Details") {
-//                LabeledContent("Kind", value: kind)
-//            }
-//        }
-
         ContributorScheduleSection(
             performanceRows: performanceRows,
             timeZone: timeZone

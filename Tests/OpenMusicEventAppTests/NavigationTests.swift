@@ -1540,6 +1540,7 @@ struct NavigationTests {
         #expect(profile.name == "Alice")
         #expect(profile.contributorActor == actor)
         #expect(profile.handle == nil)
+        #expect(profile.subtitle == nil)
 
         await #expect(throws: (any Error).self) {
             try await database.read { db in
@@ -1961,8 +1962,7 @@ struct NavigationTests {
                 contributorID: "speaker-1",
                 name: "Explicit Alice",
                 bio: "OME bio",
-                imageURL: explicitImageURL,
-                kind: OMERecord.Contributor.Kind("speaker")
+                imageURL: explicitImageURL
             )
             try Self.insertPerformance(
                 db,
@@ -2011,7 +2011,6 @@ struct NavigationTests {
         #expect(contributorProfile.name == "Explicit Alice")
         #expect(contributorProfile.handle == "alice.bsky.social")
         #expect(contributorProfile.subtitle == "@alice.bsky.social")
-        #expect(contributorProfile.kindDisplayName == "speaker")
         #expect(contributorProfile.bio == "OME bio")
         #expect(contributorProfile.artworkAsset?.url == explicitImageURL)
         #expect(contributorProfile.artworkCacheContext == LocalImageCacheContext(contributorID: row.contributor.id))
@@ -2045,8 +2044,7 @@ struct NavigationTests {
                 eventID: selectedEventID,
                 contributorID: "speaker-1",
                 name: "Explicit Alice",
-                bio: "OME bio",
-                kind: OMERecord.Contributor.Kind("speaker")
+                bio: "OME bio"
             )
             try Self.insertPerformance(
                 db,
@@ -2919,7 +2917,6 @@ struct NavigationTests {
             var state = EditContributor.State(contributorID: contributorID, eventID: eventID)
             state.hasLoadedDraft = true
             state.form.value.name = " New Name "
-            state.form.value.kind = "dj"
             state.form.value.bio = " Updated bio "
             state.imageURL = "https://example.com/image.jpg"
             state.logoURL = " "
@@ -2950,7 +2947,6 @@ struct NavigationTests {
         }
 
         #expect(contributor.name == "New Name")
-        #expect(contributor.kind?.rawValue == "dj")
         #expect(contributor.bio == "Updated bio")
         #expect(contributor.imageURL?.absoluteString == "https://example.com/image.jpg")
         #expect(contributor.logoURL == nil)
@@ -4159,7 +4155,6 @@ struct NavigationTests {
         } operation: {
             var state = EditContributor.State(eventID: eventID)
             state.form.value.name = " New Contributor "
-            state.form.value.kind = "speaker"
             state.form.value.bio = " Bio "
 
             return TestStore(initialState: state) {
@@ -4185,7 +4180,6 @@ struct NavigationTests {
         }
 
         #expect(contributor.name == "New Contributor")
-        #expect(contributor.kind?.rawValue == "speaker")
         #expect(contributor.bio == "Bio")
     }
 
@@ -4748,7 +4742,6 @@ struct NavigationTests {
         bio: String? = nil,
         imageURL: URL? = nil,
         logoURL: URL? = nil,
-        kind: OMERecord.Contributor.Kind? = nil,
         links: [ExternalPlatform.Link]? = nil
     ) throws {
         try OMERecord.Contributor.insert {
@@ -4763,7 +4756,6 @@ struct NavigationTests {
                 bio: bio,
                 imageURL: imageURL,
                 logoURL: logoURL,
-                kind: kind,
                 links: links
             )
         }

@@ -165,7 +165,8 @@ public struct EditPerformance {
             }
 
             fileprivate var relationshipRole: OMERecord.Relationship.Role {
-                roleSelection?.role
+                guard let roleSelection else { return .performer }
+                return roleSelection.role
                     ?? OMERecord.Relationship.Role(
                         trimmedCustomRelationshipRole.nilIfEmpty
                             ?? OMERecord.Relationship.Role.performer.rawValue
@@ -900,7 +901,6 @@ fileprivate enum EditPerformanceDrafts {
                 did: did,
                 bio: nil,
                 images: nil,
-                kind: nil,
                 links: nil
             )
         }

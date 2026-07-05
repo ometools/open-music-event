@@ -494,7 +494,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         did: DID? = nil,
         bio: String? = nil,
         images: [SourceImageAsset]? = nil,
-        kind: OMERecord.Contributor.Kind? = nil,
         links: [ExternalPlatform.Link]? = nil
     ) {
         self.id = id
@@ -502,7 +501,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         self.did = did
         self.bio = bio
         self.images = images
-        self.kind = kind
         self.links = links
     }
 
@@ -513,7 +511,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         bio: String? = nil,
         imageURL: URL? = nil,
         logoURL: URL? = nil,
-        kind: OMERecord.Contributor.Kind? = nil,
         links: [ExternalPlatform.Link]? = nil
     ) {
         self.init(
@@ -522,7 +519,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
             did: did,
             bio: bio,
             images: Self.legacyImages(photoURL: imageURL, logoURL: logoURL),
-            kind: kind,
             links: links
         )
     }
@@ -534,7 +530,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
             did: draft.did,
             bio: draft.bio,
             images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs(),
-            kind: draft.kind,
             links: draft.links
         )
     }
@@ -544,7 +539,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
     public var did: DID?
     public var bio: String?
     public var images: [SourceImageAsset]?
-    public var kind: OMERecord.Contributor.Kind?
     public var links: [ExternalPlatform.Link]?
 
     public var recordDraft: OMERecord.Contributor.Draft {
@@ -554,7 +548,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
             did: did,
             bio: bio,
             images: images?.map(\.recordValue),
-            kind: kind,
             links: links
         )
     }
@@ -575,7 +568,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         case images
         case imageURL
         case logoURL
-        case kind
         case links
     }
 
@@ -593,7 +585,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
             did: try container.decodeIfPresent(DID.self, forKey: .did),
             bio: try container.decodeIfPresent(String.self, forKey: .bio),
             images: images,
-            kind: try container.decodeIfPresent(OMERecord.Contributor.Kind.self, forKey: .kind),
             links: try container.decodeIfPresent([ExternalPlatform.Link].self, forKey: .links)
         )
     }
@@ -605,7 +596,6 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         try container.encodeIfPresent(did, forKey: .did)
         try container.encodeIfPresent(bio, forKey: .bio)
         try container.encodeIfPresent(images, forKey: .images)
-        try container.encodeIfPresent(kind, forKey: .kind)
         try container.encodeIfPresent(links, forKey: .links)
     }
 

@@ -93,7 +93,6 @@ public extension OME {
                       "name" TEXT NOT NULL,
                       "bio" TEXT,
                       "images" TEXT,
-                      "kind" TEXT,
                       "links" TEXT,
                       PRIMARY KEY ("organizerID", "eventID", "contributorID") ON CONFLICT REPLACE,
                       FOREIGN KEY ("organizerID", "eventID")
@@ -356,7 +355,6 @@ public extension OME {
                       "name" TEXT NOT NULL,
                       "bio" TEXT,
                       "images" TEXT,
-                      "kind" TEXT,
                       "links" TEXT,
                       PRIMARY KEY ("organizerID", "eventID", "contributorID") ON CONFLICT REPLACE,
                       FOREIGN KEY ("organizerID", "eventID")

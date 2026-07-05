@@ -293,7 +293,6 @@ struct OpenMusicEventSourcePatchGenerationTests {
                     did: contributorDID,
                     bio: "Forest set.",
                     images: nil,
-                    kind: nil,
                     links: nil
                 )
             }
@@ -404,6 +403,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(contributorText.contains("did: did:plc:artist123"))
         #expect(contributorText.contains("Forest set."))
         #expect(!contributorText.contains("bio:"))
+        #expect(!contributorText.contains("kind:"))
         #expect(scheduleText.contains("Artist One"))
         #expect(scheduleText.contains("20:00"))
         #expect(scheduleText.contains("21:30"))
@@ -1664,7 +1664,6 @@ struct OpenMusicEventSourcePatchGenerationTests {
                     name: "Guest Artist",
                     bio: nil,
                     images: nil,
-                    kind: nil,
                     links: nil
                 )
             }

@@ -443,7 +443,6 @@ public extension OpenMusicEvent.Contributor.Draft {
         bio: String? = nil,
         imageURL: URL? = nil,
         logoURL: URL? = nil,
-        kind: OME.Contributor.Kind? = nil,
         links: [ExternalPlatform.Link]? = nil
     ) {
         self.init(
@@ -452,7 +451,6 @@ public extension OpenMusicEvent.Contributor.Draft {
             did: did,
             bio: bio,
             images: Self.legacyImages(photoURL: imageURL, logoURL: logoURL),
-            kind: kind,
             links: links
         )
     }

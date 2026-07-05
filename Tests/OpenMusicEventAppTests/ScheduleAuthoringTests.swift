@@ -563,7 +563,6 @@ struct ScheduleAuthoringTests {
                     did: did,
                     bio: nil,
                     images: nil,
-                    kind: nil,
                     links: nil
                 )
             }
@@ -1250,7 +1249,6 @@ struct ScheduleAuthoringTests {
                     name: "Artist One",
                     bio: nil,
                     images: nil,
-                    kind: nil,
                     links: nil
                 )
             }

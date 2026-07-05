@@ -949,7 +949,6 @@ private extension OME.Contributor {
         bio?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || did != nil
             || images?.isEmpty == false
-            || kind != nil
             || links?.isEmpty == false
     }
 
@@ -967,7 +966,6 @@ private extension OME.Contributor {
             did: did,
             bio: bio,
             images: images,
-            kind: kind,
             links: links
         )
     }
