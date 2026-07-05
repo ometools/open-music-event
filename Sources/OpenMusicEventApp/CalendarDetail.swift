@@ -5,6 +5,7 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
+import SwiftUITabFeatures
 import SwiftUI
 
 @Feature
@@ -237,6 +238,7 @@ struct CalendarEntryButton: View {
             } label: {
                 CalendarEntryRowView(row: row)
             }
+            .navigationLinkListRowStyle()
         } else {
             CalendarEntryRowView(row: row)
         }

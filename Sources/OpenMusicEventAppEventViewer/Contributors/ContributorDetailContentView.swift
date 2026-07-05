@@ -2,6 +2,7 @@ import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import ScheduleComponents
+import SwiftUITabFeatures
 import SwiftUI
 
 struct ContributorDetailContentView: View {
@@ -9,6 +10,7 @@ struct ContributorDetailContentView: View {
     let stageContext: ContributorStageContext
     let performanceRows: [PerformanceRow]
     let timeZone: TimeZone
+    let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let editButtonTapped: () -> Void
 
     var body: some View {
@@ -32,7 +34,8 @@ struct ContributorDetailContentView: View {
                 contributor: profile.contributor,
                 stageContext: stageContext,
                 performanceRows: performanceRows,
-                timeZone: timeZone
+                timeZone: timeZone,
+                performanceButtonTapped: performanceButtonTapped
             )
         }
         .toolbar {
@@ -49,11 +52,13 @@ struct ContributorDetailSectionsView: View {
     let stageContext: ContributorStageContext
     let performanceRows: [PerformanceRow]
     let timeZone: TimeZone
+    let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     var body: some View {
         ContributorScheduleSection(
             performanceRows: performanceRows,
-            timeZone: timeZone
+            timeZone: timeZone,
+            performanceButtonTapped: performanceButtonTapped
         )
         ContributorStageLineupsSection(stages: stageContext.lineupOnlyStages)
 
@@ -77,21 +82,73 @@ struct ContributorScheduleSection: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     let performanceRows: [PerformanceRow]
     let timeZone: TimeZone
+    let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     var body: some View {
         if !performanceRows.isEmpty {
             Section("Schedule") {
                 ForEach(performanceRows) { row in
-                    SchedulePerformanceRow(
-                        row: row,
-                        subtitle: ScheduleViewer.performanceRowSubtitle(
-                            for: row.performance,
-                            timeZone: timeZone,
-                            policy: dateTimeRangeResolutionPolicy
+                    Button {
+                        performanceButtonTapped(row.performanceID)
+                    } label: {
+                        ContributorSchedulePerformanceRow(
+                            row: row,
+                            subtitle: ScheduleViewer.performanceRowSubtitle(
+                                for: row.performance,
+                                timeZone: timeZone,
+                                policy: dateTimeRangeResolutionPolicy
+                            )
                         )
-                    )
+                    }
+                    .navigationLinkListRowStyle()
                 }
             }
+        }
+    }
+}
+
+struct ContributorSchedulePerformanceRow: View {
+    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
+    let row: PerformanceRow
+    let subtitle: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if needsStageDisambiguation {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(row.stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
+                    .frame(width: 5, height: 44)
+
+                stageIcon
+                    .frame(width: 44, height: 44)
+                    .foregroundStyle(.primary)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.title)
+                    .lineLimit(2)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minHeight: 44, alignment: .leading)
+        .foregroundStyle(.primary)
+    }
+
+    @ViewBuilder
+    private var stageIcon: some View {
+        if let stage = row.stage {
+            ScheduleStageIcon(stage: stage)
+        } else {
+            Image(systemName: "music.note")
+                .resizable()
+                .scaledToFit()
+                .padding(10)
+                .foregroundStyle(.secondary)
         }
     }
 }

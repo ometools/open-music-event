@@ -9,6 +9,7 @@ import OpenMusicEventViewers
 import ScheduleComponents
 import Sharing
 import SQLiteData
+import SwiftUITabFeatures
 import SwiftUI
 import Tagged
 
@@ -738,10 +739,8 @@ struct SchedulePerformanceListView: View {
                             policy: dateTimeRangeResolutionPolicy
                         )
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .navigationLinkListRowStyle()
             }
             .listStyle(.plain)
         }
@@ -1035,9 +1034,8 @@ public struct PerformanceDetailView: View {
                                         profile: credit.profile,
                                         subtitle: credit.roleTitle
                                     )
-                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .buttonStyle(.plain)
+                                .navigationLinkListRowStyle()
                             }
                         }
                     }

@@ -3041,6 +3041,59 @@ struct NavigationTests {
     }
 
     @Test
+    func contributorDetailPerformanceTapPresentsPerformanceDetail() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let contributorID = contributorLocalID("amy")
+        let performanceID = performanceLocalID("opening")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertContributor(db, eventID: eventID, contributorID: "amy", name: "Amy")
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "Opening"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                contributorID: "amy"
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            TestStore(
+                initialState: ContributorDetail.State(
+                    contributorID: contributorID,
+                    eventID: eventID
+                )
+            ) {
+                ContributorDetail()
+            }
+        }
+
+        store.send(.performanceButtonTapped(performanceID))
+
+        #expect(store.state.destination?.performanceDetail?.performanceID == performanceID)
+    }
+
+    @Test
     func editContributorSavesChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

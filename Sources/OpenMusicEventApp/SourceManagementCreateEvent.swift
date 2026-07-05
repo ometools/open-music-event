@@ -6,6 +6,7 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import OpenMusicEventTimeZones
+import SwiftUITabFeatures
 import SwiftUI
 
 @Feature
@@ -345,7 +346,7 @@ struct SourceManagementCreateEventView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .buttonStyle(.plain)
+                .navigationLinkListRowStyle()
             } header: {
                 Text("Dates")
             } footer: {

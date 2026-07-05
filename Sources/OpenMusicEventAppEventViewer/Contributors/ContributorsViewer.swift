@@ -9,6 +9,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
 import SQLiteData
+import SwiftUITabFeatures
 import Tagged
 import SwiftUI
 import XRPCClient
@@ -199,7 +200,7 @@ struct ContributorListButton: View {
                 stageContext: row.stageContext
             )
         }
-        .buttonStyle(.plain)
+        .navigationLinkListRowStyle()
     }
 }
 

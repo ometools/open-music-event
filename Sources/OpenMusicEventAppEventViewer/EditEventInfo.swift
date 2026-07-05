@@ -4,6 +4,7 @@ import Foundation
 import Lexicon
 import OpenMusicEventTimeZones
 import SQLiteData
+import SwiftUITabFeatures
 import SwiftUI
 
 @Feature
@@ -248,7 +249,7 @@ public struct EditEventInfoView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .buttonStyle(.plain)
+                        .navigationLinkListRowStyle()
                     }
 
                     Section("Details") {

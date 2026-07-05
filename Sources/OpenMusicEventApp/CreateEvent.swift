@@ -13,6 +13,7 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventLexicon
 import OpenMusicEventTimeZones
 import SQLiteData
+import SwiftUITabFeatures
 import SwiftUI
 
 private enum AppEventOrganizerIDKey: DependencyKey {
@@ -392,7 +393,7 @@ struct CreateEventView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .buttonStyle(.plain)
+                .navigationLinkListRowStyle()
             } header: {
                 Text("Dates")
             } footer: {

@@ -2,6 +2,11 @@ import SwiftUI
 
 public struct NavigationLinkButtonStyle: ButtonStyle {
     @Environment(\.colorScheme) var colorScheme
+    let verticalPadding: CGFloat
+
+    public init(verticalPadding: CGFloat = 0) {
+        self.verticalPadding = verticalPadding
+    }
 
     func background(_ configuration: Configuration) -> Color {
         #if os(iOS)
@@ -18,12 +23,15 @@ public struct NavigationLinkButtonStyle: ButtonStyle {
         HStack {
             configuration.label
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                .tint(.primary)
             Spacer()
             NavigationArrow()
         }
-        .listRowBackground(background(configuration))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, verticalPadding)
+        .contentShape(Rectangle())
         .background(background(configuration))
+        .padding(.vertical, -verticalPadding)
         #elseif os(Android)
         configuration.label
         #else
@@ -49,6 +57,13 @@ public struct NavigationLinkButtonStyle: ButtonStyle {
     }
 }
 
+public extension View {
+    func navigationLinkListRowStyle() -> some View {
+        self
+            .buttonStyle(NavigationLinkButtonStyle(verticalPadding: 12))
+    }
+}
+
 struct NavigationLinkButton<Label: View>: View {
     var action: () -> Void
     var label: Label
@@ -63,9 +78,6 @@ struct NavigationLinkButton<Label: View>: View {
             HStack {
                 label
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    #if os(iOS)
-                    .contentShape(Rectangle())
-                    #endif
                     .tint(.primary)
                 #if os(iOS)
                 Spacer()
@@ -73,6 +85,9 @@ struct NavigationLinkButton<Label: View>: View {
                 #endif
             }
             .frame(maxWidth: .infinity)
+            #if os(iOS)
+            .contentShape(Rectangle())
+            #endif
         }
     }
 }

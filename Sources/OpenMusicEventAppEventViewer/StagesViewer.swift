@@ -12,6 +12,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
 import SQLiteData
+import SwiftUITabFeatures
 import SwiftUI
 import Tagged
 
@@ -537,10 +538,8 @@ public struct StagesViewerView: View {
                             store.send(.stageButtonTapped(stage.id.stageID))
                         } label: {
                             StageRowView(stage: stage)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .navigationLinkListRowStyle()
                     }
                     .onDelete { offsets in
                         deleteStages(at: offsets)

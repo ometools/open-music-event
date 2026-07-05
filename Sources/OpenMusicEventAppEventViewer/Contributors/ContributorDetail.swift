@@ -65,6 +65,7 @@ public struct ContributorDetail {
         public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
 
         @DebugSnapshotIgnored public var timeZone: TimeZone
+        public var destination: Destination.State?
         @FetchAll public var lineupStages: [OMERecord.Stage]
         @FetchAll var performanceRows: [PerformanceRow]
 
@@ -94,7 +95,14 @@ public struct ContributorDetail {
     }
 
     public enum Action {
+        case destination(Destination.Action)
         case editButtonTapped
+        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+    }
+
+    @Feature
+    public enum Destination {
+        case performanceDetail(Spawn<PerformanceDetail>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -135,6 +143,9 @@ public struct ContributorDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .destination:
+                break
+
             case .editButtonTapped:
                 let contributorID = state.contributorID
                 let eventID = state.eventID
@@ -148,7 +159,25 @@ public struct ContributorDetail {
                     )
                     await task?.value
                 }
+
+            case let .performanceButtonTapped(performanceID):
+                guard state.performanceRows.contains(where: { $0.performanceID == performanceID }) else {
+                    return
+                }
+                store.withDependencies {
+                    state.destination = .performanceDetail(
+                        Spawn(
+                            PerformanceDetail.State(
+                                performanceID: performanceID,
+                                eventID: state.eventID
+                            )
+                        )
+                    )
+                }
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
         .onChange(of: store.actorProfileLoadRequest, initial: true) { _, request, _ in
             guard let request else { return }
@@ -182,10 +211,14 @@ public struct ContributorDetailView: View {
                     profile: profile,
                     stageContext: store.state.stageContext,
                     performanceRows: store.performanceRows,
-                    timeZone: store.timeZone
-                ) {
-                    store.send(.editButtonTapped)
-                }
+                    timeZone: store.timeZone,
+                    performanceButtonTapped: { performanceID in
+                        store.send(.performanceButtonTapped(performanceID))
+                    },
+                    editButtonTapped: {
+                        store.send(.editButtonTapped)
+                    }
+                )
             } else {
                 ContentUnavailableView(
                     "Contributor",
@@ -194,6 +227,9 @@ public struct ContributorDetailView: View {
                 )
                 .navigationTitle("Contributor")
             }
+        }
+        .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
+            PerformanceDetailView(store: detailStore)
         }
     }
 }

@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import OpenMusicEventDatabase
 import SQLiteData
+import SwiftUITabFeatures
 import SwiftUI
 
 public enum EventSearchContent: Equatable, Sendable {
@@ -220,7 +221,7 @@ struct EventSearchContentView: View {
                 } label: {
                     EventSearchResultRow(result: result)
                 }
-                .buttonStyle(.plain)
+                .navigationLinkListRowStyle()
             }
             .listStyle(.plain)
         }
@@ -246,7 +247,7 @@ struct EventSearchDashboardView: View {
                                 systemImage: "square.grid.2x2"
                             )
                         }
-                        .buttonStyle(.plain)
+                        .navigationLinkListRowStyle()
                     }
                 }
             }
@@ -263,7 +264,7 @@ struct EventSearchDashboardView: View {
                                 systemImage: row.feature.systemImage
                             )
                         }
-                        .buttonStyle(.plain)
+                        .navigationLinkListRowStyle()
                     }
                 }
             }
@@ -280,7 +281,7 @@ struct EventSearchDashboardView: View {
                                 systemImage: "megaphone"
                             )
                         }
-                        .buttonStyle(.plain)
+                        .navigationLinkListRowStyle()
                     }
                 }
             }
