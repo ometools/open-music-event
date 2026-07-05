@@ -168,6 +168,29 @@ struct SourceDatabaseInsertionTests {
                 ),
             ]
         )
+        expectNoDifference(
+            insertion.relationships,
+            [
+                OME.Relationship(
+                    subject: .identity(did: organizerID),
+                    role: .organizer,
+                    object: .record(.init(eventID: eventID(resolvedEventID, organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+                OME.Relationship(
+                    subject: .record(.init(contributorID: contributorID("artist-one", eventID: resolvedEventID, organizerID: organizerID))),
+                    role: .contributor,
+                    object: .record(.init(eventID: eventID(resolvedEventID, organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+                OME.Relationship(
+                    subject: .record(.init(contributorID: contributorID("artist-one", eventID: resolvedEventID, organizerID: organizerID))),
+                    role: .performer,
+                    object: .record(.init(performanceID: performanceID("opening-set", eventID: resolvedEventID, organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+            ]
+        )
     }
 
     @Test
@@ -336,6 +359,57 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func didOnlyPerformanceContributorsCreateIdentityRelationships() throws {
+        let artistID = try #require(DID("did:plc:artist123"))
+        let actor = try #require(OME.Contributor.Actor("did:plc:artist123"))
+        var source = try makeSourceRepository(
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("did-set"),
+                        title: "DID Set",
+                        startTime: "18:00",
+                        endTime: "19:00",
+                        contributors: [
+                            .init(subject: .actor(actor))
+                        ]
+                    )
+                ]
+            ]
+        )
+        source.events[0].components.contributors = nil
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let resolvedEventID = "testival-source-testival-2026"
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: tangledSourceProvenance("testival-source")
+            )
+        )
+
+        expectNoDifference(insertion.contributors, [OME.Contributor.Draft]())
+        expectNoDifference(
+            insertion.relationships,
+            [
+                OME.Relationship(
+                    subject: .identity(did: organizerID),
+                    role: .organizer,
+                    object: .record(.init(eventID: eventID(resolvedEventID, organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+                OME.Relationship(
+                    subject: .identity(did: artistID),
+                    role: .performer,
+                    object: .record(.init(performanceID: performanceID("did-set", eventID: resolvedEventID, organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+            ]
+        )
+    }
+
+    @Test
     func performanceContributorCreditsPreserveBillingRoleAndOrder() throws {
         let source = try makeSourceRepository(
             performances: [
@@ -388,6 +462,29 @@ struct SourceDatabaseInsertionTests {
                     billing: .supporting,
                     role: "dancer",
                     sortIndex: 1
+                ),
+            ]
+        )
+        expectNoDifference(
+            insertion.relationships,
+            [
+                OME.Relationship(
+                    subject: .identity(did: organizerID),
+                    role: .organizer,
+                    object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+                OME.Relationship(
+                    subject: .record(.init(contributorID: contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    role: .contributor,
+                    object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+                OME.Relationship(
+                    subject: .record(.init(contributorID: contributorID("artist-one", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    role: .dj,
+                    object: .record(.init(performanceID: performanceID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
                 ),
             ]
         )
@@ -447,6 +544,29 @@ struct SourceDatabaseInsertionTests {
                     contributorID: id("schedule-name-Guest%20Artist"),
                     anonymousName: "Guest Artist"
                 )
+            ]
+        )
+        expectNoDifference(
+            insertion.relationships,
+            [
+                OME.Relationship(
+                    subject: .identity(did: organizerID),
+                    role: .organizer,
+                    object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+                OME.Relationship(
+                    subject: .record(.init(contributorID: contributorID("schedule-name-Guest%20Artist", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    role: .contributor,
+                    object: .record(.init(eventID: eventID("testival-source-testival-2026", organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
+                OME.Relationship(
+                    subject: .record(.init(contributorID: contributorID("schedule-name-Guest%20Artist", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    role: .performer,
+                    object: .record(.init(performanceID: performanceID("guest-set", eventID: "testival-source-testival-2026", organizerID: organizerID))),
+                    createdAt: pendingRelationshipCreatedAt
+                ),
             ]
         )
     }
@@ -2150,12 +2270,17 @@ struct SourceDatabaseInsertionTests {
         let performanceContributorCount = try await database.read { db in
             try OME.Performance.Contributors.fetchCount(db)
         }
+        let relationships = try await database.read { db in
+            try OME.Relationship.fetchAll(db)
+        }
 
         #expect(organizerCount == 1)
         #expect(eventCount == 1)
         #expect(eventOrganizerCount == 1)
         #expect(performanceCount == 3)
         #expect(performanceContributorCount == 2)
+        #expect(relationships.count == 3)
+        #expect(relationships.allSatisfy { $0.createdAt != pendingRelationshipCreatedAt })
     }
 
     @Test
@@ -3227,6 +3352,8 @@ private func performanceID(
         performanceID: id(performanceID)
     )
 }
+
+private let pendingRelationshipCreatedAt = "1970-01-01T00:00:00Z"
 
 private func scheduleContributorListingPolicy() -> OME.Event.Policies {
     OME.Event.Policies(

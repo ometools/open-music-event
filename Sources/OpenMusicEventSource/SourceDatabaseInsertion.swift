@@ -132,6 +132,7 @@ public extension OME {
         public var posters: [OME.Poster.Draft]
         public var performances: [OME.Performance.Draft]
         public var performanceContributors: [OME.Performance.Contributors.Draft]
+        public var relationships: [OME.Relationship]
         public var pendingFileImageAssets: [PendingFileImageAsset]
 
         public init(_ configuration: Configuration) throws {
@@ -150,6 +151,7 @@ public extension OME {
             self.posters = []
             self.performances = []
             self.performanceContributors = []
+            self.relationships = []
             self.pendingFileImageAssets = []
 
             let sourceCalendar = configuration.source.calendar ?? CalendarDTO.defaultCalendar
@@ -238,6 +240,14 @@ public extension OME {
                     )
                 )
             )
+            relationships.append(
+                OME.Relationship(
+                    subject: .identity(did: organizerID),
+                    role: .organizer,
+                    object: .record(.init(eventID: eventID)),
+                    createdAt: Self.pendingRelationshipCreatedAt
+                )
+            )
             calendarEntries.append(
                 OME.CalendarEntry.Draft(
                     id: .init(
@@ -301,6 +311,22 @@ public extension OME {
                 explicitContributors: explicitContributors
             )
             contributors.append(contentsOf: scheduleContributorIndex.generatedContributors)
+
+            var relationshipContributorIDs: Set<OME.ID<OME.Contributor>> = []
+            for contributor in explicitContributors + scheduleContributorIndex.generatedContributors {
+                guard let contributorID = contributor.id,
+                      relationshipContributorIDs.insert(contributorID.contributorID).inserted
+                else { continue }
+
+                relationships.append(
+                    OME.Relationship(
+                        subject: .record(.init(contributorID: contributorID)),
+                        role: .contributor,
+                        object: .record(.init(eventID: eventID)),
+                        createdAt: Self.pendingRelationshipCreatedAt
+                    )
+                )
+            }
 
             channels.append(
                 contentsOf: sourceEvent.channels?.map { channel in
@@ -432,19 +458,29 @@ public extension OME {
                         )
                     )
 
-                    performanceContributors.append(
-                        contentsOf: (sourcePerformance.contributors ?? []).enumerated().map { sortIndex, contributor in
-                            OME.Performance.Contributors.Draft(
-                                performanceID: scopedPerformanceID,
-                                contributorID: Self.contributorID(for: contributor, in: scheduleContributorIndex),
-                                anonymousName: Self.anonymousName(for: contributor),
-                                contributorActor: Self.actor(for: contributor),
-                                billing: contributor.billing,
-                                role: contributor.role,
-                                sortIndex: sortIndex
-                            )
+                    for (sortIndex, contributor) in (sourcePerformance.contributors ?? []).enumerated() {
+                        let contributorID = Self.contributorID(for: contributor, in: scheduleContributorIndex)
+                        let contributorActor = Self.actor(for: contributor)
+                        let projection = OME.Performance.Contributors.Draft(
+                            performanceID: scopedPerformanceID,
+                            contributorID: contributorID,
+                            anonymousName: Self.anonymousName(for: contributor),
+                            contributorActor: contributorActor,
+                            billing: contributor.billing,
+                            role: contributor.role,
+                            sortIndex: sortIndex
+                        )
+                        performanceContributors.append(projection)
+
+                        if let relationship = Self.performanceContributorRelationship(
+                            performanceID: scopedPerformanceID,
+                            contributorID: contributorID,
+                            contributorActor: contributorActor,
+                            role: contributor.role
+                        ) {
+                            relationships.append(relationship)
                         }
-                    )
+                    }
                 }
             }
         }
@@ -604,6 +640,37 @@ public extension OME {
             return actor
         }
 
+        private static func performanceContributorRelationship(
+            performanceID: OME.Performance.ID,
+            contributorID: OME.ID<OME.Contributor>?,
+            contributorActor: OME.Contributor.Actor?,
+            role: OME.Performance.Contributors.Role?
+        ) -> OME.Relationship? {
+            let subject: OME.Relationship.Entity
+            if let contributorID {
+                subject = .record(
+                    .init(
+                        contributorID: .init(
+                            organizerID: performanceID.organizerID,
+                            eventID: performanceID.eventID,
+                            contributorID: contributorID
+                        )
+                    )
+                )
+            } else if let did = contributorActor?.didValue {
+                subject = .identity(did: did)
+            } else {
+                return nil
+            }
+
+            return OME.Relationship(
+                subject: subject,
+                role: role.map { OME.Relationship.Role($0.rawValue) } ?? .performer,
+                object: .record(.init(performanceID: performanceID)),
+                createdAt: pendingRelationshipCreatedAt
+            )
+        }
+
         private static func scheduleContributorDisplayName(forName name: String) -> String? {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
@@ -633,6 +700,8 @@ public extension OME {
         private static var generatedContributorIDAllowedCharacters: CharacterSet {
             CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         }
+
+        private static let pendingRelationshipCreatedAt = "1970-01-01T00:00:00Z"
 
         private mutating func resolve(
             _ sourceImages: [SourceImageAsset]?,

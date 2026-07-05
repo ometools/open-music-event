@@ -211,6 +211,8 @@ private func deleteEventOwnedRecords(
     in db: Database
 ) throws {
     for eventID in eventIDs.uniqued() {
+        try deleteRelationshipsOwnedByEvent(eventID, in: db)
+
         try OMERecord.Performance.Contributors
             .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
             .where { $0.performanceID.eventID.eq(eventID.eventID) }
@@ -294,6 +296,40 @@ private func deleteEventOwnedRecords(
             .where { $0.eventID.eq(eventID.eventID) }
             .delete()
             .execute(db)
+    }
+}
+
+private func deleteRelationshipsOwnedByEvent(
+    _ eventID: OMERecord.Event.ID,
+    in db: Database
+) throws {
+    var recordURIs = [
+        OMERecord.Relationship.RecordReference(eventID: eventID).uri.description
+    ]
+    recordURIs.append(
+        contentsOf: try OMERecord.Performance
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .fetchAll(db)
+            .map { OMERecord.Relationship.RecordReference(performanceID: $0.id).uri.description }
+    )
+    recordURIs.append(
+        contentsOf: try OMERecord.Contributor
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .fetchAll(db)
+            .map { OMERecord.Relationship.RecordReference(contributorID: $0.id).uri.description }
+    )
+
+    for recordURI in recordURIs.uniqued() {
+        try db.execute(
+            sql: #"""
+            DELETE FROM "relationships"
+            WHERE json_extract("subject", '$.uri') = ?
+               OR json_extract("object", '$.uri') = ?
+            """#,
+            arguments: [recordURI, recordURI]
+        )
     }
 }
 

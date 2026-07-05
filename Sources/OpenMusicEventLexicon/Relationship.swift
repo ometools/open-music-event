@@ -270,6 +270,48 @@ extension OpenMusicEvent.Relationship {
             )
         }
 
+        public init(
+            type: String = Self.type,
+            eventID: OpenMusicEvent.Event.ID,
+            cid: ATProto.CID? = nil
+        ) {
+            self.init(
+                type: type,
+                author: eventID.organizerID,
+                collection: OpenMusicEvent.Event.nsid,
+                rkey: eventID.eventID.rawValue,
+                cid: cid
+            )
+        }
+
+        public init(
+            type: String = Self.type,
+            contributorID: OpenMusicEvent.Contributor.ID,
+            cid: ATProto.CID? = nil
+        ) {
+            self.init(
+                type: type,
+                author: contributorID.organizerID,
+                collection: OpenMusicEvent.Contributor.nsid,
+                rkey: contributorID.contributorID.rawValue,
+                cid: cid
+            )
+        }
+
+        public init(
+            type: String = Self.type,
+            performanceID: OpenMusicEvent.Performance.ID,
+            cid: ATProto.CID? = nil
+        ) {
+            self.init(
+                type: type,
+                author: performanceID.organizerID,
+                collection: OpenMusicEvent.Performance.nsid,
+                rkey: performanceID.performanceID.rawValue,
+                cid: cid
+            )
+        }
+
         enum CodingKeys: String, CodingKey {
             case type = "$type"
             case uri

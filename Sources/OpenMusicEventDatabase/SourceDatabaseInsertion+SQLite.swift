@@ -154,6 +154,7 @@ private struct PreparedSourceDatabaseInsertion {
     var posters: [OME.Poster.Draft]
     var performances: [OME.Performance.Draft]
     var performanceContributors: [OME.Performance.Contributors.Draft]
+    var relationships: [OME.Relationship]
     var localImageBlobs: [LocalImageBlob]
 
     init(
@@ -198,6 +199,11 @@ private struct PreparedSourceDatabaseInsertion {
         self.posters = sourceInsertion.posters
         self.performances = sourceInsertion.performances
         self.performanceContributors = sourceInsertion.performanceContributors
+        self.relationships = sourceInsertion.relationships.map {
+            var relationship = $0
+            relationship.createdAt = Self.relationshipCreatedAt(importedAt)
+            return relationship
+        }
         self.localImageBlobs = []
 
         let materializer = LocalImageMaterializer(
@@ -340,9 +346,16 @@ private struct PreparedSourceDatabaseInsertion {
         if !performanceContributors.isEmpty {
             try OME.Performance.Contributors.insert { performanceContributors }.execute(db)
         }
+        if !relationships.isEmpty {
+            try OME.Relationship.insert { relationships }.execute(db)
+        }
         if !localImageBlobs.isEmpty {
             try LocalImageBlob.insert { localImageBlobs }.execute(db)
         }
+    }
+
+    private static func relationshipCreatedAt(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
     }
 }
 
