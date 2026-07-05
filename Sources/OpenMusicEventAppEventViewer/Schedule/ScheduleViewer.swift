@@ -397,16 +397,29 @@ public struct ScheduleViewer {
         schedules: [OMERecord.Schedule],
         stages: [OMERecord.Stage]
     ) -> Bool {
-        !stages.isEmpty
-            && schedules.contains { $0.id.scheduleID == selectedScheduleID }
+        !stages.isEmpty && Self.resolvedSelectedScheduleID(
+            selectedScheduleID,
+            schedules: schedules
+        ) != nil
+    }
+
+    static func resolvedSelectedScheduleID(
+        _ selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
+        schedules: [OMERecord.Schedule]
+    ) -> OMERecord.ID<OMERecord.Schedule>? {
+        if let selectedScheduleID,
+           schedules.contains(where: { $0.id.scheduleID == selectedScheduleID }) {
+            return selectedScheduleID
+        }
+        return schedules.first?.id.scheduleID
     }
 
     public var body: some Feature {
         Update { state, action in
             switch action {
             case let .addPerformanceButtonTapped(selectedScheduleID):
-                guard state.selectedSchedule(selectedScheduleID: selectedScheduleID) != nil,
-                      !state.stages.isEmpty
+                guard let schedule = state.selectedSchedule(selectedScheduleID: selectedScheduleID),
+                      let selectedStageID = state.resolvedSelectedStageID
                 else { return }
                 let eventID = state.eventID
                 store.addTask {
@@ -414,7 +427,8 @@ public struct ScheduleViewer {
                         key: EventEditingRequested.self,
                         value: .addPerformance(
                             eventID: eventID,
-                            scheduleID: selectedScheduleID
+                            scheduleID: schedule.id.scheduleID,
+                            stageID: selectedStageID
                         )
                     )
                     await task?.value

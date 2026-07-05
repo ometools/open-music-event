@@ -7,7 +7,11 @@ public struct EventEditingRequested: FeatureEventKey {
 }
 
 public enum EventEditingIntent: Equatable, Sendable {
-    case addPerformance(eventID: OMERecord.Event.ID, scheduleID: OMERecord.ID<OMERecord.Schedule>?)
+    case addPerformance(
+        eventID: OMERecord.Event.ID,
+        scheduleID: OMERecord.ID<OMERecord.Schedule>?,
+        stageID: OMERecord.ID<OMERecord.Stage>?
+    )
     case addPosters(OMERecord.Event.ID)
     case addSchedule(OMERecord.Event.ID)
     case copyStagesFromEvent(OMERecord.Event.ID)

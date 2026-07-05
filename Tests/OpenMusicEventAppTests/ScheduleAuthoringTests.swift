@@ -152,6 +152,99 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
+    func scheduleViewerAddPerformanceRequestUsesSelectedScheduleAndStage() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let selectedContext = try await seedAdditionalScheduleContext(
+            database: database,
+            eventID: fixture.eventID
+        )
+        let store = makeScheduleViewerStore(
+            database: database,
+            eventID: fixture.eventID,
+            timeZone: timeZone
+        )
+        store.modify {
+            $0.selectedStageID = selectedContext.stage.id.stageID
+        }
+
+        let addTask = store.send(
+            .addPerformanceButtonTapped(selectedContext.schedule.id.scheduleID)
+        )
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(
+                .addPerformance(
+                    eventID: fixture.eventID,
+                    scheduleID: selectedContext.schedule.id.scheduleID,
+                    stageID: selectedContext.stage.id.stageID
+                )
+            ),
+            timeout: .seconds(1)
+        )
+        await addTask?.value
+    }
+
+    @Test
+    func eventViewerAddPerformanceIntentSeedsSelectedScheduleAndStage() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let selectedContext = try await seedAdditionalScheduleContext(
+            database: database,
+            eventID: fixture.eventID
+        )
+        let expectedStart = try #require(
+            selectedContext.schedule.date.at(hour: 12, in: timeZone)
+        )
+        let expectedEnd = try #require(
+            selectedContext.schedule.date.at(hour: 13, in: timeZone)
+        )
+        var state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = fixture.eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            EventViewer.State(eventID: fixture.eventID)
+        }
+
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = fixture.eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            state.handleEditingIntent(
+                .addPerformance(
+                    eventID: fixture.eventID,
+                    scheduleID: selectedContext.schedule.id.scheduleID,
+                    stageID: selectedContext.stage.id.stageID
+                )
+            )
+        }
+
+        let editPerformance = try #require(state.destination?.performanceForm)
+        expectNoDifference(
+            editPerformance.schedule.id.scheduleID,
+            selectedContext.schedule.id.scheduleID
+        )
+        expectNoDifference(
+            editPerformance.selectedStageID,
+            selectedContext.stage.id.stageID
+        )
+        expectNoDifference(editPerformance.startTimeSelection, expectedStart)
+        expectNoDifference(editPerformance.endTimeSelection, expectedEnd)
+    }
+
+    @Test
     func createsPerformanceRowWithLinkedContributor() async throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
@@ -1398,6 +1491,56 @@ struct ScheduleAuthoringTests {
                 try OMERecord.Performance
                     .where { $0.id.eq(performanceID) }
                     .fetchOne(db)
+            )
+        }
+    }
+
+    private func seedAdditionalScheduleContext(
+        database: any DatabaseWriter,
+        eventID: OMERecord.Event.ID
+    ) async throws -> (schedule: OMERecord.Schedule, stage: OMERecord.Stage) {
+        let scheduleDate = try #require(LocalDate("2026-07-31"))
+        let scheduleID = OMERecord.Schedule.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            scheduleID: scheduleLocalID("friday")
+        )
+        let stageID = OMERecord.Stage.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            stageID: stageLocalID("meadow")
+        )
+        try await database.write { db in
+            try OMERecord.Stage.insert {
+                OMERecord.Stage.Draft(
+                    id: stageID,
+                    name: "Meadow",
+                    color: 0x00aa55,
+                    sortIndex: 0
+                )
+            }
+            .execute(db)
+            try OMERecord.Schedule.insert {
+                OMERecord.Schedule.Draft(
+                    id: scheduleID,
+                    date: scheduleDate,
+                    startsAt: nil,
+                    endsAt: nil,
+                    customTitle: "Friday"
+                )
+            }
+            .execute(db)
+        }
+        return try await database.read { db in
+            let schedule = try OMERecord.Schedule
+                .where { $0.id.eq(scheduleID) }
+                .fetchOne(db)
+            let stage = try OMERecord.Stage
+                .where { $0.id.eq(stageID) }
+                .fetchOne(db)
+            return (
+                schedule: try #require(schedule),
+                stage: try #require(stage)
             )
         }
     }

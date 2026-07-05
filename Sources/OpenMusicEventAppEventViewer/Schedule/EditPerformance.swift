@@ -179,6 +179,7 @@ public struct EditPerformance {
             schedule: OMERecord.Schedule,
             stages: [OMERecord.Stage],
             timeZone: TimeZone,
+            selectedStageID: OMERecord.ID<OMERecord.Stage>? = nil,
             contributors: [ContributorProfile] = []
         ) {
             let startTime = schedule.date.at(hour: 12, in: timeZone)
@@ -190,7 +191,11 @@ public struct EditPerformance {
             self.contributorRelationshipPicker = ContributorRelationshipPicker.State(
                 contributors: contributors
             )
-            self.selectedStageID = stages.first?.id.stageID
+            self.selectedStageID = selectedStageID.flatMap { selectedStageID in
+                stages.contains { $0.id.stageID == selectedStageID }
+                    ? selectedStageID
+                    : nil
+            } ?? stages.first?.id.stageID
             self.stageOptions = stages.map(StageOption.init)
             self.timeRangeSelection = DateTimeRangeSelection(
                 start: startTime,
@@ -216,6 +221,7 @@ public struct EditPerformance {
                 schedule: schedule,
                 stages: stages,
                 timeZone: timeZone,
+                selectedStageID: performance.stageID,
                 contributors: contributors
             )
             self.description = performance.description ?? ""

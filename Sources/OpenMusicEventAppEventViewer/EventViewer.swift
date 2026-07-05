@@ -295,10 +295,13 @@ public struct EventViewer {
 
         mutating func handleEditingIntent(_ intent: EventEditingIntent) {
             switch intent {
-            case let .addPerformance(eventID, scheduleID):
+            case let .addPerformance(eventID, scheduleID, stageID):
                 guard eventID == self.eventID else { return }
                 guard let editPerformance = withEventDependencies({
-                    addPerformanceState(scheduleID: scheduleID)
+                    addPerformanceState(
+                        scheduleID: scheduleID,
+                        stageID: stageID
+                    )
                 }) else { return }
                 self.destination = .performanceForm(Spawn(editPerformance))
 
@@ -422,7 +425,8 @@ public struct EventViewer {
         }
 
         private func addPerformanceState(
-            scheduleID: OMERecord.ID<OMERecord.Schedule>?
+            scheduleID: OMERecord.ID<OMERecord.Schedule>?,
+            stageID: OMERecord.ID<OMERecord.Stage>?
         ) -> EditPerformance.State? {
             @Dependency(\.defaultDatabase) var database
 
@@ -450,6 +454,7 @@ public struct EventViewer {
                         schedule: schedule,
                         stages: stages,
                         timeZone: eventTimeZone,
+                        selectedStageID: stageID,
                         contributors: contributors
                     )
                 }
