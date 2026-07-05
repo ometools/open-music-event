@@ -2,6 +2,7 @@ import ATProto
 import CasePaths
 import Foundation
 import Lexicon
+import SQLiteData
 
 extension OpenMusicEvent {
     public typealias RelationshipTimestamp = String
@@ -29,22 +30,25 @@ extension OpenMusicEvent {
 }
 
 extension OpenMusicEvent {
+    @Table("relationships")
     public struct Relationship: Codable, Equatable, Sendable {
         public static let collection = RelationshipCollection.relationship
         public static let nsid = collection.nsid
 
         public var type: String
+        @Column(as: Open<Entity>.JSONRepresentation.self)
         public var subject: Open<Entity>
         public var role: Role
+        @Column(as: Open<Entity>.JSONRepresentation?.self)
         public var object: Open<Entity>?
-        public var createdAt: RelationshipTimestamp
+        public var createdAt: String
 
         public init(
             type: String = Self.collection.rawValue,
             subject: Open<Entity>,
             role: Role,
             object: Open<Entity>? = nil,
-            createdAt: RelationshipTimestamp
+            createdAt: String
         ) {
             self.type = type
             self.subject = subject
@@ -58,7 +62,7 @@ extension OpenMusicEvent {
             subject: Entity,
             role: Role,
             object: Entity? = nil,
-            createdAt: RelationshipTimestamp
+            createdAt: String
         ) {
             self.init(
                 type: type,
@@ -74,7 +78,7 @@ extension OpenMusicEvent {
             subject: RecordReference,
             role: Role,
             object: RecordReference,
-            createdAt: RelationshipTimestamp
+            createdAt: String
         ) {
             self.init(
                 type: type,
@@ -99,24 +103,26 @@ extension OpenMusicEvent {
             subject = try container.decode(Open<Entity>.self, forKey: .subject)
             role = try container.decode(Role.self, forKey: .role)
             object = try container.decodeIfPresent(Open<Entity>.self, forKey: .object)
-            createdAt = try container.decode(RelationshipTimestamp.self, forKey: .createdAt)
+            createdAt = try container.decode(String.self, forKey: .createdAt)
         }
     }
 
+    @Table("relationshipConfirmations")
     public struct RelationshipConfirmation: Codable, Equatable, Sendable {
         public static let collection = RelationshipCollection.confirmation
         public static let nsid = collection.nsid
 
         public var type: String
-        public var relationship: Relationship.RecordReference
+        @Column(as: OpenMusicEvent.Relationship.RecordReference.JSONRepresentation.self)
+        public var relationship: OpenMusicEvent.Relationship.RecordReference
         public var status: Status
-        public var createdAt: RelationshipTimestamp
+        public var createdAt: String
 
         public init(
             type: String = Self.collection.rawValue,
-            relationship: Relationship.RecordReference,
+            relationship: OpenMusicEvent.Relationship.RecordReference,
             status: Status = .accepted,
-            createdAt: RelationshipTimestamp
+            createdAt: String
         ) {
             self.type = type
             self.relationship = relationship
@@ -134,9 +140,9 @@ extension OpenMusicEvent {
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             type = try container.decodeIfPresent(String.self, forKey: .type) ?? Self.collection.rawValue
-            relationship = try container.decode(Relationship.RecordReference.self, forKey: .relationship)
+            relationship = try container.decode(OpenMusicEvent.Relationship.RecordReference.self, forKey: .relationship)
             status = try container.decode(Status.self, forKey: .status)
-            createdAt = try container.decode(RelationshipTimestamp.self, forKey: .createdAt)
+            createdAt = try container.decode(String.self, forKey: .createdAt)
         }
     }
 }
@@ -278,7 +284,7 @@ extension OpenMusicEvent.Relationship {
         }
     }
 
-    public struct Role: Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral, RawRepresentable {
+    public struct Role: Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral, RawRepresentable, SQLiteType {
         public var rawValue: String
 
         public init(_ rawValue: String) {
@@ -354,7 +360,7 @@ extension OpenMusicEvent.Relationship {
 }
 
 extension OpenMusicEvent.RelationshipConfirmation {
-    public struct Status: Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral, RawRepresentable {
+    public struct Status: Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral, RawRepresentable, SQLiteType {
         public var rawValue: String
 
         public init(_ rawValue: String) {

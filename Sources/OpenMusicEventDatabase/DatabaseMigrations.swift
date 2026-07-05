@@ -467,6 +467,41 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Create OpenMusicEvent relationship schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "relationships" (
+                      "type" TEXT NOT NULL,
+                      "subject" TEXT NOT NULL,
+                      "role" TEXT NOT NULL,
+                      "object" TEXT,
+                      "createdAt" TEXT NOT NULL
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE INDEX IF NOT EXISTS "relationships_role_createdAt"
+                    ON "relationships" ("role", "createdAt")
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "relationshipConfirmations" (
+                      "type" TEXT NOT NULL,
+                      "relationship" TEXT NOT NULL,
+                      "status" TEXT NOT NULL,
+                      "createdAt" TEXT NOT NULL
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE INDEX IF NOT EXISTS "relationshipConfirmations_status_createdAt"
+                    ON "relationshipConfirmations" ("status", "createdAt")
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

@@ -104,6 +104,71 @@ struct DatabaseMigrationTests {
     }
 
     @Test
+    func relationshipSchemaMigrationCreatesRelationshipTables() async throws {
+        let database = try migratedDatabase()
+
+        try await database.write { db in
+            #expect(try db.tableExists("relationships"))
+            #expect(try db.tableExists("relationshipConfirmations"))
+
+            let relationshipColumns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('relationships')"#
+            )
+            #expect(relationshipColumns == [
+                "type",
+                "subject",
+                "role",
+                "object",
+                "createdAt",
+            ])
+
+            let confirmationColumns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('relationshipConfirmations')"#
+            )
+            #expect(confirmationColumns == [
+                "type",
+                "relationship",
+                "status",
+                "createdAt",
+            ])
+
+            let owner = try #require(DID("did:plc:owner"))
+            let contributor = OME.Relationship.RecordReference(
+                author: owner,
+                collection: OME.Contributor.nsid,
+                rkey: ATProto.Record.Key("runekey")
+            )
+            let performance = OME.Relationship.RecordReference(
+                author: owner,
+                collection: OME.Performance.nsid,
+                rkey: ATProto.Record.Key("friday-the-portal-1")
+            )
+            let relationship = OME.Relationship(
+                subject: contributor,
+                role: .performer,
+                object: performance,
+                createdAt: "2026-07-04T12:00:00Z"
+            )
+
+            try OME.Relationship.insert { relationship }.execute(db)
+
+            let relationshipURI = try #require(ATProto.URI("at://did:plc:owner/app.openmusicevent.relationship/3relationship"))
+            let confirmation = OME.RelationshipConfirmation(
+                relationship: .init(uri: relationshipURI, cid: "bafy-relationship"),
+                status: .accepted,
+                createdAt: "2026-07-04T12:05:00Z"
+            )
+
+            try OME.RelationshipConfirmation.insert { confirmation }.execute(db)
+
+            #expect(try OME.Relationship.fetchAll(db) == [relationship])
+            #expect(try OME.RelationshipConfirmation.fetchAll(db) == [confirmation])
+        }
+    }
+
+    @Test
     func eventSearchTextTriggersInsertDocumentText() async throws {
         let database = try migratedDatabase()
         let eventID = try await seedSearchEvent(in: database)
