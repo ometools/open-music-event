@@ -994,28 +994,26 @@ struct ScheduleAuthoringTests {
                 ),
                 EditPerformance.State.Contribution(
                     id: 1,
-                    selection: .performanceDisplayName(name: "Guest Artist")
+                    selection: .performanceDisplayName(name: "Guest Artist"),
+                    billing: .supporting
                 ),
             ]
             $0.contributorRelationshipPicker.searchQuery = ""
-            $0.generatedTitle = "Artist One b2b Guest Artist"
             $0.nextContributionID = 2
+        }
+
+        store.send(.contributionBillingButtonTapped(1, .primary)) {
+            $0.contributions[1].billing = .primary
+            $0.generatedTitle = "Artist One b2b Guest Artist"
             $0.title = "Artist One b2b Guest Artist"
         }
-
-        store.send(.contributionBillingButtonTapped(1, .supporting)) {
-            $0.contributions[1].billing = .supporting
-            $0.generatedTitle = "Artist One"
-            $0.title = "Artist One"
-        }
-
         store.send(.titleTextChanged("Custom Set")) {
             $0.title = "Custom Set"
             $0.titleIsGenerated = false
         }
-        store.send(.contributionBillingButtonTapped(1, .primary)) {
-            $0.contributions[1].billing = .primary
-            $0.generatedTitle = "Artist One b2b Guest Artist"
+        store.send(.contributionBillingButtonTapped(1, .supporting)) {
+            $0.contributions[1].billing = .supporting
+            $0.generatedTitle = "Artist One"
         }
         #expect(store.state.title == "Custom Set")
     }

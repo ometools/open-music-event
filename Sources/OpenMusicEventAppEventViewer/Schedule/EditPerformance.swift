@@ -118,27 +118,20 @@ public struct EditPerformance {
             public var roleSelection: RelationshipRoleSelection?
             public var customRelationshipRole: String
 
-            var roleTitle: String {
-                guard let roleSelection else { return "Role" }
-                if roleSelection == .custom {
-                    return trimmedCustomRelationshipRole.nilIfEmpty ?? "Custom"
-                }
-                return roleSelection.title
-            }
-
-            var rowAccessoryTitle: String {
-                guard roleSelection != nil else { return billing.title }
-                return billing == .primary
-                    ? roleTitle
-                    : "\(roleTitle) - \(billing.title)"
-            }
-
             var hasEmptyCustomRelationshipRole: Bool {
                 roleSelection == .custom && trimmedCustomRelationshipRole.isEmpty
             }
 
             var trimmedCustomRelationshipRole: String {
                 customRelationshipRole.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            var roleMenuTitle: String {
+                guard let roleSelection else { return "No role" }
+                if roleSelection == .custom {
+                    return trimmedCustomRelationshipRole.nilIfEmpty ?? roleSelection.title
+                }
+                return roleSelection.title
             }
 
             fileprivate var contributorSubject: EditPerformanceContributorSubject {
@@ -324,7 +317,7 @@ public struct EditPerformance {
 
         mutating func appendContribution(
             selection: ContributorRelationshipPicker.Selection,
-            billing: OMERecord.Performance.Contributors.Billing = .primary,
+            billing: OMERecord.Performance.Contributors.Billing? = nil,
             roleSelection: RelationshipRoleSelection? = nil,
             customRelationshipRole: String = ""
         ) {
@@ -333,7 +326,7 @@ public struct EditPerformance {
                 Contribution(
                     id: nextContributionID,
                     selection: selection,
-                    billing: billing,
+                    billing: billing ?? defaultBillingForNewContribution,
                     roleSelection: roleSelection,
                     customRelationshipRole: customRelationshipRole
                 )
@@ -394,6 +387,12 @@ public struct EditPerformance {
             } else if title != newGeneratedTitle {
                 titleIsGenerated = false
             }
+        }
+
+        private var defaultBillingForNewContribution: OMERecord.Performance.Contributors.Billing {
+            contributions.contains { $0.billing == .primary }
+                ? .supporting
+                : .primary
         }
 
         private func generatedPerformanceTitle() -> String {
@@ -1078,16 +1077,7 @@ public struct EditPerformanceView: View {
                 }
             }
 
-            contributionRows(
-                store.primaryContributions,
-                title: "Primary Contributors"
-            )
-            contributionRows(
-                store.supportingContributions,
-                title: "Supporting Contributors"
-            )
-
-            ContributorRelationshipGroupHeader(title: "Add Contributor")
+            contributionRows(store.primaryContributions + store.supportingContributions)
             ContributorRelationshipPickerRows(
                 store: store.scope(
                     \.contributorRelationshipPicker,
@@ -1123,11 +1113,9 @@ public struct EditPerformanceView: View {
 
     @ViewBuilder
     private func contributionRows(
-        _ contributions: [EditPerformance.State.Contribution],
-        title: String
+        _ contributions: [EditPerformance.State.Contribution]
     ) -> some View {
         if !contributions.isEmpty {
-            ContributorRelationshipGroupHeader(title: title)
             ForEach(contributions) { contribution in
                 let summary = store.contributorRelationshipPicker.summary(
                     for: contribution.selection
@@ -1135,15 +1123,9 @@ public struct EditPerformanceView: View {
                 EditPerformanceContributionRow(
                     title: summary?.title ?? "Contributor",
                     subtitle: summary?.subtitle,
-                    accessoryTitle: contribution.rowAccessoryTitle,
-                    billingButtonTapped: { billing in
-                        store.send(
-                            .contributionBillingButtonTapped(
-                                contribution.id,
-                                billing
-                            )
-                        )
-                    },
+                    isPrimary: contribution.billing == .primary,
+                    roleTitle: contribution.roleMenuTitle,
+                    roleSelection: contribution.roleSelection,
                     roleButtonTapped: { roleSelection in
                         store.send(
                             .contributionRoleButtonTapped(
@@ -1151,9 +1133,6 @@ public struct EditPerformanceView: View {
                                 roleSelection
                             )
                         )
-                    },
-                    deleteButtonTapped: {
-                        store.send(.contributionDeleteButtonTapped(contribution.id))
                     }
                 )
                 .swipeActions {
@@ -1162,8 +1141,24 @@ public struct EditPerformanceView: View {
                     }
                 }
                 .contextMenu {
-                    Button("Delete", role: .destructive) {
-                        store.send(.contributionDeleteButtonTapped(contribution.id))
+                    if contribution.billing == .primary {
+                        Button("Remove as primary") {
+                            store.send(
+                                .contributionBillingButtonTapped(
+                                    contribution.id,
+                                    .supporting
+                                )
+                            )
+                        }
+                    } else {
+                        Button("Set as primary") {
+                            store.send(
+                                .contributionBillingButtonTapped(
+                                    contribution.id,
+                                    .primary
+                                )
+                            )
+                        }
                     }
                 }
 
@@ -1211,15 +1206,23 @@ public struct EditPerformanceView: View {
 struct EditPerformanceContributionRow: View {
     let title: String
     let subtitle: String?
-    let accessoryTitle: String
-    let billingButtonTapped: (OMERecord.Performance.Contributors.Billing) -> Void
+    let isPrimary: Bool
+    let roleTitle: String
+    let roleSelection: EditPerformance.State.RelationshipRoleSelection?
     let roleButtonTapped: (EditPerformance.State.RelationshipRoleSelection?) -> Void
-    let deleteButtonTapped: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
+                HStack(spacing: 6) {
+                    if isPrimary {
+                        Image(systemName: "star")
+                            .font(.caption)
+                            .foregroundStyle(.tint)
+                            .accessibilityLabel("Primary contributor")
+                    }
+                    Text(title)
+                }
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)
@@ -1227,50 +1230,30 @@ struct EditPerformanceContributionRow: View {
                 }
             }
             Spacer()
+
             Menu {
-                Button("Primary contributor") {
-                    billingButtonTapped(.primary)
-                }
-                Button("Supporting contributor") {
-                    billingButtonTapped(.supporting)
-                }
-                Divider()
                 Button("No role") {
                     roleButtonTapped(nil)
                 }
-                Divider()
                 ForEach(
-                    EditPerformance.State.RelationshipRoleSelection.commonCases,
+                    EditPerformance.State.RelationshipRoleSelection.allCases,
                     id: \.self
-                ) { roleSelection in
-                    Button(roleSelection.title) {
-                        roleButtonTapped(roleSelection)
+                ) { role in
+                    Button(role.title) {
+                        roleButtonTapped(role)
                     }
                 }
-                Button("Custom") {
-                    roleButtonTapped(.custom)
-                }
-                Divider()
-                Button("Delete", role: .destructive) {
-                    deleteButtonTapped()
-                }
             } label: {
-                Text(accessoryTitle)
-                    .foregroundStyle(.secondary)
+                if roleSelection == nil {
+                    Text(roleTitle)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(roleTitle)
+                        .foregroundStyle(.tint)
+                }
             }
         }
         .padding(.vertical, 2)
-    }
-}
-
-private extension OMERecord.Performance.Contributors.Billing {
-    var title: String {
-        switch self {
-        case .primary:
-            return "Primary"
-        case .supporting:
-            return "Supporting"
-        }
     }
 }
 
