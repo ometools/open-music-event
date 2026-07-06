@@ -28,6 +28,7 @@ public extension OME {
             .fetchAll(db)
         let eventIDs = provenanceRecords.map(\.id).uniqued()
         let sourceProvenances = provenanceRecords.sourceProvenances()
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
 
         guard !eventIDs.isEmpty || !sourceProvenances.isEmpty else {
             return DeletedOrganizerSourceData(sourceProvenances: [])
@@ -40,6 +41,10 @@ public extension OME {
             }
             try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(referenceDatabase)
             try referenceDatabase.write { baselineDB in
+                try EditingWorkspaceRecord
+                    .where { $0.id.eq(workspaceID) }
+                    .delete()
+                    .execute(baselineDB)
                 try EventSourceProvenanceRecord
                     .where { $0.sourceBaselineID.eq(sourceBaselineID) }
                     .delete()
@@ -55,12 +60,16 @@ public extension OME {
             }
         }
 
-        try SourceBaselineRecord
-            .where { $0.id.eq(sourceBaselineID) }
+        try EditingWorkspaceRecord
+            .where { $0.id.eq(workspaceID) }
             .delete()
             .execute(db)
         try EventSourceProvenanceRecord
             .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+            .delete()
+            .execute(db)
+        try SourceBaselineRecord
+            .where { $0.id.eq(sourceBaselineID) }
             .delete()
             .execute(db)
 

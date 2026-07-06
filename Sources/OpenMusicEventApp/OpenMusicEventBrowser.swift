@@ -743,32 +743,32 @@ struct CalendarRowView: View {
 }
 
 @Feature
-public struct SourceDetail {
+public struct TeamWorkspaceDetail {
     public init() {}
 
     public struct State: Identifiable {
         public init(sourceBaselineID: SourceBaselineRecord.ID) {
             self.sourceBaselineID = sourceBaselineID
             _calendar = FetchOne(
-                SourceDetail.calendarQuery(sourceBaselineID: sourceBaselineID)
+                TeamWorkspaceDetail.calendarQuery(sourceBaselineID: sourceBaselineID)
             )
             _calendarEntries = FetchAll(
-                SourceDetail.calendarEntriesQuery(sourceBaselineID: sourceBaselineID)
+                TeamWorkspaceDetail.calendarEntriesQuery(sourceBaselineID: sourceBaselineID)
             )
             _sourceBaseline = FetchOne(
-                SourceDetail.sourceBaselineQuery(sourceBaselineID: sourceBaselineID)
+                TeamWorkspaceDetail.sourceBaselineQuery(sourceBaselineID: sourceBaselineID)
             )
             _organizer = FetchOne(
-                SourceDetail.organizerQuery(sourceBaselineID: sourceBaselineID)
+                TeamWorkspaceDetail.organizerQuery(sourceBaselineID: sourceBaselineID)
             )
             _events = FetchAll(
-                SourceDetail.eventsQuery(sourceBaselineID: sourceBaselineID)
+                TeamWorkspaceDetail.eventsQuery(sourceBaselineID: sourceBaselineID)
             )
         }
 
         var editCalendar: EditCalendar.State?
-        var sourceManagement: SourceManagement.State?
-        var isPreparingSourceManagement = false
+        var teamWorkspaceEditor: TeamWorkspaceEditor.State?
+        var isPreparingTeamWorkspaceEditor = false
 
         @DebugSnapshotIgnored
         @FetchOne
@@ -819,7 +819,7 @@ public struct SourceDetail {
         case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case manageSourceButtonTapped
-        case sourceManagement(SourceManagement.Action)
+        case teamWorkspaceEditor(TeamWorkspaceEditor.Action)
         case task
     }
 
@@ -964,16 +964,16 @@ public struct SourceDetail {
                 }
 
             case .manageSourceButtonTapped:
-                guard !state.isPreparingSourceManagement else { return }
+                guard !state.isPreparingTeamWorkspaceEditor else { return }
                 guard let calendarID = state.editableCalendarID,
                       let sourceBaseline = state.sourceBaseline
                 else { return }
                 let sourceBaselineID = sourceBaseline.id
                 let sourceEditModePreparation = sourceEditModePreparation
                 let sourceWorkspaceDatabase = sourceWorkspaceDatabase
-                state.isPreparingSourceManagement = true
+                state.isPreparingTeamWorkspaceEditor = true
                 store.addTask {
-                    let sourceManagement = await store.withErrorHandling(
+                    let teamWorkspaceEditor = await store.withErrorHandling(
                         fallbackMessage: .sourceEditPreparationFailed,
                         operation: .sourceEditPreparation
                     ) {
@@ -983,26 +983,25 @@ public struct SourceDetail {
                         return withDependencies {
                             $0.useSourceWorkspaceDatabase(sourceWorkspace)
                         } operation: {
-                            SourceManagement.State(
+                            TeamWorkspaceEditor.State(
                                 sourceBaselineID: sourceBaselineID,
-                                calendarID: calendarID,
-                                sourceWorkspaceDatabase: sourceWorkspace
+                                calendarID: calendarID
                             )
                         }
                     } cleanup: {
-                        $0.isPreparingSourceManagement = false
+                        $0.isPreparingTeamWorkspaceEditor = false
                     } parseError: {
                         SourceImportError.parser
                     }
 
-                    guard let sourceManagement else { return }
+                    guard let teamWorkspaceEditor else { return }
                     try store.modify {
-                        $0.isPreparingSourceManagement = false
-                        $0.sourceManagement = sourceManagement
+                        $0.isPreparingTeamWorkspaceEditor = false
+                        $0.teamWorkspaceEditor = teamWorkspaceEditor
                     }
                 }
 
-            case .sourceManagement:
+            case .teamWorkspaceEditor:
                 return
 
             case .task:
@@ -1012,10 +1011,13 @@ public struct SourceDetail {
         .ifLet(\.editCalendar, action: \.editCalendar) {
             EditCalendar()
         }
-        .ifLet(\.sourceManagement, action: \.sourceManagement) {
-            SourceManagement()
+        .ifLet(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor) {
+            TeamWorkspaceEditor()
                 .transformDependency(\.self) {
-                    guard let sourceWorkspace = store.sourceManagement?.sourceWorkspaceDatabase else {
+                    guard let sourceBaselineID = store.teamWorkspaceEditor?.sourceBaselineID,
+                          let sourceWorkspace = try? sourceWorkspaceDatabase
+                              .sourceBaseline(sourceBaselineID)
+                    else {
                         return
                     }
                     $0.useSourceWorkspaceDatabase(sourceWorkspace)
@@ -1024,11 +1026,11 @@ public struct SourceDetail {
     }
 }
 
-public struct SourceDetailView: View {
-    @Bindable var store: StoreOf<SourceDetail>
+public struct TeamWorkspaceDetailView: View {
+    @Bindable var store: StoreOf<TeamWorkspaceDetail>
     @Dependency(\.date.now) var now
 
-    public init(store: StoreOf<SourceDetail>) {
+    public init(store: StoreOf<TeamWorkspaceDetail>) {
         self.store = store
     }
 
@@ -1108,9 +1110,9 @@ public struct SourceDetailView: View {
                 EditCalendarView(store: editStore)
             }
         }
-        .sheet(item: $store.scope(\.sourceManagement, action: \.sourceManagement)) { sourceManagementStore in
+        .sheet(item: $store.scope(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor)) { teamWorkspaceEditorStore in
             NavigationStack {
-                SourceManagementView(store: sourceManagementStore)
+                TeamWorkspaceEditorView(store: teamWorkspaceEditorStore)
             }
         }
         .toolbar {
@@ -1120,10 +1122,10 @@ public struct SourceDetailView: View {
                 }
             }
             if store.canManageSource {
-                Button(store.isPreparingSourceManagement ? "Preparing Source" : "Manage Source") {
+                Button(store.isPreparingTeamWorkspaceEditor ? "Preparing Team Workspace" : "Manage Team Workspace") {
                     store.send(.manageSourceButtonTapped)
                 }
-                .disabled(store.isPreparingSourceManagement)
+                .disabled(store.isPreparingTeamWorkspaceEditor)
             }
         }
     }
@@ -1144,7 +1146,7 @@ public struct SourceDetailView: View {
 
     private var entryRows: CalendarDetail.EntryRows {
         return CalendarDetail.EntryRows(
-            entries: SourceDetail.displayEntries(
+            entries: TeamWorkspaceDetail.displayEntries(
                 calendarEntries: store.calendarEntries,
                 events: store.events,
                 sourceBaseline: store.sourceBaseline
@@ -1174,19 +1176,16 @@ public struct SourceDetailView: View {
 }
 
 @Feature
-public struct SourceManagement {
+public struct TeamWorkspaceEditor {
     public init() {}
 
     public struct State: Identifiable {
         public init(
             sourceBaselineID: SourceBaselineRecord.ID,
-            calendarID: OMERecord.Calendar.ID,
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase? = nil
+            calendarID: OMERecord.Calendar.ID
         ) {
             self.sourceBaselineID = sourceBaselineID
             self.calendarID = calendarID
-            self.sourceWorkspaceDatabase = sourceWorkspaceDatabase
-            let database = sourceWorkspaceDatabase?.database
             self._editSummary = Fetch(
                 wrappedValue: SourceEditSummary(
                     sourceBaselineID: sourceBaselineID,
@@ -1196,12 +1195,10 @@ public struct SourceManagement {
                 SourceEditSummaryRequest(
                     sourceBaselineID: sourceBaselineID,
                     calendarID: calendarID
-                ),
-                database: database
+                )
             )
             self._sourceBaseline = FetchOne(
-                SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) },
-                database: database
+                SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
             )
         }
 
@@ -1218,8 +1215,6 @@ public struct SourceManagement {
         @FetchOne public var sourceBaseline: SourceBaselineRecord?
 
         public let sourceBaselineID: SourceBaselineRecord.ID
-        @DebugSnapshotIgnored
-        public var sourceWorkspaceDatabase: SourceWorkspaceDatabase?
         public var sourcePatchStatus: EditEvent.SourcePatchStatus = .notGenerated
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
@@ -1255,11 +1250,12 @@ public struct SourceManagement {
 
     @Feature
     public enum Destination {
-        case createEvent(Spawn<SourceManagementCreateEvent>)
+        case createEvent(Spawn<TeamWorkspaceCreateEvent>)
     }
 
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
     var sourcePatchGenerator
+    @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
 
     public var body: some Feature {
         Update { state, action in
@@ -1282,7 +1278,7 @@ public struct SourceManagement {
                     } cleanup: {
                         $0.sourcePatchStatus = .failed(
                             EditEvent.SourcePatchGenerationFailure(
-                                SourceManagementSourcePatchGenerationError()
+                                TeamWorkspaceEditorSourcePatchGenerationError()
                             )
                         )
                     }
@@ -1296,7 +1292,7 @@ public struct SourceManagement {
             case .createEventButtonTapped:
                 state.destination = .createEvent(
                     Spawn(
-                        SourceManagementCreateEvent.State(
+                        TeamWorkspaceCreateEvent.State(
                             sourceBaselineID: state.sourceBaselineID,
                             calendarID: state.calendarID
                         )
@@ -1356,7 +1352,9 @@ public struct SourceManagement {
         .ifLet(\.destination, action: \.destination) {
             Destination.body
                 .transformDependency(\.self) {
-                    guard let sourceWorkspace = store.sourceWorkspaceDatabase else {
+                    guard let sourceWorkspace = try? sourceWorkspaceDatabase
+                        .sourceBaseline(store.sourceBaselineID)
+                    else {
                         return
                     }
                     $0.useSourceWorkspaceDatabase(sourceWorkspace)
@@ -1368,10 +1366,10 @@ public struct SourceManagement {
     }
 }
 
-public struct SourceManagementView: View {
-    @Bindable var store: StoreOf<SourceManagement>
+public struct TeamWorkspaceEditorView: View {
+    @Bindable var store: StoreOf<TeamWorkspaceEditor>
 
-    public init(store: StoreOf<SourceManagement>) {
+    public init(store: StoreOf<TeamWorkspaceEditor>) {
         self.store = store
     }
 
@@ -1392,7 +1390,7 @@ public struct SourceManagementView: View {
         .navigationTitle("Source")
         .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
             NavigationStack {
-                SourceManagementCreateEventView(store: createEventStore)
+                TeamWorkspaceCreateEventView(store: createEventStore)
             }
         }
         .toolbar {
@@ -1412,7 +1410,7 @@ public struct SourceManagementView: View {
     }
 }
 
-private struct SourceManagementSourcePatchGenerationError: Error {}
+private struct TeamWorkspaceEditorSourcePatchGenerationError: Error {}
 
 struct SourceBaselineIndicatorView: View {
     let sourceBaseline: SourceBaselineRecord

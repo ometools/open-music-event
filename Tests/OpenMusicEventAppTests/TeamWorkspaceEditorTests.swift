@@ -20,9 +20,9 @@ private typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 
 @MainActor
 @Suite(.tcaExhaustivity(.off))
-struct SourceManagementTests {
+struct TeamWorkspaceEditorTests {
     @Test
-    func sourceManagementUsesOrganizerSourceScope() throws {
+    func teamWorkspaceEditorUsesOrganizerSourceScope() throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
         let calendarID = OMERecord.Calendar.ID(
@@ -35,12 +35,12 @@ struct SourceManagementTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: SourceManagement.State(
+                initialState: TeamWorkspaceEditor.State(
                     sourceBaselineID: sourceBaselineID,
                     calendarID: calendarID
                 )
             ) {
-                SourceManagement()
+                TeamWorkspaceEditor()
             }
         }
 
@@ -106,12 +106,12 @@ struct SourceManagementTests {
                 }
         } operation: {
             TestStore(
-                initialState: SourceManagement.State(
+                initialState: TeamWorkspaceEditor.State(
                     sourceBaselineID: sourceBaselineID,
                     calendarID: calendarID
                 )
             ) {
-                SourceManagement()
+                TeamWorkspaceEditor()
             }
         }
 
@@ -152,13 +152,13 @@ struct SourceManagementTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            var state = SourceManagement.State(
+            var state = TeamWorkspaceEditor.State(
                 sourceBaselineID: sourceBaselineID,
                 calendarID: calendarID
             )
             state.sourcePatchStatus = .generated(patch)
             return TestStore(initialState: state) {
-                SourceManagement()
+                TeamWorkspaceEditor()
             }
         }
 
@@ -185,24 +185,24 @@ struct SourceManagementTests {
             $0.defaultDatabase = database
             $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
                 SourcePatchGenerator { _ in
-                    throw SourceManagementPatchFailure()
+                    throw TeamWorkspaceEditorPatchFailure()
                 }
         } operation: {
             TestStore(
-                initialState: SourceManagementErrorHost.State(
+                initialState: TeamWorkspaceEditorErrorHost.State(
                     sourceBaselineID: sourceBaselineID,
                     calendarID: calendarID
                 )
             ) {
-                SourceManagementErrorHost()
+                TeamWorkspaceEditorErrorHost()
             }
         }
 
         await withIssueReporters([]) {
-            await store.send(to: \.sourceManagement, .generateSourcePatchButtonTapped)?.value
+            await store.send(to: \.teamWorkspaceEditor, .generateSourcePatchButtonTapped)?.value
         }
 
-        guard case .failed = store.state.sourceManagement.state.sourcePatchStatus else {
+        guard case .failed = store.state.teamWorkspaceEditor.state.sourcePatchStatus else {
             Issue.record("Expected source patch status to be failed.")
             return
         }
@@ -228,12 +228,12 @@ struct SourceManagementTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: SourceManagement.State(
+                initialState: TeamWorkspaceEditor.State(
                     sourceBaselineID: sourceBaselineID,
                     calendarID: calendarID
                 )
             ) {
-                SourceManagement()
+                TeamWorkspaceEditor()
             }
         }
 
@@ -318,7 +318,9 @@ struct SourceManagementTests {
                 stages: try OMERecord.Stage.fetchAll(db),
                 schedules: try OMERecord.Schedule.fetchAll(db),
                 calendarEntries: try OMERecord.CalendarEntry.fetchAll(db),
-                sourceProvenances: try EventSourceProvenanceRecord.fetchAll(db)
+                sourceProvenances: try EventSourceProvenanceRecord.fetchAll(db),
+                workspaces: try EditingWorkspaceRecord.fetchAll(db),
+                eventWorkspaces: try EventEditingWorkspaceRecord.fetchAll(db)
             )
         }
         let event = try #require(rows.events.first)
@@ -327,6 +329,8 @@ struct SourceManagementTests {
         let schedule = try #require(rows.schedules.first)
         let calendarEntry = try #require(rows.calendarEntries.first)
         let sourceProvenanceRecord = try #require(rows.sourceProvenances.first)
+        let workspace = try #require(rows.workspaces.first)
+        let eventWorkspace = try #require(rows.eventWorkspaces.first)
 
         #expect(rows.events.count == 1)
         expectNoDifference(rows.organizers.map(\.id), [organizerID])
@@ -335,6 +339,8 @@ struct SourceManagementTests {
         #expect(rows.schedules.count == 1)
         #expect(rows.calendarEntries.count == 1)
         #expect(rows.sourceProvenances.count == 1)
+        #expect(rows.workspaces.count == 1)
+        #expect(rows.eventWorkspaces.count == 1)
         #expect(event.id == expectedEventID)
         #expect(event.name == "Wicked Woods 2026")
         #expect(event.startDate == LocalDate("2026-08-01"))
@@ -367,6 +373,11 @@ struct SourceManagementTests {
         #expect(sourceProvenanceRecord.ref == sourceProvenance.ref)
         #expect(sourceProvenanceRecord.eventIDOrigin == .inferred)
         #expect(sourceProvenanceRecord.sourceEventDirectory == "2026")
+        #expect(workspace.id == EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaseline.id))
+        #expect(workspace.kind == .team)
+        #expect(workspace.sourceBaselineID == sourceBaseline.id)
+        #expect(eventWorkspace.id == expectedEventID)
+        #expect(eventWorkspace.workspaceID == workspace.id)
 
         let eventYMLURL = repositoryURL
             .appending(path: "events", directoryHint: .isDirectory)
@@ -418,7 +429,7 @@ struct SourceManagementTests {
                 $0.date = .constant(Date(timeIntervalSince1970: 0))
             } operation: {
                 TestStore(initialState: initialState) {
-                    SourceManagementCreateEvent()
+                    TeamWorkspaceCreateEvent()
                 }
             }
 
@@ -446,7 +457,7 @@ struct SourceManagementTests {
             $0.date = .constant(Date(timeIntervalSince1970: 0))
         } operation: {
             TestStore(initialState: initialState) {
-                SourceManagementCreateEvent()
+                TeamWorkspaceCreateEvent()
             }
         }
 
@@ -529,10 +540,10 @@ private func makePreparedDatabase() throws -> any DatabaseWriter {
 
 @MainActor
 private func makeCreateEventStore(
-    initialState: SourceManagementCreateEvent.State,
+    initialState: TeamWorkspaceCreateEvent.State,
     database: any DatabaseWriter,
     updateDependencies: (inout DependencyValues) -> Void = { _ in }
-) -> TestStore<SourceManagementCreateEvent> {
+) -> TestStore<TeamWorkspaceCreateEvent> {
     withDependencies {
         $0.context = .test
         $0.date = .constant(Date(timeIntervalSince1970: 0))
@@ -540,7 +551,7 @@ private func makeCreateEventStore(
         updateDependencies(&$0)
     } operation: {
         TestStore(initialState: initialState) {
-            SourceManagementCreateEvent()
+            TeamWorkspaceCreateEvent()
         }
     }
 }
@@ -548,12 +559,12 @@ private func makeCreateEventStore(
 private func makeCreateEventState(
     sourceBaselineID: SourceBaselineRecord.ID,
     calendarID: OMERecord.Calendar.ID
-) -> SourceManagementCreateEvent.State {
+) -> TeamWorkspaceCreateEvent.State {
     withDependencies {
         $0.context = .test
         $0.date = .constant(Date(timeIntervalSince1970: 0))
     } operation: {
-        SourceManagementCreateEvent.State(
+        TeamWorkspaceCreateEvent.State(
             sourceBaselineID: sourceBaselineID,
             calendarID: calendarID
         )
@@ -636,17 +647,17 @@ private actor SourceEditPreparationRecorder {
     }
 }
 
-private struct SourceManagementPatchFailure: Error {}
+private struct TeamWorkspaceEditorPatchFailure: Error {}
 
 @Feature
-private struct SourceManagementErrorHost {
+private struct TeamWorkspaceEditorErrorHost {
     struct State {
         init(
             sourceBaselineID: SourceBaselineRecord.ID,
             calendarID: OMERecord.Calendar.ID
         ) {
-            sourceManagement = Spawn(
-                SourceManagement.State(
+            teamWorkspaceEditor = Spawn(
+                TeamWorkspaceEditor.State(
                     sourceBaselineID: sourceBaselineID,
                     calendarID: calendarID
                 )
@@ -654,15 +665,15 @@ private struct SourceManagementErrorHost {
         }
 
         var errorNotifications = Spawn(ErrorNotifications.State())
-        var sourceManagement: Spawn<SourceManagement>
+        var teamWorkspaceEditor: Spawn<TeamWorkspaceEditor>
     }
 
     enum Action {}
 
     var body: some Feature {
         Update { _, _ in }
-            .spawn(\.sourceManagement) {
-                SourceManagement()
+            .spawn(\.teamWorkspaceEditor) {
+                TeamWorkspaceEditor()
             }
             .spawn(\.errorNotifications) {
                 ErrorNotifications()

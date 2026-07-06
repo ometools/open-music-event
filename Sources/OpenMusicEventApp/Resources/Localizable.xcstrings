@@ -230,7 +230,7 @@
     "Directory" : {
 
     },
-    "Downloaded Sources" : {
+    "Team Workspaces" : {
 
     },
     "Edit Calendar" : {
@@ -365,7 +365,7 @@
     "Import" : {
 
     },
-    "Import Source" : {
+    "Import Team Workspace" : {
 
     },
     "Imported" : {
@@ -400,7 +400,7 @@
         }
       }
     },
-    "Manage Source" : {
+    "Manage Team Workspace" : {
 
     },
     "My Events" : {
@@ -502,7 +502,7 @@
         }
       }
     },
-    "Preparing Source" : {
+    "Preparing Team Workspace" : {
 
     },
     "Previous Events" : {
@@ -655,7 +655,7 @@
     "This organizer has no events." : {
 
     },
-    "This permanently deletes the selected event data from this device. Downloaded source trees can be re-imported from the Tangled workspace, but created events are not cached off device." : {
+    "This permanently deletes the selected event data from this device. Team workspace source trees can be re-imported from the Tangled workspace, but created events are not cached off device." : {
 
     },
     "This source has no events." : {

@@ -1,7 +1,12 @@
 import ComposableArchitecture2
+import CustomDump
 import Dependencies
 import Foundation
+import OpenMusicEventAppEventViewer
+import OpenMusicEventDatabase
+import OpenMusicEventSourceEditing
 import SQLiteData
+import SourceEditing
 import Testing
 
 @testable import OpenMusicEventApp
@@ -62,6 +67,7 @@ struct CreateEventTests {
     @Test
     func savesMinimalEvent() async throws {
         let database = try makePreparedDatabase()
+        let workspaceReferenceDirectory = try temporaryDirectoryURL()
         let store = makeStore(
             initialState: makeState {
                 $0.eventName = "Testival 2026"
@@ -71,6 +77,7 @@ struct CreateEventTests {
                 $0.endDateSelection = makeLocalDate(year: 1970, month: 1, day: 3)
             },
             database: database,
+            workspaceReferenceDirectory: workspaceReferenceDirectory,
             uuid: UUID(1)
         )
 
@@ -92,6 +99,12 @@ struct CreateEventTests {
         let schedules = try await database.read { db in
             try OMERecord.Schedule.fetchAll(db)
         }
+        let workspaces = try await database.read { db in
+            try EditingWorkspaceRecord.fetchAll(db)
+        }
+        let eventWorkspaces = try await database.read { db in
+            try EventEditingWorkspaceRecord.fetchAll(db)
+        }
         let eventOrganizerCount = try await database.read { db in
             try OMERecord.EventOrganizer.fetchCount(db)
         }
@@ -99,6 +112,8 @@ struct CreateEventTests {
         #expect(organizers.count == 1)
         #expect(stages.count == 1)
         #expect(schedules.count == 1)
+        #expect(workspaces.count == 1)
+        #expect(eventWorkspaces.count == 1)
         #expect(eventOrganizerCount == 0)
 
         let event = try #require(events.first)
@@ -137,6 +152,163 @@ struct CreateEventTests {
         #expect(schedule.startsAt == nil)
         #expect(schedule.endsAt == nil)
         #expect(schedule.customTitle == nil)
+
+        let workspace = try #require(workspaces.first)
+        let eventWorkspace = try #require(eventWorkspaces.first)
+        #expect(workspace.id == EditingWorkspaceRecord.ID(localEventID: event.id))
+        #expect(workspace.kind == .local)
+        #expect(workspace.sourceBaselineID == nil)
+        #expect(eventWorkspace.id == event.id)
+        #expect(eventWorkspace.workspaceID == workspace.id)
+
+        let existingBaselineDatabase = try WorkspaceReferenceDatabaseClient
+            .fileBacked(localReferenceDirectory: workspaceReferenceDirectory)
+            .existing(workspace)
+        let baselineDatabase = try #require(existingBaselineDatabase)
+        let baselineEvent = try baselineDatabase.read { db in
+            try OMERecord.Event
+                .where { $0.id.eq(event.id) }
+                .fetchOne(db)
+        }
+        let baselineWorkspace = try baselineDatabase.read { db in
+            try EditingWorkspaceRecord
+                .where { $0.id.eq(workspace.id) }
+                .fetchOne(db)
+        }
+        let baselineEventWorkspace = try baselineDatabase.read { db in
+            try EventEditingWorkspaceRecord
+                .where { $0.id.eq(event.id) }
+                .fetchOne(db)
+        }
+        #expect(baselineEvent?.name == "Testival 2026")
+        #expect(baselineWorkspace == workspace)
+        #expect(baselineEventWorkspace == eventWorkspace)
+    }
+
+    @Test
+    func localEventStartsWithNoUnpublishedChanges() async throws {
+        let fixture = try await createLocalEvent(
+            name: "Testival 2026",
+            uuid: UUID(3)
+        )
+
+        let summary = try await eventEditSummary(
+            eventID: fixture.eventID,
+            database: fixture.database,
+            workspaceReferenceDirectory: fixture.workspaceReferenceDirectory
+        )
+
+        #expect(summary.eventID == fixture.eventID)
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 0)
+        #expect(summary.badgeCount == nil)
+    }
+
+    @Test
+    func editingLocalEventIncrementsUnpublishedChanges() async throws {
+        let fixture = try await createLocalEvent(
+            name: "Testival 2026",
+            uuid: UUID(4)
+        )
+
+        try await fixture.database.write { db in
+            try OMERecord.Event
+                .find(fixture.eventID)
+                .update { $0.name = "Updated Testival" }
+                .execute(db)
+        }
+
+        let summary = try await eventEditSummary(
+            eventID: fixture.eventID,
+            database: fixture.database,
+            workspaceReferenceDirectory: fixture.workspaceReferenceDirectory
+        )
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 1)
+        #expect(summary.badgeCount == 1)
+        let eventGroup = try #require(
+            summary.groups.first { $0.id == OMERecord.Event.tableName }
+        )
+        #expect(eventGroup.modified == 1)
+        let eventRecord = try #require(eventGroup.records.first)
+        expectNoDifference(
+            eventRecord.fieldChanges,
+            [
+                SourceFieldChange(
+                    columnName: "name",
+                    baselineValue: "Testival 2026".databaseValue,
+                    workingValue: "Updated Testival".databaseValue
+                )
+            ]
+        )
+    }
+
+    @Test
+    func resetRestoresLocalEventFromBaseline() async throws {
+        let fixture = try await createLocalEvent(
+            name: "Testival 2026",
+            uuid: UUID(5)
+        )
+
+        try await fixture.database.write { db in
+            try OMERecord.Event
+                .find(fixture.eventID)
+                .update { $0.name = "Updated Testival" }
+                .execute(db)
+        }
+
+        try withDependencies {
+            $0.defaultDatabase = fixture.database
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0.workspaceReferenceDatabase = .fileBacked(
+                localReferenceDirectory: fixture.workspaceReferenceDirectory
+            )
+        } operation: {
+            try OpenMusicEventEditResetter.openMusicEvent.reset(fixture.eventID)
+        }
+
+        let restoredEvent = try await fixture.database.read { db in
+            try OMERecord.Event
+                .where { $0.id.eq(fixture.eventID) }
+                .fetchOne(db)
+        }
+        let summary = try await eventEditSummary(
+            eventID: fixture.eventID,
+            database: fixture.database,
+            workspaceReferenceDirectory: fixture.workspaceReferenceDirectory
+        )
+
+        #expect(restoredEvent?.name == "Testival 2026")
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 0)
+        #expect(summary.badgeCount == nil)
+    }
+
+    @Test
+    func localEventDoesNotGenerateSourceProposalPatch() async throws {
+        let fixture = try await createLocalEvent(
+            name: "Testival 2026",
+            uuid: UUID(6)
+        )
+        let store = withDependencies {
+            $0.defaultDatabase = fixture.database
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0.workspaceReferenceDatabase = .fileBacked(
+                localReferenceDirectory: fixture.workspaceReferenceDirectory
+            )
+            $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = SourcePatchGenerator {
+                _ in SourcePatch()
+            }
+        } operation: {
+            TestStore(initialState: EditEvent.State(eventID: fixture.eventID)) {
+                EditEvent()
+            }
+        }
+
+        store.send(.generateSourcePatchButtonTapped)
+
+        #expect(store.state.sourcePatchStatus == .notGenerated)
     }
 
     @Test
@@ -214,6 +386,8 @@ struct CreateEventTests {
     private func makeStore(
         initialState: CreateEvent.State = CreateEvent.State(),
         database: any DatabaseWriter,
+        workspaceReferenceDirectory: URL = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory),
         uuid: UUID = UUID(0),
         updateDependencies: (inout DependencyValues) -> Void = { _ in }
     ) -> TestStore<CreateEvent> {
@@ -221,7 +395,11 @@ struct CreateEventTests {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
             $0.uuid = .constant(uuid)
+            $0.workspaceReferenceDatabase = .fileBacked(
+                localReferenceDirectory: workspaceReferenceDirectory
+            )
             updateDependencies(&$0)
         } operation: {
             TestStore(initialState: initialState) {
@@ -252,6 +430,67 @@ struct CreateEventTests {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
         return calendar.date(from: DateComponents(year: year, month: month, day: day, hour: 12))!
+    }
+
+    private struct LocalEventFixture {
+        var database: any DatabaseWriter
+        var eventID: OMERecord.Event.ID
+        var workspaceReferenceDirectory: URL
+    }
+
+    private func createLocalEvent(
+        name: String,
+        uuid: UUID
+    ) async throws -> LocalEventFixture {
+        let database = try makePreparedDatabase()
+        let workspaceReferenceDirectory = try temporaryDirectoryURL()
+        let store = makeStore(
+            initialState: makeState {
+                $0.eventName = name
+                $0.hasStartDate = true
+                $0.startDateSelection = makeLocalDate(year: 1970, month: 1, day: 2)
+            },
+            database: database,
+            workspaceReferenceDirectory: workspaceReferenceDirectory,
+            uuid: uuid
+        )
+
+        await store.send(.saveButtonTapped)?.value
+
+        let event = try await database.read { db in
+            let event = try OMERecord.Event.fetchOne(db)
+            return try #require(event)
+        }
+        return LocalEventFixture(
+            database: database,
+            eventID: event.id,
+            workspaceReferenceDirectory: workspaceReferenceDirectory
+        )
+    }
+
+    private func eventEditSummary(
+        eventID: OMERecord.Event.ID,
+        database: any DatabaseWriter,
+        workspaceReferenceDirectory: URL
+    ) async throws -> EventEditSummary {
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0.workspaceReferenceDatabase = .fileBacked(
+                localReferenceDirectory: workspaceReferenceDirectory
+            )
+        } operation: {
+            try await database.read { db in
+                try EventEditSummaryRequest(eventID: eventID).fetch(db)
+            }
+        }
+    }
+
+    private func temporaryDirectoryURL() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
 }

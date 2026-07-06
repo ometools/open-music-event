@@ -220,6 +220,22 @@ extension OrganizerSourceWorkspaceClient {
                         )
                     }
                     .execute(db)
+
+                    let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
+                    try EditingWorkspaceRecord.insert {
+                        workspace
+                    } onConflict: {
+                        $0.id
+                    }
+                    .execute(db)
+
+                    try EventEditingWorkspaceRecord.insert {
+                        EventEditingWorkspaceRecord(
+                            id: importedEventID,
+                            workspaceID: workspace.id
+                        )
+                    }
+                    .execute(db)
                 }
 
                 return importedEventID

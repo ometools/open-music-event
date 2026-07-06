@@ -174,12 +174,14 @@ private enum PreparedSourceDatabaseInsertionError: Error {
 
 private struct PreparedSourceDatabaseInsertion {
     var sourceBaselines: [SourceBaselineRecord]
+    var editingWorkspaces: [EditingWorkspaceRecord]
     var organizers: [OME.Organizer.Draft]
     var calendars: [OME.Calendar.Draft]
     var calendarEntries: [OME.CalendarEntry.Draft]
     var events: [OME.Event.Draft]
     var eventOrganizers: [OME.EventOrganizer.Draft]
     var eventSourceProvenances: [EventSourceProvenanceRecord]
+    var eventEditingWorkspaces: [EventEditingWorkspaceRecord]
     var stages: [OME.Stage.Draft]
     var schedules: [OME.Schedule.Draft]
     var contributors: [OME.Contributor.Draft]
@@ -212,6 +214,17 @@ private struct PreparedSourceDatabaseInsertion {
             return EventSourceProvenanceRecord(provenance, sourceBaselineID: baseline.id)
         }
         self.sourceBaselines = sourceBaselinesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
+        self.editingWorkspaces = sourceBaselines.map {
+            EditingWorkspaceRecord(teamSourceBaseline: $0)
+        }
+        self.eventEditingWorkspaces = eventSourceProvenances.map { provenance in
+            EventEditingWorkspaceRecord(
+                id: provenance.id,
+                workspaceID: EditingWorkspaceRecord.ID(
+                    sourceBaselineID: provenance.sourceBaselineID!
+                )
+            )
+        }
         self.organizers = sourceInsertion.organizers
         self.calendars = sourceInsertion.calendars
         self.calendarEntries = sourceInsertion.calendarEntries.map { entry in
@@ -304,6 +317,14 @@ private struct PreparedSourceDatabaseInsertion {
             }
             .execute(db)
         }
+        if !editingWorkspaces.isEmpty {
+            try EditingWorkspaceRecord.insert {
+                editingWorkspaces
+            } onConflict: {
+                $0.id
+            }
+            .execute(db)
+        }
         if !organizers.isEmpty {
             try OME.Organizer.insert {
                 organizers
@@ -341,6 +362,12 @@ private struct PreparedSourceDatabaseInsertion {
         if !eventSourceProvenances.isEmpty {
             try EventSourceProvenanceRecord.insert {
                 eventSourceProvenances
+            }
+            .execute(db)
+        }
+        if !eventEditingWorkspaces.isEmpty {
+            try EventEditingWorkspaceRecord.insert {
+                eventEditingWorkspaces
             }
             .execute(db)
         }

@@ -168,7 +168,7 @@ struct WhiteLabelRootTests {
   }
 
   @Test
-  func singleImportedSourcePresentsSourceDetailDirectly() async throws {
+  func singleImportedSourcePresentsTeamWorkspaceDetailDirectly() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()
       let organizerID = organizerID("wickedwoods")
@@ -201,7 +201,7 @@ struct WhiteLabelRootTests {
         $0.loadingPhase = .preparing
       }?.value
 
-      #expect(store.state.sourceDetail?.state.sourceBaselineID == sourceBaselineID)
+      #expect(store.state.teamWorkspaceDetail?.state.sourceBaselineID == sourceBaselineID)
       #expect(store.state.organizationRoot == nil)
       #expect(store.state.errorMessage == nil)
     }

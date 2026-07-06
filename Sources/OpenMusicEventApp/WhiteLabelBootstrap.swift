@@ -25,7 +25,7 @@ public struct WhiteLabelBootstrap {
         public var loadingPhase: LoadingPhase = .idle
         public var organizationRoot: Spawn<OrganizationRoot>?
         public var organizerID: OMERecord.Organizer.ID?
-        public var sourceDetail: Spawn<SourceDetail>?
+        public var teamWorkspaceDetail: Spawn<TeamWorkspaceDetail>?
 
         public enum LoadingPhase: Equatable, Sendable {
             case idle
@@ -165,8 +165,8 @@ public struct WhiteLabelBootstrap {
         .ifLet(\.organizationRoot) {
             OrganizationRoot()
         }
-        .ifLet(\.sourceDetail) {
-            SourceDetail()
+        .ifLet(\.teamWorkspaceDetail) {
+            TeamWorkspaceDetail()
         }
     }
 
@@ -295,9 +295,9 @@ public struct WhiteLabelBootstrapView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let sourceDetailStore = store.spawn(\.sourceDetail) {
+        if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail) {
             NavigationStack {
-                SourceDetailView(store: sourceDetailStore)
+                TeamWorkspaceDetailView(store: teamWorkspaceDetailStore)
             }
         } else if let organizationRootStore = store.spawn(\.organizationRoot) {
             OrganizationRootView(store: organizationRootStore)
@@ -375,11 +375,11 @@ private extension WhiteLabelBootstrap.State {
     ) {
         if sourceBaselineIDs.count == 1, let sourceBaselineID = sourceBaselineIDs.first {
             organizationRoot = nil
-            if sourceDetail?.state.sourceBaselineID != sourceBaselineID {
-                sourceDetail = Spawn(SourceDetail.State(sourceBaselineID: sourceBaselineID))
+            if teamWorkspaceDetail?.state.sourceBaselineID != sourceBaselineID {
+                teamWorkspaceDetail = Spawn(TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID))
             }
         } else {
-            sourceDetail = nil
+            teamWorkspaceDetail = nil
             if organizationRoot?.state.organizerID != organizerID {
                 organizationRoot = Spawn(OrganizationRoot.State(organizerID: organizerID))
             }

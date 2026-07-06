@@ -10,7 +10,7 @@ import SwiftUITabFeatures
 import SwiftUI
 
 @Feature
-public struct SourceManagementCreateEvent {
+public struct TeamWorkspaceCreateEvent {
     public init() {}
 
     @Dependency(\.organizerSourceWorkspace) var organizerSourceWorkspace
@@ -256,16 +256,16 @@ public struct SourceManagementCreateEvent {
     }
 }
 
-private enum SourceManagementCreateEventFormFieldID {
+private enum TeamWorkspaceCreateEventFormFieldID {
     static var eventDirectoryName: AnyHashable {
-        AnyHashable(\SourceManagementCreateEvent.FormValue.eventDirectoryName)
+        AnyHashable(\TeamWorkspaceCreateEvent.FormValue.eventDirectoryName)
     }
     static var eventName: AnyHashable {
-        AnyHashable(\SourceManagementCreateEvent.FormValue.eventName)
+        AnyHashable(\TeamWorkspaceCreateEvent.FormValue.eventName)
     }
 }
 
-private extension SourceManagementCreateEvent.FormFeature {
+private extension TeamWorkspaceCreateEvent.FormFeature {
     init() {
         self.init {
             Self.Field(\.eventName) {
@@ -290,9 +290,9 @@ private extension SourceManagementCreateEvent.FormFeature {
     }
 }
 
-struct SourceManagementCreateEventView: View {
+struct TeamWorkspaceCreateEventView: View {
     @Environment(\.dismiss) var dismiss
-    @Bindable var store: StoreOf<SourceManagementCreateEvent>
+    @Bindable var store: StoreOf<TeamWorkspaceCreateEvent>
     @State var isTimeZonePickerPresented = false
 
     var body: some View {
@@ -307,7 +307,7 @@ struct SourceManagementCreateEventView: View {
                 TextField("Event Name", text: $store.form.value.eventName, prompt: Text("Wicked Woods 2026"))
 
                 FormFieldValidationStatus(
-                    validation: store.form.validation[SourceManagementCreateEventFormFieldID.eventName]
+                    validation: store.form.validation[TeamWorkspaceCreateEventFormFieldID.eventName]
                 )
             }
 
@@ -324,7 +324,7 @@ struct SourceManagementCreateEventView: View {
 
                 FormFieldValidationStatus(
                     validation: store.form.validation[
-                        SourceManagementCreateEventFormFieldID.eventDirectoryName
+                        TeamWorkspaceCreateEventFormFieldID.eventDirectoryName
                     ]
                 )
             } header: {

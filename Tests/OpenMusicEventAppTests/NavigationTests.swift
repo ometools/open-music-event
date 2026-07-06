@@ -379,7 +379,7 @@ struct NavigationTests {
     }
 
     @Test
-    func myEventsDownloadedSourceTapPresentsSourceDetail() throws {
+    func myEventsTeamWorkspaceTapPresentsTeamWorkspaceDetail() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("downloaded-event")
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
@@ -426,13 +426,13 @@ struct NavigationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            store.send(.myEvents(.didTapDownloadedSource(sourceBaselineID)))
+            store.send(.myEvents(.didTapTeamWorkspace(sourceBaselineID)))
         }
-        #expect(store.state.myEvents.sourceDetail?.sourceBaselineID == sourceBaselineID)
+        #expect(store.state.myEvents.teamWorkspaceDetail?.sourceBaselineID == sourceBaselineID)
     }
 
     @Test
-    func sourceDetailLoadsLiveCalendarFromSourceProvenance() async throws {
+    func teamWorkspaceDetailLoadsLiveCalendarFromSourceProvenance() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("live-calendar-source")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
@@ -474,12 +474,12 @@ struct NavigationTests {
             )
         }
 
-        let store = try makeSourceDetailStore(
+        let store = try makeTeamWorkspaceDetailStore(
             sourceBaselineID: sourceBaselineID,
             database: database
         )
 
-        let displayEntries = SourceDetail.displayEntries(
+        let displayEntries = TeamWorkspaceDetail.displayEntries(
             calendarEntries: store.state.calendarEntries,
             events: store.state.events,
             sourceBaseline: store.state.sourceBaseline
@@ -494,7 +494,7 @@ struct NavigationTests {
     }
 
     @Test
-    func sourceDetailEditCalendarPresentsLiveCalendarEditor() async throws {
+    func teamWorkspaceDetailEditCalendarPresentsLiveCalendarEditor() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("editable-live-calendar-source")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
@@ -517,7 +517,7 @@ struct NavigationTests {
             try Self.insertCalendar(db, id: calendarID, name: "Editable Live Calendar")
         }
 
-        let store = try makeSourceDetailStore(
+        let store = try makeTeamWorkspaceDetailStore(
             sourceBaselineID: sourceBaselineID,
             database: database
         )
@@ -528,7 +528,7 @@ struct NavigationTests {
     }
 
     @Test
-    func sourceDetailPreparesSourceForEditingBeforePresentingManagement() async throws {
+    func teamWorkspaceDetailPreparesSourceForEditingBeforePresentingManagement() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("editable-source-management")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
@@ -559,20 +559,20 @@ struct NavigationTests {
                 await recorder.record(sourceBaselineID)
             }
         } operation: {
-            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
-                SourceDetail()
+            TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                TeamWorkspaceDetail()
             }
         }
 
         let task = store.send(.manageSourceButtonTapped) {
-            $0.isPreparingSourceManagement = true
+            $0.isPreparingTeamWorkspaceEditor = true
         }
         await task?.value
 
         #expect(await recorder.sourceBaselineIDs == [sourceBaselineID])
-        #expect(store.state.isPreparingSourceManagement == false)
-        #expect(store.state.sourceManagement?.sourceBaselineID == sourceBaselineID)
-        #expect(store.state.sourceManagement?.calendarID == calendarID)
+        #expect(store.state.isPreparingTeamWorkspaceEditor == false)
+        #expect(store.state.teamWorkspaceEditor?.sourceBaselineID == sourceBaselineID)
+        #expect(store.state.teamWorkspaceEditor?.calendarID == calendarID)
     }
 
     @Test
@@ -626,7 +626,7 @@ struct NavigationTests {
     }
 
     @Test
-    func sourceDetailRoutesPreparationAuthorizationThroughAppSheet() async throws {
+    func teamWorkspaceDetailRoutesPreparationAuthorizationThroughAppSheet() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("auth-source-management")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
@@ -663,13 +663,13 @@ struct NavigationTests {
                 try await authorizationBroker.authorize(requirement)
             }
         } operation: {
-            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
-                SourceDetail()
+            TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                TeamWorkspaceDetail()
             }
         }
 
         let task = store.send(.manageSourceButtonTapped) {
-            $0.isPreparingSourceManagement = true
+            $0.isPreparingTeamWorkspaceEditor = true
         }
         let requests = await authorizationCenter.requests()
         for await request in requests {
@@ -680,13 +680,13 @@ struct NavigationTests {
         }
         await task?.value
 
-        #expect(store.state.isPreparingSourceManagement == false)
-        #expect(store.state.sourceManagement?.sourceBaselineID == sourceBaselineID)
-        #expect(store.state.sourceManagement?.calendarID == calendarID)
+        #expect(store.state.isPreparingTeamWorkspaceEditor == false)
+        #expect(store.state.teamWorkspaceEditor?.sourceBaselineID == sourceBaselineID)
+        #expect(store.state.teamWorkspaceEditor?.calendarID == calendarID)
     }
 
     @Test
-    func sourceDetailScopesLiveCalendarEntriesToSourceProvenance() async throws {
+    func teamWorkspaceDetailScopesLiveCalendarEntriesToSourceProvenance() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("first-source")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
@@ -732,11 +732,11 @@ struct NavigationTests {
             )
         }
 
-        let store = try makeSourceDetailStore(
+        let store = try makeTeamWorkspaceDetailStore(
             sourceBaselineID: sourceBaselineID,
             database: database
         )
-        let displayEntries = SourceDetail.displayEntries(
+        let displayEntries = TeamWorkspaceDetail.displayEntries(
             calendarEntries: store.state.calendarEntries,
             events: store.state.events,
             sourceBaseline: store.state.sourceBaseline
@@ -750,7 +750,7 @@ struct NavigationTests {
     }
 
     @Test
-    func sourceDetailSynthesizesRowsFromProvenanceWhenLiveCalendarEntryIsMissing() async throws {
+    func teamWorkspaceDetailSynthesizesRowsFromProvenanceWhenLiveCalendarEntryIsMissing() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("missing-reference-source")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
@@ -773,11 +773,11 @@ struct NavigationTests {
             )
         }
 
-        let store = try makeSourceDetailStore(
+        let store = try makeTeamWorkspaceDetailStore(
             sourceBaselineID: sourceBaselineID,
             database: database
         )
-        let displayEntries = SourceDetail.displayEntries(
+        let displayEntries = TeamWorkspaceDetail.displayEntries(
             calendarEntries: store.state.calendarEntries,
             events: store.state.events,
             sourceBaseline: store.state.sourceBaseline
@@ -800,7 +800,7 @@ struct NavigationTests {
     }
 
     @Test
-    func sourceDetailEventTapPostsNavigationRequest() throws {
+    func teamWorkspaceDetailEventTapPostsNavigationRequest() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("source-event")
         let sourceProvenance = sourceProvenance("navigation-source")
@@ -825,20 +825,20 @@ struct NavigationTests {
             $0.defaultDatabase = database
         } operation: {
             TestStore(
-                initialState: SourceDetailHarness.State(sourceBaselineID: sourceBaselineID)
+                initialState: TeamWorkspaceDetailHarness.State(sourceBaselineID: sourceBaselineID)
             ) {
-                SourceDetailHarness()
+                TeamWorkspaceDetailHarness()
             }
         }
 
-        store.send(.sourceDetail(.eventButtonTapped(eventID))) {
+        store.send(.teamWorkspaceDetail(.eventButtonTapped(eventID))) {
             $0.lastRequest = .event(eventID, nil)
         }
         #expect(store.state.lastRequest == .event(eventID, nil))
     }
 
     @Test
-    func sourceDetailPullToRefreshRefreshesSourceBaseline() async throws {
+    func teamWorkspaceDetailPullToRefreshRefreshesSourceBaseline() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("events-page-refresh-source")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
@@ -858,8 +858,8 @@ struct NavigationTests {
                 await recorder.record(sourceBaselineID)
             }
         } operation: {
-            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
-                SourceDetail()
+            TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                TeamWorkspaceDetail()
             }
         }
 
@@ -4865,17 +4865,17 @@ struct NavigationTests {
         )
     }
 
-    private func makeSourceDetailStore(
+    private func makeTeamWorkspaceDetailStore(
         sourceBaselineID: SourceBaselineRecord.ID,
         database: any DatabaseWriter
-    ) throws -> TestStore<SourceDetail> {
+    ) throws -> TestStore<TeamWorkspaceDetail> {
         return withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
-            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
-                SourceDetail()
+            TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                TeamWorkspaceDetail()
             }
         }
     }
@@ -5265,24 +5265,24 @@ private struct MyEventsEventHarness {
 }
 
 @Feature
-private struct SourceDetailHarness {
+private struct TeamWorkspaceDetailHarness {
     struct State {
         init(sourceBaselineID: SourceBaselineRecord.ID) {
-            self.sourceDetail = SourceDetail.State(sourceBaselineID: sourceBaselineID)
+            self.teamWorkspaceDetail = TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
         }
 
         var lastRequest: NavigationRequest?
         @DebugSnapshotIgnored
-        var sourceDetail: SourceDetail.State
+        var teamWorkspaceDetail: TeamWorkspaceDetail.State
     }
 
     enum Action {
-        case sourceDetail(SourceDetail.Action)
+        case teamWorkspaceDetail(TeamWorkspaceDetail.Action)
     }
 
     var body: some Feature {
-        Scope(\.sourceDetail, action: \.sourceDetail) {
-            SourceDetail()
+        Scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail) {
+            TeamWorkspaceDetail()
         }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request

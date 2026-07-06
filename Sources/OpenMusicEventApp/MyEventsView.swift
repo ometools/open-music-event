@@ -21,7 +21,7 @@ struct MyEventsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This permanently deletes the selected event data from this device. Downloaded source trees can be re-imported from the Tangled workspace, but created events are not cached off device.")
+                Text("This permanently deletes the selected event data from this device. Team workspace source trees can be re-imported from the Tangled workspace, but created events are not cached off device.")
             }
             .toolbar {
                 toolbarContent
@@ -39,8 +39,8 @@ struct MyEventsView: View {
             .navigationDestination(item: $store.scope(\.organizerDetail, action: \.organizerDetail)) { detailStore in
                 OrganizerDetailView(store: detailStore)
             }
-            .navigationDestination(item: $store.scope(\.sourceDetail, action: \.sourceDetail)) { detailStore in
-                SourceDetailView(store: detailStore)
+            .navigationDestination(item: $store.scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail)) { detailStore in
+                TeamWorkspaceDetailView(store: detailStore)
             }
     }
 
@@ -54,7 +54,7 @@ struct MyEventsView: View {
     private var content: some View {
         List {
             errorSection
-            downloadedSourcesSection
+            teamWorkspacesSection
             eventsSection
         }
     }
@@ -71,18 +71,18 @@ struct MyEventsView: View {
     }
 
     @ViewBuilder
-    private var downloadedSourcesSection: some View {
-        if !store.downloadedSources.isEmpty {
-            Section("Downloaded Sources") {
-                ForEach(store.downloadedSources) { downloadedSource in
+    private var teamWorkspacesSection: some View {
+        if !store.teamWorkspaces.isEmpty {
+            Section("Team Workspaces") {
+                ForEach(store.teamWorkspaces) { teamWorkspace in
                     Button {
-                        store.send(.didTapDownloadedSource(downloadedSource.id))
+                        store.send(.didTapTeamWorkspace(teamWorkspace.id))
                     } label: {
-                        DownloadedSourceRowView(downloadedSource: downloadedSource)
+                        TeamWorkspaceRowView(teamWorkspace: teamWorkspace)
                     }
                 }
                 .onDelete { offsets in
-                    deleteDownloadedSources(at: offsets)
+                    deleteTeamWorkspaces(at: offsets)
                 }
             }
         }
@@ -109,8 +109,8 @@ struct MyEventsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
-            Button("Import Source", systemImage: "arrow.down.doc") {
-                store.send(.didTapImportSource)
+            Button("Import Team Workspace", systemImage: "arrow.down.doc") {
+                store.send(.didTapImportTeamWorkspace)
             }
 
             Button("Create Event", systemImage: "plus") {
@@ -119,13 +119,13 @@ struct MyEventsView: View {
         }
     }
 
-    func deleteDownloadedSources(at offsets: IndexSet) {
+    func deleteTeamWorkspaces(at offsets: IndexSet) {
         let sourceBaselineIDs = offsets.compactMap { offset in
-            store.downloadedSources.indices.contains(offset)
-                ? store.downloadedSources[offset].id
+            store.teamWorkspaces.indices.contains(offset)
+                ? store.teamWorkspaces[offset].id
                 : nil
         }
-        store.send(.deleteDownloadedSources(sourceBaselineIDs))
+        store.send(.deleteTeamWorkspaces(sourceBaselineIDs))
     }
 
     func confirmDeleteCreatedEvents(at offsets: IndexSet) {
@@ -165,8 +165,8 @@ struct OrganizerRowView: View {
     }
 }
 
-struct DownloadedSourceRowView: View {
-    var downloadedSource: DownloadedSourceRow
+struct TeamWorkspaceRowView: View {
+    var teamWorkspace: TeamWorkspaceRow
 
     var body: some View {
         HStack(spacing: 10) {
@@ -176,10 +176,10 @@ struct DownloadedSourceRowView: View {
                 .frame(width: 60, height: 60)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(downloadedSource.sourceBaseline.sourceReference)
+                Text(teamWorkspace.sourceBaseline.sourceReference)
                     .lineLimit(1)
                 Text(
-                    "\(downloadedSource.refTitle) - \(downloadedSource.organizer.id.description)"
+                    "\(teamWorkspace.refTitle) - \(teamWorkspace.organizer.id.description)"
                 )
                     .lineLimit(1)
                     .font(.caption2)

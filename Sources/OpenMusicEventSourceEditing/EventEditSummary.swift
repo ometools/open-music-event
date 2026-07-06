@@ -7,8 +7,8 @@ import SourceEditing
 public struct EventEditSummary: Equatable, Sendable {
     public enum Availability: Equatable, Sendable {
         case available
-        case missingBaseline
-        case notSourceBacked
+        case workspaceNeedsPreparation
+        case notInWorkspace
         case unavailable(SourceChangeSummary.UnavailableReason)
     }
 
@@ -44,27 +44,31 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
     }
 
     public func fetch(_ db: Database) throws -> EventEditSummary {
-        let provenance = try EventSourceProvenanceRecord
+        let eventWorkspace = try EventEditingWorkspaceRecord
             .where { $0.id.eq(eventID) }
             .fetchOne(db)
-        guard let provenance else {
+        guard let eventWorkspace else {
             return EventEditSummary(
                 eventID: eventID,
-                availability: .notSourceBacked,
+                availability: .notInWorkspace,
                 groups: []
             )
         }
 
-        guard let sourceBaselineID = provenance.sourceBaselineID,
-              try (SourceBaselineRecord
-                .where { $0.id.eq(sourceBaselineID) }
-                .fetchOne(db)) != nil
-        else {
+        let workspace = try EditingWorkspaceRecord
+            .where { $0.id.eq(eventWorkspace.workspaceID) }
+            .fetchOne(db)
+        guard let workspace else {
             return EventEditSummary(
                 eventID: eventID,
-                availability: .missingBaseline,
+                availability: .workspaceNeedsPreparation,
                 groups: []
             )
+        }
+        let sourceBaseline = try workspace.sourceBaselineID.flatMap { sourceBaselineID in
+            try SourceBaselineRecord
+                .where { $0.id.eq(sourceBaselineID) }
+                .fetchOne(db)
         }
 
         @Dependency(\.sourceEditingSession) var sourceEditingSession
@@ -77,13 +81,21 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
                 scope: .openMusicEvent(eventID: eventID)
             )
         } else {
-            @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-            guard let baselineDatabase = try sourceReferenceDatabase.existing(
-                provenance.sourceProvenance
-            ) else {
+            @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
+            let baselineDatabase: SourceBaselineDatabase?
+            do {
+                baselineDatabase = try workspaceReferenceDatabase.existing(
+                    workspace,
+                    sourceBaseline: sourceBaseline
+                )
+            } catch WorkspaceReferenceDatabaseError.sourceBaselineMissing(_),
+                    WorkspaceReferenceDatabaseError.teamWorkspaceMissingSourceBaseline(_) {
+                baselineDatabase = nil
+            }
+            guard let baselineDatabase else {
                 return EventEditSummary(
                     eventID: eventID,
-                    availability: .missingBaseline,
+                    availability: .workspaceNeedsPreparation,
                     groups: []
                 )
             }

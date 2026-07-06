@@ -7,7 +7,7 @@ import OpenMusicEventSourceEditing
 import SQLiteData
 
 enum MyEventsDeletion {
-    static func deleteDownloadedSource(
+    static func deleteTeamWorkspace(
         _ sourceBaselineID: SourceBaselineRecord.ID,
         in db: Database
     ) throws -> OMERecord.DeletedOrganizerSourceData {

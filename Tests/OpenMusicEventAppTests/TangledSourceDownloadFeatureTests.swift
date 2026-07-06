@@ -40,7 +40,7 @@ struct TangledSourceDownloadFeatureTests {
             }
         }
 
-        store.send(.didTapImportSource)
+        store.send(.didTapImportTeamWorkspace)
 
         guard case .sourceImport = store.state.destination else {
             Issue.record("Expected My Events to present the Tangled source download feature.")
@@ -49,7 +49,7 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func myEventsFetchesDownloadedSources() async throws {
+    func myEventsFetchesTeamWorkspaces() async throws {
         let database = try makePreparedDatabase()
         let firstEventID = importedEventID("wicked-woods-2026")
         let secondEventID = importedEventID("atmosphere-conf-2026")
@@ -61,59 +61,59 @@ struct TangledSourceDownloadFeatureTests {
             "atmosphere-conf-ome",
             ref: "HEAD"
         )
-        try await insertDownloadedSource(
+        try await insertTeamWorkspace(
             eventID: firstEventID,
             sourceProvenance: firstSourceProvenance,
             into: database
         )
-        try await insertDownloadedSource(
+        try await insertTeamWorkspace(
             eventID: secondEventID,
             sourceProvenance: secondSourceProvenance,
             into: database
         )
 
-        let downloadedSources = try await database.read { db in
-            try MyEvents.downloadedSourcesQuery.fetchAll(db)
+        let teamWorkspaces = try await database.read { db in
+            try MyEvents.teamWorkspacesQuery.fetchAll(db)
         }
         let events = try await database.read { db in
             try MyEvents.query.fetchAll(db)
         }
 
         expectNoDifference(
-            downloadedSources.map(\.id),
+            teamWorkspaces.map(\.id),
             [
                 SourceBaselineRecord.ID(source: secondSourceProvenance),
                 SourceBaselineRecord.ID(source: firstSourceProvenance),
             ]
         )
         expectNoDifference(
-            downloadedSources.map(\.organizer.id),
+            teamWorkspaces.map(\.organizer.id),
             [firstEventID.organizerID, firstEventID.organizerID]
         )
-        expectNoDifference(downloadedSources.map(\.eventCount), [1, 1])
+        expectNoDifference(teamWorkspaces.map(\.eventCount), [1, 1])
         #expect(events.isEmpty)
     }
 
     @Test
-    func sourceDetailFetchesEventsForOneDownloadedSource() async throws {
+    func teamWorkspaceDetailFetchesEventsForOneTeamWorkspace() async throws {
         let database = try makePreparedDatabase()
         let firstEventID = importedEventID("wicked-woods-2026")
         let secondEventID = importedEventID("atmosphere-conf-2026")
         let firstSourceProvenance = tangledSourceProvenance("wicked-woods-ome")
         let secondSourceProvenance = tangledSourceProvenance("atmosphere-conf-ome")
-        try await insertDownloadedSource(
+        try await insertTeamWorkspace(
             eventID: firstEventID,
             sourceProvenance: firstSourceProvenance,
             into: database
         )
-        try await insertDownloadedSource(
+        try await insertTeamWorkspace(
             eventID: secondEventID,
             sourceProvenance: secondSourceProvenance,
             into: database
         )
 
         let events = try await database.read { db in
-            try SourceDetail
+            try TeamWorkspaceDetail
                 .eventsQuery(
                     sourceBaselineID: SourceBaselineRecord.ID(source: secondSourceProvenance)
                 )
@@ -124,7 +124,7 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func myEventsDeletesDownloadedSource() async throws {
+    func myEventsDeletesTeamWorkspace() async throws {
         let database = try makePreparedDatabase()
         let firstEventID = importedEventID("wicked-woods-2026")
         let secondEventID = importedEventID("atmosphere-conf-2026")
@@ -140,13 +140,13 @@ struct TangledSourceDownloadFeatureTests {
         let secondSourceBaselineID = SourceBaselineRecord.ID(source: secondSourceProvenance)
         let sourceRepositoryRemovals = SourceRepositoryRemovalRecorder()
 
-        try await insertDownloadedSource(
+        try await insertTeamWorkspace(
             eventID: firstEventID,
             sourceProvenance: firstSourceProvenance,
             into: database
         )
         try await insertImportedEventData(firstEventID, into: database)
-        try await insertDownloadedSource(
+        try await insertTeamWorkspace(
             eventID: secondEventID,
             sourceProvenance: secondSourceProvenance,
             into: database
@@ -169,7 +169,7 @@ struct TangledSourceDownloadFeatureTests {
             )
         } operation: {
             var initialState = MyEvents.State()
-            initialState.sourceDetail = SourceDetail.State(
+            initialState.teamWorkspaceDetail = TeamWorkspaceDetail.State(
                 sourceBaselineID: firstSourceBaselineID
             )
             return TestStore(initialState: initialState) {
@@ -177,7 +177,7 @@ struct TangledSourceDownloadFeatureTests {
             }
         }
 
-        await store.send(.deleteDownloadedSources([firstSourceBaselineID]))?.value
+        await store.send(.deleteTeamWorkspaces([firstSourceBaselineID]))?.value
 
         let organizers = try await database.read { db in
             try OMERecord.Organizer.fetchAll(db)
@@ -215,15 +215,21 @@ struct TangledSourceDownloadFeatureTests {
         let sourceProvenances = try await database.read { db in
             try EventSourceProvenanceRecord.fetchAll(db)
         }
-        let downloadedSources = try await database.read { db in
-            try MyEvents.downloadedSourcesQuery.fetchAll(db)
+        let workspaceRecords = try await database.read { db in
+            try EditingWorkspaceRecord.fetchAll(db)
+        }
+        let eventWorkspaceRecords = try await database.read { db in
+            try EventEditingWorkspaceRecord.fetchAll(db)
+        }
+        let teamWorkspaces = try await database.read { db in
+            try MyEvents.teamWorkspacesQuery.fetchAll(db)
         }
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
         }
 
         #expect(store.state.errorMessage == nil)
-        #expect(store.state.sourceDetail == nil)
+        #expect(store.state.teamWorkspaceDetail == nil)
         expectNoDifference(organizers.map(\.id), [secondEventID.organizerID])
         expectNoDifference(events.map(\.id), [secondEventID])
         expectNoDifference(eventOrganizers.map(\.id.eventID), [secondEventID.eventID])
@@ -236,7 +242,12 @@ struct TangledSourceDownloadFeatureTests {
         expectNoDifference(performanceContributors.map(\.performanceID.eventID), [secondEventID.eventID])
         expectNoDifference(sourceBaselines.map(\.id), [secondSourceBaselineID])
         expectNoDifference(sourceProvenances.map(\.id), [secondEventID])
-        expectNoDifference(downloadedSources.map(\.id), [secondSourceBaselineID])
+        expectNoDifference(
+            workspaceRecords.map(\.id),
+            [EditingWorkspaceRecord.ID(sourceBaselineID: secondSourceBaselineID)]
+        )
+        expectNoDifference(eventWorkspaceRecords.map(\.id), [secondEventID])
+        expectNoDifference(teamWorkspaces.map(\.id), [secondSourceBaselineID])
         #expect(appState?.selectedEventID == nil)
         expectNoDifference(sourceRepositoryRemovals.values, [firstSourceProvenance])
     }
@@ -272,7 +283,7 @@ struct TangledSourceDownloadFeatureTests {
         try await insertCreatedEvent(deletedEventID, name: "Delete Me", into: database)
         try await insertCreatedEvent(retainedEventID, name: "Keep Me", into: database)
         try await insertImportedEventData(deletedEventID, into: database)
-        try await insertDownloadedSource(
+        try await insertTeamWorkspace(
             eventID: sourceEventID,
             sourceProvenance: sourceProvenance,
             into: database
@@ -354,8 +365,8 @@ struct TangledSourceDownloadFeatureTests {
         let sourceProvenances = try await database.read { db in
             try EventSourceProvenanceRecord.fetchAll(db)
         }
-        let downloadedSources = try await database.read { db in
-            try MyEvents.downloadedSourcesQuery.fetchAll(db)
+        let teamWorkspaces = try await database.read { db in
+            try MyEvents.teamWorkspacesQuery.fetchAll(db)
         }
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
@@ -369,7 +380,7 @@ struct TangledSourceDownloadFeatureTests {
         #expect(schedules.allSatisfy { $0.id.eventID != deletedEventID.eventID })
         #expect(performances.allSatisfy { $0.id.eventID != deletedEventID.eventID })
         expectNoDifference(sourceProvenances.map(\.id), [sourceEventID])
-        expectNoDifference(downloadedSources.map(\.id), [sourceBaselineID])
+        expectNoDifference(teamWorkspaces.map(\.id), [sourceBaselineID])
         #expect(appState?.selectedEventID == nil)
     }
 
@@ -1307,7 +1318,7 @@ private func insertCreatedEvent(
     }
 }
 
-private func insertDownloadedSource(
+private func insertTeamWorkspace(
     eventID: OMERecord.Event.ID,
     sourceProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance,
     into database: any DatabaseWriter
@@ -1318,13 +1329,21 @@ private func insertDownloadedSource(
         into: database
     )
     let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+    let sourceBaseline = SourceBaselineRecord(
+        source: sourceProvenance,
+        databaseFileName: "baseline.sqlite",
+        importedAt: Date(timeIntervalSince1970: 0)
+    )
+    let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
     try await database.write { db in
         try SourceBaselineRecord.insert {
-            SourceBaselineRecord(
-                source: sourceProvenance,
-                databaseFileName: "baseline.sqlite",
-                importedAt: Date(timeIntervalSince1970: 0)
-            )
+            sourceBaseline
+        } onConflict: {
+            $0.id
+        }
+        .execute(db)
+        try EditingWorkspaceRecord.insert {
+            workspace
         } onConflict: {
             $0.id
         }
@@ -1338,6 +1357,13 @@ private func insertDownloadedSource(
                 ref: sourceProvenance.ref,
                 eventIDOrigin: .inferred,
                 sourceEventDirectory: eventID.eventID.rawValue.rawValue
+            )
+        }
+        .execute(db)
+        try EventEditingWorkspaceRecord.insert {
+            EventEditingWorkspaceRecord(
+                id: eventID,
+                workspaceID: workspace.id
             )
         }
         .execute(db)

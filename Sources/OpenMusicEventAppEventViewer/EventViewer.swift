@@ -590,12 +590,7 @@ public struct EventViewer {
                         $0.useSourceWorkspaceDatabase(sourceWorkspace)
                     }
                 } operation: {
-                    Spawn(
-                        EditEvent.State(
-                            eventID: eventID,
-                            sourceWorkspaceDatabase: sourceWorkspace
-                        )
-                    )
+                    Spawn(EditEvent.State(eventID: eventID))
                 }
             }
         }
@@ -709,7 +704,9 @@ public struct EventViewer {
         .ifLet(\.editEvent) {
             EditEvent()
                 .transformDependency(\.self) {
-                    guard let sourceWorkspace = store.editEvent?.state.sourceWorkspaceDatabase else {
+                    guard let eventID = store.editEvent?.state.eventID,
+                          let sourceWorkspace = try? sourceWorkspaceDatabase.event(eventID)
+                    else {
                         return
                     }
                     $0.useSourceWorkspaceDatabase(sourceWorkspace)

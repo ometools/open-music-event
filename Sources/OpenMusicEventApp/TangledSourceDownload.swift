@@ -218,7 +218,7 @@ struct TangledSourceDownloadView: View {
             }
         }
         .disabled(store.isImporting)
-        .navigationTitle("Import Source")
+        .navigationTitle("Import Team Workspace")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {

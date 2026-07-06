@@ -5,8 +5,8 @@ import SQLiteData
 import SourceEditing
 
 public enum OpenMusicEventEditResetError: Error, Equatable, Sendable {
-    case missingBaseline(OME.Event.ID)
-    case notSourceBacked(OME.Event.ID)
+    case workspaceNeedsPreparation(OME.Event.ID)
+    case notInWorkspace(OME.Event.ID)
     case unconfigured
 }
 
@@ -22,22 +22,27 @@ public extension OpenMusicEventEditResetter {
     static var openMusicEvent: Self {
         OpenMusicEventEditResetter { eventID in
             @Dependency(\.defaultDatabase) var database
-            @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+            @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
             @Dependency(\.sourceEditingSession) var sourceEditingSession
 
             try database.write { db in
-                guard let provenance = try (EventSourceProvenanceRecord
+                guard let eventWorkspace = try (EventEditingWorkspaceRecord
                     .where { $0.id.eq(eventID) }
                     .fetchOne(db))
                 else {
-                    throw OpenMusicEventEditResetError.notSourceBacked(eventID)
+                    throw OpenMusicEventEditResetError.notInWorkspace(eventID)
                 }
-                guard let sourceBaselineID = provenance.sourceBaselineID,
-                      try (SourceBaselineRecord
-                        .where { $0.id.eq(sourceBaselineID) }
-                        .fetchOne(db)) != nil
+
+                guard let workspace = try (EditingWorkspaceRecord
+                    .where { $0.id.eq(eventWorkspace.workspaceID) }
+                    .fetchOne(db))
                 else {
-                    throw OpenMusicEventEditResetError.missingBaseline(eventID)
+                    throw OpenMusicEventEditResetError.workspaceNeedsPreparation(eventID)
+                }
+                let sourceBaseline = try workspace.sourceBaselineID.flatMap { sourceBaselineID in
+                    try SourceBaselineRecord
+                        .where { $0.id.eq(sourceBaselineID) }
+                        .fetchOne(db)
                 }
 
                 if let sourceEditingSession {
@@ -48,10 +53,18 @@ public extension OpenMusicEventEditResetter {
                         scope: .openMusicEvent(eventID: eventID)
                     )
                 } else {
-                    guard let baselineDatabase = try sourceReferenceDatabase.existing(
-                        provenance.sourceProvenance
-                    ) else {
-                        throw OpenMusicEventEditResetError.missingBaseline(eventID)
+                    let baselineDatabase: SourceBaselineDatabase?
+                    do {
+                        baselineDatabase = try workspaceReferenceDatabase.existing(
+                            workspace,
+                            sourceBaseline: sourceBaseline
+                        )
+                    } catch WorkspaceReferenceDatabaseError.sourceBaselineMissing(_),
+                            WorkspaceReferenceDatabaseError.teamWorkspaceMissingSourceBaseline(_) {
+                        baselineDatabase = nil
+                    }
+                    guard let baselineDatabase else {
+                        throw OpenMusicEventEditResetError.workspaceNeedsPreparation(eventID)
                     }
                     try SourceEditingResetter().reset(
                         in: db,

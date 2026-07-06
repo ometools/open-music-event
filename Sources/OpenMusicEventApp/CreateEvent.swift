@@ -11,6 +11,7 @@ import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventLexicon
+import OpenMusicEventSourceEditing
 import OpenMusicEventTimeZones
 import SQLiteData
 import SwiftUITabFeatures
@@ -33,7 +34,9 @@ public struct CreateEvent {
     public init() {}
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date) var date
     @Dependency(\.uuid) var uuid
+    @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
 
     public struct FormValue: Equatable {
         var endDateSelection: Date
@@ -207,11 +210,21 @@ public struct CreateEvent {
                         endDate: state.endDate,
                         timeZone: state.timeZone
                     )
+                    let createdAt = date()
+                    let workspace = EditingWorkspaceRecord(
+                        localEventID: eventID,
+                        createdAt: createdAt
+                    )
+                    let eventWorkspace = EventEditingWorkspaceRecord(
+                        id: eventID,
+                        workspaceID: workspace.id
+                    )
 
                     state.errorMessage = nil
                     state.isSaving = true
                     let organizerID = state.organizerID
                     let eventOrganizerID = state.eventOrganizerID
+                    let workspaceReferenceDatabase = workspaceReferenceDatabase
 
                     store.addTask {
                         do {
@@ -222,35 +235,31 @@ public struct CreateEvent {
                                     try Self.insertOrganizerIfNeeded(eventOrganizerID, in: db)
                                 }
 
-                                try OMERecord.Event.insert {
-                                    event
-                                }
-                                .execute(db)
-
-                                try EventSingletonStage.insert(
+                                try Self.insertCreatedEvent(
+                                    event,
                                     eventID: eventID,
+                                    eventOrganizerID: eventOrganizerID,
+                                    workspace: workspace,
+                                    eventWorkspace: eventWorkspace,
                                     in: db
                                 )
 
-                                if let startDate = event.startDate {
-                                    try EventSingletonSchedule.insert(
-                                        eventID: eventID,
-                                        date: startDate,
-                                        in: db
-                                    )
-                                }
+                                let baselineDatabase = try workspaceReferenceDatabase.prepare(workspace)
+                                try baselineDatabase.write { baselineDB in
+                                    try Self.insertOrganizerIfNeeded(organizerID, in: baselineDB)
 
-                                if let eventOrganizerID {
-                                    try OMERecord.EventOrganizer.insert {
-                                        OMERecord.EventOrganizer.Draft(
-                                            id: .init(
-                                                organizerID: eventID.organizerID,
-                                                eventID: eventID.eventID,
-                                                eventOrganizerID: eventOrganizerID
-                                            )
-                                        )
+                                    if let eventOrganizerID, eventOrganizerID != organizerID {
+                                        try Self.insertOrganizerIfNeeded(eventOrganizerID, in: baselineDB)
                                     }
-                                    .execute(db)
+
+                                    try Self.insertCreatedEvent(
+                                        event,
+                                        eventID: eventID,
+                                        eventOrganizerID: eventOrganizerID,
+                                        workspace: workspace,
+                                        eventWorkspace: eventWorkspace,
+                                        in: baselineDB
+                                    )
                                 }
                             }
                             try store.modify {
@@ -314,6 +323,56 @@ public struct CreateEvent {
 
         try OMERecord.Organizer.insert {
             OMERecord.Organizer.Draft(id: organizerID)
+        }
+        .execute(db)
+    }
+
+    static func insertCreatedEvent(
+        _ event: OMERecord.Event.Draft,
+        eventID: OMERecord.Event.ID,
+        eventOrganizerID: OMERecord.Organizer.ID?,
+        workspace: EditingWorkspaceRecord,
+        eventWorkspace: EventEditingWorkspaceRecord,
+        in db: Database
+    ) throws {
+        try OMERecord.Event.insert {
+            event
+        }
+        .execute(db)
+
+        try EventSingletonStage.insert(
+            eventID: eventID,
+            in: db
+        )
+
+        if let startDate = event.startDate {
+            try EventSingletonSchedule.insert(
+                eventID: eventID,
+                date: startDate,
+                in: db
+            )
+        }
+
+        if let eventOrganizerID {
+            try OMERecord.EventOrganizer.insert {
+                OMERecord.EventOrganizer.Draft(
+                    id: .init(
+                        organizerID: eventID.organizerID,
+                        eventID: eventID.eventID,
+                        eventOrganizerID: eventOrganizerID
+                    )
+                )
+            }
+            .execute(db)
+        }
+
+        try EditingWorkspaceRecord.insert {
+            workspace
+        }
+        .execute(db)
+
+        try EventEditingWorkspaceRecord.insert {
+            eventWorkspace
         }
         .execute(db)
     }

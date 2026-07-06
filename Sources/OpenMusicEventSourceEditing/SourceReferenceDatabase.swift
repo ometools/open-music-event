@@ -2,6 +2,7 @@ import Dependencies
 import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import SQLiteData
 import SourceEditing
 
 public struct SourceReferenceDatabaseClient: Sendable {
@@ -27,6 +28,48 @@ public struct SourceReferenceDatabaseMigrator: Sendable {
         migrate: @escaping @Sendable (SourceBaselineDatabase) throws -> Void
     ) {
         self.migrate = migrate
+    }
+}
+
+public enum WorkspaceReferenceDatabaseError: Equatable, Error, Sendable {
+    case sourceBaselineMissing(EditingWorkspaceRecord.ID)
+    case teamWorkspaceMissingSourceBaseline(EditingWorkspaceRecord.ID)
+}
+
+public struct WorkspaceReferenceDatabaseClient: Sendable {
+    public var urlForWorkspace: @Sendable (EditingWorkspaceRecord, SourceBaselineRecord?) throws -> URL
+    public var prepareWorkspace: @Sendable (EditingWorkspaceRecord, SourceBaselineRecord?) throws -> SourceBaselineDatabase
+    public var existingWorkspace: @Sendable (EditingWorkspaceRecord, SourceBaselineRecord?) throws -> SourceBaselineDatabase?
+
+    public init(
+        url: @escaping @Sendable (EditingWorkspaceRecord, SourceBaselineRecord?) throws -> URL,
+        prepare: @escaping @Sendable (EditingWorkspaceRecord, SourceBaselineRecord?) throws -> SourceBaselineDatabase,
+        existing: @escaping @Sendable (EditingWorkspaceRecord, SourceBaselineRecord?) throws -> SourceBaselineDatabase?
+    ) {
+        self.urlForWorkspace = url
+        self.prepareWorkspace = prepare
+        self.existingWorkspace = existing
+    }
+
+    public func url(
+        _ workspace: EditingWorkspaceRecord,
+        sourceBaseline: SourceBaselineRecord? = nil
+    ) throws -> URL {
+        try urlForWorkspace(workspace, sourceBaseline)
+    }
+
+    public func prepare(
+        _ workspace: EditingWorkspaceRecord,
+        sourceBaseline: SourceBaselineRecord? = nil
+    ) throws -> SourceBaselineDatabase {
+        try prepareWorkspace(workspace, sourceBaseline)
+    }
+
+    public func existing(
+        _ workspace: EditingWorkspaceRecord,
+        sourceBaseline: SourceBaselineRecord? = nil
+    ) throws -> SourceBaselineDatabase? {
+        try existingWorkspace(workspace, sourceBaseline)
     }
 }
 
@@ -125,6 +168,144 @@ public extension SourceReferenceDatabaseClient {
     }
 }
 
+public extension WorkspaceReferenceDatabaseClient {
+    static let localReferenceDirectoryName = "WorkspaceReferences"
+
+    static var live: Self {
+        fileBacked()
+    }
+
+    static func fileBacked(localReferenceDirectory: URL? = nil) -> Self {
+        Self(
+            url: { workspace, resolvedSourceBaseline in
+                switch workspace.kind {
+                case .local:
+                    return try localReferenceDatabaseURL(
+                        directory: localReferenceDirectory,
+                        workspace: workspace
+                    )
+
+                case .team:
+                    let sourceBaseline = try sourceBaseline(
+                        for: workspace,
+                        resolvedSourceBaseline: resolvedSourceBaseline
+                    )
+                    @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+                    return try sourceReferenceDatabase.url(sourceBaseline.sourceProvenance)
+                }
+            },
+            prepare: { workspace, resolvedSourceBaseline in
+                switch workspace.kind {
+                case .local:
+                    @Dependency(\.sourceReferenceDatabaseMigrator) var migrator
+                    let referenceDatabaseURL = try localReferenceDatabaseURL(
+                        directory: localReferenceDirectory,
+                        workspace: workspace
+                    )
+                    try SourceReferenceDatabaseClient.prepareReferenceDirectory(
+                        for: referenceDatabaseURL
+                    )
+                    try SourceReferenceDatabaseClient.removeSQLiteDatabase(at: referenceDatabaseURL)
+                    let database = try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+                    try migrator.migrate(database)
+                    return database
+
+                case .team:
+                    guard let database = try existingTeamReferenceDatabase(
+                        workspace: workspace,
+                        resolvedSourceBaseline: resolvedSourceBaseline
+                    )
+                    else {
+                        throw WorkspaceReferenceDatabaseError.sourceBaselineMissing(workspace.id)
+                    }
+                    return database
+                }
+            },
+            existing: { workspace, resolvedSourceBaseline in
+                switch workspace.kind {
+                case .local:
+                    @Dependency(\.sourceReferenceDatabaseMigrator) var migrator
+                    let referenceDatabaseURL = try localReferenceDatabaseURL(
+                        directory: localReferenceDirectory,
+                        workspace: workspace
+                    )
+                    guard FileManager.default.fileExists(atPath: referenceDatabaseURL.path) else {
+                        return nil
+                    }
+                    let database = try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+                    try migrator.migrate(database)
+                    return database
+
+                case .team:
+                    return try existingTeamReferenceDatabase(
+                        workspace: workspace,
+                        resolvedSourceBaseline: resolvedSourceBaseline
+                    )
+                }
+            }
+        )
+    }
+
+    private static func existingTeamReferenceDatabase(
+        workspace: EditingWorkspaceRecord,
+        resolvedSourceBaseline: SourceBaselineRecord?
+    ) throws -> SourceBaselineDatabase? {
+        let sourceBaseline = try sourceBaseline(
+            for: workspace,
+            resolvedSourceBaseline: resolvedSourceBaseline
+        )
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+        return try sourceReferenceDatabase.existing(sourceBaseline.sourceProvenance)
+    }
+
+    private static func localReferenceDatabaseURL(
+        directory: URL?,
+        workspace: EditingWorkspaceRecord
+    ) throws -> URL {
+        let directory = try directory ?? defaultLocalReferenceDirectory()
+        return directory
+            .standardizedFileURL
+            .appending(path: workspace.databaseFileName)
+    }
+
+    private static func defaultLocalReferenceDirectory() throws -> URL {
+        try FileManager.default
+            .url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            .appending(path: localReferenceDirectoryName, directoryHint: .isDirectory)
+    }
+
+    private static func sourceBaseline(
+        for workspace: EditingWorkspaceRecord,
+        resolvedSourceBaseline: SourceBaselineRecord?
+    ) throws -> SourceBaselineRecord {
+        guard let sourceBaselineID = workspace.sourceBaselineID else {
+            throw WorkspaceReferenceDatabaseError.teamWorkspaceMissingSourceBaseline(workspace.id)
+        }
+        if let resolvedSourceBaseline {
+            guard resolvedSourceBaseline.id == sourceBaselineID else {
+                throw WorkspaceReferenceDatabaseError.sourceBaselineMissing(workspace.id)
+            }
+            return resolvedSourceBaseline
+        }
+
+        @Dependency(\.defaultDatabase) var database
+        let sourceBaseline = try database.read { db in
+            try SourceBaselineRecord
+                .where { $0.id.eq(sourceBaselineID) }
+                .fetchOne(db)
+        }
+        guard let sourceBaseline else {
+            throw WorkspaceReferenceDatabaseError.sourceBaselineMissing(workspace.id)
+        }
+        return sourceBaseline
+    }
+}
+
 public extension EventSourceProvenanceRecord {
     var sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance {
         OME.SourceDatabaseInsertion.SourceProvenance(
@@ -155,6 +336,11 @@ public extension DependencyValues {
         get { self[SourceReferenceDatabaseMigratorKey.self] }
         set { self[SourceReferenceDatabaseMigratorKey.self] = newValue }
     }
+
+    var workspaceReferenceDatabase: WorkspaceReferenceDatabaseClient {
+        get { self[WorkspaceReferenceDatabaseClientKey.self] }
+        set { self[WorkspaceReferenceDatabaseClientKey.self] = newValue }
+    }
 }
 
 private enum SourceReferenceDatabaseClientKey: DependencyKey {
@@ -170,6 +356,16 @@ private enum SourceReferenceDatabaseClientKey: DependencyKey {
 private enum SourceReferenceDatabaseMigratorKey: DependencyKey {
     static let liveValue = SourceReferenceDatabaseMigrator.noop
     static let testValue = SourceReferenceDatabaseMigrator.noop
+}
+
+private enum WorkspaceReferenceDatabaseClientKey: DependencyKey {
+    static var liveValue: WorkspaceReferenceDatabaseClient {
+        .live
+    }
+
+    static var testValue: WorkspaceReferenceDatabaseClient {
+        .live
+    }
 }
 
 private extension Error {

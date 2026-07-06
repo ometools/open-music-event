@@ -27,6 +27,8 @@ public struct SourceWorkspaceDatabase: Sendable {
 public enum SourceWorkspaceDatabaseError: Equatable, Error, Sendable {
     case referenceDatabaseMissing(SourceBaselineRecord.ID)
     case sourceBaselineNotFound(SourceBaselineRecord.ID)
+    case workspaceMissingSourceBaseline(EditingWorkspaceRecord.ID)
+    case workspaceNotFound(EditingWorkspaceRecord.ID)
     case workingDatabasePathMissing
 }
 
@@ -49,14 +51,14 @@ public extension SourceWorkspaceDatabaseClient {
             event: { eventID in
                 @Dependency(\.defaultDatabase) var database
 
-                let sourceBaselineID = try database.read { db in
-                    try EventSourceProvenanceRecord
+                let workspaceID = try database.read { db in
+                    try EventEditingWorkspaceRecord
                         .where { $0.id.eq(eventID) }
                         .fetchOne(db)?
-                        .sourceBaselineID
+                        .workspaceID
                 }
-                guard let sourceBaselineID else { return nil }
-                return try Self.sourceBaselineWorkspace(sourceBaselineID)
+                guard let workspaceID else { return nil }
+                return try Self.workspace(workspaceID)
             },
             sourceBaseline: { sourceBaselineID in
                 try Self.sourceBaselineWorkspace(sourceBaselineID)
@@ -72,6 +74,32 @@ public extension SourceWorkspaceDatabaseClient {
                 return SourceWorkspaceDatabase(database: database)
             }
         )
+    }
+
+    private static func workspace(
+        _ workspaceID: EditingWorkspaceRecord.ID
+    ) throws -> SourceWorkspaceDatabase {
+        @Dependency(\.defaultDatabase) var database
+
+        let workspace = try database.read { db in
+            try EditingWorkspaceRecord
+                .where { $0.id.eq(workspaceID) }
+                .fetchOne(db)
+        }
+        guard let workspace else {
+            throw SourceWorkspaceDatabaseError.workspaceNotFound(workspaceID)
+        }
+
+        switch workspace.kind {
+        case .local:
+            return SourceWorkspaceDatabase(database: database)
+
+        case .team:
+            guard let sourceBaselineID = workspace.sourceBaselineID else {
+                throw SourceWorkspaceDatabaseError.workspaceMissingSourceBaseline(workspaceID)
+            }
+            return try sourceBaselineWorkspace(sourceBaselineID)
+        }
     }
 
     private static func sourceBaselineWorkspace(

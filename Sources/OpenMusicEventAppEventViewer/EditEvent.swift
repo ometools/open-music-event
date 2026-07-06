@@ -60,25 +60,18 @@ public struct EditEvent {
     }
 
     public struct State {
-        public init(
-            eventID: OMERecord.Event.ID,
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase? = nil
-        ) {
+        public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
-            self.sourceWorkspaceDatabase = sourceWorkspaceDatabase
-            let database = sourceWorkspaceDatabase?.database
             self._editSummary = Fetch(
                 wrappedValue: EventEditSummary(
                     eventID: eventID,
-                    availability: .notSourceBacked,
+                    availability: .notInWorkspace,
                     groups: []
                 ),
-                EventEditSummaryRequest(eventID: eventID),
-                database: database
+                EventEditSummaryRequest(eventID: eventID)
             )
             self._sourceProvenance = FetchOne(
-                EventSourceProvenanceRecord.where { $0.id.eq(eventID) },
-                database: database
+                EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
             )
         }
 
@@ -93,8 +86,6 @@ public struct EditEvent {
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
-        @DebugSnapshotIgnored
-        public var sourceWorkspaceDatabase: SourceWorkspaceDatabase?
 
         public var changeCount: Int? {
             editSummary.badgeCount
@@ -126,6 +117,7 @@ public struct EditEvent {
                 eventID: OMERecord.Event.ID,
                 state: inout State
             ) {
+                guard state.canReviewSourceProposal else { return }
                 let sourcePatchGenerator = sourcePatchGenerator
                 state.sourcePatchStatus = .generating
                 store.addTask {
@@ -200,6 +192,7 @@ public struct EditEvent {
                 }
 
             case .proposeChangeButtonTapped:
+                guard state.canReviewSourceProposal else { return }
                 guard case let .generated(patch) = state.sourcePatchStatus else {
                     generateSourcePatch(eventID: state.eventID, state: &state)
                     return
@@ -243,6 +236,7 @@ public struct EditEvent {
         }
         .onChange(of: store.selectedChangeView) { state in
             guard state.selectedChangeView == .source else { return }
+            guard state.canReviewSourceProposal else { return }
             store.addTask {
                 try store.send(.generateSourcePatchButtonTapped)
             }
@@ -258,12 +252,6 @@ public struct EditEvent {
         }
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()
-                .transformDependency(\.self) {
-                    guard let sourceWorkspace = store.sourceWorkspaceDatabase else {
-                        return
-                    }
-                    $0.useSourceWorkspaceDatabase(sourceWorkspace)
-                }
         }
     }
 }
@@ -320,7 +308,7 @@ public struct EditEventView: View {
             List {
                 Section {
                     HStack {
-                        Label("Database Changes", systemImage: "pencil.and.list.clipboard")
+                        Label("Unpublished Changes", systemImage: "pencil.and.list.clipboard")
                         Spacer()
                         Text(store.editSummary.totalCount, format: .number)
                             .font(.headline)
@@ -335,15 +323,15 @@ public struct EditEventView: View {
                 resetEditsSection
             }
 
-        case .missingBaseline:
+        case .workspaceNeedsPreparation:
             ContentUnavailableView(
-                "Baseline Missing",
+                "Workspace Needs Preparation",
                 systemImage: "externaldrive.badge.questionmark"
             )
 
-        case .notSourceBacked:
+        case .notInWorkspace:
             ContentUnavailableView(
-                "Not Source Backed",
+                "Not in a Workspace",
                 systemImage: "doc.badge.ellipsis"
             )
 
@@ -354,22 +342,29 @@ public struct EditEventView: View {
 
     @ViewBuilder
     private var sourceChangesContent: some View {
-        SourceChangesReviewPanel(
-            availability: SourceChangesAvailability(store.editSummary.availability),
-            groups: store.editSummary.groups,
-            mode: .proposal,
-            sourcePatchStatus: store.sourcePatchStatus,
-            sourceProposalStatus: store.sourceProposalStatus,
-            onReviewChanges: {
-                store.send(.generateSourcePatchButtonTapped)
-            },
-            onProposeChange: {
-                store.send(.proposeChangeButtonTapped)
+        if store.canReviewSourceProposal {
+            SourceChangesReviewPanel(
+                availability: SourceChangesAvailability(store.editSummary.availability),
+                groups: store.editSummary.groups,
+                mode: .proposal,
+                sourcePatchStatus: store.sourcePatchStatus,
+                sourceProposalStatus: store.sourceProposalStatus,
+                onReviewChanges: {
+                    store.send(.generateSourcePatchButtonTapped)
+                },
+                onProposeChange: {
+                    store.send(.proposeChangeButtonTapped)
+                }
+            ) {
+                sourceSection
+            } auxiliarySection: {
+                resetEditsSection
             }
-        ) {
-            sourceSection
-        } auxiliarySection: {
-            resetEditsSection
+        } else {
+            ContentUnavailableView(
+                "Team Workspace Required",
+                systemImage: "person.2.badge.gearshape"
+            )
         }
     }
 
@@ -431,18 +426,18 @@ public enum SourceChangesScope: Equatable, Sendable {
 
 public enum SourceChangesAvailability: Equatable, Sendable {
     case available
-    case missingBaseline
-    case notSourceBacked
+    case workspaceNeedsPreparation
+    case notInWorkspace
     case unavailable(SourceChangeSummary.UnavailableReason)
 
     public init(_ availability: EventEditSummary.Availability) {
         switch availability {
         case .available:
             self = .available
-        case .missingBaseline:
-            self = .missingBaseline
-        case .notSourceBacked:
-            self = .notSourceBacked
+        case .workspaceNeedsPreparation:
+            self = .workspaceNeedsPreparation
+        case .notInWorkspace:
+            self = .notInWorkspace
         case let .unavailable(reason):
             self = .unavailable(reason)
         }
@@ -453,7 +448,7 @@ public enum SourceChangesAvailability: Equatable, Sendable {
         case .available:
             self = .available
         case .missingBaseline:
-            self = .missingBaseline
+            self = .workspaceNeedsPreparation
         case let .unavailable(reason):
             self = .unavailable(reason)
         }
@@ -554,15 +549,15 @@ public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: Vi
                 }
             }
 
-        case .missingBaseline:
+        case .workspaceNeedsPreparation:
             ContentUnavailableView(
-                "Baseline Missing",
+                "Workspace Needs Preparation",
                 systemImage: "externaldrive.badge.questionmark"
             )
 
-        case .notSourceBacked:
+        case .notInWorkspace:
             ContentUnavailableView(
-                "Not Source Backed",
+                "Not in a Workspace",
                 systemImage: "doc.badge.ellipsis"
             )
 
@@ -868,9 +863,14 @@ private extension EditEvent.State {
     var canCreateSourceProposal: Bool {
         guard case let .generated(patch) = sourcePatchStatus,
               !patch.isEmpty,
+              canReviewSourceProposal,
               sourceProposalStatus.canCreateProposal
         else { return false }
         return true
+    }
+
+    var canReviewSourceProposal: Bool {
+        sourceProvenance?.sourceBaselineID != nil
     }
 }
 
@@ -913,7 +913,7 @@ private extension SourceChangesReviewMode {
         case .proposal:
             "Review changes before creating a proposal"
         case .workspace:
-            "Review source changes"
+            "Review unpublished changes"
         }
     }
 
@@ -940,7 +940,7 @@ private extension SourceChangesReviewMode {
         case .proposal:
             "Proposal"
         case .workspace:
-            "Source Changes"
+            "Unpublished Changes"
         }
     }
 }

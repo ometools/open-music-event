@@ -21,6 +21,7 @@ struct EditEventSourcePatchInvalidationTests {
     func generateSourcePatchButtonLoadsPatch() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedSourceBackedEvent(eventID, in: database)
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -62,6 +63,7 @@ struct EditEventSourcePatchInvalidationTests {
     func proposeChangeReviewsChangesWhenPatchIsNotReady() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedSourceBackedEvent(eventID, in: database)
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -103,6 +105,7 @@ struct EditEventSourcePatchInvalidationTests {
     func proposeChangeButtonPresentsComposerForGeneratedPatch() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedSourceBackedEvent(eventID, in: database)
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -455,6 +458,7 @@ struct EditEventSourcePatchInvalidationTests {
     func selectingSourceChangeViewGeneratesPatch() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedSourceBackedEvent(eventID, in: database)
         let patch = SourcePatch()
         let store: TestStore<EditEvent> = withDependencies {
             $0.defaultDatabase = database
@@ -490,6 +494,7 @@ struct EditEventSourcePatchInvalidationTests {
     func sourceInvalidationRegeneratesPatchWhenSourceChangeViewIsSelected() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedSourceBackedEvent(eventID, in: database)
         let invalidation = SourcePatchInvalidation(
             eventID: eventID,
             operation: .update,
@@ -630,6 +635,62 @@ struct EditEventSourcePatchInvalidationTests {
         } operation: {
             @Dependency(\.defaultDatabase) var database
             return database
+        }
+    }
+
+    private func seedSourceBackedEvent(
+        _ eventID: OME.Event.ID,
+        in database: any DatabaseWriter
+    ) async throws {
+        let sourceBaselineID = SourceBaselineRecord.ID(
+            rawValue: "source.\(eventID.eventID.rawValue.rawValue)"
+        )
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Source Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: TimeZone(identifier: "UTC")!,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    id: sourceBaselineID,
+                    sourceKind: .local,
+                    sourceReference: "/tmp/source-repository",
+                    ref: nil,
+                    databaseFileName: "reference.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 0)
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceBaselineID: sourceBaselineID,
+                    sourceKind: .local,
+                    sourceReference: "/tmp/source-repository",
+                    ref: nil,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: eventID.eventID.rawValue.rawValue
+                )
+            }
+            .execute(db)
         }
     }
 }
