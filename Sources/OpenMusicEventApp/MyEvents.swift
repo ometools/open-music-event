@@ -16,6 +16,22 @@ import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SQLiteData
 
+struct FetchLoadFailure: Identifiable {
+    var id: String { label }
+
+    var label: String
+    var error: any Error
+
+    init?(
+        label: String,
+        error: (any Error)?
+    ) {
+        guard let error else { return nil }
+        self.label = label
+        self.error = error
+    }
+}
+
 @Feature
 public struct MyEvents {
     public struct State {
@@ -33,6 +49,14 @@ public struct MyEvents {
         @DebugSnapshotIgnored
         @FetchAll(MyEvents.teamWorkspacesQuery)
         var teamWorkspaces
+
+        var fetchLoadFailures: [FetchLoadFailure] {
+            [
+                FetchLoadFailure(label: "MyEvents.events", error: $events.loadError),
+                FetchLoadFailure(label: "MyEvents.teamWorkspaces", error: $teamWorkspaces.loadError),
+            ]
+            .compactMap { $0 }
+        }
     }
 
     public enum Action {

@@ -84,7 +84,6 @@ public struct EventViewer {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
-    @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
     @StoreTaskID var sourceDataRefreshTask
 
     public struct State: Identifiable {
@@ -122,7 +121,7 @@ public struct EventViewer {
             self.postersViewer = nil
             self.notificationsViewer = nil
             self.eventSettings = nil
-            self.editEvent = nil
+            self.eventWorkspace = nil
             self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
             self.eventInfoViewer = nil
             self.destination = nil
@@ -157,8 +156,8 @@ public struct EventViewer {
                         self.notificationsViewer = Spawn(NotificationsViewer.State(eventID: eventID))
                     case .settings:
                         self.eventSettings = Spawn(EventSettings.State(eventID: eventID))
-                    case .edit:
-                        self.editEvent = editEventSpawn(eventID: eventID)
+                    case .workspace:
+                        self.eventWorkspace = eventWorkspaceSpawn(eventID: eventID)
                     case .search:
                         self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
                     case .about:
@@ -207,7 +206,7 @@ public struct EventViewer {
         public var postersViewer: Spawn<PostersViewer>?
         public var notificationsViewer: Spawn<NotificationsViewer>?
         public var eventSettings: Spawn<EventSettings>?
-        public var editEvent: Spawn<EditEvent>?
+        public var eventWorkspace: Spawn<EventWorkspace>?
         public var eventSearch: Spawn<EventSearch>
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
@@ -286,12 +285,12 @@ public struct EventViewer {
                 self.eventSearch.state = EventSearch.State.route(eventID: eventID, target: target)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-            case .edit:
+            case .workspace:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
-                if self.editEvent == nil {
-                    self.editEvent = editEventSpawn(eventID: self.eventID)
+                if self.eventWorkspace == nil {
+                    self.eventWorkspace = eventWorkspaceSpawn(eventID: self.eventID)
                 }
             default:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
@@ -371,11 +370,11 @@ public struct EventViewer {
                     )
                 }
 
-            case let .editEvent(eventID):
+            case let .eventWorkspace(eventID):
                 guard eventID == self.eventID else { return }
-                self.selectedFeature = .edit
-                if self.editEvent == nil {
-                    self.editEvent = editEventSpawn(eventID: eventID)
+                self.selectedFeature = .workspace
+                if self.eventWorkspace == nil {
+                    self.eventWorkspace = eventWorkspaceSpawn(eventID: eventID)
                 }
 
             case let .editEventInfo(eventID):
@@ -579,19 +578,11 @@ public struct EventViewer {
             }
         }
 
-        private func editEventSpawn(
+        private func eventWorkspaceSpawn(
             eventID: OMERecord.Event.ID
-        ) -> Spawn<EditEvent> {
-            @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
-            let sourceWorkspace = try? sourceWorkspaceDatabase.event(eventID)
+        ) -> Spawn<EventWorkspace> {
             return withEventDependencies {
-                withDependencies {
-                    if let sourceWorkspace {
-                        $0.useSourceWorkspaceDatabase(sourceWorkspace)
-                    }
-                } operation: {
-                    Spawn(EditEvent.State(eventID: eventID))
-                }
+                Spawn(EventWorkspace.State(eventID: eventID))
             }
         }
 
@@ -701,16 +692,8 @@ public struct EventViewer {
         .ifLet(\.eventSettings) {
             EventSettings()
         }
-        .ifLet(\.editEvent) {
-            EditEvent()
-                .transformDependency(\.self) {
-                    guard let eventID = store.editEvent?.state.eventID,
-                          let sourceWorkspace = try? sourceWorkspaceDatabase.event(eventID)
-                    else {
-                        return
-                    }
-                    $0.useSourceWorkspaceDatabase(sourceWorkspace)
-                }
+        .ifLet(\.eventWorkspace) {
+            EventWorkspace()
         }
         .ifLet(\.eventInfoViewer) {
             EventInfoViewer()
@@ -962,16 +945,16 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.spawn(\.editEvent) {
+                if let featureStore = store.spawn(\.eventWorkspace) {
                     TabFeature(
-                        .edit,
-                        title: EventViewer.EventFeature.edit.title,
-                        systemImage: EventViewer.EventFeature.edit.systemImage,
-                        labelTint: EventViewer.EventFeature.edit.labelTint,
+                        .workspace,
+                        title: EventViewer.EventFeature.workspace.title,
+                        systemImage: EventViewer.EventFeature.workspace.systemImage,
+                        labelTint: EventViewer.EventFeature.workspace.labelTint,
                         badgeValue: featureStore.changeCount,
                         navigation: .stack
                     ) {
-                        EditEventView(store: featureStore)
+                        EventWorkspaceView(store: featureStore)
                     }
                 }
 
@@ -1083,11 +1066,11 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.settings)
             }
 
-            if let featureStore = store.spawn(\.editEvent) {
-                viewerTab(.edit, badgeValue: featureStore.changeCount) {
-                    EditEventView(store: featureStore)
+            if let featureStore = store.spawn(\.eventWorkspace) {
+                viewerTab(.workspace, badgeValue: featureStore.changeCount) {
+                    EventWorkspaceView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.edit)
+                .tag(EventViewer.EventFeature.workspace)
             }
 
             if let featureStore = store.spawn(\.eventInfoViewer) {
@@ -1177,11 +1160,11 @@ public struct EventViewerView: View {
                 .tag(EventViewer.EventFeature.settings)
             }
 
-            if let featureStore = store.spawn(\.editEvent) {
-                viewerTab(.edit, badgeValue: featureStore.changeCount) {
-                    EditEventView(store: featureStore)
+            if let featureStore = store.spawn(\.eventWorkspace) {
+                viewerTab(.workspace, badgeValue: featureStore.changeCount) {
+                    EventWorkspaceView(store: featureStore)
                 }
-                .tag(EventViewer.EventFeature.edit)
+                .tag(EventViewer.EventFeature.workspace)
             }
 
             if let featureStore = store.spawn(\.eventInfoViewer) {

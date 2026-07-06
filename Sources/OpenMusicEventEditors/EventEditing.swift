@@ -21,7 +21,7 @@ public enum EventEditingIntent: Equatable, Sendable {
     case deletePoster(OMERecord.Poster.ID)
     case editContactInfo(OMERecord.Event.ID)
     case editContributor(eventID: OMERecord.Event.ID, contributorID: OMERecord.ID<OMERecord.Contributor>)
-    case editEvent(OMERecord.Event.ID)
+    case eventWorkspace(OMERecord.Event.ID)
     case editEventInfo(OMERecord.Event.ID)
     case editEventPolicies(OMERecord.Event.ID)
     case editLocation(OMERecord.Event.ID)
@@ -35,12 +35,12 @@ public enum EventEditingIntent: Equatable, Sendable {
 extension EventFeature {
     public static let editorFeatures: [Self] = [
         .settings,
-        .edit,
+        .workspace,
     ]
 
     public var isEditorFeature: Bool {
         switch self {
-        case .settings, .edit:
+        case .settings, .workspace:
             true
         case .schedule,
              .contributors,

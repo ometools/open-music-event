@@ -230,9 +230,6 @@
     "Directory" : {
 
     },
-    "Team Workspaces" : {
-
-    },
     "Edit Calendar" : {
 
     },
@@ -634,6 +631,12 @@
     "Tangled did not return a source archive." : {
 
     },
+    "Team Workspace" : {
+
+    },
+    "Team Workspaces" : {
+
+    },
     "Test error." : {
 
     },
@@ -703,6 +706,9 @@
 
     },
     "Unable to import source." : {
+
+    },
+    "Unable to load data." : {
 
     },
     "Unable to load event source." : {

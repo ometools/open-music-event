@@ -12,7 +12,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
     case posters
     case notifications
     case settings
-    case edit
+    case workspace
     case search
     case about
 
@@ -58,8 +58,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             self = .notifications
         case "settings":
             self = .settings
-        case "edit":
-            self = .edit
+        case "workspace", "edit":
+            self = .workspace
         case "search":
             self = .search
         case "about":
@@ -94,8 +94,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             return "notifications"
         case .settings:
             return "settings"
-        case .edit:
-            return "edit"
+        case .workspace:
+            return "workspace"
         case .search:
             return "search"
         case .about:
@@ -128,8 +128,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             return "openMusicEvent.eventViewer.notifications"
         case .settings:
             return "openMusicEvent.eventViewer.settings"
-        case .edit:
-            return "openMusicEvent.eventViewer.edit"
+        case .workspace:
+            return "openMusicEvent.eventViewer.workspace"
         case .search:
             return "openMusicEvent.eventViewer.search"
         case .about:
@@ -159,7 +159,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             .red
         case .settings:
             .gray
-        case .edit:
+        case .workspace:
             .yellow
         case .search:
             nil
@@ -195,8 +195,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             "bell"
         case .settings:
             "gearshape"
-        case .edit:
-            "pencil"
+        case .workspace:
+            "tray.full"
         case .search:
             "magnifyingglass"
         case .about:
@@ -226,8 +226,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             "Alerts"
         case .settings:
             "Settings"
-        case .edit:
-            "Edit"
+        case .workspace:
+            "Workspace"
         case .search:
             "Search"
         case .about:

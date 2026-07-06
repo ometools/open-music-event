@@ -4,13 +4,13 @@ import OpenMusicEventLexicon
 import SQLiteData
 import SourceEditing
 
-public enum OpenMusicEventEditResetError: Error, Equatable, Sendable {
+public enum EventWorkspaceResetError: Error, Equatable, Sendable {
     case workspaceNeedsPreparation(OME.Event.ID)
     case notInWorkspace(OME.Event.ID)
     case unconfigured
 }
 
-public struct OpenMusicEventEditResetter: Sendable {
+public struct EventWorkspaceResetter: Sendable {
     public var reset: @Sendable (OME.Event.ID) throws -> Void
 
     public init(reset: @escaping @Sendable (OME.Event.ID) throws -> Void) {
@@ -18,9 +18,9 @@ public struct OpenMusicEventEditResetter: Sendable {
     }
 }
 
-public extension OpenMusicEventEditResetter {
+public extension EventWorkspaceResetter {
     static var openMusicEvent: Self {
-        OpenMusicEventEditResetter { eventID in
+        EventWorkspaceResetter { eventID in
             @Dependency(\.defaultDatabase) var database
             @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
             @Dependency(\.sourceEditingSession) var sourceEditingSession
@@ -30,14 +30,14 @@ public extension OpenMusicEventEditResetter {
                     .where { $0.id.eq(eventID) }
                     .fetchOne(db))
                 else {
-                    throw OpenMusicEventEditResetError.notInWorkspace(eventID)
+                    throw EventWorkspaceResetError.notInWorkspace(eventID)
                 }
 
                 guard let workspace = try (EditingWorkspaceRecord
                     .where { $0.id.eq(eventWorkspace.workspaceID) }
                     .fetchOne(db))
                 else {
-                    throw OpenMusicEventEditResetError.workspaceNeedsPreparation(eventID)
+                    throw EventWorkspaceResetError.workspaceNeedsPreparation(eventID)
                 }
                 let sourceBaseline = try workspace.sourceBaselineID.flatMap { sourceBaselineID in
                     try SourceBaselineRecord
@@ -64,7 +64,7 @@ public extension OpenMusicEventEditResetter {
                         baselineDatabase = nil
                     }
                     guard let baselineDatabase else {
-                        throw OpenMusicEventEditResetError.workspaceNeedsPreparation(eventID)
+                        throw EventWorkspaceResetError.workspaceNeedsPreparation(eventID)
                     }
                     try SourceEditingResetter().reset(
                         in: db,
@@ -96,20 +96,20 @@ public extension SourceRecordScope {
 }
 
 public extension DependencyValues {
-    var openMusicEventEditResetter: OpenMusicEventEditResetter {
-        get { self[OpenMusicEventEditResetterKey.self] }
-        set { self[OpenMusicEventEditResetterKey.self] = newValue }
+    var eventWorkspaceResetter: EventWorkspaceResetter {
+        get { self[EventWorkspaceResetterKey.self] }
+        set { self[EventWorkspaceResetterKey.self] = newValue }
     }
 }
 
-private enum OpenMusicEventEditResetterKey: DependencyKey {
-    static var liveValue: OpenMusicEventEditResetter {
+private enum EventWorkspaceResetterKey: DependencyKey {
+    static var liveValue: EventWorkspaceResetter {
         .openMusicEvent
     }
 
-    static var testValue: OpenMusicEventEditResetter {
-        OpenMusicEventEditResetter { _ in
-            throw OpenMusicEventEditResetError.unconfigured
+    static var testValue: EventWorkspaceResetter {
+        EventWorkspaceResetter { _ in
+            throw EventWorkspaceResetError.unconfigured
         }
     }
 }

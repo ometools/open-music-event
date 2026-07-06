@@ -213,7 +213,7 @@ public struct TeamWorkspaceCreateEvent {
                             }
                             try store.post(
                                 key: NavigationRequested.self,
-                                value: .event(eventID, .edit)
+                                value: .event(eventID, .workspace)
                             )
                             try store.dismiss()
                         } catch OrganizerSourceWorkspaceError.eventDirectoryAlreadyExists(_) {

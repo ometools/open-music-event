@@ -53,8 +53,8 @@ public enum AppRoute: Equatable, Sendable {
                 self = .event(eventID, .search)
             } else if tail == ["about"] {
                 self = .event(eventID, .about)
-            } else if tail == ["edit"] {
-                self = .event(eventID, .edit)
+            } else if tail == ["workspace"] || tail == ["edit"] {
+                self = .event(eventID, .workspace)
             } else {
                 return nil
             }
@@ -100,8 +100,8 @@ public enum AppRoute: Equatable, Sendable {
                 return "\(base)/search"
             case .about:
                 return "\(base)/about"
-            case .edit:
-                return "\(base)/edit"
+            case .workspace:
+                return "\(base)/workspace"
             }
         }
     }

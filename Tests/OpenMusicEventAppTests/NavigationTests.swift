@@ -6,6 +6,7 @@ import CustomDump
 import Dependencies
 import DebugSnapshots
 import Foundation
+import IssueReporting
 import Observation
 import OpenMusicEventDatabase
 import OpenMusicEventAuthentication
@@ -117,6 +118,70 @@ private actor SourceEditModePreparationRecorder {
     }
 }
 
+private actor SourcePatchDatabaseRecorder {
+    private var recordedSourceReferences: [String?] = []
+
+    var sourceReferences: [String?] {
+        recordedSourceReferences
+    }
+
+    func record(_ sourceReference: String?) {
+        recordedSourceReferences.append(sourceReference)
+    }
+}
+
+private struct MissingTestReferenceDatabase: Error {}
+
+private extension SourceReferenceDatabaseClient {
+    static var missing: Self {
+        Self(
+            url: { _ in URL(fileURLWithPath: "/missing-reference.sqlite") },
+            prepareForImport: { _ in throw MissingTestReferenceDatabase() },
+            existing: { _ in nil }
+        )
+    }
+}
+
+private struct EventWorkspaceMountShouldNotBeCalled: Error {}
+
+private final class IssueRecordingReporter: @unchecked Sendable, IssueReporter {
+    private let lock = NSLock()
+    private var recordedMessages: [String] = []
+
+    var messages: [String] {
+        lock.withLock { recordedMessages }
+    }
+
+    func reportIssue(
+        _ message: @autoclosure () -> String?,
+        severity: IssueSeverity,
+        fileID: StaticString,
+        filePath: StaticString,
+        line: UInt,
+        column: UInt
+    ) {
+        lock.withLock {
+            recordedMessages.append(message() ?? "")
+        }
+    }
+
+    func reportIssue(
+        _ error: any Error,
+        _ message: @autoclosure () -> String?,
+        fileID: StaticString,
+        filePath: StaticString,
+        line: UInt,
+        column: UInt
+    ) {
+        lock.withLock {
+            recordedMessages.append(
+                "Caught error: \(error)"
+                    + (message().map { ": \($0)" } ?? "")
+            )
+        }
+    }
+}
+
 @MainActor
 @Suite(.tcaExhaustivity(.off))
 struct NavigationTests {
@@ -147,8 +212,8 @@ struct NavigationTests {
                 AppRoute.event(eventID("event-1"), .stage(stageLocalID("stage-1")))
             ),
             (
-                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/edit",
-                AppRoute.event(eventID("event-1"), .edit)
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/workspace",
+                AppRoute.event(eventID("event-1"), .workspace)
             ),
             (
                 "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/settings",
@@ -162,6 +227,14 @@ struct NavigationTests {
 
         #expect(route == expected)
         #expect(route.path == url.path(percentEncoded: true))
+    }
+
+    @Test
+    func appRouteAcceptsLegacyEditEventPathAsWorkspace() throws {
+        let url = try #require(URL(
+            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/edit"
+        ))
+        #expect(AppRoute(url: url) == AppRoute.event(eventID("event-1"), .workspace))
     }
 
     @Test(
@@ -239,7 +312,7 @@ struct NavigationTests {
     }
 
     @Test
-    func navigationRequestSelectsEditEventFeature() throws {
+    func navigationRequestSelectsEventWorkspaceFeature() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let store = makeRootHarnessStore(database: database, eventID: eventID)
@@ -249,11 +322,11 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            store.send(.root(.handleNavigationRequest(.event(eventID, .edit))))
+            store.send(.root(.handleNavigationRequest(.event(eventID, .workspace))))
         }
 
-        #expect(store.state.root.eventViewer?.state.selectedFeature == .edit)
-        #expect(store.state.root.eventViewer?.state.editEvent?.eventID == eventID)
+        #expect(store.state.root.eventViewer?.state.selectedFeature == .workspace)
+        #expect(store.state.root.eventViewer?.state.eventWorkspace?.eventID == eventID)
     }
 
     @Test
@@ -432,6 +505,50 @@ struct NavigationTests {
     }
 
     @Test
+    func myEventsExposesMalformedTeamWorkspaceFetchLoadError() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("malformed-team-workspace-event")
+        let sourceProvenance = sourceProvenance("malformed-team-workspace")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Malformed Team Workspace Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 1_700)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+            try db.execute(
+                sql: #"UPDATE "sourceBaselines" SET "sourceKind" = ? WHERE "id" = ?"#,
+                arguments: ["inferred", sourceBaselineID.rawValue]
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: MyEvents.State()) {
+                MyEvents()
+            }
+        }
+
+        #expect(store.state.teamWorkspaces.isEmpty)
+        expectNoDifference(
+            store.state.fetchLoadFailures.map(\.label),
+            ["MyEvents.teamWorkspaces"]
+        )
+        let failure = try #require(store.state.fetchLoadFailures.first)
+        #expect(!String(describing: failure.error).isEmpty)
+    }
+
+    @Test
     func teamWorkspaceDetailLoadsLiveCalendarFromSourceProvenance() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("live-calendar-source")
@@ -530,11 +647,13 @@ struct NavigationTests {
     @Test
     func teamWorkspaceDetailPreparesSourceForEditingBeforePresentingManagement() async throws {
         let database = try makePreparedDatabase()
+        let workspaceDatabase = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("editable-source-management")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
         let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
         let eventID = eventID("editable-source-management-event")
         let recorder = SourceEditModePreparationRecorder()
+        let workspaceSourceReference = "workspace://editable-source-management"
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
@@ -551,13 +670,34 @@ struct NavigationTests {
             )
             try Self.insertCalendar(db, id: calendarID, name: "Editable Source Calendar")
         }
+        try await workspaceDatabase.write { db in
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    id: sourceBaselineID,
+                    sourceKind: sourceProvenance.kind,
+                    sourceReference: workspaceSourceReference,
+                    ref: sourceProvenance.ref,
+                    databaseFileName: "workspace-baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 1_700)
+                )
+            }
+            .execute(db)
+        }
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.sourceReferenceDatabase = .missing
             $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
                 await recorder.record(sourceBaselineID)
             }
+            $0.sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient(
+                event: { _ in nil },
+                sourceBaseline: { requestedSourceBaselineID in
+                    #expect(requestedSourceBaselineID == sourceBaselineID)
+                    return SourceWorkspaceDatabase(database: workspaceDatabase)
+                }
+            )
         } operation: {
             TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)) {
                 TeamWorkspaceDetail()
@@ -573,6 +713,7 @@ struct NavigationTests {
         #expect(store.state.isPreparingTeamWorkspaceEditor == false)
         #expect(store.state.teamWorkspaceEditor?.sourceBaselineID == sourceBaselineID)
         #expect(store.state.teamWorkspaceEditor?.calendarID == calendarID)
+        #expect(store.state.teamWorkspaceEditor?.sourceBaseline?.sourceReference == workspaceSourceReference)
     }
 
     @Test
@@ -623,6 +764,139 @@ struct NavigationTests {
 
         #expect(error == .referenceDatabaseMissing(sourceBaselineID))
         #expect(!FileManager.default.fileExists(atPath: referenceDatabaseURL.path))
+    }
+
+    @Test
+    func teamWorkspaceDetailMountsSourceWorkspaceWhenRoutingEditorAction() async throws {
+        let database = try makePreparedDatabase()
+        let workspaceDatabase = try makePreparedDatabase()
+        let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "source")
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+        let reporter = IssueRecordingReporter()
+        let recorder = SourcePatchDatabaseRecorder()
+        let workspaceSourceReference = "workspace://routed-source-management"
+        let patch = SourcePatch()
+
+        try await database.write { db in
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    id: sourceBaselineID,
+                    sourceKind: .tangled,
+                    sourceReference: "app://routed-source-management",
+                    ref: "HEAD",
+                    databaseFileName: "app-baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 1_800)
+                )
+            }
+            .execute(db)
+        }
+        try await workspaceDatabase.write { db in
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    id: sourceBaselineID,
+                    sourceKind: .tangled,
+                    sourceReference: workspaceSourceReference,
+                    ref: "HEAD",
+                    databaseFileName: "workspace-baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 1_900)
+                )
+            }
+            .execute(db)
+        }
+
+        let store = withIssueReporters([reporter]) {
+            withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+                $0.sourceReferenceDatabase = .missing
+                $0.sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient(
+                    event: { _ in nil },
+                    sourceBaseline: { requestedSourceBaselineID in
+                        #expect(requestedSourceBaselineID == sourceBaselineID)
+                        return SourceWorkspaceDatabase(database: workspaceDatabase)
+                    }
+                )
+                $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
+                    SourcePatchGenerator { request in
+                        @Dependency(\.defaultDatabase) var database
+                        let sourceReference = try await database.read { db in
+                            try SourceBaselineRecord
+                                .where { $0.id.eq(request.sourceBaselineID) }
+                                .fetchOne(db)?
+                                .sourceReference
+                        }
+                        await recorder.record(sourceReference)
+                        return patch
+                    }
+            } operation: {
+                var state = TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
+                state.teamWorkspaceEditor = withDependencies {
+                    $0.defaultDatabase = workspaceDatabase
+                    $0.sourceReferenceDatabase = .missing
+                } operation: {
+                    TeamWorkspaceEditor.State(
+                        sourceBaselineID: sourceBaselineID,
+                        calendarID: calendarID
+                    )
+                }
+                return TestStore(initialState: state) {
+                    TeamWorkspaceDetail()
+                }
+            }
+        }
+
+        await withIssueReporters([reporter]) {
+            let task = store.send(.teamWorkspaceEditor(.generateSourcePatchButtonTapped)) {
+                $0.teamWorkspaceEditor?.sourcePatchStatus = .generating
+            }
+            await store.receive(
+                \.teamWorkspaceEditor,
+                .matching { action in
+                    if case .sourcePatchGenerationResponse(.success) = action {
+                        return true
+                    }
+                    return false
+                },
+                timeout: .seconds(1)
+            ) {
+                $0.teamWorkspaceEditor?.sourcePatchStatus = .generated(patch)
+            }
+            await task?.value
+        }
+
+        #expect(store.state.teamWorkspaceEditor?.sourceBaselineID == sourceBaselineID)
+        #expect(await recorder.sourceReferences == [workspaceSourceReference])
+        #expect(reporter.messages.isEmpty)
+    }
+
+    @Test
+    func eventViewerDoesNotMountSourceWorkspaceWhenOpeningEventWorkspace() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-workspace-no-source-mount")
+        let reporter = IssueRecordingReporter()
+
+        let store = withIssueReporters([reporter]) {
+            withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+                $0.defaultEventID = eventID
+                $0.sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient(
+                    event: { _ in
+                        throw EventWorkspaceMountShouldNotBeCalled()
+                    },
+                    sourceBaseline: { _ in
+                        throw EventWorkspaceMountShouldNotBeCalled()
+                    }
+                )
+            } operation: {
+                TestStore(initialState: EventViewerHarness.State(eventID: eventID)) {
+                    EventViewerHarness()
+                }
+            }
+        }
+
+        #expect(store.state.eventViewer.eventWorkspace?.eventID == eventID)
+        #expect(reporter.messages.isEmpty)
     }
 
     @Test
@@ -1008,19 +1282,19 @@ struct NavigationTests {
             }
         } operation: {
             var initialState = EventViewerHarness.State(eventID: eventID)
-            initialState.eventViewer.selectedFeature = .edit
+            initialState.eventViewer.selectedFeature = .workspace
             return TestStore(initialState: initialState) {
                 EventViewerHarness()
             }
         }
 
         await store.send(
-            to: \EventViewerHarness.State.editEvent,
-            EditEvent.Action.refreshSourceButtonTapped
+            to: \EventViewerHarness.State.eventWorkspace,
+            EventWorkspace.Action.refreshSourceButtonTapped
         )?.value
         let sourceBaselineIDs = await recorder.sourceBaselineIDs
         expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
-        expectNoDifference(store.state.eventViewer.selectedFeature, .edit)
+        expectNoDifference(store.state.eventViewer.selectedFeature, .workspace)
     }
 
     @Test
@@ -2816,9 +3090,9 @@ struct NavigationTests {
             "schedule:workshop",
         ])
         #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
-        #expect(state.installedFeatures.contains(.edit))
+        #expect(state.installedFeatures.contains(.workspace))
         #expect(state.installedFeatures.contains(.settings))
-        #expect(state.editEvent?.eventID == eventID)
+        #expect(state.eventWorkspace?.eventID == eventID)
         #expect(state.eventSettings?.eventID == eventID)
     }
 
@@ -5335,9 +5609,9 @@ private struct EventViewerHarness {
             set { eventViewer.eventInfoViewer = newValue }
         }
 
-        var editEvent: Spawn<EditEvent> {
-            get { eventViewer.editEvent! }
-            set { eventViewer.editEvent = newValue }
+        var eventWorkspace: Spawn<EventWorkspace> {
+            get { eventViewer.eventWorkspace! }
+            set { eventViewer.eventWorkspace = newValue }
         }
     }
 

@@ -45,12 +45,12 @@ public struct SourceProposalFlow {
 
         public init(
             eventID: OMERecord.Event.ID,
-            editSummary: EventEditSummary? = nil,
+            workspaceSummary: EventWorkspaceSummary? = nil,
             patch: SourcePatch
         ) {
             self.init(
                 target: .event(eventID),
-                sourceChangeGroups: editSummary?.groups ?? [],
+                sourceChangeGroups: workspaceSummary?.groups ?? [],
                 patch: patch
             )
         }
@@ -66,7 +66,7 @@ public struct SourceProposalFlow {
         public let patch: SourcePatch
         public var sourceChangeGroups: [SourceChangeGroup]
         public var sourceProposalDescription = ""
-        public var sourceProposalStatus: EditEvent.SourceProposalStatus = .composing
+        public var sourceProposalStatus: EventWorkspace.SourceProposalStatus = .composing
         public var sourceProposalTitle: String
     }
 
@@ -77,7 +77,7 @@ public struct SourceProposalFlow {
         case dismissButtonTapped
         case sourceProposalCancelled
         case sourceProposalDescriptionChanged(String)
-        case sourceProposalResponse(Result<SourcePatchPublication, EditEvent.SourceProposalFailure>)
+        case sourceProposalResponse(Result<SourcePatchPublication, EventWorkspace.SourceProposalFailure>)
         case sourceProposalTitleChanged(String)
     }
 
@@ -124,7 +124,7 @@ public struct SourceProposalFlow {
                         await Task.yield()
                         try store.send(
                             .sourceProposalResponse(
-                                .failure(EditEvent.SourceProposalFailure(error))
+                                .failure(EventWorkspace.SourceProposalFailure(error))
                             )
                         )
                     }
@@ -161,11 +161,11 @@ public struct SourceProposalFlow {
                 state.sourceProposalDescription = description
 
             case let .sourceProposalResponse(.success(publication)):
-                let status = EditEvent.SourceProposalStatus.created(publication)
+                let status = EventWorkspace.SourceProposalStatus.created(publication)
                 state.sourceProposalStatus = status
 
             case let .sourceProposalResponse(.failure(failure)):
-                let status = EditEvent.SourceProposalStatus.failed(failure)
+                let status = EventWorkspace.SourceProposalStatus.failed(failure)
                 state.sourceProposalStatus = status
 
             case let .sourceProposalTitleChanged(title):

@@ -16,7 +16,7 @@ public enum EventTarget: Equatable, Sendable {
     case settings
     case search
     case about
-    case edit
+    case workspace
 }
 
 public struct NavigationRequested: FeatureEventKey {
@@ -54,8 +54,8 @@ extension EventTarget {
             .notifications
         case .settings:
             .settings
-        case .edit:
-            .edit
+        case .workspace:
+            .workspace
         case .about:
             .about
         }

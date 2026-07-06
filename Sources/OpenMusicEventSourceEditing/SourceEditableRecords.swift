@@ -1,7 +1,6 @@
 import CustomDump
 import Foundation
 import GRDB
-import Lexicon
 import OpenMusicEventLexicon
 import SourceEditing
 
@@ -9,16 +8,9 @@ public extension OME {
     static var sourceMetadataRecordTypes: [AnySourceEditableRecordType] {
         [
             Calendar.sourceRecordType(
-                projection: SourceComparableCalendar.init,
-                semanticallyEqualColumn: { columnName, baseline, working in
-                    guard columnName == "images",
-                          let baselineImages = sourceComparableImages(baseline.images),
-                          let workingImages = sourceComparableImages(working.images)
-                    else { return false }
-                    return baselineImages == workingImages
-                },
-                semanticallyEqualFieldChange: sourceImageArraysAreEqual(columnName: "images"),
-                fieldDiff: sourceImageArrayFieldDiff(columnName: "images")
+                semanticFields: [
+                    .imageArray(columnName: "images")
+                ]
             ),
         ]
     }
@@ -38,52 +30,27 @@ public extension OME {
     static var sourceRecordTypes: [AnySourceEditableRecordType] {
         [
             Event.sourceRecordType(
-                projection: SourceComparableEvent.init,
-                semanticallyEqualColumn: { columnName, baseline, working in
-                    guard columnName == "images",
-                          let baselineImages = sourceComparableImages(baseline.images),
-                          let workingImages = sourceComparableImages(working.images)
-                    else { return false }
-                    return baselineImages == workingImages
-                },
-                semanticallyEqualFieldChange: sourceImageArraysAreEqual(columnName: "images"),
-                fieldDiff: sourceImageArrayFieldDiff(columnName: "images")
+                semanticFields: [
+                    .imageArray(columnName: "images")
+                ]
             ),
             Stage.sourceRecordType(
-                projection: SourceComparableStage.init,
-                semanticallyEqualColumn: { columnName, baseline, working in
-                    guard columnName == "images",
-                          let baselineImages = sourceComparableImages(baseline.images),
-                          let workingImages = sourceComparableImages(working.images)
-                    else { return false }
-                    return baselineImages == workingImages
-                },
-                semanticallyEqualFieldChange: sourceImageArraysAreEqual(columnName: "images"),
-                fieldDiff: sourceImageArrayFieldDiff(columnName: "images")
+                semanticFields: [
+                    .imageArray(columnName: "images")
+                ]
             ),
             Contributor.sourceRecordType(
-                projection: SourceComparableContributor.init,
-                semanticallyEqualColumn: { columnName, baseline, working in
-                    guard columnName == "images",
-                          let baselineImages = sourceComparableImages(baseline.images),
-                          let workingImages = sourceComparableImages(working.images)
-                    else { return false }
-                    return baselineImages == workingImages
-                },
-                semanticallyEqualFieldChange: sourceImageArraysAreEqual(columnName: "images"),
-                fieldDiff: sourceImageArrayFieldDiff(columnName: "images")
+                semanticFields: [
+                    .imageArray(columnName: "images")
+                ]
             ),
             Schedule.sourceRecordType,
             Performance.sourceRecordType,
             Channel.sourceRecordType,
             Poster.sourceRecordType(
-                projection: SourceComparablePoster.init,
-                semanticallyEqualColumn: { columnName, baseline, working in
-                    guard columnName == "image" else { return false }
-                    return baseline.image.sourceComparable == working.image.sourceComparable
-                },
-                semanticallyEqualFieldChange: sourceImagesAreEqual(columnName: "image"),
-                fieldDiff: sourceImageFieldDiff(columnName: "image")
+                semanticFields: [
+                    .image(columnName: "image")
+                ]
             ),
         ]
     }
@@ -103,56 +70,58 @@ extension OME.Channel: SourceEditableTable {}
 extension OME.Poster: SourceEditableTable {}
 
 private extension SourceEditableTable where QueryOutput: Sendable {
-    static func sourceRecordType<Projection: Equatable & Sendable>(
-        projection: @escaping (QueryOutput) -> Projection,
-        semanticallyEqualColumn: @escaping (String, QueryOutput, QueryOutput) -> Bool,
-        semanticallyEqualFieldChange: @escaping (SourceFieldChange) -> Bool = { _ in false },
-        fieldDiff: @escaping (SourceRecordChange) -> String? = { _ in nil }
+    static func sourceRecordType(
+        semanticFields: [SourceSemanticFieldNormalizer]
     ) -> AnySourceEditableRecordType {
-        AnySourceEditableRecordType(
+        let genericRecordType = Self.sourceRecordType
+        let semanticFieldsByColumnName = Dictionary(
+            uniqueKeysWithValues: semanticFields.map { ($0.columnName, $0) }
+        )
+
+        return AnySourceEditableRecordType(
             descriptor: sourceDescriptor,
             resolveRecordChange: { change, db, baselineSchemaName in
-                let baselineRecord = try sourceRecord(
-                    for: change,
-                    schemaName: baselineSchemaName,
-                    in: db
-                )
-                let workingRecord = try sourceRecord(
-                    for: change,
-                    schemaName: "main",
-                    in: db
-                )
+                var retainedFieldChanges: [SourceFieldChange] = []
+                var genericFieldChanges: [SourceFieldChange] = []
+                var semanticFieldDiffs: [String] = []
 
-                var resolvedChange = change
-                if let baselineRecord, let workingRecord {
-                    resolvedChange.fieldChanges.removeAll { fieldChange in
-                        semanticallyEqualFieldChange(fieldChange)
-                            || semanticallyEqualColumn(
-                                fieldChange.columnName,
-                                baselineRecord,
-                                workingRecord
-                            )
+                for fieldChange in change.fieldChanges {
+                    if let semanticField = semanticFieldsByColumnName[fieldChange.columnName] {
+                        guard !semanticField.valuesAreEqual(fieldChange) else { continue }
+                        retainedFieldChanges.append(fieldChange)
+                        if let fieldDiff = semanticField.diff(fieldChange), !fieldDiff.isEmpty {
+                            semanticFieldDiffs.append(fieldDiff)
+                        }
+                    } else {
+                        retainedFieldChanges.append(fieldChange)
+                        genericFieldChanges.append(fieldChange)
                     }
                 }
-                guard !resolvedChange.fieldChanges.isEmpty else {
+
+                guard !retainedFieldChanges.isEmpty else {
                     return nil
                 }
 
-                let includedColumnNames = Set(resolvedChange.fieldChanges.map(\.columnName))
-                let baseline = SourceComparableRecordSnapshot(
-                    record: baselineRecord.map(projection),
-                    includedColumnNames: includedColumnNames
-                )
-                let working = SourceComparableRecordSnapshot(
-                    record: workingRecord.map(projection),
-                    includedColumnNames: includedColumnNames
-                )
-                resolvedChange.recordDiff = diff(baseline, working) ?? ""
-                if let rawFieldDiff = fieldDiff(resolvedChange) {
-                    if resolvedChange.recordDiff?.isEmpty == false {
-                        resolvedChange.recordDiff?.append("\n")
-                    }
-                    resolvedChange.recordDiff?.append(rawFieldDiff)
+                var genericRecordDiff: String?
+                if !genericFieldChanges.isEmpty {
+                    var genericChange = change
+                    genericChange.fieldChanges = genericFieldChanges
+                    let resolvedGenericChange = try genericRecordType
+                        .resolveRecordChange(genericChange, db, baselineSchemaName)
+                    genericRecordDiff = resolvedGenericChange?.recordDiff
+                }
+
+                var resolvedChange = change
+                resolvedChange.fieldChanges = retainedFieldChanges
+
+                let recordDiffs = ([genericRecordDiff].compactMap(\.self) + semanticFieldDiffs)
+                    .filter { !$0.isEmpty }
+                if !recordDiffs.isEmpty {
+                    resolvedChange.recordDiff = recordDiffs.joined(separator: "\n")
+                } else if !genericFieldChanges.isEmpty {
+                    resolvedChange.recordDiff = genericRecordDiff
+                } else {
+                    resolvedChange.recordDiff = nil
                 }
                 return resolvedChange
             }
@@ -160,143 +129,25 @@ private extension SourceEditableTable where QueryOutput: Sendable {
     }
 }
 
-private struct SourceComparableRecordSnapshot<Record: Sendable>: Sendable, CustomDumpRepresentable {
-    var record: Record?
-    var includedColumnNames: Set<String>
+private struct SourceSemanticFieldNormalizer {
+    var columnName: String
+    var valuesAreEqual: (SourceFieldChange) -> Bool
+    var diff: (SourceFieldChange) -> String?
 
-    var customDumpValue: Any {
-        if let record {
-            SourceComparableRecordDump(
-                record: record,
-                includedColumnNames: includedColumnNames
-            )
-        } else {
-            "missing"
-        }
-    }
-}
-
-private struct SourceComparableRecordDump<Record: Sendable>: Sendable, CustomDumpReflectable {
-    var record: Record
-    var includedColumnNames: Set<String>
-
-    var customDumpMirror: Mirror {
-        let mirror = Mirror(reflecting: record)
-        let children = mirror.children.compactMap { child -> Mirror.Child? in
-            guard let label = child.label,
-                  includedColumnNames.contains(label)
-            else { return nil }
-
-            return child
-        }
-
-        return Mirror(
-            record,
-            children: children,
-            displayStyle: mirror.displayStyle
+    static func imageArray(columnName: String) -> Self {
+        Self(
+            columnName: columnName,
+            valuesAreEqual: sourceImageArraysAreEqual(columnName: columnName),
+            diff: sourceImageArrayFieldDiff(columnName: columnName)
         )
     }
-}
 
-private struct SourceComparableEvent: Equatable, Sendable {
-    var id: OME.Event.ID
-    var name: String
-    var description: String?
-    var startDate: LocalDate?
-    var endDate: LocalDate?
-    var status: Open<OME.Event.Status>?
-    var mode: Open<OME.Event.Mode>?
-    var locations: [OME.Event.Location]?
-    var uris: [OME.Event.EventURI]?
-    var timeZone: TimeZone
-    var images: [SourceComparableImageAsset]?
-    var contactNumbers: [OME.Event.ContactNumber]?
-    var categoryConfigs: OME.Event.CategoryConfigs?
-    var policies: OME.Event.Policies?
-    var reportingLink: OME.Event.ReportingLink?
-
-    init(_ event: OME.Event) {
-        self.id = event.id
-        self.name = event.name
-        self.description = event.description
-        self.startDate = event.startDate
-        self.endDate = event.endDate
-        self.status = event.status
-        self.mode = event.mode
-        self.locations = event.locations
-        self.uris = event.uris
-        self.timeZone = event.timeZone
-        self.images = sourceComparableImages(event.images)
-        self.contactNumbers = event.contactNumbers
-        self.categoryConfigs = event.categoryConfigs
-        self.policies = event.policies
-        self.reportingLink = event.reportingLink
-    }
-}
-
-private struct SourceComparableCalendar: Equatable, Sendable {
-    var id: OME.Calendar.ID
-    var name: String
-    var description: String?
-    var images: [SourceComparableImageAsset]?
-
-    init(_ calendar: OME.Calendar) {
-        self.id = calendar.id
-        self.name = calendar.name
-        self.description = calendar.description
-        self.images = sourceComparableImages(calendar.images)
-    }
-}
-
-private struct SourceComparableStage: Equatable, Sendable {
-    var id: OME.Stage.ID
-    var name: String
-    var color: OMEColor
-    var category: OME.Stage.Category?
-    var sortIndex: Int?
-    var images: [SourceComparableImageAsset]?
-    var systemIconName: String?
-    var iconShortCode: String?
-    var lineup: [OME.ID<OME.Contributor>]?
-
-    init(_ stage: OME.Stage) {
-        self.id = stage.id
-        self.name = stage.name
-        self.color = stage.color
-        self.category = stage.category
-        self.sortIndex = stage.sortIndex
-        self.images = sourceComparableImages(stage.images)
-        self.systemIconName = stage.systemIconName
-        self.iconShortCode = stage.iconShortCode
-        self.lineup = stage.lineup
-    }
-}
-
-private struct SourceComparableContributor: Equatable, Sendable {
-    var id: OME.Contributor.ID
-    var name: String
-    var bio: String?
-    var images: [SourceComparableImageAsset]?
-    var links: [ExternalPlatform.Link]?
-
-    init(_ contributor: OME.Contributor) {
-        self.id = contributor.id
-        self.name = contributor.name
-        self.bio = contributor.bio
-        self.images = sourceComparableImages(contributor.images)
-        self.links = contributor.links
-    }
-}
-
-private struct SourceComparablePoster: Equatable, Sendable {
-    var id: OME.Poster.ID
-    var title: String?
-    var image: SourceComparableImageAsset
-
-    init(_ poster: OME.Poster) {
-        self.id = poster.id
-        self.title = poster.title
-        self.image = poster.image.sourceComparable
+    static func image(columnName: String) -> Self {
+        Self(
+            columnName: columnName,
+            valuesAreEqual: sourceImagesAreEqual(columnName: columnName),
+            diff: sourceImageFieldDiff(columnName: columnName)
+        )
     }
 }
 
@@ -435,11 +286,9 @@ private func sourceImagesAreEqual(
 
 private func sourceImageArrayFieldDiff(
     columnName: String
-) -> (SourceRecordChange) -> String? {
-    { change in
-        guard let fieldChange = change.fieldChanges.first(where: { $0.columnName == columnName }) else {
-            return nil
-        }
+) -> (SourceFieldChange) -> String? {
+    { fieldChange in
+        guard fieldChange.columnName == columnName else { return nil }
         return diff(
             SourceComparableImageColumn(
                 columnName: columnName,
@@ -455,11 +304,9 @@ private func sourceImageArrayFieldDiff(
 
 private func sourceImageFieldDiff(
     columnName: String
-) -> (SourceRecordChange) -> String? {
-    { change in
-        guard let fieldChange = change.fieldChanges.first(where: { $0.columnName == columnName }) else {
-            return nil
-        }
+) -> (SourceFieldChange) -> String? {
+    { fieldChange in
+        guard fieldChange.columnName == columnName else { return nil }
         return diff(
             SourceComparableImageColumn(
                 columnName: columnName,

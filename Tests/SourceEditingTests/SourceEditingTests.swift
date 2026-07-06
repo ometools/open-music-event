@@ -207,6 +207,44 @@ struct SourceEditingTests {
     }
 
     @Test
+    func recordTypesKeepRawChangesWhenTypedDiffCannotDecodeChangedRow() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.createTypedTodosTable()
+        let record = TypedTodo(
+            id: 1,
+            attachment: TodoAttachment(label: "Before label", rank: 1)
+        )
+        try fixture.insertWorking(record)
+        try fixture.insertBaseline(record)
+
+        let malformedAttachment = #"{"label":"Broken""#
+        try fixture.updateWorkingTypedTodoAttachmentRaw(
+            id: 1,
+            attachment: malformedAttachment
+        )
+
+        let summary = try fixture.typedTodoSummary()
+
+        let group = try #require(summary.groups.first)
+        #expect(group.modified == 1)
+        #expect(summary.totalCount == 1)
+
+        let changedRecord = try #require(group.records.first)
+        #expect(changedRecord.kind == .modified)
+        expectNoDifference(
+            changedRecord.primaryKeyValues,
+            [
+                sourceColumnValue("id", 1.databaseValue)
+            ]
+        )
+        #expect(changedRecord.recordDiff == nil)
+
+        let fieldChange = try #require(changedRecord.fieldChanges.first)
+        #expect(fieldChange.columnName == "attachment")
+        #expect(fieldChange.workingValue == malformedAttachment.databaseValue)
+    }
+
+    @Test
     func recordTypeResolversCanSuppressCandidateChangesAndRecomputeCounts() throws {
         let fixture = try SourceEditingFixture()
         try fixture.updateWorking(id: 2, title: "New title")
@@ -531,6 +569,18 @@ private final class SourceEditingFixture {
             var record = try TypedTodo.find(id).fetchOne(db)!
             record.attachment = attachment
             try TypedTodo.update(record).execute(db)
+        }
+    }
+
+    func updateWorkingTypedTodoAttachmentRaw(
+        id: TypedTodo.ID,
+        attachment: String
+    ) throws {
+        try workingDatabase.write { db in
+            try db.execute(
+                sql: #"UPDATE "typed_todos" SET "attachment" = ? WHERE "id" = ?"#,
+                arguments: [attachment, id]
+            )
         }
     }
 

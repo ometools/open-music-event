@@ -937,7 +937,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryReportsSourceBaselineAvailability() async throws {
+    func eventWorkspaceSummaryReportsSourceBaselineAvailability() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -952,12 +952,12 @@ struct SourceDatabaseInsertionTests {
         let database = try makeCoreDatabase()
 
         let notInWorkspace = try await database.read { db in
-            try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
         }
 
         expectNoDifference(
             notInWorkspace,
-            EventEditSummary(
+            EventWorkspaceSummary(
                 eventID: openedEventID,
                 availability: .notInWorkspace,
                 groups: []
@@ -1013,13 +1013,13 @@ struct SourceDatabaseInsertionTests {
             )
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
 
         expectNoDifference(
             workspaceNeedsPreparation,
-            EventEditSummary(
+            EventWorkspaceSummary(
                 eventID: openedEventID,
                 availability: .workspaceNeedsPreparation,
                 groups: []
@@ -1104,7 +1104,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
 
@@ -1146,7 +1146,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
 
@@ -1245,6 +1245,88 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func sourceInsertionStoresSourceKindSeparatelyFromEventIDOrigin() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "HEAD")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let database = try makeCoreDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        let appSourceBaselineRow = try database.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT "sourceKind", "sourceReference", "ref"
+                FROM "sourceBaselines"
+                LIMIT 1
+                """
+            )
+            return try #require(row)
+        }
+        #expect(appSourceBaselineRow["sourceKind"] as String == "tangled")
+        #expect(appSourceBaselineRow["sourceReference"] as String == sourceProvenance.reference)
+        #expect(appSourceBaselineRow["ref"] as String == "HEAD")
+
+        let appProvenanceRow = try database.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT "sourceKind", "eventIDOrigin"
+                FROM "eventSourceProvenances"
+                LIMIT 1
+                """
+            )
+            return try #require(row)
+        }
+        #expect(appProvenanceRow["sourceKind"] as String == "tangled")
+        #expect(appProvenanceRow["eventIDOrigin"] as String == "inferred")
+
+        let referenceSourceBaselineRow = try baselineDatabase.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT "sourceKind", "sourceReference", "ref"
+                FROM "sourceBaselines"
+                LIMIT 1
+                """
+            )
+            return try #require(row)
+        }
+        #expect(referenceSourceBaselineRow["sourceKind"] as String == "tangled")
+        #expect(referenceSourceBaselineRow["sourceReference"] as String == sourceProvenance.reference)
+        #expect(referenceSourceBaselineRow["ref"] as String == "HEAD")
+
+        let referenceProvenanceRow = try baselineDatabase.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT "sourceKind", "eventIDOrigin"
+                FROM "eventSourceProvenances"
+                LIMIT 1
+                """
+            )
+            return try #require(row)
+        }
+        #expect(referenceProvenanceRow["sourceKind"] as String == "tangled")
+        #expect(referenceProvenanceRow["eventIDOrigin"] as String == "inferred")
+    }
+
+    @Test
     func editSummariesUseAttachedSourceEditingSession() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
@@ -1287,7 +1369,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await sourceEditingSession.database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
         let sourceSummary = try await withDependencies {
@@ -1310,7 +1392,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryUsesDefaultDatabaseAgainstSourceReference() async throws {
+    func eventWorkspaceSummaryUsesDefaultDatabaseAgainstSourceReference() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -1351,7 +1433,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
 
@@ -1381,7 +1463,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryCountsAddedPerformanceInDefaultDatabase() async throws {
+    func eventWorkspaceSummaryCountsAddedPerformanceInDefaultDatabase() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -1439,7 +1521,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
 
@@ -1470,7 +1552,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func openMusicEventEditResetterRestoresRealSchemaRows() async throws {
+    func eventWorkspaceResetterRestoresRealSchemaRows() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -1515,7 +1597,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
         #expect(changedSummary.availability == .available)
@@ -1524,10 +1606,10 @@ struct SourceDatabaseInsertionTests {
         try withDependencies {
             $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
-            $0.openMusicEventEditResetter = .openMusicEvent
+            $0.eventWorkspaceResetter = .openMusicEvent
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
-            @Dependency(\.openMusicEventEditResetter) var resetter
+            @Dependency(\.eventWorkspaceResetter) var resetter
             try resetter.reset(openedEventID)
         }
 
@@ -1537,7 +1619,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
         #expect(resetSummary.availability == .available)
@@ -1557,7 +1639,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryUsesSourceLocalReferenceDatabase() async throws {
+    func eventWorkspaceSummaryUsesSourceLocalReferenceDatabase() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("source-testival-2026", organizerID: organizerID)
@@ -1599,7 +1681,7 @@ struct SourceDatabaseInsertionTests {
             $0.defaultDatabase = database
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
 
@@ -1613,7 +1695,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryIgnoresImageFileURLBaseChangesWhenAssetKeyMatches() async throws {
+    func eventWorkspaceSummaryIgnoresImageFileURLBaseChangesWhenAssetKeyMatches() async throws {
         let repositoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
         let eventDirectoryURL = repositoryURL
@@ -1694,7 +1776,7 @@ struct SourceDatabaseInsertionTests {
             try OME.Contributor.update(contributor).execute(db)
         }
 
-        let summary = try await eventEditSummary(
+        let summary = try await eventWorkspaceSummary(
             eventID: openedEventID,
             database: database,
             baselineDatabase: baselineDatabase
@@ -1706,7 +1788,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryIgnoresMaterializedRemoteImageWhenAssetKeyMatches() async throws {
+    func eventWorkspaceSummaryIgnoresMaterializedRemoteImageWhenAssetKeyMatches() async throws {
         let remoteLogoURL = try #require(URL(string: "https://example.com/meadow-logo.png"))
         let source = try makeSourceRepository(
             stageImages: [
@@ -1754,7 +1836,7 @@ struct SourceDatabaseInsertionTests {
             try OME.Stage.update(stage).execute(db)
         }
 
-        let summary = try await eventEditSummary(
+        let summary = try await eventWorkspaceSummary(
             eventID: openedEventID,
             database: database,
             baselineDatabase: baselineDatabase
@@ -1766,7 +1848,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryIgnoresRemoteImagePrefetchCache() async throws {
+    func eventWorkspaceSummaryIgnoresRemoteImagePrefetchCache() async throws {
         let remoteLogoURL = try #require(URL(string: "https://example.com/meadow-logo.png"))
         let source = try makeSourceRepository(
             stageImages: [
@@ -1809,7 +1891,7 @@ struct SourceDatabaseInsertionTests {
             try await eventImagePrefetch.prefetchAssetsOnOpen(openedEventID)
         }
 
-        let summary = try await eventEditSummary(
+        let summary = try await eventWorkspaceSummary(
             eventID: openedEventID,
             database: database,
             baselineDatabase: baselineDatabase
@@ -1821,7 +1903,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryCountsRemoteImageURLChanges() async throws {
+    func eventWorkspaceSummaryCountsRemoteImageURLChanges() async throws {
         let baselinePhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let workingPhotoURL = try #require(URL(string: "https://example.com/artist-two.jpg"))
         let source = try makeSourceRepository(
@@ -1868,7 +1950,7 @@ struct SourceDatabaseInsertionTests {
             try OME.Contributor.update(contributor).execute(db)
         }
 
-        let summary = try await eventEditSummary(
+        let summary = try await eventWorkspaceSummary(
             eventID: openedEventID,
             database: database,
             baselineDatabase: baselineDatabase
@@ -1887,7 +1969,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventEditSummaryCountsImageMetadataChanges() async throws {
+    func eventWorkspaceSummaryCountsImageMetadataChanges() async throws {
         let photoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
         let source = try makeSourceRepository(
             contributorImages: [
@@ -1933,7 +2015,7 @@ struct SourceDatabaseInsertionTests {
             try OME.Contributor.update(contributor).execute(db)
         }
 
-        let summary = try await eventEditSummary(
+        let summary = try await eventWorkspaceSummary(
             eventID: openedEventID,
             database: database,
             baselineDatabase: baselineDatabase
@@ -3466,18 +3548,18 @@ struct SourceDatabaseInsertionTests {
         return source
     }
 
-    private func eventEditSummary(
+    private func eventWorkspaceSummary(
         eventID: OME.Event.ID,
         database: any DatabaseWriter,
         baselineDatabase: SourceBaselineDatabase
-    ) async throws -> EventEditSummary {
+    ) async throws -> EventWorkspaceSummary {
         try await withDependencies {
             $0.defaultDatabase = database
             $0.defaultBaselineDatabase = baselineDatabase
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: eventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
             }
         }
     }

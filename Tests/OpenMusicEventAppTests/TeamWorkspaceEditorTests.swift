@@ -51,7 +51,7 @@ struct TeamWorkspaceEditorTests {
     }
 
     @Test
-    func editEventUsesEventSourceScope() throws {
+    func eventWorkspaceUsesEventSourceScope() throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
         let eventID = OMERecord.Event.ID(
@@ -62,7 +62,7 @@ struct TeamWorkspaceEditorTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            EditEvent.State(eventID: eventID)
+            EventWorkspace.State(eventID: eventID)
         }
 
         expectNoDifference(
@@ -210,6 +210,118 @@ struct TeamWorkspaceEditorTests {
         #expect(latestError?.kind == .unhandled)
         #expect(latestError?.message.fallback == "Unable to check source changes.")
         #expect(latestError?.operation == .sourcePatchGeneration)
+    }
+
+    @Test
+    func malformedSourceRecordKeepsRawSourceChangeReviewable() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let workingDatabasePath = directoryURL.appending(path: "working.sqlite").path
+        let baselineDatabasePath = directoryURL.appending(path: "baseline.sqlite").path
+        let workingDatabase = try makePreparedDatabase(path: workingDatabasePath)
+        let baselineDatabase = try makePreparedDatabase(path: baselineDatabasePath)
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: workingDatabasePath,
+            baselineDatabasePath: baselineDatabasePath
+        )
+        let organizerID = try #require(OMERecord.Organizer.ID("did:web:wickedwoods.example"))
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let eventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: OMERecord.ID("wicked-woods-ome-2025")
+        )
+        let contributorID = OMERecord.Contributor.ID(
+            organizerID: organizerID,
+            eventID: eventID.eventID,
+            contributorID: OMERecord.ID("woody-melling")
+        )
+        let sourceProvenance = makeSourceProvenance(
+            reference: "tangled.org/woody.fm/wicked-woods-ome"
+        )
+        let sourceBaseline = SourceBaselineRecord(
+            source: sourceProvenance,
+            databaseFileName: "reference.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
+
+        try await seedTeamWorkspaceEditorSummaryRows(
+            database: workingDatabase,
+            organizerID: organizerID,
+            calendarID: calendarID,
+            eventID: eventID,
+            contributorID: contributorID,
+            sourceBaseline: sourceBaseline
+        )
+        try await seedTeamWorkspaceEditorSummaryRows(
+            database: baselineDatabase,
+            organizerID: organizerID,
+            calendarID: calendarID,
+            eventID: eventID,
+            contributorID: contributorID,
+            sourceBaseline: sourceBaseline
+        )
+        try await workingDatabase.write { db in
+            try db.execute(
+                sql: """
+                UPDATE "contributors"
+                SET "did" = ?
+                WHERE "organizerID" = ?
+                  AND "eventID" = ?
+                  AND "contributorID" = ?
+                """,
+                arguments: [
+                    "not-a-did",
+                    String(describing: organizerID),
+                    eventID.eventID.rawValue.rawValue,
+                    contributorID.contributorID.rawValue.rawValue,
+                ]
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            TestStore(
+                initialState: TeamWorkspaceEditor.State(
+                    sourceBaselineID: sourceBaseline.id,
+                    calendarID: calendarID
+                )
+            ) {
+                TeamWorkspaceEditor()
+            }
+        }
+
+        expectNoDifference(store.state.fetchLoadFailures.map(\.label), [])
+        #expect(store.state.editSummary.availability == .available)
+        #expect(store.state.editSummary.totalCount == 1)
+
+        let contributorsGroup = try #require(
+            store.state.editSummary.groups.first { $0.id == "contributors" }
+        )
+        #expect(contributorsGroup.modified == 1)
+
+        let contributorRecord = try #require(contributorsGroup.records.first)
+        #expect(contributorRecord.kind == .modified)
+        #expect(contributorRecord.recordDiff == nil)
+
+        let primaryKeyValues = Dictionary(
+            uniqueKeysWithValues: contributorRecord.primaryKeyValues.map {
+                ($0.columnName, $0.value)
+            }
+        )
+        #expect(primaryKeyValues["organizerID"] == String(describing: organizerID).databaseValue)
+        #expect(primaryKeyValues["eventID"] == eventID.eventID.rawValue.rawValue.databaseValue)
+        #expect(primaryKeyValues["contributorID"] == contributorID.contributorID.rawValue.rawValue.databaseValue)
+
+        let didChange = try #require(
+            contributorRecord.fieldChanges.first { $0.columnName == "did" }
+        )
+        #expect(didChange.workingValue == "not-a-did".databaseValue)
     }
 
     @Test
@@ -525,11 +637,16 @@ struct TeamWorkspaceEditorTests {
     }
 }
 
-private func makePreparedDatabase() throws -> any DatabaseWriter {
+private func makePreparedDatabase(path: String? = nil) throws -> any DatabaseWriter {
     try withDependencies {
         $0.context = .test
     } operation: {
-        let database = try SQLiteData.defaultDatabase()
+        let database: any DatabaseWriter
+        if let path {
+            database = try DatabasePool(path: path)
+        } else {
+            database = try SQLiteData.defaultDatabase()
+        }
         var migrator = DatabaseMigrator()
         OMERecord.DatabaseMigrations.register(into: &migrator)
         OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
@@ -630,6 +747,68 @@ private func seedOrganizerSourceWorkspaceDefaults(
         .execute(db)
         try SourceBaselineRecord.insert {
             sourceBaseline
+        }
+        .execute(db)
+    }
+}
+
+private func seedTeamWorkspaceEditorSummaryRows(
+    database: any DatabaseWriter,
+    organizerID: OMERecord.Organizer.ID,
+    calendarID: OMERecord.Calendar.ID,
+    eventID: OMERecord.Event.ID,
+    contributorID: OMERecord.Contributor.ID,
+    sourceBaseline: SourceBaselineRecord
+) async throws {
+    try await database.write { db in
+        try OMERecord.Organizer.insert {
+            OMERecord.Organizer.Draft(id: organizerID)
+        }
+        .execute(db)
+        try OMERecord.Calendar.insert {
+            OMERecord.Calendar.Draft(
+                id: calendarID,
+                name: "Wicked Woods",
+                description: nil,
+                images: nil
+            )
+        }
+        .execute(db)
+        try SourceBaselineRecord.insert {
+            sourceBaseline
+        }
+        .execute(db)
+        try OMERecord.Event.insert {
+            CreateEvent.makeEventDraft(
+                id: eventID,
+                name: "Wicked Woods 2025",
+                startDate: nil,
+                endDate: nil,
+                timeZone: TimeZone(identifier: "America/Denver")!
+            )
+        }
+        .execute(db)
+        try EventSourceProvenanceRecord.insert {
+            EventSourceProvenanceRecord(
+                id: eventID,
+                sourceBaselineID: sourceBaseline.id,
+                sourceKind: sourceBaseline.sourceKind,
+                sourceReference: sourceBaseline.sourceReference,
+                ref: sourceBaseline.ref,
+                eventIDOrigin: .inferred,
+                sourceEventDirectory: "2025"
+            )
+        }
+        .execute(db)
+        try OMERecord.Contributor.insert {
+            OMERecord.Contributor.Draft(
+                id: contributorID,
+                name: "Woody Melling",
+                did: nil,
+                bio: nil,
+                images: nil,
+                links: nil
+            )
         }
         .execute(db)
     }

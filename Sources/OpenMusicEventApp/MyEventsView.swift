@@ -68,6 +68,9 @@ struct MyEventsView: View {
                     .foregroundStyle(.red)
             }
         }
+        if !store.fetchLoadFailures.isEmpty {
+            FetchLoadErrorSection(failures: store.fetchLoadFailures)
+        }
     }
 
     @ViewBuilder
@@ -135,6 +138,30 @@ struct MyEventsView: View {
                 : nil
         }
         store.send(.deleteCreatedEventsButtonTapped(eventIDs))
+    }
+}
+
+struct FetchLoadErrorSection: View {
+    let failures: [FetchLoadFailure]
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Unable to load data.")
+                ForEach(failures) { failure in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(failure.label)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(String(describing: failure.error))
+                            .font(.caption)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(.red)
+        }
     }
 }
 

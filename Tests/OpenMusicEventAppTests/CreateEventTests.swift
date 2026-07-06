@@ -192,7 +192,7 @@ struct CreateEventTests {
             uuid: UUID(3)
         )
 
-        let summary = try await eventEditSummary(
+        let summary = try await eventWorkspaceSummary(
             eventID: fixture.eventID,
             database: fixture.database,
             workspaceReferenceDirectory: fixture.workspaceReferenceDirectory
@@ -218,7 +218,7 @@ struct CreateEventTests {
                 .execute(db)
         }
 
-        let summary = try await eventEditSummary(
+        let summary = try await eventWorkspaceSummary(
             eventID: fixture.eventID,
             database: fixture.database,
             workspaceReferenceDirectory: fixture.workspaceReferenceDirectory
@@ -265,7 +265,7 @@ struct CreateEventTests {
                 localReferenceDirectory: fixture.workspaceReferenceDirectory
             )
         } operation: {
-            try OpenMusicEventEditResetter.openMusicEvent.reset(fixture.eventID)
+            try EventWorkspaceResetter.openMusicEvent.reset(fixture.eventID)
         }
 
         let restoredEvent = try await fixture.database.read { db in
@@ -273,7 +273,7 @@ struct CreateEventTests {
                 .where { $0.id.eq(fixture.eventID) }
                 .fetchOne(db)
         }
-        let summary = try await eventEditSummary(
+        let summary = try await eventWorkspaceSummary(
             eventID: fixture.eventID,
             database: fixture.database,
             workspaceReferenceDirectory: fixture.workspaceReferenceDirectory
@@ -301,8 +301,8 @@ struct CreateEventTests {
                 _ in SourcePatch()
             }
         } operation: {
-            TestStore(initialState: EditEvent.State(eventID: fixture.eventID)) {
-                EditEvent()
+            TestStore(initialState: EventWorkspace.State(eventID: fixture.eventID)) {
+                EventWorkspace()
             }
         }
 
@@ -468,11 +468,11 @@ struct CreateEventTests {
         )
     }
 
-    private func eventEditSummary(
+    private func eventWorkspaceSummary(
         eventID: OMERecord.Event.ID,
         database: any DatabaseWriter,
         workspaceReferenceDirectory: URL
-    ) async throws -> EventEditSummary {
+    ) async throws -> EventWorkspaceSummary {
         try await withDependencies {
             $0.defaultDatabase = database
             $0.sourceReferenceDatabaseMigrator = .openMusicEvent
@@ -481,7 +481,7 @@ struct CreateEventTests {
             )
         } operation: {
             try await database.read { db in
-                try EventEditSummaryRequest(eventID: eventID).fetch(db)
+                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
             }
         }
     }

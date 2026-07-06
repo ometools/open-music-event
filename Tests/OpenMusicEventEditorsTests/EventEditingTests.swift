@@ -8,10 +8,10 @@ struct EventEditingTests {
     func editorModuleContributesEditorFeatures() {
         #expect(EventFeature.editorFeatures == [
             .settings,
-            .edit,
+            .workspace,
         ])
         #expect(EventFeature.settings.isEditorFeature)
-        #expect(EventFeature.edit.isEditorFeature)
+        #expect(EventFeature.workspace.isEditorFeature)
         #expect(!EventFeature.about.isEditorFeature)
     }
 }

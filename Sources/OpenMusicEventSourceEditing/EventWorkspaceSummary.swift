@@ -4,7 +4,7 @@ import OpenMusicEventLexicon
 import SQLiteData
 import SourceEditing
 
-public struct EventEditSummary: Equatable, Sendable {
+public struct EventWorkspaceSummary: Equatable, Sendable {
     public enum Availability: Equatable, Sendable {
         case available
         case workspaceNeedsPreparation
@@ -36,19 +36,19 @@ public struct EventEditSummary: Equatable, Sendable {
     }
 }
 
-public struct EventEditSummaryRequest: FetchKeyRequest {
+public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
     public var eventID: OME.Event.ID
 
     public init(eventID: OME.Event.ID) {
         self.eventID = eventID
     }
 
-    public func fetch(_ db: Database) throws -> EventEditSummary {
+    public func fetch(_ db: Database) throws -> EventWorkspaceSummary {
         let eventWorkspace = try EventEditingWorkspaceRecord
             .where { $0.id.eq(eventID) }
             .fetchOne(db)
         guard let eventWorkspace else {
-            return EventEditSummary(
+            return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .notInWorkspace,
                 groups: []
@@ -59,7 +59,7 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
             .where { $0.id.eq(eventWorkspace.workspaceID) }
             .fetchOne(db)
         guard let workspace else {
-            return EventEditSummary(
+            return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .workspaceNeedsPreparation,
                 groups: []
@@ -93,7 +93,7 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
                 baselineDatabase = nil
             }
             guard let baselineDatabase else {
-                return EventEditSummary(
+                return EventWorkspaceSummary(
                     eventID: eventID,
                     availability: .workspaceNeedsPreparation,
                     groups: []
@@ -109,14 +109,14 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
 
         switch sourceSummary.availability {
         case .available:
-            return EventEditSummary(
+            return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .available,
                 groups: sourceSummary.groups
             )
 
         case let .unavailable(reason):
-            return EventEditSummary(
+            return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .unavailable(reason),
                 groups: []
@@ -173,6 +173,8 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
             .where { $0.id.eq(sourceBaselineID) }
             .fetchOne(db)
 
+
+
         guard let sourceBaseline else {
             return SourceEditSummary(
                 sourceBaselineID: sourceBaselineID,
@@ -209,7 +211,7 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
                 calendarID: calendarID
             )
         }
-
+//
         switch sourceSummary.availability {
         case .available:
             return SourceEditSummary(

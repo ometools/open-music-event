@@ -156,16 +156,58 @@ public extension SourceEditableTable where QueryOutput: Sendable {
         schemaName: String,
         in db: Database
     ) throws -> QueryOutput? {
-        try SQLQueryExpression<Self>(
-            """
-            SELECT *
-            FROM \(qualifiedTable(tableName, schemaName: schemaName))
-            WHERE \(try primaryKeyValuesPredicate(change.primaryKeyValues))
-            LIMIT 1
-            """,
-            as: Self.self
-        )
-        .fetchOne(db)
+        do {
+            return try SQLQueryExpression<Self>(
+                """
+                SELECT *
+                FROM \(qualifiedTable(tableName, schemaName: schemaName))
+                WHERE \(try primaryKeyValuesPredicate(change.primaryKeyValues))
+                LIMIT 1
+                """,
+                as: Self.self
+            )
+            .fetchOne(db)
+        } catch {
+            throw SourceRecordDecodingError(
+                tableName: tableName,
+                schemaName: schemaName,
+                primaryKeyValues: change.primaryKeyValues,
+                changedColumnNames: change.fieldChanges.map(\.columnName),
+                underlyingError: error
+            )
+        }
+    }
+}
+
+public struct SourceRecordDecodingError: Error, CustomStringConvertible {
+    public var tableName: String
+    public var schemaName: String
+    public var primaryKeyValues: [SourceColumnValue]
+    public var changedColumnNames: [String]
+    public var underlyingError: any Error
+
+    public init(
+        tableName: String,
+        schemaName: String,
+        primaryKeyValues: [SourceColumnValue],
+        changedColumnNames: [String],
+        underlyingError: any Error
+    ) {
+        self.tableName = tableName
+        self.schemaName = schemaName
+        self.primaryKeyValues = primaryKeyValues
+        self.changedColumnNames = changedColumnNames
+        self.underlyingError = underlyingError
+    }
+
+    public var description: String {
+        let primaryKey = primaryKeyValues
+            .map { "\($0.columnName)=\($0.value.sourceRecordDecodingDescription)" }
+            .joined(separator: ", ")
+        let changedColumns = changedColumnNames.joined(separator: ", ")
+        return """
+        Unable to decode source record table=\(tableName) schema=\(schemaName) primaryKey=(\(primaryKey)) changedColumns=(\(changedColumns)): \(underlyingError)
+        """
     }
 }
 
@@ -645,11 +687,15 @@ public struct SourceEditingComparer: Sendable {
 
             var group = group
             group.records = try group.records.compactMap { record in
-                try recordType.resolveRecordChange(
-                    record,
-                    db,
-                    baselineSchemaName
-                )
+                do {
+                    return try recordType.resolveRecordChange(
+                        record,
+                        db,
+                        baselineSchemaName
+                    )
+                } catch is SourceRecordDecodingError {
+                    return record
+                }
             }
             group.added = group.records.filter { $0.kind == .added }.count
             group.modified = group.records.filter { $0.kind == .modified }.count
@@ -1212,6 +1258,23 @@ private func databaseValue(for binding: QueryBinding) throws -> DatabaseValue {
 
 private struct SourceEditingUnsignedIntegerOverflow: Error {
     var unsignedInteger: UInt64
+}
+
+private extension DatabaseValue {
+    var sourceRecordDecodingDescription: String {
+        switch storage {
+        case .null:
+            return "NULL"
+        case let .int64(value):
+            return String(value)
+        case let .double(value):
+            return String(value)
+        case let .string(value):
+            return "\"\(value)\""
+        case let .blob(value):
+            return "<\(value.count) bytes>"
+        }
+    }
 }
 
 private func queryBinding(for databaseValue: DatabaseValue) throws -> QueryBinding {

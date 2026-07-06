@@ -16,7 +16,7 @@ import Testing
 
 @MainActor
 @Suite(.tcaExhaustivity(.off), .serialized, .dependencies { $0.defaultPort = 443 })
-struct EditEventSourcePatchInvalidationTests {
+struct EventWorkspaceSourcePatchInvalidationTests {
     @Test
     func generateSourcePatchButtonLoadsPatch() async throws {
         let database = try makePreparedDatabase()
@@ -32,15 +32,15 @@ struct EditEventSourcePatchInvalidationTests {
                 )
             ]
         )
-        let store: TestStore<EditEvent> = withDependencies {
+        let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
             $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = SourcePatchGenerator { request in
                 #expect(request == OpenMusicEventSourcePatchRequest(eventID: eventID))
                 return patch
             }
         } operation: {
-            TestStore(initialState: EditEvent.State(eventID: eventID)) {
-                EditEvent()
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
             }
         }
 
@@ -74,15 +74,15 @@ struct EditEventSourcePatchInvalidationTests {
                 )
             ]
         )
-        let store: TestStore<EditEvent> = withDependencies {
+        let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
             $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = SourcePatchGenerator { request in
                 #expect(request == OpenMusicEventSourcePatchRequest(eventID: eventID))
                 return patch
             }
         } operation: {
-            TestStore(initialState: EditEvent.State(eventID: eventID)) {
-                EditEvent()
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
             }
         }
 
@@ -120,10 +120,10 @@ struct EditEventSourcePatchInvalidationTests {
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
-            var state = EditEvent.State(eventID: eventID)
+            var state = EventWorkspace.State(eventID: eventID)
             state.sourcePatchStatus = .generated(patch)
             return TestStore(initialState: state) {
-                EditEvent()
+                EventWorkspace()
             }
         }
 
@@ -274,7 +274,7 @@ struct EditEventSourcePatchInvalidationTests {
                 SourceProposalFlow()
             }
         }
-        let failure = EditEvent.SourceProposalFailure(SourceProposalTestError.failed)
+        let failure = EventWorkspace.SourceProposalFailure(SourceProposalTestError.failed)
 
         let task = store.send(.createProposalButtonTapped) {
             $0.sourceProposalStatus = .proposing
@@ -374,20 +374,20 @@ struct EditEventSourcePatchInvalidationTests {
                 )
             ]
         )
-        let proposalFailure = EditEvent.SourceProposalFailure(SourceProposalTestError.failed)
+        let proposalFailure = EventWorkspace.SourceProposalFailure(SourceProposalTestError.failed)
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.openMusicEventEditResetter = OpenMusicEventEditResetter { eventID in
+            $0.eventWorkspaceResetter = EventWorkspaceResetter { eventID in
                 resetRequests.withLock { $0.append(eventID) }
             }
         } operation: {
-            var state = EditEvent.State(eventID: eventID)
+            var state = EventWorkspace.State(eventID: eventID)
             state.sourcePatchStatus = .generated(patch)
             state.sourceProposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
             state.sourceProposalStatus = .failed(proposalFailure)
             return TestStore(initialState: state) {
-                EditEvent()
+                EventWorkspace()
             }
         }
 
@@ -397,8 +397,8 @@ struct EditEventSourcePatchInvalidationTests {
         await store.receive(
             \.resetEditsResponse,
             .equals(
-                Result<EditEvent.ResetEditsSuccess, EditEvent.ResetEditsFailure>
-                    .success(EditEvent.ResetEditsSuccess())
+                Result<EventWorkspace.ResetEditsSuccess, EventWorkspace.ResetEditsFailure>
+                    .success(EventWorkspace.ResetEditsSuccess())
             ),
             timeout: .seconds(1)
         ) {
@@ -417,20 +417,20 @@ struct EditEventSourcePatchInvalidationTests {
     func resetEditsButtonShowsFailure() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
-        let failure = EditEvent.ResetEditsFailure(ResetEditsTestError.failed)
+        let failure = EventWorkspace.ResetEditsFailure(ResetEditsTestError.failed)
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.openMusicEventEditResetter = OpenMusicEventEditResetter { _ in
+            $0.eventWorkspaceResetter = EventWorkspaceResetter { _ in
                 throw ResetEditsTestError.failed
             }
         } operation: {
-            var state = EditEvent.State(eventID: eventID)
-            state.resetEditsFailure = EditEvent.ResetEditsFailure(
+            var state = EventWorkspace.State(eventID: eventID)
+            state.resetEditsFailure = EventWorkspace.ResetEditsFailure(
                 ResetEditsTestError.previousFailure
             )
             return TestStore(initialState: state) {
-                EditEvent()
+                EventWorkspace()
             }
         }
 
@@ -441,7 +441,7 @@ struct EditEventSourcePatchInvalidationTests {
         await store.receive(
             \.resetEditsResponse,
             .equals(
-                Result<EditEvent.ResetEditsSuccess, EditEvent.ResetEditsFailure>
+                Result<EventWorkspace.ResetEditsSuccess, EventWorkspace.ResetEditsFailure>
                     .failure(failure)
             ),
             timeout: .seconds(1)
@@ -460,15 +460,15 @@ struct EditEventSourcePatchInvalidationTests {
         let eventID = testEventID("event-1")
         try await seedSourceBackedEvent(eventID, in: database)
         let patch = SourcePatch()
-        let store: TestStore<EditEvent> = withDependencies {
+        let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
             $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = SourcePatchGenerator { request in
                 #expect(request == OpenMusicEventSourcePatchRequest(eventID: eventID))
                 return patch
             }
         } operation: {
-            TestStore(initialState: EditEvent.State(eventID: eventID)) {
-                EditEvent()
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
             }
         }
 
@@ -511,7 +511,7 @@ struct EditEventSourcePatchInvalidationTests {
             ]
         )
         let stream = AsyncStream.makeStream(of: SourcePatchInvalidation.self)
-        let store: TestStore<EditEvent> = withDependencies {
+        let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
             $0.sourcePatchInvalidations = SourcePatchInvalidations(
                 installTriggers: { _ in },
@@ -522,8 +522,8 @@ struct EditEventSourcePatchInvalidationTests {
                 return patch
             }
         } operation: {
-            TestStore(initialState: EditEvent.State(eventID: eventID)) {
-                EditEvent()
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
             }
         }
 
@@ -579,8 +579,8 @@ struct EditEventSourcePatchInvalidationTests {
                 stream: { stream.stream }
             )
         } operation: {
-            TestStore(initialState: EditEvent.State(eventID: eventID)) {
-                EditEvent()
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
             }
         }
 
@@ -614,8 +614,8 @@ struct EditEventSourcePatchInvalidationTests {
                 stream: { stream.stream }
             )
         } operation: {
-            TestStore(initialState: EditEvent.State(eventID: eventID)) {
-                EditEvent()
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
             }
         }
 

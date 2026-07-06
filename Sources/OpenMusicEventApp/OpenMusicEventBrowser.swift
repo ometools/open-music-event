@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import Foundation
+import IssueReporting
 import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventImages
@@ -798,6 +799,29 @@ public struct TeamWorkspaceDetail {
             editableCalendarID != nil
         }
 
+        var fetchLoadFailures: [FetchLoadFailure] {
+            [
+                FetchLoadFailure(
+                    label: "TeamWorkspaceDetail.calendar",
+                    error: $calendar.loadError
+                ),
+                FetchLoadFailure(
+                    label: "TeamWorkspaceDetail.calendarEntries",
+                    error: $calendarEntries.loadError
+                ),
+                FetchLoadFailure(label: "TeamWorkspaceDetail.events", error: $events.loadError),
+                FetchLoadFailure(
+                    label: "TeamWorkspaceDetail.organizer",
+                    error: $organizer.loadError
+                ),
+                FetchLoadFailure(
+                    label: "TeamWorkspaceDetail.sourceBaseline",
+                    error: $sourceBaseline.loadError
+                ),
+            ]
+            .compactMap { $0 }
+        }
+
         var canManageSource: Bool {
             sourceBaseline != nil && editableCalendarID != nil
         }
@@ -978,10 +1002,10 @@ public struct TeamWorkspaceDetail {
                         operation: .sourceEditPreparation
                     ) {
                         try await sourceEditModePreparation.prepare(sourceBaselineID)
-                        let sourceWorkspace = try sourceWorkspaceDatabase
+                        let workspaceDatabase = try sourceWorkspaceDatabase
                             .sourceBaseline(sourceBaselineID)
                         return withDependencies {
-                            $0.useSourceWorkspaceDatabase(sourceWorkspace)
+                            $0.useSourceWorkspaceDatabase(workspaceDatabase)
                         } operation: {
                             TeamWorkspaceEditor.State(
                                 sourceBaselineID: sourceBaselineID,
@@ -1013,14 +1037,15 @@ public struct TeamWorkspaceDetail {
         }
         .ifLet(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor) {
             TeamWorkspaceEditor()
-                .transformDependency(\.self) {
-                    guard let sourceBaselineID = store.teamWorkspaceEditor?.sourceBaselineID,
-                          let sourceWorkspace = try? sourceWorkspaceDatabase
-                              .sourceBaseline(sourceBaselineID)
-                    else {
-                        return
+                .transformDependency(\.self) { (dependencies: inout DependencyValues) in
+                    let sourceBaselineID = store.teamWorkspaceEditor!.sourceBaselineID
+                    do {
+                        let workspaceDatabase = try dependencies.sourceWorkspaceDatabase
+                            .sourceBaseline(sourceBaselineID)
+                        dependencies.useSourceWorkspaceDatabase(workspaceDatabase)
+                    } catch {
+                        reportIssue(error)
                     }
-                    $0.useSourceWorkspaceDatabase(sourceWorkspace)
                 }
         }
     }
@@ -1037,17 +1062,21 @@ public struct TeamWorkspaceDetailView: View {
     @State var sourceSectionExpanded = false
 
 
-    public var body: some View {
-        HeroImageList(title: Text(calendarTitle)) {
-            HeroImage(
-                title: Text(calendarTitle),
-                sources: store.calendar?.heroImageSources ?? [],
+        public var body: some View {
+            HeroImageList(title: Text(calendarTitle)) {
+                HeroImage(
+                    title: Text(calendarTitle),
+                    sources: store.calendar?.heroImageSources ?? [],
                 titleSources: store.calendar?.heroImageTitleSources ?? [.title]
             ) {
                 Image(systemName: "calendar")
                     .font(.system(size: 82, weight: .semibold))
             }
         } content: {
+            if !store.fetchLoadFailures.isEmpty {
+                FetchLoadErrorSection(failures: store.fetchLoadFailures)
+            }
+
             if let calendarDescription {
                 Section("About") {
                     Text(calendarDescription)
@@ -1215,10 +1244,21 @@ public struct TeamWorkspaceEditor {
         @FetchOne public var sourceBaseline: SourceBaselineRecord?
 
         public let sourceBaselineID: SourceBaselineRecord.ID
-        public var sourcePatchStatus: EditEvent.SourcePatchStatus = .notGenerated
+        public var sourcePatchStatus: EventWorkspace.SourcePatchStatus = .notGenerated
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
-        public var sourceProposalStatus: EditEvent.SourceProposalStatus = .idle
+        public var sourceProposalStatus: EventWorkspace.SourceProposalStatus = .idle
+
+        var fetchLoadFailures: [FetchLoadFailure] {
+            [
+                FetchLoadFailure(label: "TeamWorkspaceEditor.editSummary", error: $editSummary.loadError),
+                FetchLoadFailure(
+                    label: "TeamWorkspaceEditor.sourceBaseline",
+                    error: $sourceBaseline.loadError
+                ),
+            ]
+            .compactMap { $0 }
+        }
 
         public var sourceChangesScope: SourceChangesScope {
             .source(
@@ -1242,7 +1282,7 @@ public struct TeamWorkspaceEditor {
         case generateSourcePatchButtonTapped
         case proposeChangeButtonTapped
         case sourcePatchGenerationResponse(
-            Result<SourcePatch, EditEvent.SourcePatchGenerationFailure>
+            Result<SourcePatch, EventWorkspace.SourcePatchGenerationFailure>
         )
         case sourceProposal(SourceProposalFlow.Action)
         case sourceProposalDismissed
@@ -1255,7 +1295,6 @@ public struct TeamWorkspaceEditor {
 
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
     var sourcePatchGenerator
-    @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
 
     public var body: some Feature {
         Update { state, action in
@@ -1277,7 +1316,7 @@ public struct TeamWorkspaceEditor {
                         )
                     } cleanup: {
                         $0.sourcePatchStatus = .failed(
-                            EditEvent.SourcePatchGenerationFailure(
+                            EventWorkspace.SourcePatchGenerationFailure(
                                 TeamWorkspaceEditorSourcePatchGenerationError()
                             )
                         )
@@ -1351,14 +1390,6 @@ public struct TeamWorkspaceEditor {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
-                .transformDependency(\.self) {
-                    guard let sourceWorkspace = try? sourceWorkspaceDatabase
-                        .sourceBaseline(store.sourceBaselineID)
-                    else {
-                        return
-                    }
-                    $0.useSourceWorkspaceDatabase(sourceWorkspace)
-                }
         }
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()
@@ -1374,20 +1405,8 @@ public struct TeamWorkspaceEditorView: View {
     }
 
     public var body: some View {
-        SourceChangesReviewPanel(
-            availability: SourceChangesAvailability(store.editSummary.availability),
-            groups: store.editSummary.groups,
-            mode: .workspace,
-            sourcePatchStatus: store.sourcePatchStatus,
-            onReviewChanges: {
-                store.send(.generateSourcePatchButtonTapped)
-            }
-        ) {
-            sourceSection
-        } auxiliarySection: {
-            EmptyView()
-        }
-        .navigationTitle("Source")
+        content
+        .navigationTitle("Team Workspace")
         .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
             NavigationStack {
                 TeamWorkspaceCreateEventView(store: createEventStore)
@@ -1396,6 +1415,29 @@ public struct TeamWorkspaceEditorView: View {
         .toolbar {
             Button("Create Event", systemImage: "plus") {
                 store.send(.createEventButtonTapped)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if !store.fetchLoadFailures.isEmpty {
+            List {
+                FetchLoadErrorSection(failures: store.fetchLoadFailures)
+            }
+        } else {
+            SourceChangesReviewPanel(
+                availability: SourceChangesAvailability(store.editSummary.availability),
+                groups: store.editSummary.groups,
+                mode: .workspace,
+                sourcePatchStatus: store.sourcePatchStatus,
+                onReviewChanges: {
+                    store.send(.generateSourcePatchButtonTapped)
+                }
+            ) {
+                sourceSection
+            } auxiliarySection: {
+                EmptyView()
             }
         }
     }

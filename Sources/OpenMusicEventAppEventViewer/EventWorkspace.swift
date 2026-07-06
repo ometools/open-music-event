@@ -7,7 +7,7 @@ import SQLiteData
 import SwiftUI
 
 @Feature
-public struct EditEvent {
+public struct EventWorkspace {
     public init() {}
 
     public enum ChangeView: Hashable, CaseIterable, Sendable {
@@ -62,13 +62,13 @@ public struct EditEvent {
     public struct State {
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
-            self._editSummary = Fetch(
-                wrappedValue: EventEditSummary(
+            self._workspaceSummary = Fetch(
+                wrappedValue: EventWorkspaceSummary(
                     eventID: eventID,
                     availability: .notInWorkspace,
                     groups: []
                 ),
-                EventEditSummaryRequest(eventID: eventID)
+                EventWorkspaceSummaryRequest(eventID: eventID)
             )
             self._sourceProvenance = FetchOne(
                 EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
@@ -77,7 +77,7 @@ public struct EditEvent {
 
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
-        @Fetch public var editSummary: EventEditSummary
+        @Fetch public var workspaceSummary: EventWorkspaceSummary
         public var isResettingEdits = false
         public var resetEditsFailure: ResetEditsFailure?
         public var selectedChangeView: ChangeView = .database
@@ -88,7 +88,7 @@ public struct EditEvent {
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
 
         public var changeCount: Int? {
-            editSummary.badgeCount
+            workspaceSummary.badgeCount
         }
 
         public var sourceChangesScope: SourceChangesScope {
@@ -108,7 +108,7 @@ public struct EditEvent {
         case sourceProposalDismissed
     }
 
-    @Dependency(\.openMusicEventEditResetter) var editResetter
+    @Dependency(\.eventWorkspaceResetter) var workspaceResetter
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var sourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     public var body: some Feature {
@@ -154,13 +154,13 @@ public struct EditEvent {
 
             case .resetEditsButtonTapped:
                 guard !state.isResettingEdits else { return }
-                let editResetter = editResetter
+                let workspaceResetter = workspaceResetter
                 let eventID = state.eventID
                 state.isResettingEdits = true
                 state.resetEditsFailure = nil
                 store.addTask {
                     do {
-                        try editResetter.reset(eventID)
+                        try workspaceResetter.reset(eventID)
                         try store.send(.resetEditsResponse(.success(ResetEditsSuccess())))
                     } catch {
                         try store.send(
@@ -200,7 +200,7 @@ public struct EditEvent {
                 guard !patch.isEmpty else { return }
                 state.sourceProposal = SourceProposalFlow.State(
                     eventID: state.eventID,
-                    editSummary: state.editSummary,
+                    workspaceSummary: state.workspaceSummary,
                     patch: patch
                 )
                 state.sourceProposalStatus = .composing
@@ -256,17 +256,17 @@ public struct EditEvent {
     }
 }
 
-public struct EditEventView: View {
-    @Bindable var store: StoreOf<EditEvent>
+public struct EventWorkspaceView: View {
+    @Bindable var store: StoreOf<EventWorkspace>
 
-    public init(store: StoreOf<EditEvent>) {
+    public init(store: StoreOf<EventWorkspace>) {
         self.store = store
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             Picker("Changes", selection: $store.selectedChangeView) {
-                ForEach(EditEvent.ChangeView.allCases, id: \.self) { changeView in
+                ForEach(EventWorkspace.ChangeView.allCases, id: \.self) { changeView in
                     Text(changeView.title).tag(changeView)
                 }
             }
@@ -284,7 +284,7 @@ public struct EditEventView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle("Edit")
+        .navigationTitle("Workspace")
         .sheet(
             item: $store.scope(\.sourceProposal, action: \.sourceProposal),
             onDismiss: {
@@ -297,8 +297,8 @@ public struct EditEventView: View {
 
     @ViewBuilder
     private var databaseChangesContent: some View {
-        switch store.editSummary.availability {
-        case .available where store.editSummary.totalCount == 0:
+        switch store.workspaceSummary.availability {
+        case .available where store.workspaceSummary.totalCount == 0:
             ContentUnavailableView(
                 "No Changes",
                 systemImage: "checkmark.circle"
@@ -310,13 +310,13 @@ public struct EditEventView: View {
                     HStack {
                         Label("Unpublished Changes", systemImage: "pencil.and.list.clipboard")
                         Spacer()
-                        Text(store.editSummary.totalCount, format: .number)
+                        Text(store.workspaceSummary.totalCount, format: .number)
                             .font(.headline)
                             .monospacedDigit()
                     }
                 }
 
-                ForEach(store.editSummary.groups.filter { !$0.records.isEmpty }) { group in
+                ForEach(store.workspaceSummary.groups.filter { !$0.records.isEmpty }) { group in
                     SourceChangeGroupSections(group: group)
                 }
 
@@ -344,8 +344,8 @@ public struct EditEventView: View {
     private var sourceChangesContent: some View {
         if store.canReviewSourceProposal {
             SourceChangesReviewPanel(
-                availability: SourceChangesAvailability(store.editSummary.availability),
-                groups: store.editSummary.groups,
+                availability: SourceChangesAvailability(store.workspaceSummary.availability),
+                groups: store.workspaceSummary.groups,
                 mode: .proposal,
                 sourcePatchStatus: store.sourcePatchStatus,
                 sourceProposalStatus: store.sourceProposalStatus,
@@ -430,7 +430,7 @@ public enum SourceChangesAvailability: Equatable, Sendable {
     case notInWorkspace
     case unavailable(SourceChangeSummary.UnavailableReason)
 
-    public init(_ availability: EventEditSummary.Availability) {
+    public init(_ availability: EventWorkspaceSummary.Availability) {
         switch availability {
         case .available:
             self = .available
@@ -467,16 +467,16 @@ public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: Vi
     let mode: SourceChangesReviewMode
     let onProposeChange: (() -> Void)?
     let onReviewChanges: () -> Void
-    let sourcePatchStatus: EditEvent.SourcePatchStatus
-    let sourceProposalStatus: EditEvent.SourceProposalStatus
+    let sourcePatchStatus: EventWorkspace.SourcePatchStatus
+    let sourceProposalStatus: EventWorkspace.SourceProposalStatus
     let sourceSection: SourceSection
 
     public init(
         availability: SourceChangesAvailability,
         groups: [SourceChangeGroup],
         mode: SourceChangesReviewMode,
-        sourcePatchStatus: EditEvent.SourcePatchStatus,
-        sourceProposalStatus: EditEvent.SourceProposalStatus = .idle,
+        sourcePatchStatus: EventWorkspace.SourcePatchStatus,
+        sourceProposalStatus: EventWorkspace.SourceProposalStatus = .idle,
         onReviewChanges: @escaping () -> Void,
         onProposeChange: (() -> Void)? = nil,
         @ViewBuilder sourceSection: () -> SourceSection,
@@ -593,11 +593,11 @@ struct SourceIndicatorView: View {
 }
 
 public struct SourcePatchStatusView: View {
-    let status: EditEvent.SourcePatchStatus
+    let status: EventWorkspace.SourcePatchStatus
     let mode: SourceChangesReviewMode
 
     public init(
-        status: EditEvent.SourcePatchStatus,
+        status: EventWorkspace.SourcePatchStatus,
         mode: SourceChangesReviewMode = .proposal
     ) {
         self.status = status
@@ -646,9 +646,9 @@ public struct SourcePatchStatusView: View {
 }
 
 public struct SourceProposalStatusView: View {
-    let status: EditEvent.SourceProposalStatus
+    let status: EventWorkspace.SourceProposalStatus
 
-    public init(status: EditEvent.SourceProposalStatus) {
+    public init(status: EventWorkspace.SourceProposalStatus) {
         self.status = status
     }
 
@@ -753,7 +753,7 @@ public struct SourceProposalSummarySections: View {
         self.groups = groups
     }
 
-    init(summary: EventEditSummary) {
+    init(summary: EventWorkspaceSummary) {
         self.groups = summary.groups
     }
 
@@ -851,11 +851,11 @@ private extension EventSourceProvenanceRecord {
     }
 }
 
-private extension EditEvent.State {
+private extension EventWorkspace.State {
     var canResetEdits: Bool {
         guard !isResettingEdits,
-              editSummary.totalCount > 0,
-              case .available = editSummary.availability
+              workspaceSummary.totalCount > 0,
+              case .available = workspaceSummary.availability
         else { return false }
         return true
     }
@@ -874,7 +874,7 @@ private extension EditEvent.State {
     }
 }
 
-private extension EditEvent.SourcePatchStatus {
+private extension EventWorkspace.SourcePatchStatus {
     var reviewButtonTitle: String {
         switch self {
         case .failed:
@@ -945,7 +945,7 @@ private extension SourceChangesReviewMode {
     }
 }
 
-public extension EditEvent.SourceProposalStatus {
+public extension EventWorkspace.SourceProposalStatus {
     var canCreateProposal: Bool {
         switch self {
         case .composing, .failed, .idle:
@@ -960,7 +960,7 @@ public extension EditEvent.SourceProposalStatus {
     }
 }
 
-private extension EditEvent.ChangeView {
+private extension EventWorkspace.ChangeView {
     var title: String {
         switch self {
         case .database:

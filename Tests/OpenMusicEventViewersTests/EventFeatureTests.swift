@@ -6,7 +6,7 @@ import Testing
 struct EventFeatureTests {
     @Test
     func readOnlyDefaultFeaturesExcludeEditorTabs() {
-        #expect(!EventFeature.defaultReadOnlyFeatures.contains(.edit))
+        #expect(!EventFeature.defaultReadOnlyFeatures.contains(.workspace))
         #expect(!EventFeature.defaultReadOnlyFeatures.contains(.settings))
     }
 
@@ -27,7 +27,7 @@ struct EventFeatureTests {
             .schedule(.schedule),
             .schedule(workshopDivision),
         ])
-        #expect(!features.contains(.edit))
+        #expect(!features.contains(.workspace))
         #expect(!features.contains(.settings))
     }
 
@@ -42,6 +42,12 @@ struct EventFeatureTests {
                 .eventFeature == .contributors
         )
         #expect(EventTarget.settings.eventFeature == .settings)
-        #expect(EventTarget.edit.eventFeature == .edit)
+        #expect(EventTarget.workspace.eventFeature == .workspace)
+    }
+
+    @Test
+    func legacyEditFeatureDescriptionParsesAsWorkspace() {
+        #expect(EventFeature("edit") == .workspace)
+        #expect(EventFeature("workspace") == .workspace)
     }
 }
