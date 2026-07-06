@@ -45,6 +45,10 @@ extension DependencyValues {
                 withIntermediateDirectories: true
             )
             let databaseURL = applicationSupportURL.appendingPathComponent("open-music-event.sqlite")
+            #if DEBUG
+            let openDatabaseCommand = "open \(databaseURL.path.shellQuotedForTerminal)"
+            logger.debug("\(openDatabaseCommand)")
+            #endif
             path = databaseURL.path
         } else {
             path = nil
@@ -68,6 +72,12 @@ extension DependencyValues {
             try sourcePatchInvalidations.installTriggers(db)
         }
         defaultDatabase = database
+    }
+}
+
+private extension String {
+    var shellQuotedForTerminal: String {
+        "'\(replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
 
