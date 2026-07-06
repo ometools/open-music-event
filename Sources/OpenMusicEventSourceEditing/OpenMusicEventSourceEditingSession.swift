@@ -23,6 +23,7 @@ public extension OpenMusicEventEditResetter {
         OpenMusicEventEditResetter { eventID in
             @Dependency(\.defaultDatabase) var database
             @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+            @Dependency(\.sourceEditingSession) var sourceEditingSession
 
             try database.write { db in
                 guard let provenance = try (EventSourceProvenanceRecord
@@ -34,20 +35,31 @@ public extension OpenMusicEventEditResetter {
                 guard let sourceBaselineID = provenance.sourceBaselineID,
                       try (SourceBaselineRecord
                         .where { $0.id.eq(sourceBaselineID) }
-                        .fetchOne(db)) != nil,
-                      let baselineDatabase = try sourceReferenceDatabase.existing(
-                        provenance.sourceProvenance
-                      )
+                        .fetchOne(db)) != nil
                 else {
                     throw OpenMusicEventEditResetError.missingBaseline(eventID)
                 }
 
-                try SourceEditingResetter().reset(
-                    in: db,
-                    baselineDatabase: baselineDatabase,
-                    descriptors: OME.sourceTableDescriptors,
-                    scope: .openMusicEvent(eventID: eventID)
-                )
+                if let sourceEditingSession {
+                    try SourceEditingResetter().reset(
+                        in: db,
+                        baselineSchemaName: sourceEditingSession.baselineSchemaName,
+                        descriptors: OME.sourceTableDescriptors,
+                        scope: .openMusicEvent(eventID: eventID)
+                    )
+                } else {
+                    guard let baselineDatabase = try sourceReferenceDatabase.existing(
+                        provenance.sourceProvenance
+                    ) else {
+                        throw OpenMusicEventEditResetError.missingBaseline(eventID)
+                    }
+                    try SourceEditingResetter().reset(
+                        in: db,
+                        baselineDatabase: baselineDatabase,
+                        descriptors: OME.sourceTableDescriptors,
+                        scope: .openMusicEvent(eventID: eventID)
+                    )
+                }
             }
         }
     }

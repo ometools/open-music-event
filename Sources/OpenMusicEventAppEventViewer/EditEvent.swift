@@ -60,18 +60,25 @@ public struct EditEvent {
     }
 
     public struct State {
-        public init(eventID: OMERecord.Event.ID) {
+        public init(
+            eventID: OMERecord.Event.ID,
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase? = nil
+        ) {
             self.eventID = eventID
+            self.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+            let database = sourceWorkspaceDatabase?.database
             self._editSummary = Fetch(
                 wrappedValue: EventEditSummary(
                     eventID: eventID,
                     availability: .notSourceBacked,
                     groups: []
                 ),
-                EventEditSummaryRequest(eventID: eventID)
+                EventEditSummaryRequest(eventID: eventID),
+                database: database
             )
             self._sourceProvenance = FetchOne(
-                EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
+                EventSourceProvenanceRecord.where { $0.id.eq(eventID) },
+                database: database
             )
         }
 
@@ -86,6 +93,8 @@ public struct EditEvent {
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
+        @DebugSnapshotIgnored
+        public var sourceWorkspaceDatabase: SourceWorkspaceDatabase?
 
         public var changeCount: Int? {
             editSummary.badgeCount
@@ -249,6 +258,12 @@ public struct EditEvent {
         }
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()
+                .transformDependency(\.self) {
+                    guard let sourceWorkspace = store.sourceWorkspaceDatabase else {
+                        return
+                    }
+                    $0.useSourceWorkspaceDatabase(sourceWorkspace)
+                }
         }
     }
 }

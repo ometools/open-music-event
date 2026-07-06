@@ -84,6 +84,7 @@ public struct EventViewer {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
     @StoreTaskID var sourceDataRefreshTask
 
     public struct State: Identifiable {
@@ -157,7 +158,7 @@ public struct EventViewer {
                     case .settings:
                         self.eventSettings = Spawn(EventSettings.State(eventID: eventID))
                     case .edit:
-                        self.editEvent = Spawn(EditEvent.State(eventID: eventID))
+                        self.editEvent = editEventSpawn(eventID: eventID)
                     case .search:
                         self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
                     case .about:
@@ -290,7 +291,7 @@ public struct EventViewer {
                 self.contributorsViewer?.state.destination = nil
                 self.stagesViewer?.state.destination = nil
                 if self.editEvent == nil {
-                    self.editEvent = Spawn(EditEvent.State(eventID: self.eventID))
+                    self.editEvent = editEventSpawn(eventID: self.eventID)
                 }
             default:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
@@ -374,7 +375,7 @@ public struct EventViewer {
                 guard eventID == self.eventID else { return }
                 self.selectedFeature = .edit
                 if self.editEvent == nil {
-                    self.editEvent = Spawn(EditEvent.State(eventID: eventID))
+                    self.editEvent = editEventSpawn(eventID: eventID)
                 }
 
             case let .editEventInfo(eventID):
@@ -578,6 +579,27 @@ public struct EventViewer {
             }
         }
 
+        private func editEventSpawn(
+            eventID: OMERecord.Event.ID
+        ) -> Spawn<EditEvent> {
+            @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
+            let sourceWorkspace = try? sourceWorkspaceDatabase.event(eventID)
+            return withEventDependencies {
+                withDependencies {
+                    if let sourceWorkspace {
+                        $0.useSourceWorkspaceDatabase(sourceWorkspace)
+                    }
+                } operation: {
+                    Spawn(
+                        EditEvent.State(
+                            eventID: eventID,
+                            sourceWorkspaceDatabase: sourceWorkspace
+                        )
+                    )
+                }
+            }
+        }
+
         private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {
             @Dependency(\.defaultDatabase) var database
             return (
@@ -686,6 +708,12 @@ public struct EventViewer {
         }
         .ifLet(\.editEvent) {
             EditEvent()
+                .transformDependency(\.self) {
+                    guard let sourceWorkspace = store.editEvent?.state.sourceWorkspaceDatabase else {
+                        return
+                    }
+                    $0.useSourceWorkspaceDatabase(sourceWorkspace)
+                }
         }
         .ifLet(\.eventInfoViewer) {
             EventInfoViewer()

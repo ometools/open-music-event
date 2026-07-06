@@ -1,5 +1,4 @@
 import Foundation
-import FileTree
 import SkipFuse
 import SwiftUI
 import Dependencies
@@ -58,11 +57,6 @@ extension OME {
         dependencies[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
         dependencies.sourcePatchPublisher = .openMusicEventTangled
         dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
-        let sourceEditModePreparation = dependencies.sourceEditModePreparation
-        dependencies.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
-            try await sourceEditModePreparation.prepare(sourceBaselineID)
-            try await OpenMusicEventSourceReferenceDatabaseRepair.repairIfMissing(sourceBaselineID)
-        }
         let baseDatabase = dependencies.defaultDatabase
         dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
             try await withDependencies {
@@ -93,58 +87,6 @@ extension OME {
 
 private enum SourceDataRefreshError: Error, Equatable, Sendable {
     case sourceBaselineNotFound(SourceBaselineRecord.ID)
-}
-
-private enum OpenMusicEventSourceReferenceDatabaseRepair {
-    static func repairIfMissing(_ sourceBaselineID: SourceBaselineRecord.ID) async throws {
-        @Dependency(\.defaultDatabase) var database
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
-
-        let sourceBaseline = try await database.read { db in
-            try SourceBaselineRecord
-                .where { $0.id.eq(sourceBaselineID) }
-                .fetchOne(db)
-        }
-        guard let sourceBaseline else {
-            throw SourceReferenceDatabaseRepairError.sourceBaselineNotFound(sourceBaselineID)
-        }
-
-        guard try sourceReferenceDatabase.existing(sourceBaseline.sourceProvenance) == nil else {
-            return
-        }
-
-        let organizerID = try await database.read { db in
-            try EventSourceProvenanceRecord
-                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                .fetchOne(db)?
-                .id
-                .organizerID
-        }
-        guard let organizerID else {
-            throw SourceReferenceDatabaseRepairError.sourceOrganizerNotFound(sourceBaselineID)
-        }
-
-        let repositoryURL = try sourceRepositoryStorage.repositoryURL(sourceBaseline.sourceProvenance)
-        let source = try OpenMusicEventSourceRepositoryFileTree()
-            .read(from: repositoryURL)
-            .output
-            .requiredValue
-        let insertion = try OME.SourceDatabaseInsertion(
-            OME.SourceDatabaseInsertion.Configuration(
-                source: source,
-                organizerID: organizerID,
-                sourceProvenance: sourceBaseline.sourceProvenance,
-                sourceRootURL: repositoryURL
-            )
-        )
-        try await insertion.prepareSourceReferenceDatabases()
-    }
-}
-
-private enum SourceReferenceDatabaseRepairError: Error, Equatable, Sendable {
-    case sourceBaselineNotFound(SourceBaselineRecord.ID)
-    case sourceOrganizerNotFound(SourceBaselineRecord.ID)
 }
 
 /// The shared top-level view for the app, loaded from the platform-specific App delegates below.

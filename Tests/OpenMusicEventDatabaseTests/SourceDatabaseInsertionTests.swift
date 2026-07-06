@@ -1180,6 +1180,71 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func editSummariesUseAttachedSourceEditingSession() async throws {
+        let source = try makeSourceRepository()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
+        let baselineDatabasePath = directoryURL.appendingPathComponent("baseline.sqlite").path
+        let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabasePath)
+        let database = try makeCoreDatabase(path: workingDatabasePath)
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        try await database.write { db in
+            try OME.Stage
+                .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
+                .update { $0.name = "Updated Meadow" }
+                .execute(db)
+        }
+
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: workingDatabasePath,
+            baselineDatabasePath: baselineDatabasePath
+        )
+        let eventSummary = try await withDependencies {
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await sourceEditingSession.database.read { db in
+                try EventEditSummaryRequest(eventID: openedEventID).fetch(db)
+            }
+        }
+        let sourceSummary = try await withDependencies {
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await sourceEditingSession.database.read { db in
+                try SourceEditSummaryRequest(
+                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
+                    calendarID: calendarID(organizerID: organizerID)
+                )
+                .fetch(db)
+            }
+        }
+
+        #expect(eventSummary.availability == .available)
+        #expect(eventSummary.totalCount == 1)
+        #expect(sourceSummary.availability == .available)
+        #expect(sourceSummary.totalCount == 1)
+    }
+
+    @Test
     func eventEditSummaryUsesDefaultDatabaseAgainstSourceReference() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))

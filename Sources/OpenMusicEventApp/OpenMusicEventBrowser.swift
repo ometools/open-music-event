@@ -825,6 +825,7 @@ public struct SourceDetail {
 
     @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
     @StoreTaskID var sourceDataRefreshTask
 
     static func sourceBaselineQuery(
@@ -969,6 +970,7 @@ public struct SourceDetail {
                 else { return }
                 let sourceBaselineID = sourceBaseline.id
                 let sourceEditModePreparation = sourceEditModePreparation
+                let sourceWorkspaceDatabase = sourceWorkspaceDatabase
                 state.isPreparingSourceManagement = true
                 store.addTask {
                     let sourceManagement = await store.withErrorHandling(
@@ -976,10 +978,17 @@ public struct SourceDetail {
                         operation: .sourceEditPreparation
                     ) {
                         try await sourceEditModePreparation.prepare(sourceBaselineID)
-                        return SourceManagement.State(
-                            sourceBaselineID: sourceBaselineID,
-                            calendarID: calendarID
-                        )
+                        let sourceWorkspace = try sourceWorkspaceDatabase
+                            .sourceBaseline(sourceBaselineID)
+                        return withDependencies {
+                            $0.useSourceWorkspaceDatabase(sourceWorkspace)
+                        } operation: {
+                            SourceManagement.State(
+                                sourceBaselineID: sourceBaselineID,
+                                calendarID: calendarID,
+                                sourceWorkspaceDatabase: sourceWorkspace
+                            )
+                        }
                     } cleanup: {
                         $0.isPreparingSourceManagement = false
                     } parseError: {
@@ -1005,6 +1014,12 @@ public struct SourceDetail {
         }
         .ifLet(\.sourceManagement, action: \.sourceManagement) {
             SourceManagement()
+                .transformDependency(\.self) {
+                    guard let sourceWorkspace = store.sourceManagement?.sourceWorkspaceDatabase else {
+                        return
+                    }
+                    $0.useSourceWorkspaceDatabase(sourceWorkspace)
+                }
         }
     }
 }
@@ -1165,10 +1180,13 @@ public struct SourceManagement {
     public struct State: Identifiable {
         public init(
             sourceBaselineID: SourceBaselineRecord.ID,
-            calendarID: OMERecord.Calendar.ID
+            calendarID: OMERecord.Calendar.ID,
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase? = nil
         ) {
             self.sourceBaselineID = sourceBaselineID
             self.calendarID = calendarID
+            self.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+            let database = sourceWorkspaceDatabase?.database
             self._editSummary = Fetch(
                 wrappedValue: SourceEditSummary(
                     sourceBaselineID: sourceBaselineID,
@@ -1178,10 +1196,12 @@ public struct SourceManagement {
                 SourceEditSummaryRequest(
                     sourceBaselineID: sourceBaselineID,
                     calendarID: calendarID
-                )
+                ),
+                database: database
             )
             self._sourceBaseline = FetchOne(
-                SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
+                SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) },
+                database: database
             )
         }
 
@@ -1198,6 +1218,8 @@ public struct SourceManagement {
         @FetchOne public var sourceBaseline: SourceBaselineRecord?
 
         public let sourceBaselineID: SourceBaselineRecord.ID
+        @DebugSnapshotIgnored
+        public var sourceWorkspaceDatabase: SourceWorkspaceDatabase?
         public var sourcePatchStatus: EditEvent.SourcePatchStatus = .notGenerated
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
@@ -1333,6 +1355,12 @@ public struct SourceManagement {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
+                .transformDependency(\.self) {
+                    guard let sourceWorkspace = store.sourceWorkspaceDatabase else {
+                        return
+                    }
+                    $0.useSourceWorkspaceDatabase(sourceWorkspace)
+                }
         }
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()

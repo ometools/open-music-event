@@ -1,4 +1,5 @@
 import Dependencies
+import GRDB
 import OpenMusicEventLexicon
 import SQLiteData
 import SourceEditing
@@ -66,22 +67,33 @@ public struct EventEditSummaryRequest: FetchKeyRequest {
             )
         }
 
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        guard let baselineDatabase = try sourceReferenceDatabase.existing(
-            provenance.sourceProvenance
-        ) else {
-            return EventEditSummary(
-                eventID: eventID,
-                availability: .missingBaseline,
-                groups: []
+        @Dependency(\.sourceEditingSession) var sourceEditingSession
+        let sourceSummary: SourceChangeSummary
+        if let sourceEditingSession {
+            sourceSummary = try SourceEditingComparer().summary(
+                in: db,
+                baselineSchemaName: sourceEditingSession.baselineSchemaName,
+                recordTypes: OME.sourceRecordTypes,
+                scope: .openMusicEvent(eventID: eventID)
+            )
+        } else {
+            @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+            guard let baselineDatabase = try sourceReferenceDatabase.existing(
+                provenance.sourceProvenance
+            ) else {
+                return EventEditSummary(
+                    eventID: eventID,
+                    availability: .missingBaseline,
+                    groups: []
+                )
+            }
+            sourceSummary = try SourceEditingComparer().summary(
+                in: db,
+                baselineDatabase: baselineDatabase,
+                recordTypes: OME.sourceRecordTypes,
+                scope: .openMusicEvent(eventID: eventID)
             )
         }
-        let sourceSummary = try SourceEditingComparer().summary(
-            in: db,
-            baselineDatabase: baselineDatabase,
-            recordTypes: OME.sourceRecordTypes,
-            scope: .openMusicEvent(eventID: eventID)
-        )
 
         switch sourceSummary.availability {
         case .available:
@@ -157,23 +169,34 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
             )
         }
 
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        guard let baselineDatabase = try sourceReferenceDatabase.existing(
-            sourceBaseline.sourceProvenance
-        ) else {
-            return SourceEditSummary(
+        @Dependency(\.sourceEditingSession) var sourceEditingSession
+        let sourceSummary: SourceChangeSummary
+        if let sourceEditingSession {
+            sourceSummary = try sourceEditSummary(
+                in: db,
+                baselineSchemaName: sourceEditingSession.baselineSchemaName,
                 sourceBaselineID: sourceBaselineID,
-                availability: .missingBaseline,
-                groups: []
+                calendarID: calendarID
+            )
+        } else {
+            @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+            guard let baselineDatabase = try sourceReferenceDatabase.existing(
+                sourceBaseline.sourceProvenance
+            ) else {
+                return SourceEditSummary(
+                    sourceBaselineID: sourceBaselineID,
+                    availability: .missingBaseline,
+                    groups: []
+                )
+            }
+
+            sourceSummary = try sourceEditSummary(
+                in: db,
+                baselineDatabase: baselineDatabase,
+                sourceBaselineID: sourceBaselineID,
+                calendarID: calendarID
             )
         }
-
-        let sourceSummary = try sourceEditSummary(
-            in: db,
-            baselineDatabase: baselineDatabase,
-            sourceBaselineID: sourceBaselineID,
-            calendarID: calendarID
-        )
 
         switch sourceSummary.availability {
         case .available:
@@ -235,6 +258,48 @@ private func sourceEditSummary(
     )
 }
 
+private func sourceEditSummary(
+    in db: Database,
+    baselineSchemaName: String,
+    sourceBaselineID: SourceBaselineRecord.ID,
+    calendarID: OME.Calendar.ID
+) throws -> SourceChangeSummary {
+    let comparer = SourceEditingComparer()
+    let calendarSummary = try comparer.summary(
+        in: db,
+        baselineSchemaName: baselineSchemaName,
+        recordTypes: OME.sourceMetadataRecordTypes,
+        scope: .openMusicEventCalendar(calendarID: calendarID)
+    )
+    guard case .available = calendarSummary.availability else {
+        return calendarSummary
+    }
+
+    var summaries = [calendarSummary]
+    for eventID in try sourceEventIDs(
+        in: db,
+        baselineSchemaName: baselineSchemaName,
+        sourceBaselineID: sourceBaselineID,
+        organizerID: calendarID.ownerID
+    ) {
+        let eventSummary = try comparer.summary(
+            in: db,
+            baselineSchemaName: baselineSchemaName,
+            recordTypes: OME.sourceRecordTypes,
+            scope: .openMusicEvent(eventID: eventID)
+        )
+        guard case .available = eventSummary.availability else {
+            return eventSummary
+        }
+        summaries.append(eventSummary)
+    }
+
+    return SourceChangeSummary(
+        availability: .available,
+        groups: mergedSourceChangeGroups(summaries.flatMap(\.groups))
+    )
+}
+
 private func sourceEventIDs(
     in db: Database,
     baselineDatabase: SourceBaselineDatabase,
@@ -266,12 +331,69 @@ private func sourceEventIDs(
 
 private func sourceEventIDs(
     in db: Database,
+    baselineSchemaName: String,
+    sourceBaselineID: SourceBaselineRecord.ID,
+    organizerID: OME.Organizer.ID
+) throws -> [OME.Event.ID] {
+    let workingEventIDs = try sourceEventIDs(
+        in: db,
+        sourceBaselineID: sourceBaselineID
+    )
+    let baselineEventIDs = try baselineSourceEventIDs(
+        in: db,
+        baselineSchemaName: baselineSchemaName,
+        sourceBaselineID: sourceBaselineID
+    )
+
+    var seen: Set<OME.Event.ID> = []
+    return (workingEventIDs + baselineEventIDs)
+        .filter { $0.organizerID == organizerID }
+        .sorted { lhs, rhs in
+            lhs.eventID.rawValue.rawValue < rhs.eventID.rawValue.rawValue
+        }
+        .compactMap { eventID in
+            guard seen.insert(eventID).inserted else { return nil }
+            return eventID
+        }
+}
+
+private func sourceEventIDs(
+    in db: Database,
     sourceBaselineID: SourceBaselineRecord.ID
 ) throws -> [OME.Event.ID] {
     try EventSourceProvenanceRecord
         .where { $0.sourceBaselineID.eq(sourceBaselineID) }
         .fetchAll(db)
         .map(\.id)
+}
+
+private func baselineSourceEventIDs(
+    in db: Database,
+    baselineSchemaName: String,
+    sourceBaselineID: SourceBaselineRecord.ID
+) throws -> [OME.Event.ID] {
+    let sql = """
+        SELECT "organizerID", "eventID"
+        FROM \(baselineSchemaName.quotedDatabaseIdentifier)."eventSourceProvenances"
+        WHERE "sourceBaselineID" = ?
+        """
+    return try Row
+        .fetchAll(
+            db,
+            sql: sql,
+            arguments: [sourceBaselineID.rawValue]
+        )
+        .compactMap { row in
+            let organizerIDString: String = row["organizerID"]
+            let eventIDString: String = row["eventID"]
+            guard let organizerID = OME.Organizer.ID(organizerIDString) else {
+                return nil
+            }
+            return OME.Event.ID(
+                organizerID: organizerID,
+                eventID: OME.ID<OME.Event>(.init(eventIDString))
+            )
+        }
 }
 
 private func mergedSourceChangeGroups(

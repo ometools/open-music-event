@@ -576,10 +576,19 @@ struct NavigationTests {
     }
 
     @Test
-    func sourceDetailRepairsMissingReferenceDatabaseBeforePresentingManagement() async throws {
+    func sourceWorkspaceDatabaseDoesNotRepairMissingReferenceDatabase() async throws {
         let repositoryURL = try temporarySourceRepositoryURL()
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
         try writeMinimalSourceRepository(at: repositoryURL)
+        let workingDirectoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-missing-reference-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: workingDirectoryURL) }
+        try FileManager.default.createDirectory(
+            at: workingDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let workingDatabaseURL = workingDirectoryURL
+            .appending(path: "open-music-event.sqlite")
 
         let database = try makePreparedDatabase()
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
@@ -588,61 +597,32 @@ struct NavigationTests {
             ref: nil
         )
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
-        let eventID = OMERecord.Event.ID(
-            organizerID: testOrganizerID,
-            eventID: OMERecord.SourceDatabaseInsertion.inferredEventID(
-                eventDirectoryName: "imported-event",
-                sourceProvenance: sourceProvenance
-            )
-        )
         let referenceDatabaseURL = try SourceReferenceDatabaseClient.referenceDatabaseURL(
             repositoryURL: repositoryURL
         )
 
         try await database.write { db in
-            try Self.insertOrganizer(db, id: testOrganizerID)
-            try Self.insertEvent(
-                db,
-                id: eventID,
-                name: "Imported Event",
-                timeZone: try #require(TimeZone(identifier: "America/Denver"))
-            )
             try Self.insertSourceBaseline(
                 db,
                 sourceProvenance: sourceProvenance,
                 importedAt: Date(timeIntervalSince1970: 1_600)
             )
-            try Self.insertEventSourceProvenance(
-                db,
-                eventID: eventID,
-                sourceProvenance: sourceProvenance
-            )
-            try Self.insertCalendar(db, id: calendarID, name: "Editable Source Calendar")
         }
 
         #expect(!FileManager.default.fileExists(atPath: referenceDatabaseURL.path))
 
-        let store = try withDependencies {
-            $0.context = .test
-            try OME.prepareDependencies(&$0)
-            $0.defaultDatabase = database
-        } operation: {
-            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
-                SourceDetail()
+        let error = #expect(throws: SourceWorkspaceDatabaseError.self) {
+            try withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+                $0.sourceEditingWorkingDatabasePath = workingDatabaseURL.path
+            } operation: {
+                try SourceWorkspaceDatabaseClient.live.sourceBaseline(sourceBaselineID)
             }
         }
 
-        let task = store.send(.manageSourceButtonTapped) {
-            $0.isPreparingSourceManagement = true
-        }
-        await task?.value
-
-        #expect(FileManager.default.fileExists(atPath: referenceDatabaseURL.path))
-        #expect(store.state.isPreparingSourceManagement == false)
-        #expect(store.state.sourceManagement?.sourceBaselineID == sourceBaselineID)
-        #expect(store.state.sourceManagement?.calendarID == calendarID)
-        #expect(store.state.sourceManagement?.editSummary.availability == .available)
+        #expect(error == .referenceDatabaseMissing(sourceBaselineID))
+        #expect(!FileManager.default.fileExists(atPath: referenceDatabaseURL.path))
     }
 
     @Test
