@@ -2,7 +2,16 @@ import ComposableArchitecture2
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
+import OpenMusicEventImages
 import SwiftUI
+
+#if !SKIP && canImport(AppKit)
+import AppKit
+#endif
+
+#if !SKIP && canImport(UIKit)
+import UIKit
+#endif
 
 @Feature
 public struct ImageInfo {
@@ -17,19 +26,25 @@ public struct ImageInfo {
             id: UUID = UUID(),
             asset: OMERecord.ImageAsset,
             configuration: Configuration = .allImageAssets,
-            sourceLabel: String? = nil
+            sourceLabel: String? = nil,
+            cacheContext: LocalImageCacheContext? = nil,
+            previewData: Data? = nil
         ) {
             self.id = id
             self.asset = asset
             self.configuration = configuration
             self.sourceLabel = sourceLabel
+            self.cacheContext = cacheContext
+            self.previewData = previewData
         }
 
         public var asset: OMERecord.ImageAsset
+        public var cacheContext: LocalImageCacheContext?
         public var configuration: Configuration
         public var errorMessage: String?
         public var id: UUID
         public var isSaving = false
+        public var previewData: Data?
         public var sourceLabel: String?
 
         var appearanceOptions: [OMERecord.ImageAsset.Appearance] {
@@ -38,6 +53,11 @@ public struct ImageInfo {
 
         var canSave: Bool {
             !isSaving
+        }
+
+        var canEditFocusPoint: Bool {
+            asset.renderKind == .fullImage
+                && asset.dimensions?.size != nil
         }
 
         var materializationPolicyOptions: [OMERecord.ImageAsset.MaterializationPolicy] {
@@ -318,6 +338,16 @@ public struct ImageInfoEditorSection: View {
             }
         }
 
+        if store.canEditFocusPoint {
+            Section("Focus") {
+                ImageFocusPointEditor(
+                    asset: $store.asset,
+                    cacheContext: store.cacheContext,
+                    previewData: store.previewData
+                )
+            }
+        }
+
         if let errorMessage = store.errorMessage {
             Section {
                 Text(errorMessage)
@@ -328,9 +358,189 @@ public struct ImageInfoEditorSection: View {
     }
 }
 
+struct ImageFocusPointEditor: View {
+    @Binding var asset: OMERecord.ImageAsset
+    let cacheContext: LocalImageCacheContext?
+    let previewData: Data?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ImageFocusPointPreview(
+                asset: $asset,
+                cacheContext: cacheContext,
+                previewData: previewData
+            )
+            .frame(height: 220)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            HStack {
+                LabeledContent("Point", value: focusPointDescription)
+
+                Spacer()
+
+                Button {
+                    asset.focalPoint = nil
+                } label: {
+                    Label("Clear Focus", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.borderless)
+                .disabled(asset.focalPoint == nil)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var focusPointDescription: String {
+        guard let focalPoint = asset.focalPoint else { return "Center" }
+        return "\(Int((focalPoint.x * 100).rounded()))%, \(Int((focalPoint.y * 100).rounded()))%"
+    }
+}
+
+struct ImageFocusPointPreview: View {
+    @Binding var asset: OMERecord.ImageAsset
+    let cacheContext: LocalImageCacheContext?
+    let previewData: Data?
+
+    var body: some View {
+        GeometryReader { geometry in
+            let imageRect = fittedImageRect(in: geometry.size)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.secondary.opacity(0.12))
+
+                ImageFocusPreviewImage(
+                    asset: asset,
+                    cacheContext: cacheContext,
+                    previewData: previewData
+                )
+                .frame(width: imageRect.width, height: imageRect.height)
+                .position(x: imageRect.midX, y: imageRect.midY)
+
+                focusMarker(in: imageRect)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        focusLocationChanged(value.location, in: imageRect)
+                    }
+            )
+        }
+    }
+
+    private func fittedImageRect(in size: CGSize) -> CGRect {
+        guard let imageSize = asset.dimensions?.size else {
+            return CGRect(origin: .zero, size: size)
+        }
+        let scale = min(size.width / imageSize.width, size.height / imageSize.height)
+        let fittedSize = CGSize(
+            width: imageSize.width * scale,
+            height: imageSize.height * scale
+        )
+        return CGRect(
+            x: (size.width - fittedSize.width) / 2,
+            y: (size.height - fittedSize.height) / 2,
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
+    }
+
+    private func focusLocationChanged(_ location: CGPoint, in imageRect: CGRect) {
+        guard imageRect.width > 0, imageRect.height > 0 else { return }
+        asset.focalPoint = OMERecord.ImageAsset.FocalPoint(
+            x: Double(((location.x - imageRect.minX) / imageRect.width).clamped(to: 0...1)),
+            y: Double(((location.y - imageRect.minY) / imageRect.height).clamped(to: 0...1))
+        )
+    }
+
+    @ViewBuilder
+    private func focusMarker(in imageRect: CGRect) -> some View {
+        let focalPoint = asset.focalPoint ?? OMERecord.ImageAsset.FocalPoint(x: 0.5, y: 0.5)
+        let position = CGPoint(
+            x: imageRect.minX + CGFloat(focalPoint.x) * imageRect.width,
+            y: imageRect.minY + CGFloat(focalPoint.y) * imageRect.height
+        )
+
+        ZStack {
+            Circle()
+                .stroke(.white, lineWidth: 3)
+                .frame(width: 26, height: 26)
+            Circle()
+                .stroke(.black.opacity(0.72), lineWidth: 1)
+                .frame(width: 26, height: 26)
+            Rectangle()
+                .fill(.white)
+                .frame(width: 2, height: 34)
+            Rectangle()
+                .fill(.white)
+                .frame(width: 34, height: 2)
+        }
+        .shadow(color: .black.opacity(0.32), radius: 3, y: 1)
+        .position(position)
+    }
+}
+
+struct ImageFocusPreviewImage: View {
+    let asset: OMERecord.ImageAsset
+    let cacheContext: LocalImageCacheContext?
+    let previewData: Data?
+
+    var body: some View {
+        Group {
+            #if !SKIP && canImport(UIKit)
+            if let previewData,
+               let image = UIImage(data: previewData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                storedImage
+            }
+            #elseif !SKIP && canImport(AppKit)
+            if let previewData,
+               let image = NSImage(data: previewData) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                storedImage
+            }
+            #else
+            storedImage
+            #endif
+        }
+    }
+
+    private var storedImage: some View {
+        ImageAssetAsyncImage(
+            asset: asset,
+            cacheContext: cacheContext,
+            contentMode: .fit
+        ) {
+            Image(systemName: "photo")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 private extension Array where Element: Equatable {
     func including(_ element: Element) -> Self {
         contains(element) ? self : [element] + self
+    }
+}
+
+private extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+private extension OMERecord.ImageAsset.Dimensions {
+    var size: CGSize? {
+        guard width > 0, height > 0 else { return nil }
+        return CGSize(width: width, height: height)
     }
 }
 

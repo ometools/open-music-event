@@ -13,6 +13,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     let asset: OME.ImageAsset?
     let cacheContext: LocalImageCacheContext?
     var contentMode: ContentMode?
+    var focusSafeAreaInsets: EdgeInsets
     @ViewBuilder var placeholder: (ImageAssetPlaceholderReason) -> Placeholder
     @Dependency(\.lazyImageCache) var lazyImageCache
     @Dependency(\.localImageDisplayCache) var localImageDisplayCache
@@ -25,11 +26,13 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
+        focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.asset = asset
         self.cacheContext = cacheContext
         self.contentMode = contentMode
+        self.focusSafeAreaInsets = focusSafeAreaInsets
         self.placeholder = { _ in placeholder() }
     }
 
@@ -37,33 +40,39 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
+        focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
     ) {
         self.asset = asset
         self.cacheContext = cacheContext
         self.contentMode = contentMode
+        self.focusSafeAreaInsets = focusSafeAreaInsets
         self.placeholder = placeholder
     }
 
     public init(
         image: DisplayImageAsset?,
         contentMode: ContentMode? = nil,
+        focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.asset = image?.asset
         self.cacheContext = image?.cacheContext
         self.contentMode = contentMode
+        self.focusSafeAreaInsets = focusSafeAreaInsets
         self.placeholder = { _ in placeholder() }
     }
 
     public init(
         image: DisplayImageAsset?,
         contentMode: ContentMode? = nil,
+        focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
     ) {
         self.asset = image?.asset
         self.cacheContext = image?.cacheContext
         self.contentMode = contentMode
+        self.focusSafeAreaInsets = focusSafeAreaInsets
         self.placeholder = placeholder
     }
 
@@ -84,10 +93,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
                 case .empty:
                     placeholder(.loading)
                 case let .success(image):
-                    image
-                        .renderingMode(displayAsset?.isTemplateLike == true ? .template : .original)
-                        .resizable()
-                        .aspectRatio(contentMode: resolvedContentMode)
+                    renderedImage(image, asset: displayAsset)
                 case .failure:
                     placeholder(.failure)
                 @unknown default:
@@ -170,6 +176,29 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         return displayAsset?.renderKind == .transparent ? .fit : .fill
     }
 
+    @ViewBuilder
+    private func renderedImage(
+        _ image: Image,
+        asset: OME.ImageAsset?
+    ) -> some View {
+        let image = image
+            .renderingMode(asset?.isTemplateLike == true ? .template : .original)
+            .resizable()
+
+        if resolvedContentMode == .fill,
+           let dimensions = asset?.dimensions?.size,
+           let focalPoint = asset?.focalPoint?.point {
+            FocusedAsyncImage(
+                image: image,
+                imageSize: dimensions,
+                focalPoint: focalPoint,
+                safeAreaInsets: focusSafeAreaInsets
+            )
+        } else {
+            image.aspectRatio(contentMode: resolvedContentMode)
+        }
+    }
+
     private func cacheLazyImageIfNeeded() async {
         guard let asset,
               let cacheContext,
@@ -206,5 +235,56 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         } catch {
             self.failedTaskID = cacheTaskID
         }
+    }
+}
+
+struct FocusedAsyncImage: View {
+    let image: Image
+    let imageSize: CGSize
+    let focalPoint: CGPoint
+    let safeAreaInsets: EdgeInsets
+
+    var body: some View {
+        GeometryReader { geometry in
+            let safeRect = safeRect(in: geometry.size)
+            let layout = ImageFocusLayout.layout(
+                imageSize: imageSize,
+                containerSize: geometry.size,
+                focalPoint: focalPoint,
+                safeRect: safeRect
+            )
+
+            image
+                .frame(width: layout.frame.width, height: layout.frame.height)
+                .offset(x: layout.frame.minX, y: layout.frame.minY)
+        }
+        .clipped()
+    }
+
+    private func safeRect(in size: CGSize) -> CGRect {
+        let width = size.width - safeAreaInsets.leading - safeAreaInsets.trailing
+        let height = size.height - safeAreaInsets.top - safeAreaInsets.bottom
+        guard width > 0, height > 0 else {
+            return CGRect(origin: .zero, size: size)
+        }
+        return CGRect(
+            x: safeAreaInsets.leading,
+            y: safeAreaInsets.top,
+            width: width,
+            height: height
+        )
+    }
+}
+
+private extension OME.ImageAsset.Dimensions {
+    var size: CGSize? {
+        guard width > 0, height > 0 else { return nil }
+        return CGSize(width: width, height: height)
+    }
+}
+
+private extension OME.ImageAsset.FocalPoint {
+    var point: CGPoint {
+        CGPoint(x: x, y: y)
     }
 }

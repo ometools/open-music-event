@@ -238,7 +238,9 @@ public struct ImageAssetPicker {
                         id: image.id,
                         asset: image.asset,
                         configuration: state.configuration.imageInfoConfiguration,
-                        sourceLabel: image.displaySource
+                        sourceLabel: image.displaySource,
+                        cacheContext: state.cacheContext,
+                        previewData: image.importedImage?.data
                     )
                 )
 

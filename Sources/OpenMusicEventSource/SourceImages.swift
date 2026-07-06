@@ -39,6 +39,7 @@ public struct SourceImageAsset: Codable, Equatable, Sendable {
         appearance: OMERecord.ImageAsset.Appearance? = nil,
         materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy,
         thumbhash: String? = nil,
+        dimensions: OMERecord.ImageAsset.Dimensions? = nil,
         focalPoint: OMERecord.ImageAsset.FocalPoint? = nil
     ) {
         self.role = role
@@ -49,6 +50,7 @@ public struct SourceImageAsset: Codable, Equatable, Sendable {
             assetKey: assetKey,
             source: source,
             thumbhash: thumbhash,
+            dimensions: dimensions,
             focalPoint: focalPoint
         )
         if let appearance {
@@ -69,7 +71,6 @@ public struct SourceImageAsset: Codable, Equatable, Sendable {
         self.materializationPolicy = materializationPolicy
         self.variants = .appearances(appearances)
     }
-
     public var role: OMERecord.ImageAsset.Role
     public var renderKind: OMERecord.ImageAsset.RenderKind
     public var materializationPolicy: OMERecord.ImageAsset.MaterializationPolicy
@@ -115,6 +116,15 @@ public struct SourceImageAsset: Codable, Equatable, Sendable {
         set {
             updatePrimaryPayload {
                 $0.thumbhash = newValue
+            }
+        }
+    }
+
+    public var dimensions: OMERecord.ImageAsset.Dimensions? {
+        get { primaryPayload.dimensions }
+        set {
+            updatePrimaryPayload {
+                $0.dimensions = newValue
             }
         }
     }
@@ -229,6 +239,7 @@ public struct SourceImageAsset: Codable, Equatable, Sendable {
         case appearance
         case materializationPolicy
         case thumbhash
+        case dimensions
         case focalPoint
         case appearances
     }
@@ -250,6 +261,10 @@ public struct SourceImageAsset: Codable, Equatable, Sendable {
                 assetKey: try container.decodeIfPresent(String.self, forKey: .assetKey),
                 source: try container.decode(SourceImageRef.self, forKey: .source),
                 thumbhash: try container.decodeIfPresent(String.self, forKey: .thumbhash),
+                dimensions: try container.decodeIfPresent(
+                    OMERecord.ImageAsset.Dimensions.self,
+                    forKey: .dimensions
+                ),
                 focalPoint: try container.decodeIfPresent(
                     OMERecord.ImageAsset.FocalPoint.self,
                     forKey: .focalPoint
@@ -278,6 +293,7 @@ public struct SourceImageAsset: Codable, Equatable, Sendable {
             try container.encodeIfPresent(payload.assetKey, forKey: .assetKey)
             try container.encode(payload.source, forKey: .source)
             try container.encodeIfPresent(payload.thumbhash, forKey: .thumbhash)
+            try container.encodeIfPresent(payload.dimensions, forKey: .dimensions)
             try container.encodeIfPresent(payload.focalPoint, forKey: .focalPoint)
 
         case let .appearances(pair):
@@ -292,17 +308,20 @@ public extension SourceImageAsset {
             assetKey: String? = nil,
             source: SourceImageRef,
             thumbhash: String? = nil,
+            dimensions: OMERecord.ImageAsset.Dimensions? = nil,
             focalPoint: OMERecord.ImageAsset.FocalPoint? = nil
         ) {
             self.assetKey = assetKey
             self.source = source
             self.thumbhash = thumbhash
+            self.dimensions = dimensions
             self.focalPoint = focalPoint
         }
 
         public var assetKey: String?
         public var source: SourceImageRef
         public var thumbhash: String?
+        public var dimensions: OMERecord.ImageAsset.Dimensions?
         public var focalPoint: OMERecord.ImageAsset.FocalPoint?
     }
 
@@ -355,6 +374,7 @@ public extension SourceImageAsset {
             appearance: imageAsset.appearance,
             materializationPolicy: imageAsset.materializationPolicy,
             thumbhash: imageAsset.thumbhash,
+            dimensions: imageAsset.dimensions,
             focalPoint: imageAsset.focalPoint
         )
     }
@@ -369,6 +389,7 @@ public extension SourceImageAsset {
                 appearance: variant.appearance,
                 materializationPolicy: materializationPolicy,
                 thumbhash: variant.payload.thumbhash,
+                dimensions: variant.payload.dimensions,
                 focalPoint: variant.payload.focalPoint
             )
         }

@@ -782,6 +782,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
                             role: .logo,
                             renderKind: .transparent,
                             materializationPolicy: .prefetchOnOpen,
+                            dimensions: OME.ImageAsset.Dimensions(width: 640, height: 320),
                             focalPoint: OME.ImageAsset.FocalPoint(x: 0.4, y: 0.6)
                         )
                     ]
@@ -823,6 +824,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
         let newText = String(decoding: newContents, as: UTF8.self)
         #expect(newText.contains("name: New Calendar"))
         #expect(newText.contains("file: images/calendar-logo.png"))
+        #expect(newText.contains("dimensions:"))
         #expect(newText.contains("focalPoint:"))
         #expect(!newText.contains("assetKey:"))
         #expect(!newText.contains("url:"))
@@ -1376,6 +1378,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
                             role: .logo,
                             renderKind: .transparent,
                             materializationPolicy: .prefetchOnOpen,
+                            dimensions: OME.ImageAsset.Dimensions(width: 640, height: 320),
                             focalPoint: OME.ImageAsset.FocalPoint(x: 0.25, y: 0.75)
                         )
                     ]
@@ -1418,6 +1421,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
         let newText = String(decoding: newContents, as: UTF8.self)
         #expect(newText.contains("name: Main Meadow"))
         #expect(newText.contains("file: images/meadow-logo.png"))
+        #expect(newText.contains("dimensions:"))
         #expect(newText.contains("focalPoint:"))
         #expect(!newText.contains("assetKey:"))
         #expect(!newText.contains("url:"))

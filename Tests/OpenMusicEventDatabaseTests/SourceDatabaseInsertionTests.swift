@@ -2016,6 +2016,7 @@ struct SourceDatabaseInsertionTests {
             )
             var images = try #require(contributor.images)
             var image = try #require(images.first)
+            image.dimensions = OME.ImageAsset.Dimensions(width: 1200, height: 800)
             image.focalPoint = OME.ImageAsset.FocalPoint(x: 0.25, y: 0.75)
             images[0] = image
             contributor.images = images
@@ -2036,6 +2037,7 @@ struct SourceDatabaseInsertionTests {
         #expect(contributorGroup.modified == 1)
         let record = try #require(contributorGroup.records.first)
         #expect(record.fieldChanges.map(\.columnName) == ["images"])
+        #expect(record.recordDiff?.contains("dimensions") == true)
         #expect(record.recordDiff?.contains("focalPoint") == true)
     }
 

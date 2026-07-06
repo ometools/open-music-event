@@ -606,6 +606,13 @@ targets.append(contentsOf: [
         ]
     ),
     .testTarget(
+        name: "OpenMusicEventImagesTests",
+        dependencies: [
+            "OpenMusicEventImages",
+            .product(name: "CustomDump", package: "swift-custom-dump"),
+        ]
+    ),
+    .testTarget(
         name: "OpenMusicEventWhiteLabelTests",
         dependencies: [
             "OpenMusicEventApp",

@@ -501,7 +501,8 @@ public struct EditPoster {
                         ImageInfo.State(
                             asset: poster.image,
                             configuration: .posters,
-                            sourceLabel: poster.displayTitle ?? poster.image.url?.lastPathComponent
+                            sourceLabel: poster.displayTitle ?? poster.image.url?.lastPathComponent,
+                            cacheContext: LocalImageCacheContext(posterID: poster.id)
                         )
                     )
                     state.hasLoadedDraft = true

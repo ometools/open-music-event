@@ -718,6 +718,8 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(calendarHero.renderKind, .fullImage)
         expectNoDifference(calendarHero.materializationPolicy, .lazy)
         expectNoDifference(calendarHero.source, .url(URL(string: "https://example.com/calendar-hero.jpg")!))
+        expectNoDifference(calendarHero.dimensions, OME.ImageAsset.Dimensions(width: 1600, height: 900))
+        expectNoDifference(calendarHero.focalPoint, OME.ImageAsset.FocalPoint(x: 0.35, y: 0.45))
         let calendarLogo = try #require(calendar.images?.first { $0.role == .logo })
         expectNoDifference(calendarLogo.renderKind, .transparent)
         expectNoDifference(calendarLogo.materializationPolicy, .prefetchOnOpen)
@@ -1072,6 +1074,12 @@ struct OpenMusicEventSourceTests {
           role: hero
           renderKind: fullImage
           materializationPolicy: lazy
+          dimensions:
+            width: 1600
+            height: 900
+          focalPoint:
+            x: 0.35
+            y: 0.45
         - source:
             file: images/calendar-logo.png
           role: logo

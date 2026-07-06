@@ -100,7 +100,8 @@ public struct ImportImages {
                         id: image.id,
                         asset: image.asset,
                         configuration: state.configuration.imageInfoConfiguration,
-                        sourceLabel: image.sourceLabel
+                        sourceLabel: image.sourceLabel,
+                        previewData: image.data
                     )
                 )
 
@@ -297,7 +298,8 @@ public extension ImportImages {
                 role: role,
                 renderKind: renderKind,
                 appearance: appearance,
-                materializationPolicy: materializationPolicy
+                materializationPolicy: materializationPolicy,
+                dimensions: OMERecord.ImageAsset.Dimensions(data: data)
             )
             return ImportedImage(
                 id: id,
@@ -368,6 +370,7 @@ public extension ImportImages {
                 appearance: asset.appearance,
                 materializationPolicy: asset.materializationPolicy,
                 thumbhash: asset.thumbhash,
+                dimensions: asset.dimensions,
                 focalPoint: asset.focalPoint
             )
         }
@@ -653,6 +656,20 @@ struct ImportedImageThumbnail: View {
                 Image(systemName: "photo")
                     .foregroundStyle(.secondary)
             }
+    }
+}
+
+private extension OMERecord.ImageAsset.Dimensions {
+    init?(data: Data) {
+        #if !SKIP && canImport(UIKit)
+        guard let image = UIImage(data: data) else { return nil }
+        self.init(width: image.size.width, height: image.size.height)
+        #elseif !SKIP && canImport(AppKit)
+        guard let image = NSImage(data: data) else { return nil }
+        self.init(width: image.size.width, height: image.size.height)
+        #else
+        return nil
+        #endif
     }
 }
 

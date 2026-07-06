@@ -869,6 +869,7 @@ public extension OME {
                         appearance: variant.appearance,
                         materializationPolicy: image.materializationPolicy,
                         thumbhash: variant.payload.thumbhash,
+                        dimensions: variant.payload.dimensions,
                         focalPoint: variant.payload.focalPoint
                     )
                 }
