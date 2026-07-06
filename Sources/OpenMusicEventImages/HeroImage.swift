@@ -210,12 +210,18 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
             geometryOffsetChanged(minY)
         }
         .ignoresSafeArea(.all, edges: .top)
-        .navigationTitle(shouldShowNavigationTitle ? title : Text(""))
+        .navigationTitle(title)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                inlineNavigationTitle
+            }
+        }
         .toolbarBackground(showNavigationChrome ? .visible : .hidden)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .animation(.default, value: showNavigationChrome)
+        .animation(.default, value: shouldShowNavigationTitle)
     }
 
     private func heroRow(height: CGFloat) -> some View {
@@ -257,6 +263,14 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
 
     private var shouldShowNavigationTitle: Bool {
         showsNavigationTitleBeforeScroll || showNavigationTitle
+    }
+
+    private var inlineNavigationTitle: some View {
+        title
+            .font(.headline)
+            .lineLimit(1)
+            .opacity(shouldShowNavigationTitle ? 1 : 0)
+            .accessibilityHidden(!shouldShowNavigationTitle)
     }
 
     @Environment(\.colorScheme) var colorScheme
