@@ -1040,7 +1040,6 @@ public struct PerformanceDetailView: View {
                         }
                     }
 
-
                 }
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {

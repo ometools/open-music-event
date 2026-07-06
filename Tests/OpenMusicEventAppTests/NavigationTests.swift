@@ -576,6 +576,76 @@ struct NavigationTests {
     }
 
     @Test
+    func sourceDetailRepairsMissingReferenceDatabaseBeforePresentingManagement() async throws {
+        let repositoryURL = try temporarySourceRepositoryURL()
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
+        try writeMinimalSourceRepository(at: repositoryURL)
+
+        let database = try makePreparedDatabase()
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .local,
+            reference: repositoryURL.path(percentEncoded: false),
+            ref: nil
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+        let eventID = OMERecord.Event.ID(
+            organizerID: testOrganizerID,
+            eventID: OMERecord.SourceDatabaseInsertion.inferredEventID(
+                eventDirectoryName: "imported-event",
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let referenceDatabaseURL = try SourceReferenceDatabaseClient.referenceDatabaseURL(
+            repositoryURL: repositoryURL
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(
+                db,
+                id: eventID,
+                name: "Imported Event",
+                timeZone: try #require(TimeZone(identifier: "America/Denver"))
+            )
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 1_600)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+            try Self.insertCalendar(db, id: calendarID, name: "Editable Source Calendar")
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: referenceDatabaseURL.path))
+
+        let store = try withDependencies {
+            $0.context = .test
+            try OME.prepareDependencies(&$0)
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: SourceDetail.State(sourceBaselineID: sourceBaselineID)) {
+                SourceDetail()
+            }
+        }
+
+        let task = store.send(.manageSourceButtonTapped) {
+            $0.isPreparingSourceManagement = true
+        }
+        await task?.value
+
+        #expect(FileManager.default.fileExists(atPath: referenceDatabaseURL.path))
+        #expect(store.state.isPreparingSourceManagement == false)
+        #expect(store.state.sourceManagement?.sourceBaselineID == sourceBaselineID)
+        #expect(store.state.sourceManagement?.calendarID == calendarID)
+        #expect(store.state.sourceManagement?.editSummary.availability == .available)
+    }
+
+    @Test
     func sourceDetailRoutesPreparationAuthorizationThroughAppSheet() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("auth-source-management")
@@ -4788,6 +4858,31 @@ struct NavigationTests {
         OMERecord.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
         return database
+    }
+
+    private func temporarySourceRepositoryURL() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "ome-source-detail-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeMinimalSourceRepository(at repositoryURL: URL) throws {
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "imported-event", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: eventURL, withIntermediateDirectories: true)
+        try """
+        name: Imported Event
+        status: planned
+        mode: community.lexicon.calendar.event#inperson
+        timeZone: America/Denver
+        """
+        .write(
+            to: eventURL.appending(path: "event.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
     }
 
     private func makeSourceDetailStore(

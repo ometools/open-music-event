@@ -35,6 +35,51 @@ public extension OME.SourceDatabaseInsertion {
         let sourceReferenceDatabases = try sourceReferenceDatabasesByBaselineID(
             sourceReferenceDatabase: sourceReferenceDatabase
         )
+        let prepared = try await preparedInsertion(
+            sourceReferenceDatabases: sourceReferenceDatabases
+        )
+
+        try insert(
+            prepared,
+            intoSourceReferenceDatabases: sourceReferenceDatabases.values
+        )
+
+        try await database.write { db in
+            try prepared.insert(into: db)
+        }
+    }
+
+    func prepareSourceReferenceDatabases() async throws {
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+        let sourceReferenceDatabases = try sourceReferenceDatabasesByBaselineID(
+            sourceReferenceDatabase: sourceReferenceDatabase
+        )
+        let prepared = try await preparedInsertion(
+            sourceReferenceDatabases: sourceReferenceDatabases
+        )
+        try insert(
+            prepared,
+            intoSourceReferenceDatabases: sourceReferenceDatabases.values
+        )
+    }
+
+    private func insert(
+        _ prepared: PreparedSourceDatabaseInsertion,
+        intoSourceReferenceDatabases sourceReferenceDatabases: Dictionary<
+            SourceBaselineRecord.ID,
+            SourceBaselineDatabase
+        >.Values
+    ) throws {
+        for sourceReferenceDatabase in sourceReferenceDatabases {
+            try sourceReferenceDatabase.write { db in
+                try prepared.insert(into: db)
+            }
+        }
+    }
+
+    private func preparedInsertion(
+        sourceReferenceDatabases: [SourceBaselineRecord.ID: SourceBaselineDatabase]
+    ) async throws -> PreparedSourceDatabaseInsertion {
         let baselineDatabaseFileNamesByID = Dictionary(
             uniqueKeysWithValues: sourceReferenceDatabases.map { baselineID, database in
                 (
@@ -43,23 +88,11 @@ public extension OME.SourceDatabaseInsertion {
                 )
             }
         )
-        let prepared = try await PreparedSourceDatabaseInsertion(
+        return try await PreparedSourceDatabaseInsertion(
             sourceInsertion: self,
             baselineDatabaseFileNamesByID: baselineDatabaseFileNamesByID,
             importedAt: Date()
         )
-
-        if !sourceReferenceDatabases.isEmpty {
-            for sourceReferenceDatabase in sourceReferenceDatabases.values {
-                try sourceReferenceDatabase.write { db in
-                    try prepared.insert(into: db)
-                }
-            }
-        }
-
-        try await database.write { db in
-            try prepared.insert(into: db)
-        }
     }
 
     private func sourceReferenceDatabasesByBaselineID(
