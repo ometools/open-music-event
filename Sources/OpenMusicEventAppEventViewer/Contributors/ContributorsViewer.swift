@@ -232,17 +232,26 @@ struct ContributorsRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ContributorArtworkView(
-                asset: profile.artworkAsset,
-                cacheContext: profile.artworkCacheContext,
-                size: 60
-            )
-
-            if needsStageDisambiguation, let stageContext, !stageContext.stages.isEmpty {
-                ContributorStageIndicatorView(
-                    colors: stageContext.stages.map { $0.color.swiftUIColor }
+            HStack {
+                ContributorArtworkView(
+                    asset: profile.artworkAsset,
+                    cacheContext: profile.artworkCacheContext,
+                    size: 60
                 )
-                .frame(width: 5, height: 60)
+
+                if needsStageDisambiguation {
+                    Group {
+                        if let stageContext, !stageContext.stages.isEmpty {
+                            ContributorStageIndicatorView(
+                                colors: stageContext.stages.map { $0.color.swiftUIColor }
+                            )
+                        } else {
+                            Rectangle()
+                                .fill(Color.clear)
+                        }
+                    }
+                    .frame(width: 5, height: 60)
+                }
             }
 
             VStack(alignment: .leading, spacing: 3) {

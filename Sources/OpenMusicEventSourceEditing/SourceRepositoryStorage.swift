@@ -98,7 +98,6 @@ public extension SourceRepositoryStorageClient {
         let components = [
             provenance.kind.rawValue,
             provenance.reference,
-            provenance.ref ?? "",
         ]
         return Data(components.joined(separator: "\u{1F}").utf8)
             .base64EncodedString()

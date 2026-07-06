@@ -988,6 +988,26 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func liveStorageResolvesTangledRefsToSameRepositoryURL() throws {
+        let repository = "repository-\(UUID().uuidString)"
+        let headProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:refless-storage-test/\(repository)",
+            ref: "HEAD"
+        )
+        let mainProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:refless-storage-test/\(repository)",
+            ref: "main"
+        )
+
+        let headURL = try SourceRepositoryStorageClient.live.repositoryURL(headProvenance)
+        let mainURL = try SourceRepositoryStorageClient.live.repositoryURL(mainProvenance)
+
+        #expect(headURL == mainURL)
+    }
+
+    @Test
     func liveStorageReplacesExistingStoredRepository() throws {
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
