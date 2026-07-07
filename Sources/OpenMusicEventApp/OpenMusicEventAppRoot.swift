@@ -231,15 +231,22 @@ public struct OpenMusicEventAppRootView: View {
 
     @ViewBuilder
     private var content: some View {
-        AuthenticationCoordinatorView(
-            store: store.scope(\.authentication, action: \.authentication)
-        ) {
-            if let launchEventViewerStore = store.spawn(\.launchEventViewer) {
+        if let launchEventViewerStore = store.spawn(\.launchEventViewer) {
+            AuthenticationCoordinatorView(store: authenticationStore) {
                 EventViewerView(store: launchEventViewerStore)
-            } else {
+            }
+        } else {
+            AuthenticationCoordinatorView(
+                store: authenticationStore,
+                isPresentationEnabled: rootAuthenticationPresentationEnabled
+            ) {
                 surfaceView
             }
         }
+    }
+
+    private var authenticationStore: StoreOf<AuthenticationCoordinator> {
+        store.scope(\.authentication, action: \.authentication)
     }
 
     @ViewBuilder
@@ -251,7 +258,9 @@ public struct OpenMusicEventAppRootView: View {
                     store.send(.eventViewerDismissed)
                 }
             ) { eventViewerStore in
-                EventViewerView(store: eventViewerStore)
+                AuthenticationCoordinatorView(store: authenticationStore) {
+                    EventViewerView(store: eventViewerStore)
+                }
             }
     }
 
@@ -277,6 +286,10 @@ public struct OpenMusicEventAppRootView: View {
                 }
             }
         )
+    }
+
+    private var rootAuthenticationPresentationEnabled: Bool {
+        store.eventViewer == nil
     }
 }
 

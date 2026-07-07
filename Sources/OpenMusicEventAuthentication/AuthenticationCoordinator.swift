@@ -15,21 +15,28 @@ public extension OAuthAuthenticationCoordinator.State {
 
 public struct AuthenticationCoordinatorView<Content: View>: View {
     @Bindable var store: StoreOf<AuthenticationCoordinator>
+    let isPresentationEnabled: Bool
     let content: Content
 
     public init(
         store: StoreOf<AuthenticationCoordinator>,
+        isPresentationEnabled: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.store = store
+        self.isPresentationEnabled = isPresentationEnabled
         self.content = content()
     }
 
     public var body: some View {
-        content
-            .sheet(item: $store.scope(\.authorization, action: \.authorization)) { authorizationStore in
-                OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
-            }
+        if isPresentationEnabled {
+            content
+                .sheet(item: $store.scope(\.authorization, action: \.authorization)) { authorizationStore in
+                    OpenMusicEventAuthorizationFlowSheetView(store: authorizationStore)
+                }
+        } else {
+            content
+        }
     }
 }
 
