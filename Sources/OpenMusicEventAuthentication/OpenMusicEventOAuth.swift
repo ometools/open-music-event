@@ -71,17 +71,20 @@ public enum OpenMusicEventOAuth {
     public static let tangledPublicKeyCreatePermission =
         TangledOAuthRequirements.publicKeyCreatePermission
 
-    public static let patchBlobPermission = OAuth.Permission("blob:application/gzip")
+    public static let patchBlobPermission =
+        TangledOAuthRequirements.patchBlobPermission
+
+    public static let legacyPatchBlobPermission =
+        TangledOAuthRequirements.legacyPatchBlobPermission
 
     public static let tangledPublicKeyAuthRequirement =
         TangledOAuthRequirements.publicKeyAuthRequirement
 
-    public static let proposalAuthRequirement = OAuth.AuthRequirement(
-        permissions: [
-            tangledPullCreatePermission,
-            patchBlobPermission,
-        ]
-    )
+    public static let legacyPatchBlobAuthRequirement =
+        TangledOAuthRequirements.legacyPatchBlobAuthRequirement
+
+    public static let proposalAuthRequirement =
+        TangledOAuthRequirements.proposalAuthRequirement
 
     public static let baseAuthRequirement = OAuth.AuthRequirement(
         permissions: [.atproto]
@@ -139,6 +142,7 @@ public enum OpenMusicEventOAuth {
         registeredRequirements: [
             tangledPublicKeyAuthRequirement,
             proposalAuthRequirement,
+            legacyPatchBlobAuthRequirement,
         ]
     )
 

@@ -33,6 +33,29 @@ struct OpenMusicEventOAuthTests {
         #expect(permissions.contains("repo:sh.tangled.publicKey?action=create"))
         #expect(permissions.contains("repo:sh.tangled.repo.pull?action=create"))
         #expect(permissions.contains("blob:application/gzip"))
+        #expect(permissions.contains("blob:text/x-patch"))
+    }
+
+    @Test
+    func manifestAcceptsLegacyPatchScopeDuringPublicKeyAuthorization() {
+        let previouslyGranted = OAuth.GrantedPermissions([
+            .atproto,
+            OpenMusicEventOAuth.legacyPatchBlobPermission,
+        ])
+        let requested = previouslyGranted.union(
+            OAuth.GrantedPermissions(
+                OpenMusicEventOAuth.tangledPublicKeyAuthRequirement.permissions
+            )
+        )
+
+        let missing = OpenMusicEventOAuth.appManifest.maximumPermissions
+            .missing(requested.permissions)
+
+        #expect(missing.isEmpty)
+        #expect(
+            !OpenMusicEventOAuth.proposalAuthRequirement.permissions
+                .contains(OpenMusicEventOAuth.legacyPatchBlobPermission)
+        )
     }
 
     @Test

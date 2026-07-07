@@ -294,67 +294,145 @@ public struct EventWorkspace {
 
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
+    @State var selectedTab: EventWorkspaceTab = .propose
 
     public init(store: StoreOf<EventWorkspace>) {
         self.store = store
     }
 
     public var body: some View {
-        List {
-            workspaceSection
-            sourceSection
-
-            switch store.workspaceSummary.availability {
-            case .available:
-                currentEditsSections
-                sourceProposalSection
-                sourceDiffSections
-                tangledPullReviewsSection
-                ExistingProposalsSection(state: .loaded([]))
-                resetEditsSection
-
-            case .workspaceNeedsPreparation:
-                WorkspaceUnavailableSection(
-                    title: "Workspace Needs Preparation",
-                    message: "Prepare this workspace before reviewing source changes."
-                )
-
-            case .notInWorkspace:
-                WorkspaceUnavailableSection(
-                    title: "Not in a Workspace",
-                    message: "Move this event into a workspace before proposing source changes."
-                )
-
-            case let .unavailable(reason):
-                Section("Workspace") {
-                    SourceChangeUnavailableView(reason: reason)
-                }
-            }
+        VStack(spacing: 0) {
+            workspaceContextHeader
+            workspaceTabPicker
+            workspaceTabContent
         }
         .navigationTitle("Workspace")
+        .sheet(item: $store.scope(\.sourceProposal, action: \.sourceProposal)) { proposalStore in
+            SourceProposalComposerView(store: proposalStore)
+        }
     }
 
     @ViewBuilder
-    private var workspaceSection: some View {
-        Section("Workspace") {
-            HStack {
-                Text("Current Edits")
+    private var workspaceContextHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Current Changes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(store.workspaceSummary.totalCount, format: .number)
+                        .font(.title3)
+                        .monospacedDigit()
+                }
+
                 Spacer()
-                Text(store.workspaceSummary.totalCount, format: .number)
-                    .font(.headline)
-                    .monospacedDigit()
+
+                if let sourceProvenance = store.sourceProvenance {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(sourceProvenance.sourceKind.sourceIndicatorTitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(sourceProvenance.sourceEventDirectory)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            if let sourceProvenance = store.sourceProvenance {
+                Text(sourceProvenance.sourceReference)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+    }
+
+    private var workspaceTabPicker: some View {
+        Picker("Workspace", selection: $selectedTab) {
+            ForEach(EventWorkspaceTab.allCases) { tab in
+                Text(tab.title).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private var workspaceTabContent: some View {
+        switch store.workspaceSummary.availability {
+        case .available:
+            switch selectedTab {
+            case .propose:
+                proposeList
+            case .review:
+                reviewList
+            }
+
+        case .workspaceNeedsPreparation, .notInWorkspace:
+            WorkspaceUnavailableView(
+                title: "Workspace couldn't be loaded",
+                message: "Refresh the event and try opening the workspace again."
+            )
+
+        case let .unavailable(reason):
+            SourceChangeUnavailableView(reason: reason)
+        }
+    }
+
+    @ViewBuilder
+    private var proposeList: some View {
+        List {
+            changesActionSection
+            semanticDiffSections
+            sourceDiffSections
+            resetEditsSection
+        }
+    }
+
+    @ViewBuilder
+    private var reviewList: some View {
+        List {
+            sourceSection
+            reviewSection
+        }
+    }
+
+    @ViewBuilder
+    private var changesActionSection: some View {
+        Section {
+            if store.workspaceSummary.totalCount == 0 {
+                Text("No unpublished changes")
+                    .foregroundStyle(.secondary)
+            } else if store.canReviewSourceProposal {
+                Button(store.sourcePatchStatus.proposeButtonTitle) {
+                    store.send(.proposeChangeButtonTapped)
+                }
+                .disabled(!store.canProposeLocalChanges)
+
+                SourceProposalStatusView(status: store.sourceProposalStatus)
+                if store.sourcePatchStatus.requiresAttentionInChanges {
+                    SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
+                }
+            } else {
+                Text("Team workspace required to propose changes.")
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
     @ViewBuilder
-    private var currentEditsSections: some View {
+    private var semanticDiffSections: some View {
         if store.workspaceSummary.totalCount == 0 {
-            Section("Current Edits") {
+            Section("Semantic Diff") {
                 Text("No current edits")
                     .foregroundStyle(.secondary)
             }
         } else {
+            SourceChangeSummarySection(groups: store.workspaceSummary.groups)
             ForEach(store.workspaceSummary.groups.filter { !$0.records.isEmpty }) { group in
                 SourceChangeGroupSections(group: group)
             }
@@ -409,16 +487,22 @@ public struct EventWorkspaceView: View {
     }
 
     @ViewBuilder
-    private var sourceProposalSection: some View {
-        if let sourceProposalStore = store.scope(\.sourceProposal, action: \.sourceProposal) {
-            SourceProposalDraftSection(store: sourceProposalStore)
+    private var reviewSection: some View {
+        if store.sourceProvenance?.sourceKind == .tangled {
+            tangledPullReviewsSection(title: "Review")
+        } else {
+            ExistingProposalsSection(
+                title: "Review",
+                emptyTitle: "No proposed changes to review",
+                state: .loaded([])
+            )
         }
     }
 
     @ViewBuilder
-    private var tangledPullReviewsSection: some View {
+    private func tangledPullReviewsSection(title: String) -> some View {
         if store.sourceProvenance?.sourceKind == .tangled {
-            Section("Tangled Reviews") {
+            Section(title) {
                 switch store.tangledPullReviewStatus {
                 case let .failed(failure):
                     VStack(alignment: .leading, spacing: 4) {
@@ -496,6 +580,22 @@ public struct EventWorkspaceView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+enum EventWorkspaceTab: String, CaseIterable, Identifiable {
+    case propose
+    case review
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .propose:
+            "Propose"
+        case .review:
+            "Review"
         }
     }
 }
@@ -599,6 +699,19 @@ struct TangledPullReviewDetailView: View {
             }
         }
         .navigationTitle("Review")
+    }
+}
+
+struct WorkspaceUnavailableView: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        ContentUnavailableView {
+            Text(title)
+        } description: {
+            Text(message)
+        }
     }
 }
 
@@ -753,13 +866,13 @@ public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: Vi
 
         case .workspaceNeedsPreparation:
             ContentUnavailableView(
-                "Workspace Needs Preparation",
+                "Workspace couldn't be loaded",
                 systemImage: "externaldrive.badge.questionmark"
             )
 
         case .notInWorkspace:
             ContentUnavailableView(
-                "Not in a Workspace",
+                "Workspace unavailable",
                 systemImage: "doc.badge.ellipsis"
             )
 
@@ -1011,14 +1124,16 @@ struct ExistingProposalSummary: Equatable, Identifiable, Sendable {
 }
 
 struct ExistingProposalsSection: View {
+    var title = "Other Proposed Changes"
+    var emptyTitle = "No other proposed changes"
     let state: ExistingProposalsState
 
     var body: some View {
-        Section("Other Proposed Changes") {
+        Section(title) {
             switch state {
             case let .failed(message):
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Other proposed changes couldn't be loaded")
+                    Text("\(title) couldn't be loaded")
                     Text(message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1027,7 +1142,7 @@ struct ExistingProposalsSection: View {
 
             case let .loaded(proposals):
                 if proposals.isEmpty {
-                    Text("No other proposed changes")
+                    Text(emptyTitle)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(proposals) { proposal in
@@ -1043,7 +1158,7 @@ struct ExistingProposalsSection: View {
                 }
 
             case .unavailable:
-                Text("Other proposed changes are unavailable.")
+                Text("\(title) are unavailable.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -1071,6 +1186,62 @@ public struct SourceProposalSummarySections: View {
                 Label("No edit summary available", systemImage: "doc.text.magnifyingglass")
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+struct SourceChangeSummarySection: View {
+    let groups: [SourceChangeGroup]
+
+    var body: some View {
+        Section("Semantic Diff") {
+            ForEach(groups.filter { $0.totalCount > 0 }) { group in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(group.displayName)
+                        Text(group.totalCount, format: .number)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    SourceChangeCountBadges(group: group)
+                }
+            }
+        }
+    }
+}
+
+struct SourceChangeCountBadges: View {
+    let group: SourceChangeGroup
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if group.added > 0 {
+                SourceChangeCountBadge(title: "A", count: group.added)
+            }
+            if group.modified > 0 {
+                SourceChangeCountBadge(title: "M", count: group.modified)
+            }
+            if group.deleted > 0 {
+                SourceChangeCountBadge(title: "D", count: group.deleted)
+            }
+        }
+        .font(.caption)
+        .monospacedDigit()
+        .foregroundStyle(.secondary)
+    }
+}
+
+struct SourceChangeCountBadge: View {
+    let title: String
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(title)
+            Text(count, format: .number)
         }
     }
 }
@@ -1201,6 +1372,15 @@ private extension EventWorkspace.State {
     var canReviewSourceProposal: Bool {
         sourceProvenance?.sourceBaselineID != nil
     }
+
+    var canProposeLocalChanges: Bool {
+        guard workspaceSummary.totalCount > 0,
+              canReviewSourceProposal,
+              !sourcePatchStatus.isGenerating,
+              !sourceProposalStatus.isProposing
+        else { return false }
+        return true
+    }
 }
 
 private extension EventWorkspace.SourcePatchStatus {
@@ -1211,14 +1391,38 @@ private extension EventWorkspace.SourcePatchStatus {
         case .generating:
             "Checking Changes"
         case .generated:
-            "Review Changes"
+            "Check Changes"
         default:
-            "Review Changes"
+            "Check Changes"
         }
     }
 
     var isGenerating: Bool {
         self == .generating
+    }
+
+    var proposeButtonTitle: String {
+        switch self {
+        case .failed:
+            "Try Proposing Again"
+        case .generating:
+            "Preparing Proposal"
+        case .generated:
+            "Propose Changes"
+        case .needsGeneration, .notGenerated:
+            "Propose Changes"
+        }
+    }
+
+    var requiresAttentionInChanges: Bool {
+        switch self {
+        case .failed, .generating:
+            true
+        case let .generated(patch):
+            patch.isEmpty
+        case .needsGeneration, .notGenerated:
+            false
+        }
     }
 
     var fileChangeCount: Int? {
@@ -1240,18 +1444,18 @@ private extension SourceChangesReviewMode {
     var notGeneratedTitle: String {
         switch self {
         case .proposal:
-            "Review changes before creating a proposal"
+            "Check changes before creating a proposal"
         case .workspace:
-            "Review unpublished changes"
+            "Check unpublished changes"
         }
     }
 
     var readyTitle: String {
         switch self {
         case .proposal:
-            "Ready to propose"
+            "Proposal can be created"
         case .workspace:
-            "Changes ready"
+            "Changes checked"
         }
     }
 
