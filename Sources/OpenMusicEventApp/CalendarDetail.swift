@@ -20,6 +20,7 @@ public struct CalendarDetail {
             _events = FetchAll(CalendarDetail.localEventsQuery)
         }
 
+        var destination: Destination.State?
         var editCalendar: EditCalendar.State?
 
         @DebugSnapshotIgnored
@@ -40,10 +41,17 @@ public struct CalendarDetail {
     }
 
     public enum Action {
+        case addEventButtonTapped
+        case destination(Destination.Action)
         case editButtonTapped
         case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case task
+    }
+
+    @Feature
+    public enum Destination {
+        case createEvent(Spawn<CreateEvent>)
     }
 
     static func calendarQuery(
@@ -133,6 +141,19 @@ public struct CalendarDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .addEventButtonTapped:
+                state.destination = .createEvent(
+                    Spawn(
+                        CreateEvent.State(
+                            organizerID: state.calendarID.ownerID,
+                            eventOrganizerID: state.calendarID.ownerID
+                        )
+                    )
+                )
+
+            case .destination:
+                return
+
             case .editButtonTapped:
                 state.editCalendar = EditCalendar.State(calendarID: state.calendarID)
 
@@ -150,6 +171,9 @@ public struct CalendarDetail {
             case .task:
                 break
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
         .ifLet(\.editCalendar, action: \.editCalendar) {
             EditCalendar()
@@ -204,7 +228,15 @@ public struct CalendarDetailView: View {
                 EditCalendarView(store: editStore)
             }
         }
+        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
+            NavigationStack {
+                CreateEventView(store: createEventStore)
+            }
+        }
         .toolbar {
+            Button("Add Event", systemImage: "plus") {
+                store.send(.addEventButtonTapped)
+            }
             Button("Edit Calendar", systemImage: "pencil") {
                 store.send(.editButtonTapped)
             }

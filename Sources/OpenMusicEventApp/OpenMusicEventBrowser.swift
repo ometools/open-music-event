@@ -767,6 +767,7 @@ public struct TeamWorkspaceDetail {
             )
         }
 
+        var destination: Destination.State?
         var editCalendar: EditCalendar.State?
         var teamWorkspaceEditor: TeamWorkspaceEditor.State?
         var isPreparingTeamWorkspaceEditor = false
@@ -826,6 +827,10 @@ public struct TeamWorkspaceDetail {
             sourceBaseline != nil && editableCalendarID != nil
         }
 
+        var canCreateEvent: Bool {
+            sourceBaseline != nil && editableCalendarID != nil
+        }
+
         var editableCalendarID: OMERecord.Calendar.ID? {
             if let calendar {
                 return calendar.id
@@ -838,6 +843,8 @@ public struct TeamWorkspaceDetail {
     }
 
     public enum Action {
+        case addEventButtonTapped
+        case destination(Destination.Action)
         case didPullToRefresh
         case editButtonTapped
         case editCalendar(EditCalendar.Action)
@@ -845,6 +852,11 @@ public struct TeamWorkspaceDetail {
         case manageSourceButtonTapped
         case teamWorkspaceEditor(TeamWorkspaceEditor.Action)
         case task
+    }
+
+    @Feature
+    public enum Destination {
+        case createEvent(Spawn<TeamWorkspaceCreateEvent>)
     }
 
     @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
@@ -957,6 +969,22 @@ public struct TeamWorkspaceDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .addEventButtonTapped:
+                guard let calendarID = state.editableCalendarID,
+                      let sourceBaseline = state.sourceBaseline
+                else { return }
+                state.destination = .createEvent(
+                    Spawn(
+                        TeamWorkspaceCreateEvent.State(
+                            sourceBaselineID: sourceBaseline.id,
+                            calendarID: calendarID
+                        )
+                    )
+                )
+
+            case .destination:
+                return
+
             case .didPullToRefresh:
                 let sourceBaselineID = state.sourceBaselineID
                 store.addTask(id: sourceDataRefreshTask) {
@@ -1031,6 +1059,9 @@ public struct TeamWorkspaceDetail {
             case .task:
                 break
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
         .ifLet(\.editCalendar, action: \.editCalendar) {
             EditCalendar()
@@ -1139,6 +1170,11 @@ public struct TeamWorkspaceDetailView: View {
                 EditCalendarView(store: editStore)
             }
         }
+        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
+            NavigationStack {
+                TeamWorkspaceCreateEventView(store: createEventStore)
+            }
+        }
         .sheet(item: $store.scope(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor)) { teamWorkspaceEditorStore in
             NavigationStack {
                 TeamWorkspaceEditorView(store: teamWorkspaceEditorStore)
@@ -1150,8 +1186,18 @@ public struct TeamWorkspaceDetailView: View {
                     store.send(.editButtonTapped)
                 }
             }
+            if store.canCreateEvent {
+                Button("Add Event", systemImage: "plus") {
+                    store.send(.addEventButtonTapped)
+                }
+            }
             if store.canManageSource {
-                Button(store.isPreparingTeamWorkspaceEditor ? "Preparing Team Workspace" : "Manage Team Workspace") {
+                Button(
+                    store.isPreparingTeamWorkspaceEditor
+                        ? "Preparing Team Workspace"
+                        : "Manage Team Workspace",
+                    systemImage: "person.3"
+                ) {
                     store.send(.manageSourceButtonTapped)
                 }
                 .disabled(store.isPreparingTeamWorkspaceEditor)

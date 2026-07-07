@@ -645,6 +645,45 @@ struct NavigationTests {
     }
 
     @Test
+    func teamWorkspaceDetailAddEventPresentsWorkspaceCreateEvent() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("add-event-live-calendar-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
+        let eventID = eventID("add-event-live-event")
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Add Event Live Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 1_550)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+            try Self.insertCalendar(db, id: calendarID, name: "Add Event Live Calendar")
+        }
+
+        let store = try makeTeamWorkspaceDetailStore(
+            sourceBaselineID: sourceBaselineID,
+            database: database
+        )
+
+        store.send(.addEventButtonTapped)
+
+        guard case let .createEvent(createEvent)? = store.state.destination else {
+            Issue.record("Expected team workspace detail to present create event.")
+            return
+        }
+        #expect(createEvent.state.sourceBaselineID == sourceBaselineID)
+        #expect(createEvent.state.calendarID == calendarID)
+    }
+
+    @Test
     func teamWorkspaceDetailPreparesSourceForEditingBeforePresentingManagement() async throws {
         let database = try makePreparedDatabase()
         let workspaceDatabase = try makePreparedDatabase()
@@ -1530,6 +1569,34 @@ struct NavigationTests {
         store.send(.editButtonTapped)
 
         #expect(store.state.editCalendar?.calendarID == calendarID)
+    }
+
+    @Test
+    func calendarDetailAddEventPresentsCreateEvent() throws {
+        let database = try makePreparedDatabase()
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: CalendarDetail.State(calendarID: calendarID)) {
+                CalendarDetail()
+            }
+        }
+
+        store.send(.addEventButtonTapped)
+
+        guard case let .createEvent(createEvent)? = store.state.destination else {
+            Issue.record("Expected calendar detail to present create event.")
+            return
+        }
+        #expect(createEvent.state.organizerID == testOrganizerID)
+        #expect(createEvent.state.eventOrganizerID == testOrganizerID)
     }
 
     @Test
@@ -5146,6 +5213,7 @@ struct NavigationTests {
         return withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
         } operation: {
             TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)) {
