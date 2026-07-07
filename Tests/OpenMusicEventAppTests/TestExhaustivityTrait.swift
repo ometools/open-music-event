@@ -1,5 +1,4 @@
 import ComposableArchitecture2
-import Dependencies
 import Testing
 
 extension Trait where Self == OpenMusicEventTestExhaustivityTrait {
@@ -18,9 +17,7 @@ struct OpenMusicEventTestExhaustivityTrait: SuiteTrait, TestScoping, TestTrait {
         testCase: Test.Case?,
         performing function: @concurrent () async throws -> Void
     ) async throws {
-        try await withDependencies {
-            $0.exhaustivity = exhaustivity
-        } operation: {
+        try await TestExhaustivity.$current.withValue(exhaustivity) {
             try await function()
         }
     }

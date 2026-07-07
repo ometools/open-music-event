@@ -29,16 +29,29 @@ public struct TangledSourcePatchPublisher: Sendable {
         guard remote.kind == "tangled" else {
             throw TangledSourcePatchPublisherError.unsupportedRemoteKind(remote.kind)
         }
-        try Self.requireGitRepository(preparedPatch.workingTree.workingRepositoryURL)
 
         let repository = try TangledRepositoryReference(parsing: remote.reference)
         let targetRepository = try await targetRepository(repository)
+        let gitBackedPatch = try await gitBackedPreparedPatch(
+            preparedPatch,
+            repository: repository,
+            repoDID: targetRepository.repoDID
+        )
+        defer {
+            if let cleanupURL = gitBackedPatch.cleanupURL {
+                try? FileManager.default.removeItem(at: cleanupURL)
+            }
+        }
+        let publishingPatch = gitBackedPatch.preparedPatch
+        try Self.requireGitRepository(publishingPatch.workingTree.workingRepositoryURL)
+
         let targetBranch = Self.targetBranch(remote.ref)
         let sourceBranch = Self.proposalBranchName()
         let commit = try await pushBranch(
-            preparedPatch,
+            publishingPatch,
             repository: repository,
-            branchName: sourceBranch
+            branchName: sourceBranch,
+            credentials: gitBackedPatch.credentials
         )
         let createdAtDate = Self.now()
         let createdAt = Self.iso8601String(createdAtDate)
@@ -46,7 +59,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         @Dependency(\.sourceControl) var sourceControl
         let diffData = try await sourceControl.formatPatch(
             FormatPatchRequest(
-                repository: Repository(url: preparedPatch.workingTree.workingRepositoryURL),
+                repository: Repository(url: publishingPatch.workingTree.workingRepositoryURL),
                 commit: commit.id
             )
         )
@@ -191,17 +204,85 @@ private extension TangledSourcePatchPublisher {
         return BranchName(rawValue: "ome/proposal-\(uuid().uuidString.lowercased())")
     }
 
-    static func requireGitRepository(_ repositoryURL: URL) throws {
+    static func isGitRepository(_ repositoryURL: URL) -> Bool {
         let dotGitURL = repositoryURL.appending(path: ".git")
-        guard FileManager.default.fileExists(atPath: dotGitURL.path) else {
+        return FileManager.default.fileExists(atPath: dotGitURL.path)
+    }
+
+    static func requireGitRepository(_ repositoryURL: URL) throws {
+        guard isGitRepository(repositoryURL) else {
             throw TangledSourcePatchPublisherError.missingGitRepository(repositoryURL)
         }
+    }
+
+    func gitBackedPreparedPatch(
+        _ preparedPatch: PreparedSourcePatch,
+        repository: TangledRepositoryReference,
+        repoDID: String
+    ) async throws -> GitBackedPreparedPatch {
+        guard !Self.isGitRepository(preparedPatch.workingTree.workingRepositoryURL) else {
+            return GitBackedPreparedPatch(
+                preparedPatch: preparedPatch,
+                credentials: nil,
+                cleanupURL: nil
+            )
+        }
+
+        @Dependency(\.sourceControl) var sourceControl
+        @Dependency(\.sourcePatchApplier) var sourcePatchApplier
+        @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
+        @Dependency(\.uuid) var uuid
+
+        let credentials = try await tangledSSHCredentials.credentials()
+        let checkoutURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid())
+        let ref = preparedPatch.request.location.remote?.ref ?? "HEAD"
+        _ = try await sourceControl.clone(
+            repository.sourceControlCloneRequest(
+                repoDID: repoDID,
+                destinationURL: checkoutURL,
+                ref: ref,
+                credentials: credentials
+            )
+        )
+        try sourcePatchApplier.apply(
+            preparedPatch.request.patch,
+            checkoutURL
+        )
+
+        return GitBackedPreparedPatch(
+            preparedPatch: PreparedSourcePatch(
+                request: preparedPatch.request,
+                workingTree: SourceWorkingTree(
+                    originalRepositoryURL: preparedPatch.workingTree.originalRepositoryURL,
+                    originalURL: preparedPatch.workingTree.originalURL,
+                    relativePath: preparedPatch.workingTree.relativePath,
+                    workingRepositoryURL: checkoutURL,
+                    workingURL: Self.appending(
+                        preparedPatch.workingTree.relativePath,
+                        to: checkoutURL
+                    )
+                )
+            ),
+            credentials: credentials,
+            cleanupURL: checkoutURL
+        )
+    }
+
+    static func appending(_ relativePath: String?, to repositoryURL: URL) -> URL {
+        guard let relativePath else { return repositoryURL.standardizedFileURL }
+        return relativePath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .reduce(repositoryURL.standardizedFileURL) { url, component in
+                url.appending(path: String(component))
+            }
+            .standardizedFileURL
     }
 
     func pushBranch(
         _ preparedPatch: PreparedSourcePatch,
         repository repositoryReference: TangledRepositoryReference,
-        branchName: BranchName
+        branchName: BranchName,
+        credentials: Credentials?
     ) async throws -> Commit {
         @Dependency(\.sourceControl) var sourceControl
         @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
@@ -238,13 +319,18 @@ private extension TangledSourcePatchPublisher {
                 checkout: false
             )
         )
+        let pushCredentials = if let credentials {
+            credentials
+        } else {
+            try await tangledSSHCredentials.credentials()
+        }
         try await sourceControl.push(
             PushRequest(
                 repository: repository,
                 localBranch: branch.name,
                 remoteBranch: branch.name,
                 credentials: repositoryReference.sourceControlCredentials(
-                    try await tangledSSHCredentials.credentials()
+                    pushCredentials
                 )
             )
         )
@@ -299,6 +385,12 @@ private extension TangledSourcePatchPublisher {
         return formatter.string(from: date)
     }
 
+}
+
+private struct GitBackedPreparedPatch: Sendable {
+    var preparedPatch: PreparedSourcePatch
+    var credentials: Credentials?
+    var cleanupURL: URL?
 }
 
 private struct TangledRepositoryOwnerResolution: Sendable {

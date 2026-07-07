@@ -365,9 +365,7 @@ struct WhiteLabelRootTests {
   private func withNonExhaustiveTest(
     _ operation: () async throws -> Void
   ) async throws {
-    try await withDependencies {
-      $0.exhaustivity = .off
-    } operation: {
+    try await TestExhaustivity.$current.withValue(.off) {
       try await operation()
     }
   }

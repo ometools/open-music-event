@@ -52,7 +52,7 @@ extension OME {
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         dependencies.sourceControl = LibGit2SourceControlClient.live
-        dependencies.tangledSourceCheckout = .git
+        dependencies.tangledSourceCheckout = .archive
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
         dependencies[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
         dependencies.sourcePatchPublisher = .openMusicEventTangled

@@ -424,6 +424,56 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func preparedDependenciesUseArchiveCheckoutForPublicTangledImports() async throws {
+        let archiveData = Data("archive".utf8)
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-public-tangled-checkout-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        let requestedPaths = Mutex<[String]>([])
+        let extractedOutputURL = Mutex<URL?>(nil)
+
+        try await withDependencies {
+            $0.context = .test
+            try OME.prepareDependencies(&$0)
+            $0.httpClient = .testClient { _, path, _ in
+                requestedPaths.withLock { $0.append(path) }
+                return archiveData
+            }
+            $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient {
+                downloadedArchiveData,
+                outputURL in
+                expectNoDifference(downloadedArchiveData, archiveData)
+                extractedOutputURL.withLock { $0 = outputURL }
+            }
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                Issue.record("Public Tangled archive checkout should not request SSH credentials.")
+                throw PublicTangledCheckoutRequestedSSHCredentials()
+            }
+        } operation: {
+            @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+            let checkout = try await tangledSourceCheckout.checkout(
+                TangledSourceCheckoutRequest(
+                    repository: TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: "woody.fm",
+                        repository: "shambhala-ome"
+                    ),
+                    ref: "HEAD",
+                    outputURL: outputURL
+                )
+            )
+
+            #expect(checkout.repositoryURL == outputURL.standardizedFileURL)
+        }
+
+        expectNoDifference(
+            requestedPaths.withLock { $0 },
+            ["/woody.fm/shambhala-ome/archive/HEAD.tar.gz"]
+        )
+        #expect(extractedOutputURL.withLock { $0 } == outputURL.standardizedFileURL)
+    }
+
+    @Test
     func sourceDataRefreshImportsSourceBaselineUsingBaseContext() async throws {
         let recorder = SourceDataRefreshImportRecorder()
         let sourceProvenance = tangledSourceProvenance(
@@ -806,9 +856,8 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func sourceEditModePreparationPromotesArchiveBackedTangledSourceToGit() async throws {
+    func sourceEditModePreparationDoesNotRequestSSHForArchiveBackedTangledSource() async throws {
         let database = try makePreparedDatabase()
-        let ownerDID = try #require(DID("did:plc:owner123"))
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
             reference: "tangled.org/did:plc:owner123/wicked-woods-ome",
@@ -846,90 +895,31 @@ struct TangledSourceDownloadFeatureTests {
         try await withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.uuid = .constant(
-                try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000004"))
-            )
             $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
                 repositoryURL: { provenance in
                     #expect(provenance == sourceProvenance)
                     return storedRepositoryURL
                 },
                 store: { repositoryURL, provenance in
-                    #expect(provenance == sourceProvenance)
-                    if FileManager.default.fileExists(atPath: storedRepositoryURL.path) {
-                        try FileManager.default.removeItem(at: storedRepositoryURL)
-                    }
-                    try FileManager.default.moveItem(at: repositoryURL, to: storedRepositoryURL)
-                    return storedRepositoryURL
-                },
-                remove: { _ in }
-            )
-            $0[Atmosphere.Account.Client.self] = .sourceEditModeTestClient(
-                did: ownerDID,
-                handle: "owner.example",
-                pdsHost: "owner.pds.example"
-            )
-            $0[XRPC.Client.self] = .liveValue
-            $0.httpClient = HTTPClient { request, _ in
-                guard request.url?.host == "owner.pds.example" else {
-                    throw SourceEditModePreparationTestError.unexpectedRequest
-                }
-                return Data(
-                    """
-                    {
-                      "records": [
-                        {
-                          "uri": "at://did:plc:owner123/sh.tangled.repo/3repo",
-                          "cid": "bafyreifakerepo",
-                          "value": {
-                            "$type": "sh.tangled.repo",
-                            "name": "wicked-woods-ome",
-                            "repoDid": "did:plc:targetrepo",
-                            "knot": "tangled.org",
-                            "createdAt": "2026-05-26T17:30:42Z"
-                          }
-                        }
-                      ]
-                    }
-                    """
-                    .utf8
-                )
-            }
-            $0.sourceControl = SourceControlClient(
-                clone: { request in
-                    try FileManager.default.createDirectory(
-                        at: request.destinationURL.appending(path: ".git"),
-                        withIntermediateDirectories: true
+                    Issue.record(
+                        "Preparing edit mode should not replace \(provenance) from \(repositoryURL)."
                     )
-                    try writeMinimalSourceRepository(at: request.destinationURL)
-                    return Repository(url: request.destinationURL)
+                    return repositoryURL
                 },
-                open: { Repository(url: $0) },
-                fetch: { _ in },
-                checkout: { _ in },
-                createBranch: { Branch(name: $0.name) },
-                status: { _ in [] },
-                stage: { _ in },
-                commit: { _ in Commit(id: "unused") },
-                formatPatch: { _ in Data() },
-                push: { _ in }
+                remove: { provenance in
+                    Issue.record("Preparing edit mode should not remove \(provenance).")
+                }
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
-                Credentials(
-                    ssh: SSHCredentials(
-                        publicKey: "ssh-ed25519 public-key Open Music Event",
-                        privateKey: "private-key"
-                    )
-                )
+                Issue.record("Preparing edit mode should not request SSH credentials.")
+                throw PublicTangledCheckoutRequestedSSHCredentials()
             }
         } operation: {
             try await SourceEditModePreparationClient.live.prepare(sourceBaselineID)
         }
 
         #expect(
-            FileManager.default.fileExists(
-                atPath: storedRepositoryURL.appending(path: ".git").path
-            )
+            !FileManager.default.fileExists(atPath: storedRepositoryURL.appending(path: ".git").path)
         )
         #expect(
             FileManager.default.fileExists(
@@ -1449,73 +1439,7 @@ private struct SourceImportFailure: CustomStringConvertible, Error, Sendable {
     var description: String
 }
 
-private enum SourceEditModePreparationTestError: Error {
-    case unexpectedRequest
-}
-
-private extension Atmosphere.Account.Client {
-    static func sourceEditModeTestClient(
-        did: DID,
-        handle: Atmosphere.Account.Handle,
-        pdsHost: String
-    ) -> Self {
-        Self(
-            resolveHandle: { resolvedHandle in
-                guard resolvedHandle == handle else {
-                    throw SourceEditModePreparationTestError.unexpectedRequest
-                }
-                return (
-                    Atmosphere.Account(id: .init(did), handle: handle),
-                    try sourceEditModeDIDDocument(
-                        did: did,
-                        handle: handle,
-                        pdsHost: pdsHost
-                    )
-                )
-            },
-            resolveDID: { resolvedDID in
-                guard resolvedDID == did else {
-                    throw SourceEditModePreparationTestError.unexpectedRequest
-                }
-                return (
-                    Atmosphere.Account(id: .init(did), handle: handle),
-                    try sourceEditModeDIDDocument(
-                        did: did,
-                        handle: handle,
-                        pdsHost: pdsHost
-                    )
-                )
-            }
-        )
-    }
-}
-
-private func sourceEditModeDIDDocument(
-    did: DID,
-    handle: Atmosphere.Account.Handle,
-    pdsHost: String
-) throws -> DID.Document {
-    try JSONDecoder().decode(
-        DID.Document.self,
-        from: Data(
-            """
-            {
-              "id": "\(did.description)",
-              "alsoKnownAs": ["at://\(handle.rawValue)"],
-              "verificationMethod": [],
-              "service": [
-                {
-                  "id": "#atproto_pds",
-                  "type": "AtprotoPersonalDataServer",
-                  "serviceEndpoint": "https://\(pdsHost)"
-                }
-              ]
-            }
-            """
-            .utf8
-        )
-    )
-}
+private struct PublicTangledCheckoutRequestedSSHCredentials: Error {}
 
 @Feature
 private struct SourceImportErrorHost {

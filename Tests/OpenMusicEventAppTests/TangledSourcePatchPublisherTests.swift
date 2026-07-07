@@ -611,7 +611,8 @@ struct TangledSourcePatchPublisherTests {
     }
 
     @Test
-    func publishingFailsBeforeNetworkWritesForNonGitWorkingTree() async throws {
+    func publishingNonGitWorkingTreeClonesWithSSHCredentials() async throws {
+        let ownerDID = try #require(DID("did:plc:owner123"))
         let requestRecorder = HTTPRequestRecorder()
         let repositoryURL = FileManager.default.temporaryDirectory
             .appending(path: "TangledSourcePatchPublisherNonGit-\(UUID().uuidString)")
@@ -621,55 +622,178 @@ struct TangledSourcePatchPublisherTests {
         )
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
 
-        let error = await #expect(throws: TangledSourcePatchPublisherError.self) {
-            try await withDependencies {
-                $0.httpClient = HTTPClient { request, body in
-                    await requestRecorder.record(request, body)
+        let credentials = Credentials(
+            ssh: SSHCredentials(
+                publicKey: "ssh-ed25519 public-key Open Music Event",
+                privateKey: "private-key"
+            )
+        )
+        let branchName = BranchName(
+            rawValue: "ome/proposal-00000000-0000-0000-0000-000000000043"
+        )
+        let commitID = CommitID(rawValue: "fedcbafedcbafedcbafedcbafedcbafedc")
+        let cloneRequests = Mutex([CloneRequest]())
+        let openRequests = Mutex([URL]())
+        let pushRequests = Mutex([PushRequest]())
+
+        let publication = try await withDependencies {
+            $0.date.now = Date(timeIntervalSince1970: 1_779_800_000)
+            $0.uuid = .constant(
+                try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000043"))
+            )
+            $0[Atmosphere.Account.Client.self] = .testClient(
+                did: ownerDID,
+                handle: "woody.fm",
+                pdsHost: "owner.pds.example"
+            )
+            $0[XRPC.Client.self] = .liveValue
+            $0.pdsHost = "publisher.pds.example"
+            $0.httpClient = HTTPClient { request, body in
+                await requestRecorder.record(request, body)
+                switch request.url?.host {
+                case "owner.pds.example":
+                    return Data(
+                        """
+                        {
+                          "records": [
+                            {
+                              "uri": "at://did:plc:owner123/sh.tangled.repo/3repo",
+                              "cid": "bafyreifakerepo",
+                              "value": {
+                                "$type": "sh.tangled.repo",
+                                "name": "wicked-woods-ome",
+                                "repoDid": "did:plc:targetrepo",
+                                "knot": "tangled.org",
+                                "createdAt": "2026-05-26T17:30:42Z"
+                              }
+                            }
+                          ]
+                        }
+                        """
+                        .utf8
+                    )
+
+                case "publisher.pds.example":
+                    if request.url?.path.hasSuffix("/com.atproto.repo.uploadBlob") == true {
+                        return Data(
+                            """
+                            {
+                              "blob": {
+                                "$type": "blob",
+                                "ref": {"$link": "bafkreipatch"},
+                                "mimeType": "application/gzip",
+                                "size": 123
+                              }
+                            }
+                            """
+                            .utf8
+                        )
+                    }
+                    return Data(
+                        """
+                        {
+                          "uri": "at://did:plc:placeholder/sh.tangled.repo.pull/3pull",
+                          "cid": "bafyreipull"
+                        }
+                        """
+                        .utf8
+                    )
+
+                default:
                     return Data()
                 }
-                $0.sourceControl = SourceControlClient(
-                    clone: { request in Repository(url: request.destinationURL) },
-                    open: { url in
-                        Issue.record("Unexpected source-control open: \(url)")
-                        return Repository(url: url)
-                    },
-                    fetch: { _ in },
-                    checkout: { _ in },
-                    createBranch: { _ in Branch(name: "unexpected") },
-                    status: { _ in [] },
-                    stage: { _ in },
-                    commit: { _ in Commit(id: "unexpected") },
-                    formatPatch: { _ in Data() },
-                    push: { _ in }
-                )
-            } operation: {
-                try await TangledSourcePatchPublisher().publish(
-                    PreparedSourcePatch(
-                        request: SourcePatchPublishRequest(
-                            location: SourcePatchLocation(
-                                repositoryURL: repositoryURL,
-                                remote: SourcePatchLocation.Remote(
-                                    kind: "tangled",
-                                    reference: "woody.fm/wicked-woods-ome",
-                                    ref: "main"
-                                )
-                            ),
-                            patch: SourcePatch(fileChanges: [])
+            }
+            $0.sourceControl = SourceControlClient(
+                clone: { request in
+                    cloneRequests.withLock { $0.append(request) }
+                    try FileManager.default.createDirectory(
+                        at: request.destinationURL.appending(path: ".git"),
+                        withIntermediateDirectories: true
+                    )
+                    return Repository(url: request.destinationURL)
+                },
+                open: { url in
+                    openRequests.withLock { $0.append(url) }
+                    return Repository(url: url)
+                },
+                fetch: { _ in },
+                checkout: { _ in },
+                createBranch: { request in Branch(name: request.name) },
+                status: { _ in [] },
+                stage: { _ in },
+                commit: { _ in Commit(id: commitID) },
+                formatPatch: { _ in
+                    Data(
+                        """
+                        diff --git a/events/2025/event.yml b/events/2025/event.yml
+                        new file mode 100644
+                        index 0000000..e69de29
+                        --- /dev/null
+                        +++ b/events/2025/event.yml
+                        @@ -0,0 +1 @@
+                        +name: New
+
+                        """
+                        .utf8
+                    )
+                },
+                push: { request in
+                    pushRequests.withLock { $0.append(request) }
+                }
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                credentials
+            }
+        } operation: {
+            try await TangledSourcePatchPublisher().publish(
+                PreparedSourcePatch(
+                    request: SourcePatchPublishRequest(
+                        location: SourcePatchLocation(
+                            repositoryURL: repositoryURL,
+                            remote: SourcePatchLocation.Remote(
+                                kind: "tangled",
+                                reference: "woody.fm/wicked-woods-ome",
+                                ref: "main"
+                            )
                         ),
-                        workingTree: SourceWorkingTree(
-                            originalRepositoryURL: repositoryURL,
-                            originalURL: repositoryURL,
-                            relativePath: nil,
-                            workingRepositoryURL: repositoryURL,
-                            workingURL: repositoryURL
+                        patch: SourcePatch(
+                            fileChanges: [
+                                SourcePatchFileChange(
+                                    path: "events/2025/event.yml",
+                                    kind: .added,
+                                    newContents: Data("name: New\n".utf8)
+                                )
+                            ]
                         )
+                    ),
+                    workingTree: SourceWorkingTree(
+                        originalRepositoryURL: repositoryURL,
+                        originalURL: repositoryURL,
+                        relativePath: nil,
+                        workingRepositoryURL: repositoryURL,
+                        workingURL: repositoryURL
                     )
                 )
-            }
+            )
         }
 
-        #expect(error == .missingGitRepository(repositoryURL))
-        #expect(await requestRecorder.requests.isEmpty)
+        #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
+        let cloneRequest = try #require(cloneRequests.withLock { $0.first })
+        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:targetrepo")
+        #expect(cloneRequest.checkout == "main")
+        let repositoryReference = try TangledRepositoryReference(
+            parsing: "woody.fm/wicked-woods-ome"
+        )
+        #expect(cloneRequest.credentials == repositoryReference.sourceControlCredentials(credentials))
+        #expect(openRequests.withLock { $0 } == [cloneRequest.destinationURL])
+        let pushRequest = try #require(pushRequests.withLock { $0.first })
+        #expect(pushRequest.localBranch == branchName)
+        #expect(pushRequest.remoteBranch == branchName)
+        #expect(pushRequest.credentials == repositoryReference.sourceControlCredentials(credentials))
+
+        let requests = await requestRecorder.requests
+        #expect(requests.contains { $0.url?.path.hasSuffix("/com.atproto.repo.uploadBlob") == true })
+        #expect(requests.contains { $0.url?.path.hasSuffix("/com.atproto.repo.createRecord") == true })
     }
 }
 

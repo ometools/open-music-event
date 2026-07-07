@@ -5,7 +5,7 @@ import Foundation
 import XRPCClient
 
 public enum TangledOAuthRequirements {
-    public static let patchBlobPermission = OAuth.Permission("blob:text/x-patch")
+    public static let patchBlobPermission = OAuth.Permission("blob:application/gzip")
     public static let publicKeyCreatePermission = OAuth.Permission(
         "repo:sh.tangled.publicKey?action=create"
     )

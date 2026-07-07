@@ -307,8 +307,8 @@ public struct EventWorkspaceView: View {
             switch store.workspaceSummary.availability {
             case .available:
                 currentEditsSections
-                sourceDiffSections
                 sourceProposalSection
+                sourceDiffSections
                 tangledPullReviewsSection
                 ExistingProposalsSection(state: .loaded([]))
                 resetEditsSection
@@ -990,7 +990,7 @@ struct SourcePatchFileChangesSection: View {
     }
 
     var body: some View {
-        Section("Changed Files") {
+        DisclosureGroup("Changed Files") {
             ForEach(patch.fileChanges) { change in
                 SourcePatchFileChangeRow(change: change)
             }
