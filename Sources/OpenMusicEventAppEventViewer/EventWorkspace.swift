@@ -10,11 +10,6 @@ import SwiftUI
 public struct EventWorkspace {
     public init() {}
 
-    public enum ChangeView: Hashable, CaseIterable, Sendable {
-        case database
-        case source
-    }
-
     public enum SourcePatchStatus: Equatable, Sendable {
         case failed(SourcePatchGenerationFailure)
         case generated(SourcePatch)
@@ -80,7 +75,6 @@ public struct EventWorkspace {
         @Fetch public var workspaceSummary: EventWorkspaceSummary
         public var isResettingEdits = false
         public var resetEditsFailure: ResetEditsFailure?
-        public var selectedChangeView: ChangeView = .database
         public var sourcePatchStatus: SourcePatchStatus = .notGenerated
         public var sourceProposalStatus: SourceProposalStatus = .idle
         @DebugSnapshotIgnored
@@ -105,7 +99,6 @@ public struct EventWorkspace {
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
         case sourceProposal(SourceProposalFlow.Action)
-        case sourceProposalDismissed
     }
 
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
@@ -182,7 +175,7 @@ public struct EventWorkspace {
                 state.isResettingEdits = false
                 state.resetEditsFailure = failure
 
-            case .sourceProposal(.delegate(.dismissed)), .sourceProposalDismissed:
+            case .sourceProposal(.delegate(.dismissed)):
                 state.sourceProposal = nil
                 switch state.sourceProposalStatus {
                 case .composing, .failed:
@@ -198,15 +191,11 @@ public struct EventWorkspace {
                     return
                 }
                 guard !patch.isEmpty else { return }
-                state.sourceProposal = SourceProposalFlow.State(
-                    eventID: state.eventID,
-                    workspaceSummary: state.workspaceSummary,
-                    patch: patch
-                )
-                state.sourceProposalStatus = .composing
+                state.updateSourceProposal(for: patch)
 
             case let .sourcePatchGenerationResponse(.success(patch)):
                 state.sourcePatchStatus = .generated(patch)
+                state.updateSourceProposal(for: patch)
 
             case let .sourcePatchGenerationResponse(.failure(failure)):
                 state.sourcePatchStatus = .failed(failure)
@@ -215,8 +204,6 @@ public struct EventWorkspace {
                 state.sourcePatchStatus = .needsGeneration(invalidation)
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
-                guard state.selectedChangeView == .source else { return }
-                generateSourcePatch(eventID: state.eventID, state: &state)
 
             case .sourceProposal(.createProposalButtonTapped):
                 state.sourceProposalStatus = .proposing
@@ -232,13 +219,6 @@ public struct EventWorkspace {
 
             case .sourceProposal:
                 break
-            }
-        }
-        .onChange(of: store.selectedChangeView) { state in
-            guard state.selectedChangeView == .source else { return }
-            guard state.canReviewSourceProposal else { return }
-            store.addTask {
-                try store.send(.generateSourcePatchButtonTapped)
             }
         }
         .onMount { state in
@@ -264,114 +244,70 @@ public struct EventWorkspaceView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            Picker("Changes", selection: $store.selectedChangeView) {
-                ForEach(EventWorkspace.ChangeView.allCases, id: \.self) { changeView in
-                    Text(changeView.title).tag(changeView)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding([.horizontal, .top])
-            .padding(.bottom, 8)
+        List {
+            workspaceSection
+            sourceSection
 
-            Group {
-                switch store.selectedChangeView {
-                case .database:
-                    databaseChangesContent
-                case .source:
-                    sourceChangesContent
+            switch store.workspaceSummary.availability {
+            case .available:
+                currentEditsSections
+                sourceDiffSections
+                sourceProposalSection
+                ExistingProposalsSection(state: .loaded([]))
+                resetEditsSection
+
+            case .workspaceNeedsPreparation:
+                WorkspaceUnavailableSection(
+                    title: "Workspace Needs Preparation",
+                    message: "Prepare this workspace before reviewing source changes."
+                )
+
+            case .notInWorkspace:
+                WorkspaceUnavailableSection(
+                    title: "Not in a Workspace",
+                    message: "Move this event into a workspace before proposing source changes."
+                )
+
+            case let .unavailable(reason):
+                Section("Workspace") {
+                    SourceChangeUnavailableView(reason: reason)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Workspace")
-        .sheet(
-            item: $store.scope(\.sourceProposal, action: \.sourceProposal),
-            onDismiss: {
-                store.send(.sourceProposalDismissed)
+    }
+
+    @ViewBuilder
+    private var workspaceSection: some View {
+        Section("Workspace") {
+            HStack {
+                Text("Current Edits")
+                Spacer()
+                Text(store.workspaceSummary.totalCount, format: .number)
+                    .font(.headline)
+                    .monospacedDigit()
             }
-        ) { sourceProposalStore in
-            SourceProposalComposerView(store: sourceProposalStore)
         }
     }
 
     @ViewBuilder
-    private var databaseChangesContent: some View {
-        switch store.workspaceSummary.availability {
-        case .available where store.workspaceSummary.totalCount == 0:
-            ContentUnavailableView(
-                "No Changes",
-                systemImage: "checkmark.circle"
-            )
-
-        case .available:
-            List {
-                Section {
-                    HStack {
-                        Label("Unpublished Changes", systemImage: "pencil.and.list.clipboard")
-                        Spacer()
-                        Text(store.workspaceSummary.totalCount, format: .number)
-                            .font(.headline)
-                            .monospacedDigit()
-                    }
-                }
-
-                ForEach(store.workspaceSummary.groups.filter { !$0.records.isEmpty }) { group in
-                    SourceChangeGroupSections(group: group)
-                }
-
-                resetEditsSection
-            }
-
-        case .workspaceNeedsPreparation:
-            ContentUnavailableView(
-                "Workspace Needs Preparation",
-                systemImage: "externaldrive.badge.questionmark"
-            )
-
-        case .notInWorkspace:
-            ContentUnavailableView(
-                "Not in a Workspace",
-                systemImage: "doc.badge.ellipsis"
-            )
-
-        case let .unavailable(reason):
-            SourceChangeUnavailableView(reason: reason)
-        }
-    }
-
-    @ViewBuilder
-    private var sourceChangesContent: some View {
-        if store.canReviewSourceProposal {
-            SourceChangesReviewPanel(
-                availability: SourceChangesAvailability(store.workspaceSummary.availability),
-                groups: store.workspaceSummary.groups,
-                mode: .proposal,
-                sourcePatchStatus: store.sourcePatchStatus,
-                sourceProposalStatus: store.sourceProposalStatus,
-                onReviewChanges: {
-                    store.send(.generateSourcePatchButtonTapped)
-                },
-                onProposeChange: {
-                    store.send(.proposeChangeButtonTapped)
-                }
-            ) {
-                sourceSection
-            } auxiliarySection: {
-                resetEditsSection
+    private var currentEditsSections: some View {
+        if store.workspaceSummary.totalCount == 0 {
+            Section("Current Edits") {
+                Text("No current edits")
+                    .foregroundStyle(.secondary)
             }
         } else {
-            ContentUnavailableView(
-                "Team Workspace Required",
-                systemImage: "person.2.badge.gearshape"
-            )
+            ForEach(store.workspaceSummary.groups.filter { !$0.records.isEmpty }) { group in
+                SourceChangeGroupSections(group: group)
+            }
         }
     }
 
     @ViewBuilder
     private var sourceSection: some View {
-        if let sourceProvenance = store.sourceProvenance {
-            Section("Source") {
+        Section("Source") {
+            if let sourceProvenance = store.sourceProvenance {
                 SourceIndicatorView(sourceProvenance: sourceProvenance)
 
                 Button {
@@ -380,7 +316,45 @@ public struct EventWorkspaceView: View {
                     Label("Refresh Source", systemImage: "arrow.clockwise")
                 }
                 .disabled(sourceProvenance.sourceBaselineID == nil)
+            } else {
+                Text("Team workspace required")
+                    .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var sourceDiffSections: some View {
+        Section("Source Diff") {
+            if store.canReviewSourceProposal {
+                SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
+
+                if case let .generated(patch) = store.sourcePatchStatus {
+                    if patch.isEmpty {
+                        Text("No changes to propose")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Button(store.sourcePatchStatus.reviewButtonTitle) {
+                        store.send(.generateSourcePatchButtonTapped)
+                    }
+                    .disabled(store.sourcePatchStatus.isGenerating)
+                }
+            } else {
+                Text("Team workspace required")
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        if case let .generated(patch) = store.sourcePatchStatus, !patch.isEmpty {
+            SourcePatchFileChangesSection(patch: patch)
+        }
+    }
+
+    @ViewBuilder
+    private var sourceProposalSection: some View {
+        if let sourceProposalStore = store.scope(\.sourceProposal, action: \.sourceProposal) {
+            SourceProposalDraftSection(store: sourceProposalStore)
         }
     }
 
@@ -411,6 +385,22 @@ public struct EventWorkspaceView: View {
                             .textSelection(.enabled)
                     }
                 }
+            }
+        }
+    }
+}
+
+struct WorkspaceUnavailableSection: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        Section("Workspace") {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -746,6 +736,108 @@ public struct SourceProposalComposerView: View {
     }
 }
 
+struct SourceProposalDraftSection: View {
+    @Bindable var store: StoreOf<SourceProposalFlow>
+
+    init(store: StoreOf<SourceProposalFlow>) {
+        self.store = store
+    }
+
+    var body: some View {
+        Section("Proposal") {
+            TextField("Title", text: $store.sourceProposalTitle)
+                .onChange(of: store.sourceProposalTitle) { _, title in
+                    store.send(.sourceProposalTitleChanged(title))
+                }
+
+            TextField(
+                "Description",
+                text: $store.sourceProposalDescription,
+                axis: .vertical
+            )
+            .lineLimit(4...8)
+            .onChange(of: store.sourceProposalDescription) { _, description in
+                store.send(.sourceProposalDescriptionChanged(description))
+            }
+
+            SourceProposalStatusView(status: store.sourceProposalStatus)
+
+            Button("Create Proposal") {
+                store.send(.createProposalButtonTapped)
+            }
+            .disabled(!store.canCreateSourceProposal)
+        }
+    }
+}
+
+struct SourcePatchFileChangesSection: View {
+    let patch: SourcePatch
+
+    init(patch: SourcePatch) {
+        self.patch = patch
+    }
+
+    var body: some View {
+        Section("Changed Files") {
+            ForEach(patch.fileChanges) { change in
+                SourcePatchFileChangeRow(change: change)
+            }
+        }
+    }
+}
+
+enum ExistingProposalsState: Equatable, Sendable {
+    case failed(String)
+    case loaded([ExistingProposalSummary])
+    case unavailable
+}
+
+struct ExistingProposalSummary: Equatable, Identifiable, Sendable {
+    var id: String
+    var title: String
+    var subtitle: String?
+}
+
+struct ExistingProposalsSection: View {
+    let state: ExistingProposalsState
+
+    var body: some View {
+        Section("Other Proposed Changes") {
+            switch state {
+            case let .failed(message):
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Other proposed changes couldn't be loaded")
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+            case let .loaded(proposals):
+                if proposals.isEmpty {
+                    Text("No other proposed changes")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(proposals) { proposal in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(proposal.title)
+                            if let subtitle = proposal.subtitle {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+            case .unavailable:
+                Text("Other proposed changes are unavailable.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 public struct SourceProposalSummarySections: View {
     let groups: [SourceChangeGroup]
 
@@ -852,6 +944,31 @@ private extension EventSourceProvenanceRecord {
 }
 
 private extension EventWorkspace.State {
+    mutating func updateSourceProposal(for patch: SourcePatch) {
+        guard !patch.isEmpty, canReviewSourceProposal else {
+            sourceProposal = nil
+            sourceProposalStatus = .idle
+            return
+        }
+
+        let existingDescription = sourceProposal?.sourceProposalDescription
+        let existingTitle = sourceProposal?.sourceProposalTitle
+        var sourceProposal = SourceProposalFlow.State(
+            eventID: eventID,
+            workspaceSummary: workspaceSummary,
+            patch: patch
+        )
+        if let existingTitle {
+            sourceProposal.sourceProposalTitle = existingTitle
+        }
+        if let existingDescription {
+            sourceProposal.sourceProposalDescription = existingDescription
+        }
+
+        self.sourceProposal = sourceProposal
+        sourceProposalStatus = .composing
+    }
+
     var canResetEdits: Bool {
         guard !isResettingEdits,
               workspaceSummary.totalCount > 0,
@@ -957,17 +1074,6 @@ public extension EventWorkspace.SourceProposalStatus {
 
     var isProposing: Bool {
         self == .proposing
-    }
-}
-
-private extension EventWorkspace.ChangeView {
-    var title: String {
-        switch self {
-        case .database:
-            "Edits"
-        case .source:
-            "Proposal"
-        }
     }
 }
 
