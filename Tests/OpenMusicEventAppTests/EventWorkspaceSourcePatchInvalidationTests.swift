@@ -1,9 +1,12 @@
 import ComposableArchitecture2
 import Dependencies
 import DependenciesTestSupport
+import FileTree
 import Foundation
 import OpenMusicEventAuthentication
+import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SourceEditing
 import SQLiteData
@@ -778,6 +781,134 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         await store.dismount()
     }
 
+    @Test
+    func reviewSemanticDiffLoadsFromReviewBranchSnapshot() async throws {
+        let database = try makePreparedDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        let eventID = testEventID("event-1")
+        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/wicked-woods-ome",
+            ref: "main"
+        )
+        let baselineSource = try makeReviewSourceRepository(
+            eventID: eventID,
+            eventName: "Wicked Woods 2025"
+        )
+        let reviewSource = try makeReviewSourceRepository(
+            eventID: eventID,
+            eventName: "Wicked Woods 2026"
+        )
+        try await withDependencies {
+            $0.context = .test
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+        } operation: {
+            let insertion = try OME.SourceDatabaseInsertion(
+                OME.SourceDatabaseInsertion.Configuration(
+                    source: baselineSource,
+                    organizerID: eventID.organizerID,
+                    sourceProvenance: sourceProvenance
+                )
+            )
+            try await insertion.migrateAndInsert(into: database)
+        }
+        let review = TangledPullReview(
+            author: "did:plc:author123",
+            body: "Hydrate the 2026 event.",
+            commentCount: 0,
+            createdAt: "2026-07-03T12:01:00Z",
+            patchBlobs: [],
+            sourceBranch: "ome/proposal-2026",
+            state: "open",
+            targetBranch: "main",
+            targetRepositoryDID: "did:plc:targetrepo",
+            title: "Hydrate 2026",
+            uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
+        )
+        let snapshotRequests = Mutex([TangledPullReviewSourceSnapshotRequest]())
+        let receivedDiff = Mutex<EventWorkspace.TangledPullReviewSemanticDiff?>(nil)
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0.tangledPullReviewSourceSnapshot = TangledPullReviewSourceSnapshotClient { request in
+                snapshotRequests.withLock { $0.append(request) }
+                return try OME.SourceDatabaseInsertion(
+                    OME.SourceDatabaseInsertion.Configuration(
+                        source: reviewSource,
+                        organizerID: request.organizerID,
+                        sourceProvenance: request.sourceProvenance
+                    )
+                )
+            }
+            $0.uuid = .incrementing
+        } operation: {
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
+            }
+        }
+
+        let task = store.send(.reviewSemanticDiffButtonTapped(review)) {
+            $0.tangledPullReviewSemanticDiffs[review.id] = .loading
+        }
+        await store.receive(
+            \.tangledPullReviewSemanticDiffResponse,
+            .matching { (
+                response: (
+                    reviewID: String,
+                    Result<
+                        EventWorkspace.TangledPullReviewSemanticDiff,
+                        EventWorkspace.TangledPullReviewSemanticDiffFailure
+                    >
+                )
+            ) in
+                guard response.reviewID == review.id,
+                      case let .success(diff) = response.1
+                else { return false }
+                receivedDiff.withLock { $0 = diff }
+                return diff.totalCount == 1
+                    && diff.groups.contains { group in
+                        group.id == "events" && group.modified == 1
+                    }
+            },
+            timeout: .seconds(5)
+        ) {
+            guard let diff = receivedDiff.withLock({ $0 }) else {
+                Issue.record("Expected semantic diff response.")
+                return
+            }
+            $0.tangledPullReviewSemanticDiffs[review.id] = .loaded(diff)
+        }
+        await task?.value
+
+        #expect(
+            snapshotRequests.withLock { $0 } == [
+                TangledPullReviewSourceSnapshotRequest(
+                    organizerID: eventID.organizerID,
+                    review: review,
+                    sourceProvenance: sourceProvenance
+                )
+            ]
+        )
+        let loadedDiff = try #require(
+            receivedDiff.withLock { $0 }
+        )
+        let eventGroup = try #require(
+            loadedDiff.groups.first { $0.id == "events" }
+        )
+        let eventChange = try #require(eventGroup.records.first)
+        let nameChange = try #require(
+            eventChange.fieldChanges.first { $0.columnName == "name" }
+        )
+        #expect(nameChange.baselineValue == "Wicked Woods 2025".databaseValue)
+        #expect(nameChange.workingValue == "Wicked Woods 2026".databaseValue)
+        #expect(loadedDiff.recordComparisons[eventChange]?.as(OME.Event.self) != nil)
+
+        await store.dismount()
+    }
+
     private func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test
@@ -843,6 +974,37 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             .execute(db)
         }
     }
+
+    private func makeReviewSourceRepository(
+        eventID: OME.Event.ID,
+        eventName: String
+    ) throws -> OpenMusicEventSourceRepository {
+        let timeZone = try #require(TimeZone(identifier: "UTC"))
+        return OpenMusicEventSourceRepository(
+            events: [
+                DirectoryContent(
+                    directoryName: eventID.eventID.rawValue.rawValue,
+                    components: OpenMusicEventSourceEvent(
+                        event: EventDTO(
+                            id: eventID,
+                            name: eventName,
+                            description: nil,
+                            startDate: nil,
+                            endDate: nil,
+                            status: nil,
+                            mode: nil,
+                            locations: nil,
+                            uris: nil,
+                            timeZone: timeZone,
+                            images: nil,
+                            contactNumbers: nil,
+                            categoryConfigs: nil
+                        )
+                    )
+                )
+            ]
+        )
+    }
 }
 
 private func testEventID(_ string: String) -> OME.Event.ID {
@@ -859,6 +1021,16 @@ private enum SourceProposalTestError: Equatable, Error {
 private enum ResetEditsTestError: Equatable, Error {
     case failed
     case previousFailure
+}
+
+private extension SourceReferenceDatabaseClient {
+    static func test(database: SourceBaselineDatabase) -> Self {
+        Self(
+            url: { _ in URL(fileURLWithPath: database.path) },
+            prepareForImport: { _ in database },
+            existing: { _ in database }
+        )
+    }
 }
 
 @MainActor

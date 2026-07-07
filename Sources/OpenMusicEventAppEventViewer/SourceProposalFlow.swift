@@ -35,11 +35,13 @@ public struct SourceProposalFlow {
         public init(
             target: SourceProposalTarget,
             sourceChangeGroups: [SourceChangeGroup] = [],
+            sourceRecordComparisons: SourceRecordComparisons = .empty,
             patch: SourcePatch
         ) {
             self.target = target
             self.patch = patch
             self.sourceChangeGroups = sourceChangeGroups
+            self.sourceRecordComparisons = sourceRecordComparisons
             self.sourceProposalTitle = target.defaultTitle
         }
 
@@ -51,6 +53,7 @@ public struct SourceProposalFlow {
             self.init(
                 target: .event(eventID),
                 sourceChangeGroups: workspaceSummary?.groups ?? [],
+                sourceRecordComparisons: workspaceSummary?.recordComparisons ?? .empty,
                 patch: patch
             )
         }
@@ -65,6 +68,7 @@ public struct SourceProposalFlow {
         public let target: SourceProposalTarget
         public let patch: SourcePatch
         public var sourceChangeGroups: [SourceChangeGroup]
+        public var sourceRecordComparisons: SourceRecordComparisons
         public var sourceProposalDescription = ""
         public var sourceProposalStatus: EventWorkspace.SourceProposalStatus = .composing
         public var sourceProposalTitle: String

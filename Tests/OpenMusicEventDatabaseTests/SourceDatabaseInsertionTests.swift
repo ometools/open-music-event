@@ -1164,6 +1164,11 @@ struct SourceDatabaseInsertionTests {
         let contributorRecord = try #require(contributorGroup.records.first)
         #expect(contributorRecord.kind == .modified)
         #expect(contributorRecord.recordDiff?.contains("Updated Artist One") == true)
+        let contributorComparison = try #require(
+            withContributorChange.recordComparisons[contributorRecord]?.as(OME.Contributor.self)
+        )
+        #expect(contributorComparison.left?.name == "Artist One")
+        #expect(contributorComparison.right?.name == "Updated Artist One")
         expectNoDifference(
             contributorRecord.fieldChanges,
             [
@@ -1538,6 +1543,11 @@ struct SourceDatabaseInsertionTests {
         let performanceRecord = try #require(performanceGroup.records.first)
         #expect(performanceRecord.kind == .added)
         #expect(performanceRecord.recordDiff?.contains("Late Addition") == true)
+        let performanceComparison = try #require(
+            summary.recordComparisons[performanceRecord]?.as(OME.Performance.self)
+        )
+        #expect(performanceComparison.left == nil)
+        #expect(performanceComparison.right?.title == "Late Addition")
         let titleChange = try #require(
             performanceRecord.fieldChanges.first { $0.columnName == "title" }
         )

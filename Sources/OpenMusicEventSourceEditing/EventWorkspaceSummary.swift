@@ -15,15 +15,18 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
     public var eventID: OME.Event.ID
     public var availability: Availability
     public var groups: [SourceChangeGroup]
+    public var recordComparisons: SourceRecordComparisons
 
     public init(
         eventID: OME.Event.ID,
         availability: Availability,
-        groups: [SourceChangeGroup]
+        groups: [SourceChangeGroup],
+        recordComparisons: SourceRecordComparisons = .empty
     ) {
         self.eventID = eventID
         self.availability = availability
         self.groups = groups
+        self.recordComparisons = recordComparisons
     }
 
     public var totalCount: Int {
@@ -112,7 +115,8 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .available,
-                groups: sourceSummary.groups
+                groups: sourceSummary.groups,
+                recordComparisons: sourceSummary.recordComparisons
             )
 
         case let .unavailable(reason):
@@ -134,16 +138,19 @@ public struct SourceEditSummary: Equatable, Sendable {
 
     public var availability: Availability
     public var groups: [SourceChangeGroup]
+    public var recordComparisons: SourceRecordComparisons
     public var sourceBaselineID: SourceBaselineRecord.ID
 
     public init(
         sourceBaselineID: SourceBaselineRecord.ID,
         availability: Availability,
-        groups: [SourceChangeGroup]
+        groups: [SourceChangeGroup],
+        recordComparisons: SourceRecordComparisons = .empty
     ) {
         self.sourceBaselineID = sourceBaselineID
         self.availability = availability
         self.groups = groups
+        self.recordComparisons = recordComparisons
     }
 
     public var totalCount: Int {
@@ -217,7 +224,8 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
             return SourceEditSummary(
                 sourceBaselineID: sourceBaselineID,
                 availability: .available,
-                groups: sourceSummary.groups
+                groups: sourceSummary.groups,
+                recordComparisons: sourceSummary.recordComparisons
             )
 
         case let .unavailable(reason):
@@ -268,7 +276,8 @@ private func sourceEditSummary(
 
     return SourceChangeSummary(
         availability: .available,
-        groups: mergedSourceChangeGroups(summaries.flatMap(\.groups))
+        groups: mergedSourceChangeGroups(summaries.flatMap(\.groups)),
+        recordComparisons: mergedSourceRecordComparisons(summaries)
     )
 }
 
@@ -310,7 +319,8 @@ private func sourceEditSummary(
 
     return SourceChangeSummary(
         availability: .available,
-        groups: mergedSourceChangeGroups(summaries.flatMap(\.groups))
+        groups: mergedSourceChangeGroups(summaries.flatMap(\.groups)),
+        recordComparisons: mergedSourceRecordComparisons(summaries)
     )
 }
 
@@ -429,6 +439,12 @@ private func mergedSourceChangeGroups(
     }
 
     return orderedIDs.compactMap { groupsByID[$0] }
+}
+
+private func mergedSourceRecordComparisons(
+    _ summaries: [SourceChangeSummary]
+) -> SourceRecordComparisons {
+    SourceRecordComparisons(summaries.flatMap(\.recordComparisons.values))
 }
 
 public extension SourceRecordScope {

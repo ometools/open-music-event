@@ -82,18 +82,22 @@ private struct SourceRecordDump<Record: Sendable>: Sendable, CustomDumpReflectab
 public struct AnySourceEditableRecordType {
     public var descriptor: SourceTableDescriptor
     public var resolveRecordChange: (SourceRecordChange, Database, String) throws -> SourceRecordChange?
+    public var recordComparison: (SourceRecordChange, Database, String) throws -> AnySourceRecordComparison?
 
     public init(
         descriptor: SourceTableDescriptor,
-        resolveRecordChange: @escaping (SourceRecordChange, Database, String) throws -> SourceRecordChange?
+        resolveRecordChange: @escaping (SourceRecordChange, Database, String) throws -> SourceRecordChange?,
+        recordComparison: @escaping (SourceRecordChange, Database, String) throws -> AnySourceRecordComparison? = { _, _, _ in nil }
     ) {
         self.descriptor = descriptor
         self.resolveRecordChange = resolveRecordChange
+        self.recordComparison = recordComparison
     }
 
     public init(
         descriptor: SourceTableDescriptor,
-        recordDiff: @escaping (SourceRecordChange, Database, String) throws -> String
+        recordDiff: @escaping (SourceRecordChange, Database, String) throws -> String,
+        recordComparison: @escaping (SourceRecordChange, Database, String) throws -> AnySourceRecordComparison? = { _, _, _ in nil }
     ) {
         self.init(
             descriptor: descriptor,
@@ -101,7 +105,8 @@ public struct AnySourceEditableRecordType {
                 var change = change
                 change.recordDiff = try recordDiff(change, db, baselineSchemaName)
                 return change
-            }
+            },
+            recordComparison: recordComparison
         )
     }
 }
@@ -132,6 +137,23 @@ public extension SourceEditableTable where QueryOutput: Sendable {
                 )
 
                 return diff(baseline, working) ?? ""
+            },
+            recordComparison: { change, db, baselineSchemaName in
+                AnySourceRecordComparison(
+                    SourceRecordComparison(
+                        change: change,
+                        left: try sourceRecord(
+                            for: change,
+                            schemaName: baselineSchemaName,
+                            in: db
+                        ),
+                        right: try sourceRecord(
+                            for: change,
+                            schemaName: "main",
+                            in: db
+                        )
+                    )
+                )
             }
         )
     }
@@ -323,6 +345,89 @@ public struct SourceRecordChange: Equatable, Hashable, Sendable, Identifiable {
     }
 }
 
+public struct SourceRecordComparison<Record: Sendable>: Sendable {
+    public var change: SourceRecordChange
+    public var left: Record?
+    public var right: Record?
+
+    public init(
+        change: SourceRecordChange,
+        left: Record?,
+        right: Record?
+    ) {
+        self.change = change
+        self.left = left
+        self.right = right
+    }
+}
+
+extension SourceRecordComparison: Equatable where Record: Equatable {}
+
+public struct AnySourceRecordComparison: @unchecked Sendable, Equatable, Hashable, Identifiable {
+    public var id: SourceRecordChange.ID { change.id }
+
+    public var change: SourceRecordChange
+    public var recordTypeID: ObjectIdentifier
+    public var recordTypeName: String
+
+    private var left: (any Sendable)?
+    private var right: (any Sendable)?
+
+    public init<Record: Sendable>(
+        _ comparison: SourceRecordComparison<Record>
+    ) {
+        self.change = comparison.change
+        self.recordTypeID = ObjectIdentifier(Record.self)
+        self.recordTypeName = String(reflecting: Record.self)
+        self.left = comparison.left
+        self.right = comparison.right
+    }
+
+    public func `as`<Record: Sendable>(
+        _ recordType: Record.Type
+    ) -> SourceRecordComparison<Record>? {
+        guard recordTypeID == ObjectIdentifier(recordType) else { return nil }
+        return SourceRecordComparison(
+            change: change,
+            left: left as? Record,
+            right: right as? Record
+        )
+    }
+
+    public static func == (
+        lhs: AnySourceRecordComparison,
+        rhs: AnySourceRecordComparison
+    ) -> Bool {
+        lhs.change == rhs.change
+            && lhs.recordTypeID == rhs.recordTypeID
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(change)
+        hasher.combine(recordTypeID)
+    }
+}
+
+public struct SourceRecordComparisons: Equatable, Hashable, Sendable {
+    public static var empty: Self { Self() }
+
+    private var comparisonsByChangeID: [SourceRecordChange.ID: AnySourceRecordComparison]
+
+    public init(_ comparisons: [AnySourceRecordComparison] = []) {
+        self.comparisonsByChangeID = Dictionary(
+            uniqueKeysWithValues: comparisons.map { ($0.id, $0) }
+        )
+    }
+
+    public subscript(_ change: SourceRecordChange) -> AnySourceRecordComparison? {
+        comparisonsByChangeID[change.id]
+    }
+
+    public var values: [AnySourceRecordComparison] {
+        Array(comparisonsByChangeID.values)
+    }
+}
+
 public struct SourceChangeGroup: Equatable, Hashable, Sendable, Identifiable {
     public var id: String
     public var displayName: String
@@ -364,13 +469,16 @@ public struct SourceChangeSummary: Equatable, Hashable, Sendable {
 
     public var availability: Availability
     public var groups: [SourceChangeGroup]
+    public var recordComparisons: SourceRecordComparisons
 
     public init(
         availability: Availability,
-        groups: [SourceChangeGroup]
+        groups: [SourceChangeGroup],
+        recordComparisons: SourceRecordComparisons = .empty
     ) {
         self.availability = availability
         self.groups = groups
+        self.recordComparisons = recordComparisons
     }
 
     public var totalCount: Int {
@@ -680,6 +788,7 @@ public struct SourceEditingComparer: Sendable {
         let recordTypesByID = Dictionary(
             uniqueKeysWithValues: recordTypes.map { ($0.descriptor.id, $0) }
         )
+        var recordComparisons: [AnySourceRecordComparison] = []
         let groups = try summary.groups.map { group in
             guard let recordType = recordTypesByID[group.id] else {
                 return group
@@ -688,11 +797,22 @@ public struct SourceEditingComparer: Sendable {
             var group = group
             group.records = try group.records.compactMap { record in
                 do {
-                    return try recordType.resolveRecordChange(
+                    guard let resolvedRecord = try recordType.resolveRecordChange(
                         record,
                         db,
                         baselineSchemaName
-                    )
+                    ) else { return nil }
+                    do {
+                        if let comparison = try recordType.recordComparison(
+                            resolvedRecord,
+                            db,
+                            baselineSchemaName
+                        ) {
+                            recordComparisons.append(comparison)
+                        }
+                    } catch is SourceRecordDecodingError {
+                    }
+                    return resolvedRecord
                 } catch is SourceRecordDecodingError {
                     return record
                 }
@@ -705,7 +825,8 @@ public struct SourceEditingComparer: Sendable {
 
         return SourceChangeSummary(
             availability: summary.availability,
-            groups: groups
+            groups: groups,
+            recordComparisons: SourceRecordComparisons(recordComparisons)
         )
     }
 

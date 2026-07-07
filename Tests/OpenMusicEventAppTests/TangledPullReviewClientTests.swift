@@ -58,6 +58,7 @@ struct TangledPullReviewClientTests {
                     )
                 ],
                 sourceBranch: "ome/proposal-schedule",
+                sourceRepositoryDID: "did:plc:authorrepo",
                 state: "open",
                 stateUpdatedAt: "2026-07-03T12:02:00Z",
                 targetBranch: "main",

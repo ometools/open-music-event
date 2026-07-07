@@ -124,6 +124,9 @@ private extension SourceEditableTable where QueryOutput: Sendable {
                     resolvedChange.recordDiff = nil
                 }
                 return resolvedChange
+            },
+            recordComparison: { change, db, baselineSchemaName in
+                try genericRecordType.recordComparison(change, db, baselineSchemaName)
             }
         )
     }

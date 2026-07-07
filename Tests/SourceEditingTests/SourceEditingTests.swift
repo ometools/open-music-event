@@ -181,6 +181,32 @@ struct SourceEditingTests {
     }
 
     @Test
+    func recordTypesExposeTypedLeftRightComparisons() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.updateWorking(id: 2, title: "New title")
+        try fixture.deleteWorking(id: 3)
+        try fixture.insertWorking(Todo(id: 6, listID: "list-1", title: "Added", note: nil, localCache: nil))
+
+        let summary = try fixture.typedSummary(scope: listScope("list-1"))
+
+        let group = try #require(summary.groups.first)
+        let addedRecord = try #require(group.records.first { $0.kind == .added })
+        let addedComparison = try #require(summary.recordComparisons[addedRecord]?.as(Todo.self))
+        #expect(addedComparison.left == nil)
+        #expect(addedComparison.right?.title == "Added")
+
+        let modifiedRecord = try #require(group.records.first { $0.kind == .modified })
+        let modifiedComparison = try #require(summary.recordComparisons[modifiedRecord]?.as(Todo.self))
+        #expect(modifiedComparison.left?.title == "Old title")
+        #expect(modifiedComparison.right?.title == "New title")
+
+        let deletedRecord = try #require(group.records.first { $0.kind == .deleted })
+        let deletedComparison = try #require(summary.recordComparisons[deletedRecord]?.as(Todo.self))
+        #expect(deletedComparison.left?.title == "Deleted candidate")
+        #expect(deletedComparison.right == nil)
+    }
+
+    @Test
     func recordTypesDiffDecodedJSONColumns() throws {
         let fixture = try SourceEditingFixture()
         try fixture.createTypedTodosTable()

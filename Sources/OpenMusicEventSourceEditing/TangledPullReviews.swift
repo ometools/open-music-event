@@ -24,6 +24,7 @@ public struct TangledPullReview: Equatable, Identifiable, Sendable {
     public var createdAt: String
     public var patchBlobs: [PatchBlob]
     public var sourceBranch: String?
+    public var sourceRepositoryDID: String?
     public var state: String
     public var stateUpdatedAt: String?
     public var targetBranch: String
@@ -38,6 +39,7 @@ public struct TangledPullReview: Equatable, Identifiable, Sendable {
         createdAt: String,
         patchBlobs: [PatchBlob],
         sourceBranch: String? = nil,
+        sourceRepositoryDID: String? = nil,
         state: String,
         stateUpdatedAt: String? = nil,
         targetBranch: String,
@@ -51,6 +53,7 @@ public struct TangledPullReview: Equatable, Identifiable, Sendable {
         self.createdAt = createdAt
         self.patchBlobs = patchBlobs
         self.sourceBranch = sourceBranch
+        self.sourceRepositoryDID = sourceRepositoryDID
         self.state = state
         self.stateUpdatedAt = stateUpdatedAt
         self.targetBranch = targetBranch
@@ -69,6 +72,7 @@ public struct TangledPullReview: Equatable, Identifiable, Sendable {
                 PatchBlob(index: offset + 1, round: round)
             },
             sourceBranch: item.value.source?.branch,
+            sourceRepositoryDID: item.value.source?.repo?.description,
             state: item.state.rawValue,
             stateUpdatedAt: item.stateUpdatedAt,
             targetBranch: item.value.target.branch,
@@ -89,6 +93,9 @@ public struct TangledPullReview: Equatable, Identifiable, Sendable {
         ]
         if let sourceBranch {
             lines.append("source.branch: \(sourceBranch)")
+        }
+        if let sourceRepositoryDID {
+            lines.append("source.repo: \(sourceRepositoryDID)")
         }
         if let stateUpdatedAt {
             lines.append("stateUpdatedAt: \(stateUpdatedAt)")

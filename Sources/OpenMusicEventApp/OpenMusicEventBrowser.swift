@@ -1353,6 +1353,7 @@ public struct TeamWorkspaceEditor {
                 state.sourceProposal = SourceProposalFlow.State(
                     target: .calendar(state.calendarID, state.sourceBaselineID),
                     sourceChangeGroups: state.editSummary.groups,
+                    sourceRecordComparisons: state.editSummary.recordComparisons,
                     patch: patch
                 )
                 state.sourceProposalStatus = .composing
@@ -1429,6 +1430,7 @@ public struct TeamWorkspaceEditorView: View {
             SourceChangesReviewPanel(
                 availability: SourceChangesAvailability(store.editSummary.availability),
                 groups: store.editSummary.groups,
+                recordComparisons: store.editSummary.recordComparisons,
                 mode: .workspace,
                 sourcePatchStatus: store.sourcePatchStatus,
                 onReviewChanges: {
