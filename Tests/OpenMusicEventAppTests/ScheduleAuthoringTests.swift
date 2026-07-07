@@ -233,36 +233,32 @@ struct ScheduleAuthoringTests {
             eventID: fixture.eventID
         )
         let expectedStart = try #require(
-            selectedContext.schedule.date.at(hour: 12, in: timeZone)
+            selectedContext.schedule.date.at(hour: 19, minute: 30, in: timeZone)
         )
-        let expectedEnd = try #require(
-            selectedContext.schedule.date.at(hour: 13, in: timeZone)
+        _ = try await seedPerformance(
+            database: database,
+            eventID: fixture.eventID,
+            schedule: selectedContext.schedule,
+            stage: selectedContext.stage,
+            performanceID: OMERecord.Performance.ID(
+                organizerID: fixture.eventID.organizerID,
+                eventID: fixture.eventID.eventID,
+                performanceID: performanceLocalID("meadow-opener")
+            ),
+            title: "Meadow Opener",
+            startTime: try #require(
+                selectedContext.schedule.date.at(hour: 18, in: timeZone)
+            ),
+            endTime: expectedStart
         )
-        var state = withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = fixture.eventID
-            $0.defaultEventTimeZone = timeZone
-        } operation: {
-            EventViewer.State(eventID: fixture.eventID)
-        }
-
-        withDependencies {
-            $0.context = .test
-            $0.defaultDatabase = database
-            $0.defaultEventID = fixture.eventID
-            $0.defaultEventTimeZone = timeZone
-        } operation: {
-            state.handleEditingIntent(
-                .addPerformance(
-                    eventID: fixture.eventID,
-                    scheduleID: selectedContext.schedule.id.scheduleID,
-                    stageID: selectedContext.stage.id.stageID
-                )
-            )
-        }
-
-        let editPerformance = try #require(state.destination?.performanceForm)
+        let expectedEnd = expectedStart.addingTimeInterval(60 * 60)
+        let editPerformance = try addPerformanceEditorState(
+            database: database,
+            eventID: fixture.eventID,
+            timeZone: timeZone,
+            scheduleID: selectedContext.schedule.id.scheduleID,
+            stageID: selectedContext.stage.id.stageID
+        )
         expectNoDifference(
             editPerformance.schedule.id.scheduleID,
             selectedContext.schedule.id.scheduleID
@@ -270,6 +266,98 @@ struct ScheduleAuthoringTests {
         expectNoDifference(
             editPerformance.selectedStageID,
             selectedContext.stage.id.stageID
+        )
+        expectNoDifference(editPerformance.startTimeSelection, expectedStart)
+        expectNoDifference(editPerformance.endTimeSelection, expectedEnd)
+    }
+
+    @Test
+    func eventViewerAddPerformanceIntentIgnoresLaterSetsOnOtherStages() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let selectedContext = try await seedAdditionalScheduleContext(
+            database: database,
+            eventID: fixture.eventID
+        )
+        let expectedStart = try #require(
+            selectedContext.schedule.date.at(hour: 19, in: timeZone)
+        )
+        _ = try await seedPerformance(
+            database: database,
+            eventID: fixture.eventID,
+            schedule: selectedContext.schedule,
+            stage: selectedContext.stage,
+            performanceID: OMERecord.Performance.ID(
+                organizerID: fixture.eventID.organizerID,
+                eventID: fixture.eventID.eventID,
+                performanceID: performanceLocalID("active-stage-set")
+            ),
+            title: "Active Stage Set",
+            startTime: try #require(
+                selectedContext.schedule.date.at(hour: 18, in: timeZone)
+            ),
+            endTime: expectedStart
+        )
+        _ = try await seedPerformance(
+            database: database,
+            eventID: fixture.eventID,
+            schedule: selectedContext.schedule,
+            stage: fixture.stage,
+            performanceID: OMERecord.Performance.ID(
+                organizerID: fixture.eventID.organizerID,
+                eventID: fixture.eventID.eventID,
+                performanceID: performanceLocalID("other-stage-late-set")
+            ),
+            title: "Other Stage Late Set",
+            startTime: try #require(
+                selectedContext.schedule.date.at(hour: 22, in: timeZone)
+            ),
+            endTime: try #require(
+                selectedContext.schedule.date.at(hour: 23, in: timeZone)
+            )
+        )
+        let editPerformance = try addPerformanceEditorState(
+            database: database,
+            eventID: fixture.eventID,
+            timeZone: timeZone,
+            scheduleID: selectedContext.schedule.id.scheduleID,
+            stageID: selectedContext.stage.id.stageID
+        )
+        expectNoDifference(editPerformance.startTimeSelection, expectedStart)
+        expectNoDifference(
+            editPerformance.endTimeSelection,
+            expectedStart.addingTimeInterval(60 * 60)
+        )
+    }
+
+    @Test
+    func eventViewerAddPerformanceIntentKeepsNoonDefaultWithoutPriorStageSet() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let selectedContext = try await seedAdditionalScheduleContext(
+            database: database,
+            eventID: fixture.eventID
+        )
+        let expectedStart = try #require(
+            selectedContext.schedule.date.at(hour: 12, in: timeZone)
+        )
+        let expectedEnd = try #require(
+            selectedContext.schedule.date.at(hour: 13, in: timeZone)
+        )
+        let editPerformance = try addPerformanceEditorState(
+            database: database,
+            eventID: fixture.eventID,
+            timeZone: timeZone,
+            scheduleID: selectedContext.schedule.id.scheduleID,
+            stageID: selectedContext.stage.id.stageID
         )
         expectNoDifference(editPerformance.startTimeSelection, expectedStart)
         expectNoDifference(editPerformance.endTimeSelection, expectedEnd)
@@ -1436,6 +1524,40 @@ struct ScheduleAuthoringTests {
         }
     }
 
+    private func addPerformanceEditorState(
+        database: any DatabaseWriter,
+        eventID: OMERecord.Event.ID,
+        timeZone: TimeZone,
+        scheduleID: OMERecord.ID<OMERecord.Schedule>?,
+        stageID: OMERecord.ID<OMERecord.Stage>?
+    ) throws -> Spawn<EditPerformance> {
+        var state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            EventViewer.State(eventID: eventID)
+        }
+
+        withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            state.handleEditingIntent(
+                .addPerformance(
+                    eventID: eventID,
+                    scheduleID: scheduleID,
+                    stageID: stageID
+                )
+            )
+        }
+
+        return try #require(state.destination?.performanceForm)
+    }
+
     private func seedEvent(
         database: any DatabaseWriter,
         timeZone: TimeZone,
@@ -1557,26 +1679,53 @@ struct ScheduleAuthoringTests {
             eventID: fixture.eventID.eventID,
             performanceID: performanceLocalID("opening-set")
         )
+        let performance = try await seedPerformance(
+            database: database,
+            eventID: fixture.eventID,
+            schedule: fixture.schedule,
+            stage: fixture.stage,
+            performanceID: performanceID,
+            title: "Opening Set",
+            description: "Original description.",
+            startTime: startTime,
+            endTime: endTime
+        )
         try await database.write { db in
-            try OMERecord.Performance.insert {
-                OMERecord.Performance.Draft(
-                    id: performanceID,
-                    stageID: fixture.stage.id.stageID,
-                    scheduleID: fixture.schedule.id.scheduleID,
-                    startTime: startTime,
-                    endTime: endTime,
-                    title: "Opening Set",
-                    description: "Original description.",
-                    recordings: []
-                )
-            }
-            .execute(db)
             try OMERecord.Performance.Contributors.insert {
                 OMERecord.Performance.Contributors.Draft(
                     performanceID: performanceID,
                     contributorID: fixture.contributor.id.contributorID,
                     anonymousName: nil,
                     contributorActor: nil
+                )
+            }
+            .execute(db)
+        }
+        return performance
+    }
+
+    private func seedPerformance(
+        database: any DatabaseWriter,
+        eventID: OMERecord.Event.ID,
+        schedule: OMERecord.Schedule,
+        stage: OMERecord.Stage,
+        performanceID: OMERecord.Performance.ID,
+        title: String,
+        description: String? = nil,
+        startTime: Date,
+        endTime: Date
+    ) async throws -> OMERecord.Performance {
+        try await database.write { db in
+            try OMERecord.Performance.insert {
+                OMERecord.Performance.Draft(
+                    id: performanceID,
+                    stageID: stage.id.stageID,
+                    scheduleID: schedule.id.scheduleID,
+                    startTime: startTime,
+                    endTime: endTime,
+                    title: title,
+                    description: description,
+                    recordings: []
                 )
             }
             .execute(db)

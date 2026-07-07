@@ -464,13 +464,28 @@ public struct EventViewer {
                         )
                     }
                     guard let schedule else { return nil }
+                    let resolvedStageID = stageID.flatMap { stageID in
+                        stages.contains { $0.id.stageID == stageID }
+                            ? stageID
+                            : nil
+                    } ?? stages.first?.id.stageID
+                    guard let resolvedStageID else { return nil }
+                    let initialStartTime = try OMERecord.Performance
+                        .where { $0.id.organizerID.eq(eventID.organizerID) }
+                        .where { $0.id.eventID.eq(eventID.eventID) }
+                        .where { $0.scheduleID.eq(schedule.id.scheduleID) }
+                        .where { $0.stageID.eq(resolvedStageID) }
+                        .fetchAll(db)
+                        .map(\.endTime)
+                        .max()
 
                     return EditPerformance.State(
                         eventID: eventID,
                         schedule: schedule,
                         stages: stages,
                         timeZone: eventTimeZone,
-                        selectedStageID: stageID,
+                        selectedStageID: resolvedStageID,
+                        initialStartTime: initialStartTime,
                         contributors: contributors
                     )
                 }

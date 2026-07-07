@@ -180,11 +180,14 @@ public struct EditPerformance {
             stages: [OMERecord.Stage],
             timeZone: TimeZone,
             selectedStageID: OMERecord.ID<OMERecord.Stage>? = nil,
+            initialStartTime: Date? = nil,
             contributors: [ContributorProfile] = []
         ) {
-            let startTime = schedule.date.at(hour: 12, in: timeZone)
+            let defaultStartTime = schedule.date.at(hour: 12, in: timeZone)
                 ?? schedule.date.atStartOfDay(in: timeZone)
-            let endTime = schedule.date.at(hour: 13, in: timeZone)
+            let startTime = initialStartTime ?? defaultStartTime
+            let endTime = initialStartTime.map { $0.addingTimeInterval(60 * 60) }
+                ?? schedule.date.at(hour: 13, in: timeZone)
                 ?? schedule.date.atStartOfDay(in: timeZone)
             self.eventID = eventID
             self.schedule = schedule
