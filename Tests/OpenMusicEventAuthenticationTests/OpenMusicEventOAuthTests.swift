@@ -24,16 +24,28 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
-    func manifestIncludesProposalPermissions() {
+    func manifestIncludesTangledPullRequestSurface() {
         let permissions = Set(
             OpenMusicEventOAuth.appManifest.maximumPermissions.permissions.map(\.rawValue)
         )
 
         #expect(permissions.contains("atproto"))
         #expect(permissions.contains("repo:sh.tangled.publicKey?action=create"))
-        #expect(permissions.contains("repo:sh.tangled.repo.pull?action=create"))
+        #expect(permissions.contains("repo:sh.tangled.repo.pull"))
+        #expect(permissions.contains("repo:sh.tangled.repo.pull.status"))
         #expect(permissions.contains("blob:application/gzip"))
         #expect(permissions.contains("blob:text/x-patch"))
+
+        #expect(
+            OpenMusicEventOAuth.appManifest.maximumPermissions
+                .missing(OpenMusicEventOAuth.proposalAuthRequirement.permissions)
+                .isEmpty
+        )
+        #expect(
+            OpenMusicEventOAuth.appManifest.maximumPermissions
+                .missing(OpenMusicEventOAuth.tangledPullStatusAuthRequirement.permissions)
+                .isEmpty
+        )
     }
 
     @Test

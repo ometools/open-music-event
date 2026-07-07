@@ -1,4 +1,5 @@
 import ATProto
+import ATProtoOAuth
 import Dependencies
 import Foundation
 import OpenMusicEventLexicon
@@ -160,59 +161,96 @@ public struct TangledPullReview: Equatable, Identifiable, Sendable {
 
 public enum TangledPullReviewClientError: Equatable, Error, Sendable {
     case invalidRepositoryDID(String)
+    case invalidReviewURI(String)
     case missingRemote
     case unsupportedRemoteKind(String)
+    case unsupportedReviewURICollection(String)
 }
 
 public struct TangledPullReviewClient: Sendable {
     public var list: @Sendable (
         OpenMusicEventTangledPullReviewRequest
     ) async throws -> [TangledPullReview]
+    public var close: @Sendable (TangledPullReview) async throws -> Void
 
     public init(
         list: @escaping @Sendable (
             OpenMusicEventTangledPullReviewRequest
-        ) async throws -> [TangledPullReview]
+        ) async throws -> [TangledPullReview],
+        close: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in }
     ) {
         self.list = list
+        self.close = close
     }
 }
 
 public extension TangledPullReviewClient {
-    static let noop = Self { _ in [] }
+    static let noop = Self(list: { _ in [] })
 
     static var openMusicEvent: Self {
-        Self { request in
-            @Dependency(\.openMusicEventSourcePatchLocationResolver) var locationResolver
-            @Dependency(XRPC.Client.self) var xrpcClient
+        Self(
+            list: { request in
+                @Dependency(\.openMusicEventSourcePatchLocationResolver) var locationResolver
+                @Dependency(XRPC.Client.self) var xrpcClient
 
-            let location = try await locationResolver.resolve(
-                OpenMusicEventSourcePatchRequest(eventID: request.eventID)
-            )
-            guard let remote = location.remote else {
-                throw TangledPullReviewClientError.missingRemote
-            }
-            guard remote.kind == "tangled" else {
-                throw TangledPullReviewClientError.unsupportedRemoteKind(remote.kind)
-            }
+                let location = try await locationResolver.resolve(
+                    OpenMusicEventSourcePatchRequest(eventID: request.eventID)
+                )
+                guard let remote = location.remote else {
+                    throw TangledPullReviewClientError.missingRemote
+                }
+                guard remote.kind == "tangled" else {
+                    throw TangledPullReviewClientError.unsupportedRemoteKind(remote.kind)
+                }
 
-            let repository = try TangledRepositoryReference(parsing: remote.reference)
-            let targetRepository = try await TangledSourcePatchPublisher()
-                .targetRepository(repository)
-            guard let subject = DID(targetRepository.repoDID) else {
-                throw TangledPullReviewClientError.invalidRepositoryDID(
-                    targetRepository.repoDID
+                let repository = try TangledRepositoryReference(parsing: remote.reference)
+                let targetRepository = try await TangledSourcePatchPublisher()
+                    .targetRepository(repository)
+                guard let subject = DID(targetRepository.repoDID) else {
+                    throw TangledPullReviewClientError.invalidRepositoryDID(
+                        targetRepository.repoDID
+                    )
+                }
+
+                let output = try await xrpcClient.tangledListPulls(
+                    subject: subject,
+                    status: .open,
+                    limit: 50,
+                    order: .descending
+                )
+                return output.items.map(TangledPullReview.init(item:))
+            },
+            close: { review in
+                @Dependency(\.date.now) var now
+                @Dependency(\.getDefaultSession) var getDefaultSession
+                @Dependency(XRPC.Client.self) var xrpcClient
+
+                guard let pullURI = ATProto.URI(review.uri) else {
+                    throw TangledPullReviewClientError.invalidReviewURI(review.uri)
+                }
+                guard pullURI.collection == TangledNSID.pull, pullURI.rkey != nil else {
+                    throw TangledPullReviewClientError.unsupportedReviewURICollection(
+                        review.uri
+                    )
+                }
+
+                let record = TangledPullStatusRecord(
+                    pull: pullURI,
+                    status: .closed,
+                    createdAt: tangledPullReviewTimestamp(now)
+                )
+                _ = try await xrpcClient.run(
+                    TangledRepositoryRequests.createRecord(
+                        repo: getDefaultSession().accountID.rawValue.description,
+                        collection: .pullStatus,
+                        record: record,
+                        authorizationPolicy: .required(
+                            TangledOAuthRequirements.pullStatusAuthRequirement
+                        )
+                    )
                 )
             }
-
-            let output = try await xrpcClient.tangledListPulls(
-                subject: subject,
-                status: .open,
-                limit: 50,
-                order: .descending
-            )
-            return output.items.map(TangledPullReview.init(item:))
-        }
+        )
     }
 }
 
@@ -242,4 +280,8 @@ private extension ATProto.URI {
             handle.rawValue
         }
     }
+}
+
+private func tangledPullReviewTimestamp(_ date: Date) -> String {
+    ISO8601DateFormatter().string(from: date)
 }

@@ -782,6 +782,108 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
+    func closeTangledPullReviewButtonRemovesReviewAfterStatusWrite() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let review = testTangledPullReview()
+        let closedReviews = Mutex([TangledPullReview]())
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient(
+                list: { _ in [] },
+                close: { review in
+                    closedReviews.withLock { $0.append(review) }
+                }
+            )
+        } operation: {
+            var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.tangledPullReviewStatus = .loaded([review])
+            initialState.tangledPullReviewSemanticDiffs[review.id] = .failed(
+                EventWorkspace.TangledPullReviewSemanticDiffFailure(TestCloseFailure.closeFailed)
+            )
+            return TestStore(initialState: initialState) {
+                EventWorkspace()
+            }
+        }
+
+        let task = store.send(.closeTangledPullReviewButtonTapped(review)) {
+            $0.closingTangledPullReviewIDs = [review.id]
+        }
+        await store.receive(
+            \.tangledPullReviewCloseResponse,
+            .matching { (
+                response: (
+                    review: TangledPullReview,
+                    Result<Void, EventWorkspace.TangledPullReviewCloseFailure>
+                )
+            ) in
+                guard response.review == review else { return false }
+                guard case .success = response.1 else { return false }
+                return true
+            },
+            timeout: .seconds(1)
+        ) {
+            $0.closingTangledPullReviewIDs = []
+            $0.tangledPullReviewCloseFailures = [:]
+            $0.tangledPullReviewSemanticDiffs = [:]
+            $0.tangledPullReviewStatus = .loaded([])
+        }
+        await task?.value
+
+        #expect(closedReviews.withLock { $0 } == [review])
+        await store.dismount()
+    }
+
+    @Test
+    func closeTangledPullReviewButtonKeepsReviewAndShowsFailure() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let review = testTangledPullReview()
+        let failure = EventWorkspace.TangledPullReviewCloseFailure(
+            TestCloseFailure.closeFailed
+        )
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient(
+                list: { _ in [] },
+                close: { _ in
+                    throw TestCloseFailure.closeFailed
+                }
+            )
+        } operation: {
+            var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.tangledPullReviewStatus = .loaded([review])
+            return TestStore(initialState: initialState) {
+                EventWorkspace()
+            }
+        }
+
+        let task = store.send(.closeTangledPullReviewButtonTapped(review)) {
+            $0.closingTangledPullReviewIDs = [review.id]
+        }
+        await store.receive(
+            \.tangledPullReviewCloseResponse,
+            .matching { (
+                response: (
+                    review: TangledPullReview,
+                    Result<Void, EventWorkspace.TangledPullReviewCloseFailure>
+                )
+            ) in
+                guard response.review == review else { return false }
+                guard case .failure(failure) = response.1 else { return false }
+                return true
+            },
+            timeout: .seconds(1)
+        ) {
+            $0.closingTangledPullReviewIDs = []
+            $0.tangledPullReviewCloseFailures[review.id] = failure
+        }
+        await task?.value
+
+        await store.dismount()
+    }
+
+    @Test
     func reviewSemanticDiffLoadsFromReviewBranchSnapshot() async throws {
         let database = try makePreparedDatabase()
         let baselineDatabase = try defaultBaselineDatabase()
@@ -1014,6 +1116,30 @@ private func testEventID(_ string: String) -> OME.Event.ID {
     )
 }
 
+private func testTangledPullReview() -> TangledPullReview {
+    TangledPullReview(
+        author: "did:plc:author123",
+        body: "Move one performance later.",
+        commentCount: 2,
+        createdAt: "2026-07-03T12:01:00Z",
+        patchBlobs: [
+            TangledPullReview.PatchBlob(
+                cid: "bafkreipatch",
+                createdAt: "2026-07-03T12:00:00Z",
+                index: 1,
+                mimeType: "application/gzip",
+                size: 123
+            )
+        ],
+        sourceBranch: "ome/proposal-schedule",
+        state: "open",
+        targetBranch: "main",
+        targetRepositoryDID: "did:plc:targetrepo",
+        title: "Update Saturday schedule",
+        uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
+    )
+}
+
 private enum SourceProposalTestError: Equatable, Error {
     case failed
 }
@@ -1021,6 +1147,10 @@ private enum SourceProposalTestError: Equatable, Error {
 private enum ResetEditsTestError: Equatable, Error {
     case failed
     case previousFailure
+}
+
+private enum TestCloseFailure: Equatable, Error {
+    case closeFailed
 }
 
 private extension SourceReferenceDatabaseClient {

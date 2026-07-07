@@ -64,9 +64,17 @@ public enum OpenMusicEventOAuth {
 
     public static let redirectURL = URL(string: "app.openmusicevent:/oauth/callback")!
 
-    public static let tangledPullCreatePermission = OAuth.Permission(
-        "repo:sh.tangled.repo.pull?action=create"
-    )
+    public static let tangledPullPermission =
+        TangledOAuthRequirements.pullPermission
+
+    public static let tangledPullCreatePermission =
+        TangledOAuthRequirements.pullCreatePermission
+
+    public static let tangledPullStatusPermission =
+        TangledOAuthRequirements.pullStatusPermission
+
+    public static let tangledPullStatusCreatePermission =
+        TangledOAuthRequirements.pullStatusCreatePermission
 
     public static let tangledPublicKeyCreatePermission =
         TangledOAuthRequirements.publicKeyCreatePermission
@@ -85,6 +93,12 @@ public enum OpenMusicEventOAuth {
 
     public static let proposalAuthRequirement =
         TangledOAuthRequirements.proposalAuthRequirement
+
+    public static let tangledPullRequestSurfaceAuthRequirement =
+        TangledOAuthRequirements.pullRequestSurfaceAuthRequirement
+
+    public static let tangledPullStatusAuthRequirement =
+        TangledOAuthRequirements.pullStatusAuthRequirement
 
     public static let baseAuthRequirement = OAuth.AuthRequirement(
         permissions: [.atproto]
@@ -141,7 +155,7 @@ public enum OpenMusicEventOAuth {
         basePermissions: OAuth.GrantedPermissions([.atproto]),
         registeredRequirements: [
             tangledPublicKeyAuthRequirement,
-            proposalAuthRequirement,
+            tangledPullRequestSurfaceAuthRequirement,
             legacyPatchBlobAuthRequirement,
         ]
     )

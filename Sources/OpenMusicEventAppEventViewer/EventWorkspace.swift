@@ -75,6 +75,14 @@ public struct EventWorkspace {
         }
     }
 
+    public struct TangledPullReviewCloseFailure: Equatable, Error, Sendable {
+        public var message: String
+
+        public init(_ error: any Error) {
+            self.message = String(describing: error)
+        }
+    }
+
     public struct TangledPullReviewSemanticDiffFailure: Equatable, Error, Sendable {
         public var message: String
 
@@ -130,6 +138,8 @@ public struct EventWorkspace {
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
         public var tangledPullReviewStatus: TangledPullReviewStatus = .notLoaded
+        public var closingTangledPullReviewIDs: Set<String> = []
+        public var tangledPullReviewCloseFailures: [String: TangledPullReviewCloseFailure] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
 
@@ -143,6 +153,7 @@ public struct EventWorkspace {
     }
 
     public enum Action {
+        case closeTangledPullReviewButtonTapped(TangledPullReview)
         case generateSourcePatchButtonTapped
         case proposeChangeButtonTapped
         case reviewSemanticDiffButtonTapped(TangledPullReview)
@@ -156,6 +167,10 @@ public struct EventWorkspace {
         case tangledPullReviewSemanticDiffResponse(
             reviewID: String,
             Result<TangledPullReviewSemanticDiff, TangledPullReviewSemanticDiffFailure>
+        )
+        case tangledPullReviewCloseResponse(
+            review: TangledPullReview,
+            Result<Void, TangledPullReviewCloseFailure>
         )
         case tangledPullReviewsResponse(Result<[TangledPullReview], TangledPullReviewFailure>)
     }
@@ -256,7 +271,36 @@ public struct EventWorkspace {
                 }
             }
 
+            func closeTangledPullReview(
+                _ review: TangledPullReview,
+                state: inout State
+            ) {
+                guard !state.closingTangledPullReviewIDs.contains(review.id) else { return }
+
+                let tangledPullReviewClient = tangledPullReviewClient
+                state.closingTangledPullReviewIDs.insert(review.id)
+                state.tangledPullReviewCloseFailures[review.id] = nil
+                store.addTask {
+                    do {
+                        try await tangledPullReviewClient.close(review)
+                        try store.send(
+                            .tangledPullReviewCloseResponse(review: review, .success(()))
+                        )
+                    } catch {
+                        try store.send(
+                            .tangledPullReviewCloseResponse(
+                                review: review,
+                                .failure(TangledPullReviewCloseFailure(error))
+                            )
+                        )
+                    }
+                }
+            }
+
             switch action {
+            case let .closeTangledPullReviewButtonTapped(review):
+                closeTangledPullReview(review, state: &state)
+
             case .generateSourcePatchButtonTapped:
                 generateSourcePatch(eventID: state.eventID, state: &state)
                 refreshTangledPullReviews(eventID: state.eventID, state: &state)
@@ -359,6 +403,20 @@ public struct EventWorkspace {
 
             case let .tangledPullReviewSemanticDiffResponse(reviewID, .failure(failure)):
                 state.tangledPullReviewSemanticDiffs[reviewID] = .failed(failure)
+
+            case let .tangledPullReviewCloseResponse(review, .success):
+                state.closingTangledPullReviewIDs.remove(review.id)
+                state.tangledPullReviewCloseFailures[review.id] = nil
+                state.tangledPullReviewSemanticDiffs[review.id] = nil
+                if case let .loaded(reviews) = state.tangledPullReviewStatus {
+                    state.tangledPullReviewStatus = .loaded(
+                        reviews.filter { $0.id != review.id }
+                    )
+                }
+
+            case let .tangledPullReviewCloseResponse(review, .failure(failure)):
+                state.closingTangledPullReviewIDs.remove(review.id)
+                state.tangledPullReviewCloseFailures[review.id] = failure
 
             case let .tangledPullReviewsResponse(.success(reviews)):
                 state.tangledPullReviewStatus = .loaded(reviews)
@@ -608,6 +666,8 @@ public struct EventWorkspaceView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(reviews) { review in
+                            let isClosing = store.closingTangledPullReviewIDs.contains(review.id)
+                            let closeFailure = store.tangledPullReviewCloseFailures[review.id]
                             NavigationLink {
                                 TangledPullReviewDetailView(
                                     review: review,
@@ -618,7 +678,26 @@ public struct EventWorkspaceView: View {
                                     }
                                 )
                             } label: {
-                                TangledPullReviewRow(review: review)
+                                TangledPullReviewRow(
+                                    review: review,
+                                    isClosing: isClosing,
+                                    closeFailure: closeFailure
+                                )
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    store.send(.closeTangledPullReviewButtonTapped(review))
+                                } label: {
+                                    Text(isClosing ? "Closing" : "Close")
+                                }
+                                .tint(.red)
+                            }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    store.send(.closeTangledPullReviewButtonTapped(review))
+                                } label: {
+                                    Text("Close PR")
+                                }
                             }
                         }
                     }
@@ -697,6 +776,8 @@ enum EventWorkspaceTab: String, CaseIterable, Identifiable {
 
 struct TangledPullReviewRow: View {
     let review: TangledPullReview
+    var isClosing = false
+    var closeFailure: EventWorkspace.TangledPullReviewCloseFailure?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -730,6 +811,27 @@ struct TangledPullReviewRow: View {
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
+
+            if isClosing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Closing PR")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if let closeFailure {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PR could not be closed")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Text(closeFailure.message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
         }
         .padding(.vertical, 4)
     }
