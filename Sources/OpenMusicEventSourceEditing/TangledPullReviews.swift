@@ -172,15 +172,18 @@ public struct TangledPullReviewClient: Sendable {
         OpenMusicEventTangledPullReviewRequest
     ) async throws -> [TangledPullReview]
     public var close: @Sendable (TangledPullReview) async throws -> Void
+    public var delete: @Sendable (TangledPullReview) async throws -> Void
 
     public init(
         list: @escaping @Sendable (
             OpenMusicEventTangledPullReviewRequest
         ) async throws -> [TangledPullReview],
-        close: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in }
+        close: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in },
+        delete: @escaping @Sendable (TangledPullReview) async throws -> Void = { _ in }
     ) {
         self.list = list
         self.close = close
+        self.delete = delete
     }
 }
 
@@ -246,6 +249,29 @@ public extension TangledPullReviewClient {
                         record: record,
                         authorizationPolicy: .required(
                             TangledOAuthRequirements.pullStatusAuthRequirement
+                        )
+                    )
+                )
+            },
+            delete: { review in
+                @Dependency(XRPC.Client.self) var xrpcClient
+
+                guard let pullURI = ATProto.URI(review.uri) else {
+                    throw TangledPullReviewClientError.invalidReviewURI(review.uri)
+                }
+                guard pullURI.collection == TangledNSID.pull, let rkey = pullURI.rkey else {
+                    throw TangledPullReviewClientError.unsupportedReviewURICollection(
+                        review.uri
+                    )
+                }
+
+                _ = try await xrpcClient.run(
+                    TangledRepositoryRequests.deleteRecord(
+                        repo: pullURI.authorDescription,
+                        collection: .pull,
+                        rkey: rkey,
+                        authorizationPolicy: .required(
+                            TangledOAuthRequirements.pullDeleteAuthRequirement
                         )
                     )
                 )

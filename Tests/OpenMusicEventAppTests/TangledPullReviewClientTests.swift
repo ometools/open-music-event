@@ -132,4 +132,47 @@ struct TangledPullReviewClientTests {
         #expect(record["status"] as? String == TangledPullStatus.closed.rawValue)
         #expect(record["createdAt"] != nil)
     }
+
+    @Test
+    func deleteRemovesPullRecord() async throws {
+        let review = TangledPullReview(
+            author: "did:plc:author123",
+            body: "Move one performance later.",
+            commentCount: 2,
+            createdAt: "2026-07-03T12:01:00Z",
+            patchBlobs: [],
+            sourceBranch: "ome/proposal-schedule",
+            state: "open",
+            targetBranch: "main",
+            targetRepositoryDID: "did:plc:targetrepo",
+            title: "Update Saturday schedule",
+            uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
+        )
+        let requests = Mutex([(url: URL?, body: Data?)]())
+
+        try await withDependencies {
+            $0[XRPC.Client.self] = .liveValue
+            $0.pdsHost = "publisher.pds.example"
+            $0.getDefaultSession = { .placeholder }
+            $0.httpClient = HTTPClient { request, body in
+                requests.withLock {
+                    $0.append((url: request.url, body: body))
+                }
+                return Data("{}".utf8)
+            }
+        } operation: {
+            try await TangledPullReviewClient.openMusicEvent.delete(review)
+        }
+
+        let request = try #require(requests.withLock { $0.first })
+        #expect(request.url?.host == "publisher.pds.example")
+        #expect(request.url?.path.hasSuffix("/com.atproto.repo.deleteRecord") == true)
+        let body = try #require(request.body)
+        let json = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(json["repo"] as? String == "did:plc:author123")
+        #expect(json["collection"] as? String == TangledCollection.pull.rawValue)
+        #expect(json["rkey"] as? String == "3pull")
+    }
 }

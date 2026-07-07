@@ -46,6 +46,12 @@ public enum TangledOAuthRequirements {
         ]
     )
 
+    public static let pullDeleteAuthRequirement = OAuth.AuthRequirement(
+        permissions: [
+            pullDeletePermission
+        ]
+    )
+
     public static let pullRequestSurfaceAuthRequirement = OAuth.AuthRequirement(
         permissions: [
             patchBlobPermission,

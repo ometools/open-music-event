@@ -50,6 +50,11 @@ struct OpenMusicEventOAuthTests {
                 .missing(OpenMusicEventOAuth.tangledPullStatusAuthRequirement.permissions)
                 .isEmpty
         )
+        #expect(
+            OpenMusicEventOAuth.appManifest.maximumPermissions
+                .missing(OpenMusicEventOAuth.tangledPullDeleteAuthRequirement.permissions)
+                .isEmpty
+        )
     }
 
     @Test
