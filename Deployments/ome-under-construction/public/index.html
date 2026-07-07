@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Open Music Event is being built: a native iOS and Android app for structured music-event calendars.">
+  <meta property="og:title" content="Open Music Event">
+  <meta property="og:description" content="A native iOS and Android app for structured music-event calendars.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://openmusicevent.app/">
+  <meta property="og:image" content="https://openmusicevent.app/assets/ome-logo-sample-wordmark-2026-05.jpg">
+  <title>Open Music Event</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #060708;
+      --panel: #111315;
+      --text: #f5f7f7;
+      --muted: #a8b0b3;
+      --line: #30363a;
+      --cyan: #78e0d6;
+      --violet: #a985ff;
+      --rose: #f18aa8;
+      --amber: #ffc473;
+      font-family:
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 32rem),
+        var(--bg);
+      color: var(--text);
+    }
+
+    a {
+      color: inherit;
+      text-decoration-color: rgba(120, 224, 214, 0.65);
+      text-underline-offset: 0.2em;
+    }
+
+    a:hover {
+      text-decoration-color: var(--cyan);
+    }
+
+    .page {
+      display: grid;
+      min-height: 100vh;
+      place-items: center;
+      padding: 3rem 1.25rem;
+    }
+
+    .hero {
+      width: min(100%, 56rem);
+    }
+
+    .logo-wrap {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 2.25rem;
+    }
+
+    .logo {
+      display: block;
+      width: min(100%, 34rem);
+      height: auto;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 1rem 4rem rgba(0, 0, 0, 0.32);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin: 0 0 1rem;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .status::before {
+      content: "";
+      width: 0.7rem;
+      height: 0.7rem;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--cyan), var(--violet) 48%, var(--rose));
+      box-shadow: 0 0 1.2rem rgba(120, 224, 214, 0.42);
+    }
+
+    h1 {
+      max-width: 14ch;
+      margin: 0;
+      font-size: clamp(3rem, 8vw, 5.8rem);
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 43rem;
+      margin: 1.5rem 0 0;
+      color: var(--muted);
+      font-size: clamp(1.1rem, 2vw, 1.35rem);
+      line-height: 1.55;
+    }
+
+    .details {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      margin-top: 2.25rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--line);
+      color: #dbe0e2;
+      font-size: 0.98rem;
+      line-height: 1.45;
+    }
+
+    .detail {
+      min-width: min(100%, 14rem);
+      padding: 0.9rem 1rem;
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .detail strong {
+      display: block;
+      margin-bottom: 0.25rem;
+      color: var(--text);
+      font-size: 0.86rem;
+    }
+
+    .accent {
+      height: 0.18rem;
+      width: 12rem;
+      max-width: 45vw;
+      margin-top: 2.75rem;
+      background: linear-gradient(90deg, var(--cyan), var(--violet), var(--rose), var(--amber));
+    }
+
+    @media (max-width: 42rem) {
+      .page {
+        place-items: start center;
+        padding-top: 2rem;
+      }
+
+      .logo-wrap {
+        justify-content: flex-start;
+        margin-bottom: 1.75rem;
+      }
+
+      .logo {
+        width: min(100%, 22rem);
+      }
+
+      h1 {
+        max-width: 12ch;
+      }
+
+      .details {
+        display: grid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="logo-wrap">
+        <img class="logo" src="assets/ome-logo-sample-wordmark-2026-05.jpg" alt="Open Music Event">
+      </div>
+
+      <p class="status">Under construction</p>
+      <h1 id="page-title">Open Music Event is being built.</h1>
+      <p class="lede">
+        A native iOS and Android app for structured music-event calendars,
+        source-backed schedules, stages, contributors, maps, and event details.
+      </p>
+
+      <div class="details" aria-label="Project links">
+        <p class="detail">
+          <strong>ATProto identity</strong>
+          <a href="https://bsky.app/profile/openmusicevent.app">openmusicevent.app</a>
+        </p>
+        <p class="detail">
+          <strong>Public launch surface</strong>
+          More event and organizer information is on the way.
+        </p>
+      </div>
+
+      <div class="accent" aria-hidden="true"></div>
+    </section>
+  </main>
+</body>
+</html>

@@ -16,11 +16,23 @@ public enum TangledOAuthRequirements {
     public static let pullCreatePermission = OAuth.Permission(
         "repo:sh.tangled.repo.pull?action=create"
     )
+    public static let pullUpdatePermission = OAuth.Permission(
+        "repo:sh.tangled.repo.pull?action=update"
+    )
+    public static let pullDeletePermission = OAuth.Permission(
+        "repo:sh.tangled.repo.pull?action=delete"
+    )
     public static let pullStatusPermission = OAuth.Permission(
         "repo:sh.tangled.repo.pull.status"
     )
     public static let pullStatusCreatePermission = OAuth.Permission(
         "repo:sh.tangled.repo.pull.status?action=create"
+    )
+    public static let pullStatusUpdatePermission = OAuth.Permission(
+        "repo:sh.tangled.repo.pull.status?action=update"
+    )
+    public static let pullStatusDeletePermission = OAuth.Permission(
+        "repo:sh.tangled.repo.pull.status?action=delete"
     )
 
     public static let publicKeyAuthRequirement = OAuth.AuthRequirement(
@@ -37,8 +49,12 @@ public enum TangledOAuthRequirements {
     public static let pullRequestSurfaceAuthRequirement = OAuth.AuthRequirement(
         permissions: [
             patchBlobPermission,
-            pullPermission,
-            pullStatusPermission,
+            pullCreatePermission,
+            pullUpdatePermission,
+            pullDeletePermission,
+            pullStatusCreatePermission,
+            pullStatusUpdatePermission,
+            pullStatusDeletePermission,
         ]
     )
 

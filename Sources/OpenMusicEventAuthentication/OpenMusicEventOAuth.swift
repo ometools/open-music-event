@@ -70,11 +70,23 @@ public enum OpenMusicEventOAuth {
     public static let tangledPullCreatePermission =
         TangledOAuthRequirements.pullCreatePermission
 
+    public static let tangledPullUpdatePermission =
+        TangledOAuthRequirements.pullUpdatePermission
+
+    public static let tangledPullDeletePermission =
+        TangledOAuthRequirements.pullDeletePermission
+
     public static let tangledPullStatusPermission =
         TangledOAuthRequirements.pullStatusPermission
 
     public static let tangledPullStatusCreatePermission =
         TangledOAuthRequirements.pullStatusCreatePermission
+
+    public static let tangledPullStatusUpdatePermission =
+        TangledOAuthRequirements.pullStatusUpdatePermission
+
+    public static let tangledPullStatusDeletePermission =
+        TangledOAuthRequirements.pullStatusDeletePermission
 
     public static let tangledPublicKeyCreatePermission =
         TangledOAuthRequirements.publicKeyCreatePermission

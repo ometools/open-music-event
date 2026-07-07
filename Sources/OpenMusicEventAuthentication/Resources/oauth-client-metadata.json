@@ -2,7 +2,7 @@
   "client_id": "https://openmusicevent.app/.well-known/oauth-client-metadata.json",
   "client_name": "Open Music Event",
   "application_type": "native",
-  "scope": "atproto blob:application/gzip blob:text/x-patch repo:sh.tangled.publicKey?action=create repo:sh.tangled.repo.pull repo:sh.tangled.repo.pull.status",
+  "scope": "atproto blob:application/gzip blob:text/x-patch repo:sh.tangled.publicKey?action=create repo:sh.tangled.repo.pull.status?action=create repo:sh.tangled.repo.pull.status?action=delete repo:sh.tangled.repo.pull.status?action=update repo:sh.tangled.repo.pull?action=create repo:sh.tangled.repo.pull?action=delete repo:sh.tangled.repo.pull?action=update",
   "response_types": [
     "code"
   ],
