@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import ComposableForms
 import Foundation
 import GRDB
 import Lexicon
@@ -464,6 +465,11 @@ public struct EventWorkspace {
                 state.isResettingEdits = false
                 state.resetEditsFailure = failure
 
+            case .sourceProposal(.delegate(.created)):
+                state.isPreparingSourceProposal = false
+                state.dismissSourceProposal()
+                refreshTangledPullReviews(eventID: state.eventID, state: &state)
+
             case .sourceProposal(.delegate(.dismissed)):
                 state.isPreparingSourceProposal = false
                 state.dismissSourceProposal()
@@ -920,23 +926,26 @@ struct TangledPullReviewRow: View {
     var deleteFailure: EventWorkspace.TangledPullReviewDeleteFailure?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(review.title)
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(review.createdAt.tangledPullReviewCreatedAtTitle)
+                        .font(.headline)
+
+                    Text(review.organizerDestinationTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Spacer()
-                Text(review.state.tangledPullReviewStateTitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+
+                TangledPullReviewStateChip(state: review.state)
             }
 
-            HStack(spacing: 8) {
-                Text(review.author)
-                Text(review.createdAt)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+            Text(review.title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .lineLimit(2)
 
             if let body = review.body?.sourceReviewPreview, !body.isEmpty {
                 Text(body)
@@ -946,8 +955,8 @@ struct TangledPullReviewRow: View {
             }
 
             HStack(spacing: 8) {
-                Label("\(review.patchBlobs.count)", systemImage: "doc.zipper")
-                Label("\(review.commentCount)", systemImage: "bubble.left")
+                Text(review.patchBlobCountTitle)
+                Text(review.commentCountTitle)
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -995,6 +1004,34 @@ struct TangledPullReviewRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+struct TangledPullReviewStateChip: View {
+    let state: String
+
+    var body: some View {
+        Text(state.tangledPullReviewStateTitle)
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundStyle(state.tangledPullReviewStateForegroundStyle)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(state.tangledPullReviewStateBackgroundStyle, in: Capsule())
+    }
+}
+
+private extension TangledPullReview {
+    var organizerDestinationTitle: String {
+        targetBranch == "main" ? "Main organizer" : "\(targetBranch) organizer"
+    }
+
+    var patchBlobCountTitle: String {
+        patchBlobs.count == 1 ? "1 patch" : "\(patchBlobs.count) patches"
+    }
+
+    var commentCountTitle: String {
+        commentCount == 1 ? "1 comment" : "\(commentCount) comments"
     }
 }
 
@@ -1432,13 +1469,19 @@ public struct SourceProposalComposerView: View {
         NavigationStack {
             List {
                 Section("Title") {
-                    TextField("Title", text: $store.title)
+                    TextField("Title", text: $store.form.value.title)
+                        .onSubmit {
+                            store.send(.form(.fieldSubmitted(SourceProposalFormFieldID.title)))
+                        }
+                    FormFieldValidationStatus(
+                        validation: store.form.validation[SourceProposalFormFieldID.title]
+                    )
                 }
 
                 Section("Description") {
                     TextField(
                         "Description",
-                        text: $store.description,
+                        text: $store.form.value.description,
                         axis: .vertical
                     )
                     .lineLimit(4...8)
@@ -2101,6 +2144,11 @@ private extension SourcePatchFileChange.Kind {
 }
 
 private extension String {
+    var tangledPullReviewCreatedAtTitle: String {
+        guard let date = ISO8601DateFormatter().date(from: self) else { return self }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
     var sourceReviewPreview: String {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 180 else { return trimmed }
@@ -2117,6 +2165,32 @@ private extension String {
             "Merged"
         default:
             self
+        }
+    }
+
+    var tangledPullReviewStateBackgroundStyle: Color {
+        switch self {
+        case "open":
+            Color.green.opacity(0.16)
+        case "closed":
+            Color.orange.opacity(0.18)
+        case "merged":
+            Color.blue.opacity(0.16)
+        default:
+            Color.secondary.opacity(0.12)
+        }
+    }
+
+    var tangledPullReviewStateForegroundStyle: Color {
+        switch self {
+        case "open":
+            .green
+        case "closed":
+            .orange
+        case "merged":
+            .blue
+        default:
+            .secondary
         }
     }
 }

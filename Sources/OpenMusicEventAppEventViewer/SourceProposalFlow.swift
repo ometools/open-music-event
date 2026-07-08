@@ -1,3 +1,4 @@
+import ComposableForms
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
@@ -18,19 +19,18 @@ public enum SourceProposalTarget: Equatable, Identifiable, Sendable {
         }
     }
 
-    var defaultTitle: String {
-        switch self {
-        case .calendar:
-            "Update source calendar"
-        case .event:
-            "Update event source"
-        }
-    }
 }
 
 @Feature
 public struct SourceProposalFlow {
     public init() {}
+
+    public struct FormValue: Equatable, Sendable {
+        var description = ""
+        var title = ""
+    }
+
+    public typealias FormFeature = ComposableForms.Form<FormValue>
 
     public struct State: Identifiable {
         public init(
@@ -43,7 +43,7 @@ public struct SourceProposalFlow {
             self.patch = patch
             self.sourceChangeGroups = sourceChangeGroups
             self.sourceRecordComparisons = sourceRecordComparisons
-            self.title = target.defaultTitle
+            self.form = FormFeature.State(value: FormValue())
         }
 
         public init(
@@ -66,13 +66,22 @@ public struct SourceProposalFlow {
             return eventID
         }
 
-        public var description = ""
+        public var form: FormFeature.State
         public let patch: SourcePatch
         public var sourceChangeGroups: [SourceChangeGroup]
         public var sourceRecordComparisons: SourceRecordComparisons
         public var status: EventWorkspace.SourceProposalStatus = .composing
         public let target: SourceProposalTarget
-        public var title: String
+
+        public var description: String {
+            get { form.value.description }
+            set { form.value.description = newValue }
+        }
+
+        public var title: String {
+            get { form.value.title }
+            set { form.value.title = newValue }
+        }
     }
 
     @CasePathable
@@ -80,9 +89,12 @@ public struct SourceProposalFlow {
         case createProposalButtonTapped
         case delegate(Delegate)
         case doneButtonTapped
+        case form(FormFeature.Action)
+        case formSubmitted(FormValue)
     }
 
     public enum Delegate: Equatable, Sendable {
+        case created(SourcePatchPublication)
         case dismissed
     }
 
@@ -92,6 +104,12 @@ public struct SourceProposalFlow {
 
     public var body: some Feature {
         let _ = Self._logChanges()
+        Scope(\.form, action: \.form) {
+            FormFeature()
+                .onSubmit { value in
+                    try store.send(.formSubmitted(value))
+                }
+        }
         Update { state, action in
             switch action {
             case .createProposalButtonTapped:
@@ -99,13 +117,22 @@ public struct SourceProposalFlow {
                       state.status.canCreateProposal
                 else { return }
 
+                store.addTask {
+                    try store.send(.form(.submittedForm))
+                }
+
+            case let .formSubmitted(value):
+                guard !state.patch.isEmpty,
+                      state.status.canCreateProposal,
+                      let title = value.title.sourceProposalValue
+                else { return }
+
                 let calendarSourcePatchLocationResolver = calendarSourcePatchLocationResolver
-                let description = state.description.sourceProposalValue
+                let description = value.description.sourceProposalValue
                 let patch = state.patch
                 let sourcePatchLocationResolver = sourcePatchLocationResolver
                 let sourcePatchPublisher = sourcePatchPublisher
                 let target = state.target
-                let title = state.title.sourceProposalValue
 
                 state.status = .proposing
                 store.addTask {
@@ -145,6 +172,7 @@ public struct SourceProposalFlow {
                     try store.modify {
                         $0.status = .created(publication)
                     }
+                    try store.send(.delegate(.created(publication)))
                 }
 
             case .delegate:
@@ -154,7 +182,28 @@ public struct SourceProposalFlow {
                 store.addTask {
                     try store.send(.delegate(.dismissed))
                 }
+
+            case .form:
+                break
             }
+        }
+    }
+}
+
+enum SourceProposalFormFieldID {
+    static var title: AnyHashable { AnyHashable(\SourceProposalFlow.FormValue.title) }
+}
+
+private extension SourceProposalFlow.FormFeature {
+    init() {
+        self.init {
+            Self.Field(\.title) {
+                Validation(error: "Enter a title.") { value in
+                    !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+            }
+
+            Self.Field(\.description)
         }
     }
 }
@@ -178,7 +227,10 @@ private struct SourceProposalPublishFailed: CustomStringConvertible, Error {
 
 extension SourceProposalFlow.State {
     var canCreateSourceProposal: Bool {
-        !patch.isEmpty && status.canCreateProposal
+        !patch.isEmpty
+            && status.canCreateProposal
+            && form.canSubmit
+            && title.sourceProposalValue != nil
     }
 }
 

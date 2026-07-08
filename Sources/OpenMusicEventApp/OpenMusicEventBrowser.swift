@@ -1410,7 +1410,9 @@ public struct TeamWorkspaceEditor {
             case let .sourcePatchGenerationResponse(.failure(failure)):
                 state.sourcePatchStatus = .failed(failure)
 
-            case .sourceProposal(.delegate(.dismissed)), .sourceProposalDismissed:
+            case .sourceProposal(.delegate(.created)),
+                .sourceProposal(.delegate(.dismissed)),
+                .sourceProposalDismissed:
                 state.dismissSourceProposal()
 
             case .sourceProposal:

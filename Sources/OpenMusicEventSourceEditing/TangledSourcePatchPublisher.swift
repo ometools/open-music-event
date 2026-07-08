@@ -12,14 +12,11 @@ import XRPCClient
 
 public struct TangledSourcePatchPublisher: Sendable {
     public var codec: SourcePatchGitPatchCodec
-    public var defaultTitle: String
 
     public init(
-        codec: SourcePatchGitPatchCodec = SourcePatchGitPatchCodec(),
-        defaultTitle: String = "Update event source"
+        codec: SourcePatchGitPatchCodec = SourcePatchGitPatchCodec()
     ) {
         self.codec = codec
-        self.defaultTitle = defaultTitle
     }
 
     public func publish(_ preparedPatch: PreparedSourcePatch) async throws -> SourcePatchPublication {
@@ -28,6 +25,9 @@ public struct TangledSourcePatchPublisher: Sendable {
         }
         guard remote.kind == "tangled" else {
             throw TangledSourcePatchPublisherError.unsupportedRemoteKind(remote.kind)
+        }
+        guard let title = preparedPatch.request.title?.sourcePatchTitleValue else {
+            throw TangledSourcePatchPublisherError.missingTitle
         }
 
         let repository = try TangledRepositoryReference(parsing: remote.reference)
@@ -53,11 +53,11 @@ public struct TangledSourcePatchPublisher: Sendable {
             publishingPatch,
             repository: repository,
             branchName: sourceBranch,
-            credentials: gitBackedPatch.credentials
+            credentials: gitBackedPatch.credentials,
+            title: title
         )
         let createdAtDate = Self.now()
         let createdAt = Self.iso8601String(createdAtDate)
-        let title = preparedPatch.request.title?.sourcePatchTitleValue ?? defaultTitle
         @Dependency(\.sourceControl) var sourceControl
         let diffData = try await sourceControl.formatPatch(
             FormatPatchRequest(
@@ -116,6 +116,7 @@ public struct TangledSourcePatchPublisher: Sendable {
 
 public enum TangledSourcePatchPublisherError: Equatable, Error, Sendable {
     case missingRemote
+    case missingTitle
     case missingRepositoryPDS(String)
     case missingGitRepository(URL)
     case repositoryRecordMissingKey(String)
@@ -284,7 +285,8 @@ private extension TangledSourcePatchPublisher {
         _ preparedPatch: PreparedSourcePatch,
         repository repositoryReference: TangledRepositoryReference,
         branchName: BranchName,
-        credentials: Credentials?
+        credentials: Credentials?,
+        title: String
     ) async throws -> Commit {
         @Dependency(\.sourceControl) var sourceControl
         @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
@@ -303,10 +305,7 @@ private extension TangledSourcePatchPublisher {
         let commit = try await sourceControl.commit(
             CommitRequest(
                 repository: repository,
-                message: CommitMessage(
-                    rawValue: preparedPatch.request.title?.sourcePatchTitleValue
-                        ?? defaultTitle
-                ),
+                message: CommitMessage(rawValue: title),
                 author: Author(
                     name: PersonName(rawValue: "Open Music Event"),
                     email: EmailAddress(rawValue: "noreply@openmusicevent.app")

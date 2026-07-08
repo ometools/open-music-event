@@ -97,6 +97,45 @@ struct TangledSourcePatchPublisherTests {
     }
 
     @Test
+    func publishingRequiresTitle() async throws {
+        let error = await #expect(throws: TangledSourcePatchPublisherError.self) {
+            try await TangledSourcePatchPublisher().publish(
+                PreparedSourcePatch(
+                    request: SourcePatchPublishRequest(
+                        location: SourcePatchLocation(
+                            repositoryURL: URL(fileURLWithPath: "/tmp/source"),
+                            remote: SourcePatchLocation.Remote(
+                                kind: "tangled",
+                                reference: "woody.fm/wicked-woods-ome",
+                                ref: "main"
+                            )
+                        ),
+                        patch: SourcePatch(
+                            fileChanges: [
+                                SourcePatchFileChange(
+                                    path: "events/2025/event.yml",
+                                    kind: .modified,
+                                    oldContents: Data("name: Old\n".utf8),
+                                    newContents: Data("name: New\n".utf8)
+                                )
+                            ]
+                        )
+                    ),
+                    workingTree: SourceWorkingTree(
+                        originalRepositoryURL: URL(fileURLWithPath: "/tmp/source"),
+                        originalURL: URL(fileURLWithPath: "/tmp/source"),
+                        relativePath: nil,
+                        workingRepositoryURL: URL(fileURLWithPath: "/tmp/source"),
+                        workingURL: URL(fileURLWithPath: "/tmp/source")
+                    )
+                )
+            )
+        }
+
+        expectNoDifference(error, .missingTitle)
+    }
+
+    @Test
     func publishUploadsLargePatchBlobWithoutInlinePatch() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let requestRecorder = HTTPRequestRecorder()
@@ -599,7 +638,8 @@ struct TangledSourcePatchPublisherTests {
                                         newContents: Data("name: New\n".utf8)
                                     )
                                 ]
-                            )
+                            ),
+                            title: "Update Wicked Woods 2025 source"
                         ),
                         workingTree: SourceWorkingTree(
                             originalRepositoryURL: repositoryURL,
@@ -783,7 +823,8 @@ struct TangledSourcePatchPublisherTests {
                                     newContents: Data("name: New\n".utf8)
                                 )
                             ]
-                        )
+                        ),
+                        title: "Update Wicked Woods 2025 source"
                     ),
                     workingTree: SourceWorkingTree(
                         originalRepositoryURL: repositoryURL,

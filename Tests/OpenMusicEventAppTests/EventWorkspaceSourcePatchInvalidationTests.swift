@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import Clocks
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
@@ -21,7 +22,11 @@ import Testing
 @testable import OpenMusicEventAppEventViewer
 
 @MainActor
-@Suite(.tcaExhaustivity(.off), .serialized, .dependencies { $0.defaultPort = 443 })
+@Suite(
+    .tcaExhaustivity(.off),
+    .serialized,
+    .dependencies { $0.defaultPort = 443 }
+)
 struct EventWorkspaceSourcePatchInvalidationTests {
     @Test
     func generateSourcePatchButtonLoadsPatch() async throws {
@@ -199,7 +204,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func sourceProposalTitleAndDescriptionCanBeEdited() async throws {
+    func sourceProposalFormTitleAndDescriptionCanBeEdited() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let patch = SourcePatch(
@@ -213,6 +218,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             ]
         )
         let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
             $0.context = .test
             $0.defaultDatabase = database
         } operation: {
@@ -227,12 +233,58 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
 
         store.modify {
-            $0.title = "Update the event name"
-            $0.description = "Updated the event name."
+            $0.form.value.title = "Update the event name"
+            $0.form.value.description = "Updated the event name."
         } changes: {
-            $0.title = "Update the event name"
-            $0.description = "Updated the event name."
+            $0.form.value.title = "Update the event name"
+            $0.form.value.description = "Updated the event name."
         }
+
+        await store.dismount()
+    }
+
+    @Test
+    func createProposalRequiresTitleFormValidation() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
+        let publishRequests = Mutex([SourcePatchPublishRequest]())
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourcePatchPublisher = SourcePatchPublisher { request in
+                publishRequests.withLock { $0.append(request) }
+                return SourcePatchPublication()
+            }
+        } operation: {
+            TestStore(
+                initialState: SourceProposalFlow.State(
+                    eventID: eventID,
+                    patch: patch
+                )
+            ) {
+                SourceProposalFlow()
+            }
+        }
+
+        await store.send(.createProposalButtonTapped)?.value
+
+        expectNoDifference(store.state.status, .composing)
+        expectNoDifference(publishRequests.withLock { $0 }, [])
+        expectNoDifference(
+            store.state.form.validation[AnyHashable(\SourceProposalFlow.FormValue.title)]?
+                .errors.map(\.message),
+            ["Enter a title."]
+        )
 
         await store.dismount()
     }
@@ -286,12 +338,80 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        let task = store.send(.createProposalButtonTapped) {
+        let task = store.send(.formSubmitted(store.state.form.value)) {
             $0.status = .proposing
         }
         await task?.value
         #expect(store.state.status == .created(publication))
 
+        await store.dismount()
+    }
+
+    @Test
+    func createdSourceProposalDismissesSheetAndReloadsTangledReviews() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        try await seedTangledSourceBackedEvent(eventID, in: database)
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
+        let publication = SourcePatchPublication(
+            sourceChangeURL: URL(string: "https://tangled.org/woody.fm/wicked-woods/pulls")
+        )
+        let review = testTangledPullReview()
+        let requests = Mutex([OpenMusicEventTangledPullReviewRequest]())
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient { request in
+                requests.withLock { $0.append(request) }
+                return [review]
+            }
+        } operation: {
+            var state = EventWorkspace.State(eventID: eventID)
+            state.sourcePatchStatus = .generated(patch)
+            state.sourceProposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            state.sourceProposal?.status = .created(publication)
+            state.sourceProposalStatus = .composing
+            return TestStore(initialState: state) {
+                EventWorkspace()
+            }
+        }
+
+        await store.receive(
+            \.tangledPullReviewsResponse,
+            .equals(.success([review])),
+            timeout: .seconds(1)
+        ) {
+            $0.tangledPullReviewStatus = .loaded([review])
+        }
+
+        store.send(.sourceProposal(.delegate(.created(publication)))) {
+            $0.sourceProposalStatus = .created(publication)
+            $0.tangledPullReviewStatus = .loading
+        }
+        #expect(store.state.sourceProposal == nil)
+        await store.receive(
+            \.tangledPullReviewsResponse,
+            .equals(.success([review])),
+            timeout: .seconds(1)
+        ) {
+            $0.tangledPullReviewStatus = .loaded([review])
+        }
+
+        expectNoDifference(
+            requests.withLock { $0 },
+            [
+                OpenMusicEventTangledPullReviewRequest(eventID: eventID),
+                OpenMusicEventTangledPullReviewRequest(eventID: eventID),
+            ]
+        )
         await store.dismount()
     }
 
@@ -324,7 +444,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 throw SourceProposalTestError.failed
             }
         } operation: {
-            let state = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            var state = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            state.title = "Update the event name"
             return TestStore(
                 initialState: SourceProposalErrorReportingHost.State(proposal: state)
             ) {
@@ -333,7 +454,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
 
         await withIssueReporters([]) {
-            let task = store.send(.proposal(.createProposalButtonTapped)) {
+            let task = store.send(.proposal(.formSubmitted(store.state.proposal.form.value))) {
                 $0.proposal.status = .proposing
             }
             await task?.value
@@ -353,7 +474,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
 
         await withIssueReporters([]) {
-            let retryTask = store.send(.proposal(.createProposalButtonTapped)) {
+            let retryTask = store.send(.proposal(.formSubmitted(store.state.proposal.form.value))) {
                 $0.proposal.status = .proposing
             }
             await retryTask?.value
@@ -407,12 +528,14 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 return publication
             }
         } operation: {
-            Store(initialState: SourceProposalFlow.State(eventID: eventID, patch: patch)) {
+            var state = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            state.title = "Update the event name"
+            return Store(initialState: state) {
                 SourceProposalFlow()
             }
         }
 
-        let task = store.send(.createProposalButtonTapped)
+        let task = store.send(.formSubmitted(store.form.value))
         await fulfillAuthorizationRequest(
             from: authorizationCenter,
             requirement: requirement
@@ -844,25 +967,33 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     func closeTangledPullReviewButtonRemovesReviewAfterStatusWrite() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedTangledSourceBackedEvent(eventID, in: database)
         let review = testTangledPullReview()
         let closedReviews = Mutex([TangledPullReview]())
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
             $0.tangledPullReviewClient = TangledPullReviewClient(
-                list: { _ in [] },
+                list: { _ in [review] },
                 close: { review in
                     closedReviews.withLock { $0.append(review) }
                 }
             )
         } operation: {
             var initialState = EventWorkspace.State(eventID: eventID)
-            initialState.tangledPullReviewStatus = .loaded([review])
             initialState.tangledPullReviewSemanticDiffs[review.id] = .failed(
                 EventWorkspace.TangledPullReviewSemanticDiffFailure(TestCloseFailure.closeFailed)
             )
             return TestStore(initialState: initialState) {
                 EventWorkspace()
             }
+        }
+
+        await store.receive(
+            \.tangledPullReviewsResponse,
+            .equals(.success([review])),
+            timeout: .seconds(1)
+        ) {
+            $0.tangledPullReviewStatus = .loaded([review])
         }
 
         let task = store.send(.closeTangledPullReviewButtonTapped(review)) {
@@ -980,19 +1111,19 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     func deleteTangledPullReviewForeverButtonRemovesReviewBeforeRecordDelete() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedTangledSourceBackedEvent(eventID, in: database)
         let review = testTangledPullReview()
         let deletedReviews = Mutex([TangledPullReview]())
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
             $0.tangledPullReviewClient = TangledPullReviewClient(
-                list: { _ in [] },
+                list: { _ in [review] },
                 delete: { review in
                     deletedReviews.withLock { $0.append(review) }
                 }
             )
         } operation: {
             var initialState = EventWorkspace.State(eventID: eventID)
-            initialState.tangledPullReviewStatus = .loaded([review])
             initialState.tangledPullReviewCloseFailures[review.id] =
                 EventWorkspace.TangledPullReviewCloseFailure(TestCloseFailure.closeFailed)
             initialState.tangledPullReviewSemanticDiffs[review.id] = .failed(
@@ -1001,6 +1132,14 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             return TestStore(initialState: initialState) {
                 EventWorkspace()
             }
+        }
+
+        await store.receive(
+            \.tangledPullReviewsResponse,
+            .equals(.success([review])),
+            timeout: .seconds(1)
+        ) {
+            $0.tangledPullReviewStatus = .loaded([review])
         }
 
         let task = store.send(.deleteTangledPullReviewForeverButtonTapped(review)) {
@@ -1044,27 +1183,35 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     func deleteTangledPullReviewForeverButtonRestoresReviewAndShowsFailure() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedTangledSourceBackedEvent(eventID, in: database)
         let review = testTangledPullReview()
         var earlierReview = testTangledPullReview()
         earlierReview.title = "Earlier update"
         earlierReview.uri = "at://did:plc:author123/sh.tangled.repo.pull/2pull"
+        let reviews = [earlierReview, review]
         let failure = EventWorkspace.TangledPullReviewDeleteFailure(
             TestCloseFailure.deleteFailed
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
             $0.tangledPullReviewClient = TangledPullReviewClient(
-                list: { _ in [] },
+                list: { _ in reviews },
                 delete: { _ in
                     throw TestCloseFailure.deleteFailed
                 }
             )
         } operation: {
-            var initialState = EventWorkspace.State(eventID: eventID)
-            initialState.tangledPullReviewStatus = .loaded([earlierReview, review])
-            return TestStore(initialState: initialState) {
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
                 EventWorkspace()
             }
+        }
+
+        await store.receive(
+            \.tangledPullReviewsResponse,
+            .equals(.success(reviews)),
+            timeout: .seconds(1)
+        ) {
+            $0.tangledPullReviewStatus = .loaded(reviews)
         }
 
         let task = store.send(.deleteTangledPullReviewForeverButtonTapped(review)) {
@@ -1296,6 +1443,63 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         } operation: {
             @Dependency(\.defaultDatabase) var database
             return database
+        }
+    }
+
+    private func seedTangledSourceBackedEvent(
+        _ eventID: OME.Event.ID,
+        in database: any DatabaseWriter
+    ) async throws {
+        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/wicked-woods",
+            ref: "main"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Test Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: timeZone,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    source: sourceProvenance,
+                    databaseFileName: "baseline.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 0)
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceBaselineID: sourceBaselineID,
+                    sourceKind: sourceProvenance.kind,
+                    sourceReference: sourceProvenance.reference,
+                    ref: sourceProvenance.ref,
+                    eventIDOrigin: .explicit,
+                    sourceEventDirectory: "event-1"
+                )
+            }
+            .execute(db)
         }
     }
 
