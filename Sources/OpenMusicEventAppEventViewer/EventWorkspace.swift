@@ -116,6 +116,16 @@ public struct EventWorkspace {
         }
     }
 
+    public struct PendingDeletedTangledPullReview: Equatable, Sendable {
+        public var review: TangledPullReview
+        public var index: Int
+
+        public init(review: TangledPullReview, index: Int) {
+            self.review = review
+            self.index = index
+        }
+    }
+
     public struct ResetEditsSuccess: Equatable, Sendable {
         public init() {}
     }
@@ -150,6 +160,8 @@ public struct EventWorkspace {
         public var locallyRemovedTangledPullReviewIDs: Set<String> = []
         public var closingTangledPullReviewIDs: Set<String> = []
         public var deletingTangledPullReviewIDs: Set<String> = []
+        public var pendingDeletedTangledPullReviews:
+            [String: PendingDeletedTangledPullReview] = [:]
         public var tangledPullReviewCloseFailures: [String: TangledPullReviewCloseFailure] = [:]
         public var tangledPullReviewDeleteFailures: [String: TangledPullReviewDeleteFailure] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
@@ -326,7 +338,7 @@ public struct EventWorkspace {
 
                 let tangledPullReviewClient = tangledPullReviewClient
                 state.deletingTangledPullReviewIDs.insert(review.id)
-                state.tangledPullReviewDeleteFailures[review.id] = nil
+                optimisticallyRemoveDeletedTangledPullReview(review, state: &state)
                 store.addTask {
                     do {
                         try await tangledPullReviewClient.delete(review)
@@ -344,6 +356,23 @@ public struct EventWorkspace {
                 }
             }
 
+            func optimisticallyRemoveDeletedTangledPullReview(
+                _ review: TangledPullReview,
+                state: inout State
+            ) {
+                state.pendingDeletedTangledPullReviews[review.id] = nil
+                if case let .loaded(reviews) = state.tangledPullReviewStatus,
+                   let index = reviews.firstIndex(where: { $0.id == review.id })
+                {
+                    state.pendingDeletedTangledPullReviews[review.id] =
+                        PendingDeletedTangledPullReview(
+                            review: reviews[index],
+                            index: index
+                        )
+                }
+                removeTangledPullReviewFromLoadedState(review, state: &state)
+            }
+
             func removeTangledPullReviewFromLoadedState(
                 _ review: TangledPullReview,
                 state: inout State
@@ -357,6 +386,23 @@ public struct EventWorkspace {
                         reviews.filter { $0.id != review.id }
                     )
                 }
+            }
+
+            func restoreTangledPullReviewAfterFailedDelete(
+                _ review: TangledPullReview,
+                state: inout State
+            ) {
+                state.locallyRemovedTangledPullReviewIDs.remove(review.id)
+                let pendingRemoval = state.pendingDeletedTangledPullReviews
+                    .removeValue(forKey: review.id)
+                let restoredReview = pendingRemoval?.review ?? review
+                guard case var .loaded(reviews) = state.tangledPullReviewStatus,
+                      !reviews.contains(where: { $0.id == restoredReview.id })
+                else { return }
+
+                let index = min(pendingRemoval?.index ?? reviews.count, reviews.count)
+                reviews.insert(restoredReview, at: index)
+                state.tangledPullReviewStatus = .loaded(reviews)
             }
 
             switch action {
@@ -492,10 +538,11 @@ public struct EventWorkspace {
 
             case let .tangledPullReviewDeleteResponse(review, .success):
                 state.deletingTangledPullReviewIDs.remove(review.id)
-                removeTangledPullReviewFromLoadedState(review, state: &state)
+                state.pendingDeletedTangledPullReviews[review.id] = nil
 
             case let .tangledPullReviewDeleteResponse(review, .failure(failure)):
                 state.deletingTangledPullReviewIDs.remove(review.id)
+                restoreTangledPullReviewAfterFailedDelete(review, state: &state)
                 state.tangledPullReviewDeleteFailures[review.id] = failure
 
             case let .tangledPullReviewsResponse(.success(reviews)):

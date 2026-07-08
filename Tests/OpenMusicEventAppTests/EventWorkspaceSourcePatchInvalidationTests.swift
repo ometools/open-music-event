@@ -970,7 +970,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func deleteTangledPullReviewForeverButtonRemovesReviewAfterRecordDelete() async throws {
+    func deleteTangledPullReviewForeverButtonRemovesReviewBeforeRecordDelete() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let review = testTangledPullReview()
@@ -998,6 +998,17 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         let task = store.send(.deleteTangledPullReviewForeverButtonTapped(review)) {
             $0.deletingTangledPullReviewIDs = [review.id]
+            $0.locallyRemovedTangledPullReviewIDs = [review.id]
+            $0.pendingDeletedTangledPullReviews = [
+                review.id: EventWorkspace.PendingDeletedTangledPullReview(
+                    review: review,
+                    index: 0
+                )
+            ]
+            $0.tangledPullReviewCloseFailures = [:]
+            $0.tangledPullReviewDeleteFailures = [:]
+            $0.tangledPullReviewSemanticDiffs = [:]
+            $0.tangledPullReviewStatus = .loaded([])
         }
         await store.receive(
             \.tangledPullReviewDeleteResponse,
@@ -1014,11 +1025,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             timeout: .seconds(1)
         ) {
             $0.deletingTangledPullReviewIDs = []
-            $0.locallyRemovedTangledPullReviewIDs = [review.id]
-            $0.tangledPullReviewCloseFailures = [:]
-            $0.tangledPullReviewDeleteFailures = [:]
-            $0.tangledPullReviewSemanticDiffs = [:]
-            $0.tangledPullReviewStatus = .loaded([])
+            $0.pendingDeletedTangledPullReviews = [:]
         }
         await task?.value
 
@@ -1027,10 +1034,13 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func deleteTangledPullReviewForeverButtonKeepsReviewAndShowsFailure() async throws {
+    func deleteTangledPullReviewForeverButtonRestoresReviewAndShowsFailure() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let review = testTangledPullReview()
+        var earlierReview = testTangledPullReview()
+        earlierReview.title = "Earlier update"
+        earlierReview.uri = "at://did:plc:author123/sh.tangled.repo.pull/2pull"
         let failure = EventWorkspace.TangledPullReviewDeleteFailure(
             TestCloseFailure.deleteFailed
         )
@@ -1044,7 +1054,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             )
         } operation: {
             var initialState = EventWorkspace.State(eventID: eventID)
-            initialState.tangledPullReviewStatus = .loaded([review])
+            initialState.tangledPullReviewStatus = .loaded([earlierReview, review])
             return TestStore(initialState: initialState) {
                 EventWorkspace()
             }
@@ -1052,6 +1062,14 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         let task = store.send(.deleteTangledPullReviewForeverButtonTapped(review)) {
             $0.deletingTangledPullReviewIDs = [review.id]
+            $0.locallyRemovedTangledPullReviewIDs = [review.id]
+            $0.pendingDeletedTangledPullReviews = [
+                review.id: EventWorkspace.PendingDeletedTangledPullReview(
+                    review: review,
+                    index: 1
+                )
+            ]
+            $0.tangledPullReviewStatus = .loaded([earlierReview])
         }
         await store.receive(
             \.tangledPullReviewDeleteResponse,
@@ -1068,7 +1086,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             timeout: .seconds(1)
         ) {
             $0.deletingTangledPullReviewIDs = []
+            $0.locallyRemovedTangledPullReviewIDs = []
+            $0.pendingDeletedTangledPullReviews = [:]
             $0.tangledPullReviewDeleteFailures[review.id] = failure
+            $0.tangledPullReviewStatus = .loaded([earlierReview, review])
         }
         await task?.value
 
