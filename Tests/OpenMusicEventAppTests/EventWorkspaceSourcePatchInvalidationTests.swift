@@ -1027,6 +1027,81 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
+    func mergeTangledPullReviewButtonRemovesReviewAfterMerge() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        try await seedTangledSourceBackedEvent(eventID, in: database)
+        let review = testTangledPullReview()
+        let mergedRequests = Mutex([OpenMusicEventTangledPullReviewMergeRequest]())
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient(
+                list: { _ in [review] },
+                merge: { request in
+                    mergedRequests.withLock { $0.append(request) }
+                }
+            )
+        } operation: {
+            var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.tangledPullReviewMergeFailures[review.id] =
+                EventWorkspace.TangledPullReviewMergeFailure(TestCloseFailure.mergeFailed)
+            initialState.tangledPullReviewSemanticDiffs[review.id] = .failed(
+                EventWorkspace.TangledPullReviewSemanticDiffFailure(TestCloseFailure.closeFailed)
+            )
+            return TestStore(initialState: initialState) {
+                EventWorkspace()
+            }
+        }
+
+        await store.receive(
+            \.tangledPullReviewsResponse,
+            .equals(.success([review])),
+            timeout: .seconds(1)
+        ) {
+            $0.tangledPullReviewStatus = .loaded([review])
+        }
+
+        let task = store.send(.mergeTangledPullReviewButtonTapped(review)) {
+            $0.mergingTangledPullReviewIDs = [review.id]
+            $0.tangledPullReviewMergeFailures = [:]
+        }
+        await store.receive(
+            \.tangledPullReviewMergeResponse,
+            .matching { (
+                response: (
+                    review: TangledPullReview,
+                    Result<Void, EventWorkspace.TangledPullReviewMergeFailure>
+                )
+            ) in
+                guard response.review == review else { return false }
+                guard case .success = response.1 else { return false }
+                return true
+            },
+            timeout: .seconds(1)
+        ) {
+            $0.mergingTangledPullReviewIDs = []
+            $0.locallyRemovedTangledPullReviewIDs = [review.id]
+            $0.tangledPullReviewCloseFailures = [:]
+            $0.tangledPullReviewDeleteFailures = [:]
+            $0.tangledPullReviewMergeFailures = [:]
+            $0.tangledPullReviewSemanticDiffs = [:]
+            $0.tangledPullReviewStatus = .loaded([])
+        }
+        await task?.value
+
+        expectNoDifference(
+            mergedRequests.withLock { $0 },
+            [
+                OpenMusicEventTangledPullReviewMergeRequest(
+                    eventID: eventID,
+                    review: review
+                )
+            ]
+        )
+        await store.dismount()
+    }
+
+    @Test
     func mountKeepsLocallyRemovedTangledPullReviewHidden() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
@@ -1293,6 +1368,55 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         ) {
             $0.closingTangledPullReviewIDs = []
             $0.tangledPullReviewCloseFailures[review.id] = failure
+        }
+        await task?.value
+
+        await store.dismount()
+    }
+
+    @Test
+    func mergeTangledPullReviewButtonKeepsReviewAndShowsFailure() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let review = testTangledPullReview()
+        let failure = EventWorkspace.TangledPullReviewMergeFailure(
+            TestCloseFailure.mergeFailed
+        )
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient(
+                list: { _ in [] },
+                merge: { _ in
+                    throw TestCloseFailure.mergeFailed
+                }
+            )
+        } operation: {
+            var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.tangledPullReviewStatus = .loaded([review])
+            return TestStore(initialState: initialState) {
+                EventWorkspace()
+            }
+        }
+
+        let task = store.send(.mergeTangledPullReviewButtonTapped(review)) {
+            $0.mergingTangledPullReviewIDs = [review.id]
+        }
+        await store.receive(
+            \.tangledPullReviewMergeResponse,
+            .matching { (
+                response: (
+                    review: TangledPullReview,
+                    Result<Void, EventWorkspace.TangledPullReviewMergeFailure>
+                )
+            ) in
+                guard response.review == review else { return false }
+                guard case .failure(failure) = response.1 else { return false }
+                return true
+            },
+            timeout: .seconds(1)
+        ) {
+            $0.mergingTangledPullReviewIDs = []
+            $0.tangledPullReviewMergeFailures[review.id] = failure
         }
         await task?.value
 
@@ -1697,6 +1821,7 @@ private enum ResetEditsTestError: Equatable, Error {
 private enum TestCloseFailure: Equatable, Error {
     case closeFailed
     case deleteFailed
+    case mergeFailed
 }
 
 private extension SourceReferenceDatabaseClient {

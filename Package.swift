@@ -34,6 +34,7 @@ let package = Package(
         .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
         .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
         .package(path: "/Users/woody/Developer/swift-packages/swift-composable-atmosphere", traits: ["TCA26"]),
+        .package(path: "/Users/woody/Developer/ometools/composable-atmosphere-constellation"),
         .package(path: "/Users/woody/Developer/ometools/composable-atmosphere-tangled"),
         .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
         .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
@@ -263,6 +264,7 @@ let package = Package(
                 "SourceEditing",
                 .product(name: "ATProto", package: "swift-composable-atmosphere"),
                 .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
+                .product(name: "ComposableAtmosphereConstellation", package: "composable-atmosphere-constellation"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "FileTree", package: "swift-file-tree"),
@@ -331,14 +333,20 @@ let package = Package(
         .executableTarget(
             name: "OpenMusicEventCLI",
             dependencies: [
+                "OpenMusicEventAuthentication",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventLexicon",
                 "OpenMusicEventSource",
                 "OpenMusicEventSourceClone",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ATProto", package: "swift-composable-atmosphere"),
+                .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "FileTree", package: "swift-file-tree"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
+                .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
+                .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ]
         ),
         .testTarget(

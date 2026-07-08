@@ -92,6 +92,14 @@ public struct EventWorkspace {
         }
     }
 
+    public struct TangledPullReviewMergeFailure: Equatable, Error, Sendable {
+        public var message: String
+
+        public init(_ error: any Error) {
+            self.message = String(describing: error)
+        }
+    }
+
     public struct TangledPullReviewSemanticDiffFailure: Equatable, Error, Sendable {
         public var message: String
 
@@ -161,10 +169,12 @@ public struct EventWorkspace {
         public var locallyRemovedTangledPullReviewIDs: Set<String> = []
         public var closingTangledPullReviewIDs: Set<String> = []
         public var deletingTangledPullReviewIDs: Set<String> = []
+        public var mergingTangledPullReviewIDs: Set<String> = []
         public var pendingDeletedTangledPullReviews:
             [String: PendingDeletedTangledPullReview] = [:]
         public var tangledPullReviewCloseFailures: [String: TangledPullReviewCloseFailure] = [:]
         public var tangledPullReviewDeleteFailures: [String: TangledPullReviewDeleteFailure] = [:]
+        public var tangledPullReviewMergeFailures: [String: TangledPullReviewMergeFailure] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
 
@@ -181,6 +191,7 @@ public struct EventWorkspace {
         case closeTangledPullReviewButtonTapped(TangledPullReview)
         case deleteTangledPullReviewForeverButtonTapped(TangledPullReview)
         case generateSourcePatchButtonTapped
+        case mergeTangledPullReviewButtonTapped(TangledPullReview)
         case proposeChangeButtonTapped
         case reviewSemanticDiffButtonTapped(TangledPullReview)
         case refreshTangledPullReviewsButtonTapped
@@ -201,6 +212,10 @@ public struct EventWorkspace {
         case tangledPullReviewDeleteResponse(
             review: TangledPullReview,
             Result<Void, TangledPullReviewDeleteFailure>
+        )
+        case tangledPullReviewMergeResponse(
+            review: TangledPullReview,
+            Result<Void, TangledPullReviewMergeFailure>
         )
         case tangledPullReviewsResponse(Result<[TangledPullReview], TangledPullReviewFailure>)
     } 
@@ -308,7 +323,8 @@ public struct EventWorkspace {
                 state: inout State
             ) {
                 guard !state.closingTangledPullReviewIDs.contains(review.id),
-                      !state.deletingTangledPullReviewIDs.contains(review.id)
+                      !state.deletingTangledPullReviewIDs.contains(review.id),
+                      !state.mergingTangledPullReviewIDs.contains(review.id)
                 else { return }
 
                 let tangledPullReviewClient = tangledPullReviewClient
@@ -336,7 +352,8 @@ public struct EventWorkspace {
                 state: inout State
             ) {
                 guard !state.deletingTangledPullReviewIDs.contains(review.id),
-                      !state.closingTangledPullReviewIDs.contains(review.id)
+                      !state.closingTangledPullReviewIDs.contains(review.id),
+                      !state.mergingTangledPullReviewIDs.contains(review.id)
                 else { return }
 
                 let tangledPullReviewClient = tangledPullReviewClient
@@ -353,6 +370,41 @@ public struct EventWorkspace {
                             .tangledPullReviewDeleteResponse(
                                 review: review,
                                 .failure(TangledPullReviewDeleteFailure(error))
+                            )
+                        )
+                    }
+                }
+            }
+
+            func mergeTangledPullReview(
+                _ review: TangledPullReview,
+                state: inout State
+            ) {
+                guard !state.mergingTangledPullReviewIDs.contains(review.id),
+                      !state.closingTangledPullReviewIDs.contains(review.id),
+                      !state.deletingTangledPullReviewIDs.contains(review.id)
+                else { return }
+
+                let eventID = state.eventID
+                let tangledPullReviewClient = tangledPullReviewClient
+                state.mergingTangledPullReviewIDs.insert(review.id)
+                state.tangledPullReviewMergeFailures[review.id] = nil
+                store.addTask {
+                    do {
+                        try await tangledPullReviewClient.merge(
+                            OpenMusicEventTangledPullReviewMergeRequest(
+                                eventID: eventID,
+                                review: review
+                            )
+                        )
+                        try store.send(
+                            .tangledPullReviewMergeResponse(review: review, .success(()))
+                        )
+                    } catch {
+                        try store.send(
+                            .tangledPullReviewMergeResponse(
+                                review: review,
+                                .failure(TangledPullReviewMergeFailure(error))
                             )
                         )
                     }
@@ -383,6 +435,7 @@ public struct EventWorkspace {
                 state.locallyRemovedTangledPullReviewIDs.insert(review.id)
                 state.tangledPullReviewCloseFailures[review.id] = nil
                 state.tangledPullReviewDeleteFailures[review.id] = nil
+                state.tangledPullReviewMergeFailures[review.id] = nil
                 state.tangledPullReviewSemanticDiffs[review.id] = nil
                 if case let .loaded(reviews) = state.tangledPullReviewStatus {
                     state.tangledPullReviewStatus = .loaded(
@@ -418,6 +471,9 @@ public struct EventWorkspace {
             case .generateSourcePatchButtonTapped:
                 generateSourcePatch(eventID: state.eventID, state: &state)
                 refreshTangledPullReviews(eventID: state.eventID, state: &state)
+
+            case let .mergeTangledPullReviewButtonTapped(review):
+                mergeTangledPullReview(review, state: &state)
 
             case .refreshSourceButtonTapped:
                 guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
@@ -534,6 +590,14 @@ public struct EventWorkspace {
                 state.deletingTangledPullReviewIDs.remove(review.id)
                 restoreTangledPullReviewAfterFailedDelete(review, state: &state)
                 state.tangledPullReviewDeleteFailures[review.id] = failure
+
+            case let .tangledPullReviewMergeResponse(review, .success):
+                state.mergingTangledPullReviewIDs.remove(review.id)
+                removeTangledPullReviewFromLoadedState(review, state: &state)
+
+            case let .tangledPullReviewMergeResponse(review, .failure(failure)):
+                state.mergingTangledPullReviewIDs.remove(review.id)
+                state.tangledPullReviewMergeFailures[review.id] = failure
 
             case let .tangledPullReviewsResponse(.success(reviews)):
                 state.tangledPullReviewStatus = .loaded(
@@ -794,15 +858,24 @@ public struct EventWorkspaceView: View {
                         ForEach(reviews) { review in
                             let isClosing = store.closingTangledPullReviewIDs.contains(review.id)
                             let isDeleting = store.deletingTangledPullReviewIDs.contains(review.id)
+                            let isMerging = store.mergingTangledPullReviewIDs.contains(review.id)
                             let closeFailure = store.tangledPullReviewCloseFailures[review.id]
                             let deleteFailure = store.tangledPullReviewDeleteFailures[review.id]
+                            let mergeFailure = store.tangledPullReviewMergeFailures[review.id]
+                            let isBusy = isClosing || isDeleting || isMerging
                             NavigationLink {
                                 TangledPullReviewDetailView(
                                     review: review,
                                     semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                                         ?? .notLoaded,
+                                    isMerging: isMerging,
+                                    isBusy: isBusy,
+                                    mergeFailure: mergeFailure,
                                     onLoadSemanticDiff: {
                                         store.send(.reviewSemanticDiffButtonTapped(review))
+                                    },
+                                    onMerge: {
+                                        store.send(.mergeTangledPullReviewButtonTapped(review))
                                     }
                                 )
                             } label: {
@@ -810,9 +883,20 @@ public struct EventWorkspaceView: View {
                                     review: review,
                                     isClosing: isClosing,
                                     isDeleting: isDeleting,
+                                    isMerging: isMerging,
                                     closeFailure: closeFailure,
-                                    deleteFailure: deleteFailure
+                                    deleteFailure: deleteFailure,
+                                    mergeFailure: mergeFailure
                                 )
+                            }
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button {
+                                    store.send(.mergeTangledPullReviewButtonTapped(review))
+                                } label: {
+                                    Text(isMerging ? "Merging" : "Merge")
+                                }
+                                .disabled(isBusy)
+                                .tint(.green)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
@@ -820,30 +904,37 @@ public struct EventWorkspaceView: View {
                                 } label: {
                                     Text(isDeleting ? "Deleting" : "Delete")
                                 }
-                                .disabled(isClosing || isDeleting)
+                                .disabled(isBusy)
 
                                 Button {
                                     store.send(.closeTangledPullReviewButtonTapped(review))
                                 } label: {
                                     Text(isClosing ? "Closing" : "Close")
                                 }
-                                .disabled(isClosing || isDeleting)
+                                .disabled(isBusy)
                                 .tint(.orange)
                             }
                             .contextMenu {
+                                Button {
+                                    store.send(.mergeTangledPullReviewButtonTapped(review))
+                                } label: {
+                                    Text("Merge PR")
+                                }
+                                .disabled(isBusy)
+
                                 Button(role: .destructive) {
                                     store.send(.closeTangledPullReviewButtonTapped(review))
                                 } label: {
                                     Text("Close PR")
                                 }
-                                .disabled(isClosing || isDeleting)
+                                .disabled(isBusy)
 
                                 Button(role: .destructive) {
                                     store.send(.deleteTangledPullReviewForeverButtonTapped(review))
                                 } label: {
                                     Text("Delete PR Forever")
                                 }
-                                .disabled(isClosing || isDeleting)
+                                .disabled(isBusy)
                             }
                         }
                     }
@@ -924,8 +1015,10 @@ struct TangledPullReviewRow: View {
     let review: TangledPullReview
     var isClosing = false
     var isDeleting = false
+    var isMerging = false
     var closeFailure: EventWorkspace.TangledPullReviewCloseFailure?
     var deleteFailure: EventWorkspace.TangledPullReviewDeleteFailure?
+    var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -943,13 +1036,6 @@ struct TangledPullReviewRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            if let body = review.body?.sourceReviewPreview, !body.isEmpty {
-                Text(body)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
             HStack(spacing: 8) {
                 Text(review.patchBlobCountTitle)
                 Text(review.commentCountTitle)
@@ -961,6 +1047,15 @@ struct TangledPullReviewRow: View {
                 HStack(spacing: 8) {
                     ProgressView()
                     Text("Closing PR")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if isMerging {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Merging PR")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -981,6 +1076,18 @@ struct TangledPullReviewRow: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Text(closeFailure.message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            if let mergeFailure {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PR could not be merged")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Text(mergeFailure.message)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -1058,18 +1165,41 @@ private extension Collection where Element == TangledPullReview {
 struct TangledPullReviewDetailView: View {
     let review: TangledPullReview
     let semanticDiffStatus: EventWorkspace.TangledPullReviewSemanticDiffStatus
+    var isMerging = false
+    var isBusy = false
+    var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
     let onLoadSemanticDiff: () -> Void
+    let onMerge: () -> Void
 
     var body: some View {
         List {
-            Section("Summary") {
+            Section("Pull Request") {
                 LabeledContent("State", value: review.state.tangledPullReviewStateTitle)
                 LabeledContent("Author", value: review.author)
                 LabeledContent("Created", value: review.createdAt)
-                LabeledContent("Target", value: review.targetRepositoryDID)
                 LabeledContent("Target branch", value: review.targetBranch)
-                if let sourceBranch = review.sourceBranch {
-                    LabeledContent("Source branch", value: sourceBranch)
+            }
+
+            if isMerging {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Merging PR")
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            if let mergeFailure {
+                Section {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("PR could not be merged")
+                            .foregroundStyle(.orange)
+                        Text(mergeFailure.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
 
@@ -1082,43 +1212,68 @@ struct TangledPullReviewDetailView: View {
 
             reviewSemanticDiffSections
 
-            Section("Patch Blobs") {
-                if review.patchBlobs.isEmpty {
-                    Text("No patch blobs")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(review.patchBlobs) { patchBlob in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Round \(patchBlob.index)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(patchBlob.cid)
-                                .font(.caption)
-                                .monospaced()
-                                .textSelection(.enabled)
-                            Text(patchBlob.mimeType)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            if let size = patchBlob.size {
-                                Text("\(size) bytes")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 2)
+            Section("Details") {
+                DisclosureGroup("Repository") {
+                    LabeledContent("Target", value: review.targetRepositoryDID)
+                    if let sourceBranch = review.sourceBranch {
+                        LabeledContent("Source branch", value: sourceBranch)
+                    }
+                    if let sourceRepositoryDID = review.sourceRepositoryDID {
+                        LabeledContent("Source", value: sourceRepositoryDID)
                     }
                 }
-            }
 
-            Section("Raw Review") {
-                Text(review.rawReviewText)
-                    .font(.caption)
-                    .monospaced()
-                    .textSelection(.enabled)
+                DisclosureGroup("Patch blobs") {
+                    if review.patchBlobs.isEmpty {
+                        Text("No patch blobs")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(review.patchBlobs) { patchBlob in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Round \(patchBlob.index)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(patchBlob.cid)
+                                    .font(.caption)
+                                    .monospaced()
+                                    .textSelection(.enabled)
+                                Text(patchBlob.mimeType)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                if let size = patchBlob.size {
+                                    Text("\(size) bytes")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+
+                DisclosureGroup("Raw review") {
+                    Text(review.rawReviewText)
+                        .font(.caption)
+                        .monospaced()
+                        .textSelection(.enabled)
+                }
             }
         }
-        .navigationTitle("Review")
+        .navigationTitle(review.title)
+        #if !os(macOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    onMerge()
+                } label: {
+                    Text(isMerging ? "Merging" : "Merge")
+                }
+                .disabled(isBusy)
+            }
+        }
         .onAppear {
             onLoadSemanticDiff()
         }
@@ -1165,8 +1320,9 @@ struct TangledPullReviewDetailView: View {
 
         case .notLoaded:
             Section("Semantic Diff") {
-                Text("Review changes have not been loaded")
-                    .foregroundStyle(.secondary)
+                Button("Load Review Changes") {
+                    onLoadSemanticDiff()
+                }
             }
         }
     }

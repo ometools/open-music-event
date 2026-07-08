@@ -56,6 +56,7 @@ extension OME {
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
         dependencies[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
         dependencies.sourcePatchPublisher = .openMusicEventTangled
+        dependencies.tangledPullReviewListSource = .constellationBackfill
         dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
         let baseDatabase = dependencies.defaultDatabase
         dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
