@@ -465,13 +465,7 @@ public struct EventWorkspace {
 
             case .sourceProposal(.delegate(.dismissed)):
                 state.isPreparingSourceProposal = false
-                state.sourceProposal = nil
-                switch state.sourceProposalStatus {
-                case .composing, .failed:
-                    state.sourceProposalStatus = .idle
-                case .created, .idle, .proposing:
-                    break
-                }
+                state.dismissSourceProposal()
 
             case .proposeChangeButtonTapped:
                 guard state.canReviewSourceProposal else { return }
@@ -507,18 +501,6 @@ public struct EventWorkspace {
                 state.sourcePatchStatus = .needsGeneration(invalidation)
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
-
-            case .sourceProposal(.createProposalButtonTapped):
-                state.sourceProposalStatus = .proposing
-
-            case .sourceProposal(.sourceProposalCancelled):
-                state.sourceProposalStatus = .composing
-
-            case let .sourceProposal(.sourceProposalResponse(.success(publication))):
-                state.sourceProposalStatus = .created(publication)
-
-            case let .sourceProposal(.sourceProposalResponse(.failure(failure))):
-                state.sourceProposalStatus = .failed(failure)
 
             case .sourceProposal:
                 break
@@ -566,6 +548,10 @@ public struct EventWorkspace {
         }
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()
+        }
+        .onChange(of: store.sourceProposal?.status) { _, status, state in
+            guard let status else { return }
+            state.sourceProposalStatus = status
         }
     }
 }
@@ -1444,25 +1430,19 @@ public struct SourceProposalComposerView: View {
         NavigationStack {
             List {
                 Section("Title") {
-                    TextField("Title", text: $store.sourceProposalTitle)
-                        .onChange(of: store.sourceProposalTitle) { _, title in
-                            store.send(.sourceProposalTitleChanged(title))
-                        }
+                    TextField("Title", text: $store.title)
                 }
 
                 Section("Description") {
                     TextField(
                         "Description",
-                        text: $store.sourceProposalDescription,
+                        text: $store.description,
                         axis: .vertical
                     )
                     .lineLimit(4...8)
-                    .onChange(of: store.sourceProposalDescription) { _, description in
-                        store.send(.sourceProposalDescriptionChanged(description))
-                    }
                 }
 
-                SourceProposalStatusView(status: store.sourceProposalStatus)
+                SourceProposalStatusView(status: store.status)
                 SourceProposalSummarySections(
                     groups: store.sourceChangeGroups,
                     recordComparisons: store.sourceRecordComparisons
@@ -1481,9 +1461,9 @@ public struct SourceProposalComposerView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
-                        store.send(.dismissButtonTapped)
+                        store.send(.doneButtonTapped)
                     }
-                    .disabled(store.sourceProposalStatus.isProposing)
+                    .disabled(store.status.isProposing)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create Proposal") {
@@ -1492,40 +1472,6 @@ public struct SourceProposalComposerView: View {
                     .disabled(!store.canCreateSourceProposal)
                 }
             }
-        }
-    }
-}
-
-struct SourceProposalDraftSection: View {
-    @Bindable var store: StoreOf<SourceProposalFlow>
-
-    init(store: StoreOf<SourceProposalFlow>) {
-        self.store = store
-    }
-
-    var body: some View {
-        Section("Proposal") {
-            TextField("Title", text: $store.sourceProposalTitle)
-                .onChange(of: store.sourceProposalTitle) { _, title in
-                    store.send(.sourceProposalTitleChanged(title))
-                }
-
-            TextField(
-                "Description",
-                text: $store.sourceProposalDescription,
-                axis: .vertical
-            )
-            .lineLimit(4...8)
-            .onChange(of: store.sourceProposalDescription) { _, description in
-                store.send(.sourceProposalDescriptionChanged(description))
-            }
-
-            SourceProposalStatusView(status: store.sourceProposalStatus)
-
-            Button("Create Proposal") {
-                store.send(.createProposalButtonTapped)
-            }
-            .disabled(!store.canCreateSourceProposal)
         }
     }
 }
@@ -1771,6 +1717,17 @@ private extension EventSourceProvenanceRecord {
 }
 
 private extension EventWorkspace.State {
+    mutating func dismissSourceProposal() {
+        let status = sourceProposal?.status ?? sourceProposalStatus
+        sourceProposal = nil
+        switch status {
+        case .composing, .failed:
+            sourceProposalStatus = .idle
+        case .created, .idle, .proposing:
+            sourceProposalStatus = status
+        }
+    }
+
     mutating func presentSourceProposal(for patch: SourcePatch) {
         guard !patch.isEmpty, canReviewSourceProposal else {
             sourceProposal = nil

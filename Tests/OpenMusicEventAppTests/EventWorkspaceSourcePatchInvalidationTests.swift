@@ -2,8 +2,10 @@ import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
+import ErrorHandling
 import FileTree
 import Foundation
+import IssueReporting
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
@@ -197,7 +199,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func sourceProposalTitleAndDescriptionCanBeUpdated() async throws {
+    func sourceProposalTitleAndDescriptionCanBeEdited() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let patch = SourcePatch(
@@ -224,12 +226,12 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        store.send(.sourceProposalTitleChanged("Update the event name")) {
-            $0.sourceProposalTitle = "Update the event name"
-        }
-
-        store.send(.sourceProposalDescriptionChanged("Updated the event name.")) {
-            $0.sourceProposalDescription = "Updated the event name."
+        store.modify {
+            $0.title = "Update the event name"
+            $0.description = "Updated the event name."
+        } changes: {
+            $0.title = "Update the event name"
+            $0.description = "Updated the event name."
         }
 
         await store.dismount()
@@ -277,25 +279,18 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         } operation: {
             var state = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            state.sourceProposalDescription = "Updated the event name."
-            state.sourceProposalTitle = "Update the event name"
+            state.description = "Updated the event name."
+            state.title = "Update the event name"
             return TestStore(initialState: state) {
                 SourceProposalFlow()
             }
         }
 
         let task = store.send(.createProposalButtonTapped) {
-            $0.sourceProposalStatus = .proposing
-        }
-        await store.receive(
-            \.sourceProposalResponse,
-            .equals(.success(publication)),
-            timeout: .seconds(5)
-        ) {
-            $0.sourceProposalStatus = .created(publication)
+            $0.status = .proposing
         }
         await task?.value
-        #expect(store.state.sourceProposalStatus == .created(publication))
+        #expect(store.state.status == .created(publication))
 
         await store.dismount()
     }
@@ -330,37 +325,44 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         } operation: {
             let state = SourceProposalFlow.State(eventID: eventID, patch: patch)
-            return TestStore(initialState: state) {
-                SourceProposalFlow()
+            return TestStore(
+                initialState: SourceProposalErrorReportingHost.State(proposal: state)
+            ) {
+                SourceProposalErrorReportingHost()
             }
         }
-        let failure = EventWorkspace.SourceProposalFailure(SourceProposalTestError.failed)
 
-        let task = store.send(.createProposalButtonTapped) {
-            $0.sourceProposalStatus = .proposing
+        await withIssueReporters([]) {
+            let task = store.send(.proposal(.createProposalButtonTapped)) {
+                $0.proposal.status = .proposing
+            }
+            await task?.value
         }
-        await store.receive(
-            \.sourceProposalResponse,
-            .equals(.failure(failure)),
-            timeout: .seconds(5)
-        ) {
-            $0.sourceProposalStatus = .failed(failure)
+        guard case let .failed(failure) = store.state.proposal.status else {
+            #expect(Bool(false))
+            return
         }
-        await task?.value
-        #expect(store.state.sourceProposalStatus == .failed(failure))
+        expectNoDifference(failure.message, "Unable to create proposal.")
+        expectNoDifference(
+            store.state.errorNotifications.state.latestError?.message.fallback,
+            "Unable to create proposal."
+        )
+        expectNoDifference(
+            store.state.errorNotifications.state.latestError?.operation.rawValue,
+            "source.proposal.publish"
+        )
 
-        let retryTask = store.send(.createProposalButtonTapped) {
-            $0.sourceProposalStatus = .proposing
+        await withIssueReporters([]) {
+            let retryTask = store.send(.proposal(.createProposalButtonTapped)) {
+                $0.proposal.status = .proposing
+            }
+            await retryTask?.value
         }
-        await store.receive(
-            \.sourceProposalResponse,
-            .equals(.failure(failure)),
-            timeout: .seconds(5)
-        ) {
-            $0.sourceProposalStatus = .failed(failure)
+        guard case let .failed(retryFailure) = store.state.proposal.status else {
+            #expect(Bool(false))
+            return
         }
-        await retryTask?.value
-        #expect(store.state.sourceProposalStatus == .failed(failure))
+        expectNoDifference(retryFailure.message, "Unable to create proposal.")
 
         await store.dismount()
     }
@@ -416,7 +418,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             requirement: requirement
         )
         await task?.value
-        #expect(store.sourceProposalStatus == .created(publication))
+        #expect(store.status == .created(publication))
     }
 
     @Test
@@ -549,8 +551,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 eventID: eventID,
                 patch: originalPatch
             )
-            state.sourceProposal?.sourceProposalTitle = "Update the event"
-            state.sourceProposal?.sourceProposalDescription = "Describe the changes."
+            state.sourceProposal?.title = "Update the event"
+            state.sourceProposal?.description = "Describe the changes."
             state.sourceProposalStatus = .composing
             return TestStore(initialState: state) {
                 EventWorkspace()
@@ -699,6 +701,11 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             operation: .update,
             tableName: OME.Contributor.tableName
         )
+        let matchingEventInvalidation = SourcePatchInvalidation(
+            eventID: eventID,
+            operation: .update,
+            tableName: OME.Contributor.tableName
+        )
         let stream = AsyncStream.makeStream(of: SourcePatchInvalidation.self)
         let store = withDependencies {
             $0.defaultDatabase = database
@@ -713,9 +720,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
 
         stream.continuation.yield(otherEventInvalidation)
-        await Task.yield()
+        stream.continuation.yield(matchingEventInvalidation)
 
-        #expect(store.state.sourcePatchStatus == .notGenerated)
+        await store.receive(
+            \.sourcePatchInvalidationReceived,
+            .equals(matchingEventInvalidation),
+            timeout: .seconds(1)
+        ) {
+            $0.sourcePatchStatus = .needsGeneration(matchingEventInvalidation)
+        }
 
         stream.continuation.finish()
         await store.dismount()
@@ -1443,6 +1456,30 @@ private func testTangledPullReview() -> TangledPullReview {
 
 private enum SourceProposalTestError: Equatable, Error {
     case failed
+}
+
+@Feature
+private struct SourceProposalErrorReportingHost {
+    struct State {
+        var errorNotifications = Spawn(ErrorNotifications.State())
+        var proposal: SourceProposalFlow.State
+    }
+
+    enum Action {
+        case proposal(SourceProposalFlow.Action)
+    }
+
+    var body: some Feature {
+        Scope(\.proposal, action: \.proposal) {
+            SourceProposalFlow()
+        }
+        .spawn(\.errorNotifications) {
+            ErrorNotifications()
+        }
+        .onEvent(ErrorReported.self) { error, state in
+            state.errorNotifications.state.report(error)
+        }
+    }
 }
 
 private enum ResetEditsTestError: Equatable, Error {

@@ -1410,26 +1410,8 @@ public struct TeamWorkspaceEditor {
             case let .sourcePatchGenerationResponse(.failure(failure)):
                 state.sourcePatchStatus = .failed(failure)
 
-            case .sourceProposal(.createProposalButtonTapped):
-                state.sourceProposalStatus = .proposing
-
             case .sourceProposal(.delegate(.dismissed)), .sourceProposalDismissed:
-                state.sourceProposal = nil
-                switch state.sourceProposalStatus {
-                case .composing, .failed:
-                    state.sourceProposalStatus = .idle
-                case .created, .idle, .proposing:
-                    break
-                }
-
-            case .sourceProposal(.sourceProposalCancelled):
-                state.sourceProposalStatus = .composing
-
-            case let .sourceProposal(.sourceProposalResponse(.success(publication))):
-                state.sourceProposalStatus = .created(publication)
-
-            case let .sourceProposal(.sourceProposalResponse(.failure(failure))):
-                state.sourceProposalStatus = .failed(failure)
+                state.dismissSourceProposal()
 
             case .sourceProposal:
                 break
@@ -1440,6 +1422,23 @@ public struct TeamWorkspaceEditor {
         }
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()
+        }
+        .onChange(of: store.sourceProposal?.status) { _, status, state in
+            guard let status else { return }
+            state.sourceProposalStatus = status
+        }
+    }
+}
+
+private extension TeamWorkspaceEditor.State {
+    mutating func dismissSourceProposal() {
+        let status = sourceProposal?.status ?? sourceProposalStatus
+        sourceProposal = nil
+        switch status {
+        case .composing, .failed:
+            sourceProposalStatus = .idle
+        case .created, .idle, .proposing:
+            sourceProposalStatus = status
         }
     }
 }

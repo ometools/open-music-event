@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import ErrorHandling
 import Foundation
 import OpenMusicEventSourceEditing
 import SourceEditing
@@ -42,7 +43,7 @@ public struct SourceProposalFlow {
             self.patch = patch
             self.sourceChangeGroups = sourceChangeGroups
             self.sourceRecordComparisons = sourceRecordComparisons
-            self.sourceProposalTitle = target.defaultTitle
+            self.title = target.defaultTitle
         }
 
         public init(
@@ -65,24 +66,20 @@ public struct SourceProposalFlow {
             return eventID
         }
 
-        public let target: SourceProposalTarget
+        public var description = ""
         public let patch: SourcePatch
         public var sourceChangeGroups: [SourceChangeGroup]
         public var sourceRecordComparisons: SourceRecordComparisons
-        public var sourceProposalDescription = ""
-        public var sourceProposalStatus: EventWorkspace.SourceProposalStatus = .composing
-        public var sourceProposalTitle: String
+        public var status: EventWorkspace.SourceProposalStatus = .composing
+        public let target: SourceProposalTarget
+        public var title: String
     }
 
     @CasePathable
     public enum Action {
         case createProposalButtonTapped
         case delegate(Delegate)
-        case dismissButtonTapped
-        case sourceProposalCancelled
-        case sourceProposalDescriptionChanged(String)
-        case sourceProposalResponse(Result<SourcePatchPublication, EventWorkspace.SourceProposalFailure>)
-        case sourceProposalTitleChanged(String)
+        case doneButtonTapped
     }
 
     public enum Delegate: Equatable, Sendable {
@@ -96,23 +93,31 @@ public struct SourceProposalFlow {
     public var body: some Feature {
         let _ = Self._logChanges()
         Update { state, action in
-            func createSourceProposal(
-                target: SourceProposalTarget,
-                patch: SourcePatch,
-                description: String?,
-                title: String?
-            ) {
+            switch action {
+            case .createProposalButtonTapped:
+                guard !state.patch.isEmpty,
+                      state.status.canCreateProposal
+                else { return }
+
                 let calendarSourcePatchLocationResolver = calendarSourcePatchLocationResolver
+                let description = state.description.sourceProposalValue
+                let patch = state.patch
                 let sourcePatchLocationResolver = sourcePatchLocationResolver
                 let sourcePatchPublisher = sourcePatchPublisher
+                let target = state.target
+                let title = state.title.sourceProposalValue
+
+                state.status = .proposing
                 store.addTask {
-                    await Task.yield()
-                    do {
+                    let publication = await store.withErrorHandling(
+                        fallbackMessage: .sourceProposalPublishFailed,
+                        operation: .sourceProposalPublish
+                    ) {
                         let location = try await target.resolveLocation(
                             calendarSourcePatchLocationResolver: calendarSourcePatchLocationResolver,
                             sourcePatchLocationResolver: sourcePatchLocationResolver
                         )
-                        let publication = try await sourcePatchPublisher.publish(
+                        return try await sourcePatchPublisher.publish(
                             SourcePatchPublishRequest(
                                 description: description,
                                 location: location,
@@ -120,69 +125,60 @@ public struct SourceProposalFlow {
                                 title: title
                             )
                         )
-                        await Task.yield()
-                        try store.send(.sourceProposalResponse(.success(publication)))
-                    } catch is CancellationError {
-                        await Task.yield()
-                        try store.send(.sourceProposalCancelled)
-                    } catch {
-                        await Task.yield()
-                        try store.send(
-                            .sourceProposalResponse(
-                                .failure(EventWorkspace.SourceProposalFailure(error))
+                    } cleanup: {
+                        $0.status = .failed(
+                            EventWorkspace.SourceProposalFailure(
+                                SourceProposalPublishFailed()
                             )
                         )
                     }
-                }
-            }
 
-            switch action {
-            case .createProposalButtonTapped:
-                guard !state.patch.isEmpty,
-                      state.sourceProposalStatus.canCreateProposal
-                else { return }
-                let description = state.sourceProposalDescription.sourceProposalDescriptionValue
-                let title = state.sourceProposalTitle.sourceProposalTitleValue
-                state.sourceProposalStatus = .proposing
-                createSourceProposal(
-                    target: state.target,
-                    patch: state.patch,
-                    description: description,
-                    title: title
-                )
+                    guard let publication else {
+                        if Task.isCancelled {
+                            try store.modify {
+                                $0.status = .composing
+                            }
+                        }
+                        return
+                    }
+
+                    try store.modify {
+                        $0.status = .created(publication)
+                    }
+                }
 
             case .delegate:
                 break
 
-            case .dismissButtonTapped:
+            case .doneButtonTapped:
                 store.addTask {
                     try store.send(.delegate(.dismissed))
                 }
-
-            case .sourceProposalCancelled:
-                state.sourceProposalStatus = .composing
-
-            case let .sourceProposalDescriptionChanged(description):
-                state.sourceProposalDescription = description
-
-            case let .sourceProposalResponse(.success(publication)):
-                let status = EventWorkspace.SourceProposalStatus.created(publication)
-                state.sourceProposalStatus = status
-
-            case let .sourceProposalResponse(.failure(failure)):
-                let status = EventWorkspace.SourceProposalStatus.failed(failure)
-                state.sourceProposalStatus = status
-
-            case let .sourceProposalTitleChanged(title):
-                state.sourceProposalTitle = title
             }
         }
     }
 }
 
+private extension UserFacingText {
+    static let sourceProposalPublishFailed = Self(
+        "Unable to create proposal.",
+        fallback: "Unable to create proposal."
+    )
+}
+
+private extension ErrorOperation {
+    static let sourceProposalPublish = Self("source.proposal.publish")
+}
+
+private struct SourceProposalPublishFailed: CustomStringConvertible, Error {
+    var description: String {
+        "Unable to create proposal."
+    }
+}
+
 extension SourceProposalFlow.State {
     var canCreateSourceProposal: Bool {
-        !patch.isEmpty && sourceProposalStatus.canCreateProposal
+        !patch.isEmpty && status.canCreateProposal
     }
 }
 
@@ -209,12 +205,7 @@ private extension SourceProposalTarget {
 }
 
 private extension String {
-    var sourceProposalDescriptionValue: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    var sourceProposalTitleValue: String? {
+    var sourceProposalValue: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
