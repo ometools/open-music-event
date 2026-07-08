@@ -117,18 +117,39 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         try await seedSourceBackedEvent(eventID, in: database)
+        try await seedEditingWorkspace(for: eventID, in: database)
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "baseline.sqlite").path()
+        )
+        try database.backup(to: baselineDatabase.database)
+        try await database.write { db in
+            try OME.Event
+                .find(eventID)
+                .update { $0.name = "Updated Source Event" }
+                .execute(db)
+        }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "session.sqlite").path(),
+            baselineDatabasePath: baselineDatabase.path
+        )
+        let expectedWorkspaceSummary = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await database.read { db in
+                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+            }
+        }
+        #expect(expectedWorkspaceSummary.availability == .available)
+        #expect(expectedWorkspaceSummary.totalCount == 1)
         let staleGroup = SourceChangeGroup(
             id: OME.Contributor.tableName,
             displayName: "Contributor",
             added: 1,
             modified: 0,
-            deleted: 0
-        )
-        let currentGroup = SourceChangeGroup(
-            id: OME.Contributor.tableName,
-            displayName: "Contributor",
-            added: 0,
-            modified: 1,
             deleted: 0
         )
         let patch = SourcePatch(
@@ -141,16 +162,12 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 )
             ]
         )
-        let store = withDependencies {
+        let store: TestStore<EventWorkspace> = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             var state = EventWorkspace.State(eventID: eventID)
-            state.workspaceSummary = EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .available,
-                groups: [currentGroup]
-            )
             state.sourcePatchStatus = .generated(patch)
             state.sourceProposal = SourceProposalFlow.State(
                 eventID: eventID,
@@ -173,7 +190,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         #expect(store.state.sourceProposal?.patch == patch)
         expectNoDifference(
             store.state.sourceProposal?.sourceChangeGroups,
-            [currentGroup]
+            expectedWorkspaceSummary.groups
         )
 
         await store.dismount()
@@ -542,7 +559,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         store.send(.sourcePatchGenerationResponse(.success(regeneratedPatch))) {
             $0.sourcePatchStatus = .generated(regeneratedPatch)
-            $0.sourceProposal = nil
             $0.sourceProposalStatus = .idle
         }
 
@@ -580,7 +596,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         store.send(.sourcePatchGenerationResponse(.success(SourcePatch()))) {
             $0.sourcePatchStatus = .generated(SourcePatch())
-            $0.sourceProposal = nil
             $0.sourceProposalStatus = .idle
         }
 
@@ -1251,9 +1266,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         _ eventID: OME.Event.ID,
         in database: any DatabaseWriter
     ) async throws {
-        let sourceBaselineID = SourceBaselineRecord.ID(
-            rawValue: "source.\(eventID.eventID.rawValue.rawValue)"
-        )
+        let sourceBaselineID = sourceBaselineID(for: eventID)
         try await database.write { db in
             try OME.Organizer.insert {
                 OME.Organizer.Draft(id: eventID.organizerID)
@@ -1301,6 +1314,47 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
             .execute(db)
         }
+    }
+
+    private func seedEditingWorkspace(
+        for eventID: OME.Event.ID,
+        in database: any DatabaseWriter
+    ) async throws {
+        let sourceBaselineID = sourceBaselineID(for: eventID)
+        try await database.write { db in
+            let sourceBaseline = try #require(
+                try SourceBaselineRecord
+                    .where { $0.id.eq(sourceBaselineID) }
+                    .fetchOne(db)
+            )
+            let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
+            try EditingWorkspaceRecord.insert {
+                workspace
+            }
+            .execute(db)
+            try EventEditingWorkspaceRecord.insert {
+                EventEditingWorkspaceRecord(
+                    id: eventID,
+                    workspaceID: workspace.id
+                )
+            }
+            .execute(db)
+        }
+    }
+
+    private func sourceBaselineID(
+        for eventID: OME.Event.ID
+    ) -> SourceBaselineRecord.ID {
+        SourceBaselineRecord.ID(
+            rawValue: "source.\(eventID.eventID.rawValue.rawValue)"
+        )
+    }
+
+    private func temporaryDirectoryURL() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     private func makeReviewSourceRepository(

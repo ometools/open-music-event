@@ -1,5 +1,6 @@
 import Dependencies
 import Foundation
+import GRDB
 import SQLiteData
 
 public struct SourceEditingSession: Sendable {
@@ -15,9 +16,10 @@ public struct SourceEditingSession: Sendable {
         configuration: Configuration = Configuration()
     ) throws {
         var configuration = configuration
+        let baselineDatabaseURI = readOnlyDatabaseURI(path: baselineDatabasePath)
         configuration.prepareDatabase { db in
             try #sql(
-                "ATTACH DATABASE \(bind: baselineDatabasePath) AS \(quote: baselineSchemaName)"
+                "ATTACH DATABASE \(bind: baselineDatabaseURI) AS \(quote: baselineSchemaName)"
             )
             .execute(db)
         }
@@ -27,6 +29,59 @@ public struct SourceEditingSession: Sendable {
         self.baselineSchemaName = baselineSchemaName
         self.database = try DatabasePool(path: workingDatabasePath, configuration: configuration)
     }
+
+    public func withAttachedBaseline<Value>(
+        to db: Database,
+        operation: (String) throws -> Value
+    ) throws -> Value {
+        let baselineDatabaseURI = readOnlyDatabaseURI(path: baselineDatabasePath)
+        let attachedDatabasePath = try attachedDatabasePath(
+            schemaName: baselineSchemaName,
+            in: db
+        )
+        if let attachedDatabasePath {
+            if attachedDatabasePath == baselineDatabasePath
+                || attachedDatabasePath == baselineDatabaseURI
+            {
+                return try operation(baselineSchemaName)
+            }
+            try #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+        }
+
+        try #sql(
+            "ATTACH DATABASE \(bind: baselineDatabaseURI) AS \(quote: baselineSchemaName)"
+        )
+        .execute(db)
+        defer {
+            try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+        }
+
+        return try operation(baselineSchemaName)
+    }
+}
+
+private func readOnlyDatabaseURI(path: String) -> String {
+    var components = URLComponents()
+    components.scheme = "file"
+    components.path = path
+    components.queryItems = [
+        URLQueryItem(name: "mode", value: "ro")
+    ]
+    return components.string ?? "file:\(path)?mode=ro"
+}
+
+private func attachedDatabasePath(
+    schemaName: String,
+    in db: Database
+) throws -> String? {
+    try Row
+        .fetchAll(db, sql: "PRAGMA database_list")
+        .first { row in
+            row["name"] == schemaName
+        }
+        .map { row in
+            row["file"]
+        }
 }
 
 public extension DependencyValues {

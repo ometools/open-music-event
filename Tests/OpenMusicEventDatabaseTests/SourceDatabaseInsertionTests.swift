@@ -1005,16 +1005,8 @@ struct SourceDatabaseInsertionTests {
             .execute(db)
         }
 
-        let workspaceNeedsPreparation = try await withDependencies {
-            $0.workspaceReferenceDatabase = WorkspaceReferenceDatabaseClient(
-                url: { _, _ in URL(fileURLWithPath: "/missing-reference.sqlite") },
-                prepare: { _, _ in throw MissingWorkspaceReferenceDatabase() },
-                existing: { _, _ in nil }
-            )
-        } operation: {
-            try await database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
-            }
+        let workspaceNeedsPreparation = try await database.read { db in
+            try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
         }
 
         expectNoDifference(
@@ -1098,15 +1090,11 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
-        let available = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try await database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
-            }
-        }
+        let available = try await eventWorkspaceSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
 
         #expect(available.eventID == openedEventID)
         #expect(available.availability == .available)
@@ -1140,15 +1128,11 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
-        let withContributorChange = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try await database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
-            }
-        }
+        let withContributorChange = try await eventWorkspaceSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
 
         #expect(withContributorChange.eventID == openedEventID)
         #expect(withContributorChange.availability == .available)
@@ -1193,9 +1177,12 @@ struct SourceDatabaseInsertionTests {
                 sourceProvenance: sourceProvenance
             )
         )
-        let baselineDatabase = try defaultBaselineDatabase()
-        defer { try? FileManager.default.removeItem(atPath: baselineDatabase.path) }
-        let database = try makeCoreDatabase()
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
+        let baselineDatabasePath = directoryURL.appendingPathComponent("baseline.sqlite").path
+        let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabasePath)
+        let database = try makeCoreDatabase(path: workingDatabasePath)
 
         try await withDependencies {
             $0.defaultBaselineDatabase = baselineDatabase
@@ -1211,11 +1198,15 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: workingDatabasePath,
+            baselineDatabasePath: baselineDatabasePath
+        )
         let summary = try await withDependencies {
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await database.read { db in
+            try await sourceEditingSession.database.read { db in
                 try SourceEditSummaryRequest(
                     sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
                     calendarID: calendarID(organizerID: organizerID)
@@ -1432,12 +1423,15 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: workingDatabasePath,
+            baselineDatabasePath: baselineDatabase.path
+        )
         let summary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await database.read { db in
+            try await sourceEditingSession.database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
@@ -1520,15 +1514,11 @@ struct SourceDatabaseInsertionTests {
             .execute(db)
         }
 
-        let summary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try await database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
-            }
-        }
+        let summary = try await eventWorkspaceSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
 
         #expect(summary.availability == .available)
         #expect(summary.totalCount == 1)
@@ -1601,15 +1591,11 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
-        let changedSummary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try await database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
-            }
-        }
+        let changedSummary = try await eventWorkspaceSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
         #expect(changedSummary.availability == .available)
         #expect(changedSummary.totalCount == 2)
 
@@ -1623,15 +1609,11 @@ struct SourceDatabaseInsertionTests {
             try resetter.reset(openedEventID)
         }
 
-        let resetSummary = try await withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
-        } operation: {
-            try await database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
-            }
-        }
+        let resetSummary = try await eventWorkspaceSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
         #expect(resetSummary.availability == .available)
         #expect(resetSummary.totalCount == 0)
 
@@ -1687,10 +1669,18 @@ struct SourceDatabaseInsertionTests {
                 .execute(db)
         }
 
+        let baselineDatabasePath = repositoryURL
+            .appending(path: ".ome/reference.sqlite")
+            .path()
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appendingPathComponent("working.sqlite").path,
+            baselineDatabasePath: baselineDatabasePath
+        )
         let summary = try await withDependencies {
-            $0.defaultDatabase = database
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await database.read { db in
+            try await sourceEditingSession.database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
             }
         }
@@ -3563,12 +3553,20 @@ struct SourceDatabaseInsertionTests {
         database: any DatabaseWriter,
         baselineDatabase: SourceBaselineDatabase
     ) async throws -> EventWorkspaceSummary {
-        try await withDependencies {
-            $0.defaultDatabase = database
-            $0.defaultBaselineDatabase = baselineDatabase
-            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
+        let workingDatabase = try makeCoreDatabase(path: workingDatabasePath)
+        try database.backup(to: workingDatabase)
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: workingDatabasePath,
+            baselineDatabasePath: baselineDatabase.path
+        )
+        return try await withDependencies {
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await database.read { db in
+            try await sourceEditingSession.database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
             }
         }
@@ -3598,7 +3596,6 @@ struct SourceDatabaseInsertionTests {
     }
 }
 
-private struct MissingWorkspaceReferenceDatabase: Error {}
 
 private enum TestImageCacheError: Error {
     case failed

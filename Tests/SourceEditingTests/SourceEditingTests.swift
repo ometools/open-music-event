@@ -387,6 +387,35 @@ struct SourceEditingTests {
     }
 
     @Test
+    func sessionAttachesBaselineReadOnly() throws {
+        let fixture = try SourceEditingFixture()
+        let session = try SourceEditingSession(
+            workingDatabasePath: fixture.workingDatabasePath,
+            baselineDatabasePath: fixture.baselineDatabase.path
+        )
+
+        try session.database.write { db in
+            try Todo
+                .find(2)
+                .update { $0.title = "Working write succeeds" }
+                .execute(db)
+        }
+
+        #expect(throws: Error.self) {
+            try session.database.write { db in
+                try #sql(
+                    """
+                    UPDATE "source_baseline"."todos"
+                    SET "title" = 'Baseline write should fail'
+                    WHERE "id" = 2
+                    """
+                )
+                .execute(db)
+            }
+        }
+    }
+
+    @Test
     func sessionResetRestoresScopedChangesFromBaseline() throws {
         let fixture = try SourceEditingFixture()
         let session = try SourceEditingSession(

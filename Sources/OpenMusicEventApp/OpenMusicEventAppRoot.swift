@@ -1,9 +1,12 @@
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
+import IssueReporting
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
+import OpenMusicEventSourceEditing
+import SourceEditing
 import SQLiteData
 import SwiftUI
 #if os(iOS)
@@ -75,8 +78,28 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
+        let withEventViewerWorkspaceDependencies:
+            (OMERecord.Event.ID, () -> Void) -> Void = { eventID, operation in
+            withDependencies {
+                guard $0.sourceEditingSession == nil else { return }
+                do {
+                    guard let sourceEditingSession = try $0.sourceWorkspaceDatabase
+                        .event(eventID)?
+                        .sourceEditingSession
+                    else {
+                        return
+                    }
+                    $0.sourceEditingSession = sourceEditingSession
+                } catch {
+                    reportIssue(error)
+                }
+            } operation: {
+                operation()
+            }
+        }
+
         let openEventViewer: (OMERecord.Event.ID, EventTarget?, inout State) -> Void = { eventID, target, state in
-            store.withDependencies {
+            withEventViewerWorkspaceDependencies(eventID) {
                 if state.launchEventViewer != nil {
                     state.launchEventViewer = Spawn(.route(eventID: eventID, target: target))
                 } else {
@@ -158,7 +181,7 @@ public struct OpenMusicEventAppRoot {
             state.hasRestoredSelectedEventAtLaunch = true
             guard let newValue else { return }
 
-            store.withDependencies {
+            withEventViewerWorkspaceDependencies(newValue) {
                 state.launchEventViewer = Spawn(.route(eventID: newValue, target: nil))
             }
             prefetchAssetsOnOpen(newValue)
@@ -186,10 +209,36 @@ public struct OpenMusicEventAppRoot {
         .ifLet(\.eventViewer) {
             EventViewer()
                 .openMusicEventAuthenticatedSession()
+                .transformDependency(\.self) { (dependencies: inout DependencyValues) in
+                    guard dependencies.sourceEditingSession == nil else { return }
+                    do {
+                        guard let eventID = store.eventViewer?.eventID,
+                              let sourceEditingSession = try dependencies.sourceWorkspaceDatabase
+                                .event(eventID)?
+                                .sourceEditingSession
+                        else { return }
+                        dependencies.sourceEditingSession = sourceEditingSession
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
         }
         .ifLet(\.launchEventViewer) {
             EventViewer()
                 .openMusicEventAuthenticatedSession()
+                .transformDependency(\.self) { (dependencies: inout DependencyValues) in
+                    guard dependencies.sourceEditingSession == nil else { return }
+                    do {
+                        guard let eventID = store.launchEventViewer?.eventID,
+                              let sourceEditingSession = try dependencies.sourceWorkspaceDatabase
+                                .event(eventID)?
+                                .sourceEditingSession
+                        else { return }
+                        dependencies.sourceEditingSession = sourceEditingSession
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
         }
     }
 }

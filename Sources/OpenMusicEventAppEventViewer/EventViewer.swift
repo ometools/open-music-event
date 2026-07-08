@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
+import IssueReporting
 import Sharing
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
@@ -596,8 +597,32 @@ public struct EventViewer {
         private func eventWorkspaceSpawn(
             eventID: OMERecord.Event.ID
         ) -> Spawn<EventWorkspace> {
-            return withEventDependencies {
+            return withEventWorkspaceDependencies {
                 Spawn(EventWorkspace.State(eventID: eventID))
+            }
+        }
+
+        private func withEventWorkspaceDependencies<Value>(
+            _ operation: () -> Value
+        ) -> Value {
+            let eventID = self.eventID
+            return withEventDependencies {
+                withDependencies {
+                    guard $0.sourceEditingSession == nil else { return }
+                    do {
+                        guard let sourceEditingSession = try $0.sourceWorkspaceDatabase
+                            .event(eventID)?
+                            .sourceEditingSession
+                        else {
+                            return
+                        }
+                        $0.sourceEditingSession = sourceEditingSession
+                    } catch {
+                        reportIssue(error)
+                    }
+                } operation: {
+                    operation()
+                }
             }
         }
 
@@ -709,6 +734,18 @@ public struct EventViewer {
         }
         .ifLet(\.eventWorkspace) {
             EventWorkspace()
+                .transformDependency(\.self) { (dependencies: inout DependencyValues) in
+                    guard dependencies.sourceEditingSession == nil else { return }
+                    do {
+                        guard let sourceEditingSession = try dependencies.sourceWorkspaceDatabase
+                            .event(store.eventID)?
+                            .sourceEditingSession
+                        else { return }
+                        dependencies.sourceEditingSession = sourceEditingSession
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
         }
         .ifLet(\.eventInfoViewer) {
             EventInfoViewer()

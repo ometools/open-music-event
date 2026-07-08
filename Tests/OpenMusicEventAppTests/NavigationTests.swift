@@ -14,6 +14,7 @@ import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
+import Synchronization
 import SwiftUI
 import Testing
 import XRPCClient
@@ -909,10 +910,12 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerDoesNotMountSourceWorkspaceWhenOpeningEventWorkspace() throws {
+    func eventViewerRequestsSourceWorkspaceWhenOpeningEventWorkspace() throws {
         let database = try makePreparedDatabase()
-        let eventID = eventID("event-workspace-no-source-mount")
+        let workspaceDatabase = try makePreparedDatabase()
+        let eventID = eventID("event-workspace-source-mount")
         let reporter = IssueRecordingReporter()
+        let requestedEventIDs = Mutex<[OMERecord.Event.ID]>([])
 
         let store = withIssueReporters([reporter]) {
             withDependencies {
@@ -920,8 +923,9 @@ struct NavigationTests {
                 $0.defaultDatabase = database
                 $0.defaultEventID = eventID
                 $0.sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient(
-                    event: { _ in
-                        throw EventWorkspaceMountShouldNotBeCalled()
+                    event: { requestedEventID in
+                        requestedEventIDs.withLock { $0.append(requestedEventID) }
+                        return SourceWorkspaceDatabase(database: workspaceDatabase)
                     },
                     sourceBaseline: { _ in
                         throw EventWorkspaceMountShouldNotBeCalled()
@@ -935,6 +939,7 @@ struct NavigationTests {
         }
 
         #expect(store.state.eventViewer.eventWorkspace?.eventID == eventID)
+        #expect(requestedEventIDs.withLock { $0 } == [eventID])
         #expect(reporter.messages.isEmpty)
     }
 

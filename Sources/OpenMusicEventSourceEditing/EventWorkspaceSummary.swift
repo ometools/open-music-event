@@ -58,53 +58,30 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             )
         }
 
-        let workspace = try EditingWorkspaceRecord
+        let workspaceExists = try EditingWorkspaceRecord
             .where { $0.id.eq(eventWorkspace.workspaceID) }
             .fetchOne(db)
-        guard let workspace else {
+            .map { _ in true } ?? false
+        guard workspaceExists else {
             return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .workspaceNeedsPreparation,
                 groups: []
             )
         }
-        let sourceBaseline = try workspace.sourceBaselineID.flatMap { sourceBaselineID in
-            try SourceBaselineRecord
-                .where { $0.id.eq(sourceBaselineID) }
-                .fetchOne(db)
-        }
 
         @Dependency(\.sourceEditingSession) var sourceEditingSession
-        let sourceSummary: SourceChangeSummary
-        if let sourceEditingSession {
-            sourceSummary = try SourceEditingComparer().summary(
-                in: db,
-                baselineSchemaName: sourceEditingSession.baselineSchemaName,
-                recordTypes: OME.sourceRecordTypes,
-                scope: .openMusicEvent(eventID: eventID)
+        guard let sourceEditingSession else {
+            return EventWorkspaceSummary(
+                eventID: eventID,
+                availability: .workspaceNeedsPreparation,
+                groups: []
             )
-        } else {
-            @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
-            let baselineDatabase: SourceBaselineDatabase?
-            do {
-                baselineDatabase = try workspaceReferenceDatabase.existing(
-                    workspace,
-                    sourceBaseline: sourceBaseline
-                )
-            } catch WorkspaceReferenceDatabaseError.sourceBaselineMissing(_),
-                    WorkspaceReferenceDatabaseError.teamWorkspaceMissingSourceBaseline(_) {
-                baselineDatabase = nil
-            }
-            guard let baselineDatabase else {
-                return EventWorkspaceSummary(
-                    eventID: eventID,
-                    availability: .workspaceNeedsPreparation,
-                    groups: []
-                )
-            }
-            sourceSummary = try SourceEditingComparer().summary(
+        }
+        let sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
+            try SourceEditingComparer().summary(
                 in: db,
-                baselineDatabase: baselineDatabase,
+                baselineSchemaName: baselineSchemaName,
                 recordTypes: OME.sourceRecordTypes,
                 scope: .openMusicEvent(eventID: eventID)
             )
@@ -176,13 +153,12 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
     }
 
     public func fetch(_ db: Database) throws -> SourceEditSummary {
-        let sourceBaseline = try SourceBaselineRecord
+        let sourceBaselineExists = try SourceBaselineRecord
             .where { $0.id.eq(sourceBaselineID) }
             .fetchOne(db)
+            .map { _ in true } ?? false
 
-
-
-        guard let sourceBaseline else {
+        guard sourceBaselineExists else {
             return SourceEditSummary(
                 sourceBaselineID: sourceBaselineID,
                 availability: .missingBaseline,
@@ -191,34 +167,22 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
         }
 
         @Dependency(\.sourceEditingSession) var sourceEditingSession
-        let sourceSummary: SourceChangeSummary
-        if let sourceEditingSession {
-            sourceSummary = try sourceEditSummary(
-                in: db,
-                baselineSchemaName: sourceEditingSession.baselineSchemaName,
+        guard let sourceEditingSession else {
+            return SourceEditSummary(
                 sourceBaselineID: sourceBaselineID,
-                calendarID: calendarID
+                availability: .missingBaseline,
+                groups: []
             )
-        } else {
-            @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-            guard let baselineDatabase = try sourceReferenceDatabase.existing(
-                sourceBaseline.sourceProvenance
-            ) else {
-                return SourceEditSummary(
-                    sourceBaselineID: sourceBaselineID,
-                    availability: .missingBaseline,
-                    groups: []
-                )
-            }
-
-            sourceSummary = try sourceEditSummary(
+        }
+        let sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
+            try sourceEditSummary(
                 in: db,
-                baselineDatabase: baselineDatabase,
+                baselineSchemaName: baselineSchemaName,
                 sourceBaselineID: sourceBaselineID,
                 calendarID: calendarID
             )
         }
-//
+
         switch sourceSummary.availability {
         case .available:
             return SourceEditSummary(
@@ -236,49 +200,6 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
             )
         }
     }
-}
-
-private func sourceEditSummary(
-    in db: Database,
-    baselineDatabase: SourceBaselineDatabase,
-    sourceBaselineID: SourceBaselineRecord.ID,
-    calendarID: OME.Calendar.ID
-) throws -> SourceChangeSummary {
-    let comparer = SourceEditingComparer()
-    let calendarSummary = try comparer.summary(
-        in: db,
-        baselineDatabase: baselineDatabase,
-        recordTypes: OME.sourceMetadataRecordTypes,
-        scope: .openMusicEventCalendar(calendarID: calendarID)
-    )
-    guard case .available = calendarSummary.availability else {
-        return calendarSummary
-    }
-
-    var summaries = [calendarSummary]
-    for eventID in try sourceEventIDs(
-        in: db,
-        baselineDatabase: baselineDatabase,
-        sourceBaselineID: sourceBaselineID,
-        organizerID: calendarID.ownerID
-    ) {
-        let eventSummary = try comparer.summary(
-            in: db,
-            baselineDatabase: baselineDatabase,
-            recordTypes: OME.sourceRecordTypes,
-            scope: .openMusicEvent(eventID: eventID)
-        )
-        guard case .available = eventSummary.availability else {
-            return eventSummary
-        }
-        summaries.append(eventSummary)
-    }
-
-    return SourceChangeSummary(
-        availability: .available,
-        groups: mergedSourceChangeGroups(summaries.flatMap(\.groups)),
-        recordComparisons: mergedSourceRecordComparisons(summaries)
-    )
 }
 
 private func sourceEditSummary(
@@ -322,35 +243,6 @@ private func sourceEditSummary(
         groups: mergedSourceChangeGroups(summaries.flatMap(\.groups)),
         recordComparisons: mergedSourceRecordComparisons(summaries)
     )
-}
-
-private func sourceEventIDs(
-    in db: Database,
-    baselineDatabase: SourceBaselineDatabase,
-    sourceBaselineID: SourceBaselineRecord.ID,
-    organizerID: OME.Organizer.ID
-) throws -> [OME.Event.ID] {
-    let workingEventIDs = try sourceEventIDs(
-        in: db,
-        sourceBaselineID: sourceBaselineID
-    )
-    let baselineEventIDs = try baselineDatabase.read { db in
-        try sourceEventIDs(
-            in: db,
-            sourceBaselineID: sourceBaselineID
-        )
-    }
-
-    var seen: Set<OME.Event.ID> = []
-    return (workingEventIDs + baselineEventIDs)
-        .filter { $0.organizerID == organizerID }
-        .sorted { lhs, rhs in
-            lhs.eventID.rawValue.rawValue < rhs.eventID.rawValue.rawValue
-        }
-        .compactMap { eventID in
-            guard seen.insert(eventID).inserted else { return nil }
-            return eventID
-        }
 }
 
 private func sourceEventIDs(
