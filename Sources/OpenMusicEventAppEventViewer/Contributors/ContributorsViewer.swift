@@ -35,6 +35,7 @@ public struct ContributorsViewer {
 
         public let eventID: OMERecord.Event.ID
         public var destination: Destination.State?
+        public var errorMessage: String?
         public var searchText = ""
 
         @DebugSnapshotIgnored
@@ -54,6 +55,7 @@ public struct ContributorsViewer {
 
     public enum Action {
         case addButtonTapped
+        case deleteContributors([OMERecord.ID<OMERecord.Contributor>])
         case destination(Destination.Action)
         case contributorButtonTapped(OMERecord.ID<OMERecord.Contributor>)
     }
@@ -64,6 +66,7 @@ public struct ContributorsViewer {
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+    @Dependency(\.defaultDatabase) var database
 
     static func contributorProfilesQuery(
         eventID: OMERecord.Event.ID,
@@ -98,6 +101,57 @@ public struct ContributorsViewer {
                         value: .createContributor(eventID)
                     )
                     await task?.value
+                }
+
+            case let .deleteContributors(contributorIDs):
+                let eventID = state.eventID
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            for contributorID in contributorIDs {
+                                let contributorRecordID = OMERecord.Contributor.ID(
+                                    organizerID: eventID.organizerID,
+                                    eventID: eventID.eventID,
+                                    contributorID: contributorID
+                                )
+                                let recordURI = OMERecord.Relationship.RecordReference(
+                                    contributorID: contributorRecordID
+                                )
+                                .uri.description
+
+                                try db.execute(
+                                    sql: #"""
+                                    DELETE FROM "relationships"
+                                    WHERE json_extract("subject", '$.uri') = ?
+                                       OR json_extract("object", '$.uri') = ?
+                                    """#,
+                                    arguments: [recordURI, recordURI]
+                                )
+
+                                try OMERecord.Contributor
+                                    .where { $0.id.organizerID.eq(eventID.organizerID) }
+                                    .where { $0.id.eventID.eq(eventID.eventID) }
+                                    .where { $0.id.contributorID.eq(contributorID) }
+                                    .delete()
+                                    .execute(db)
+
+                                try LocalImageBlob
+                                    .where { $0.organizerID.eq(eventID.organizerID) }
+                                    .where { $0.eventID.eq(eventID.eventID) }
+                                    .where { $0.parentKind.eq(LocalImageBlob.ParentKind.contributor) }
+                                    .where { $0.parentLocalID.eq(contributorID.rawValue.rawValue) }
+                                    .delete()
+                                    .execute(db)
+                            }
+                        }
+                        try store.modify {
+                            $0.errorMessage = nil
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.errorMessage = "Unable to delete contributor."
+                        }
+                    }
                 }
 
             case .destination:
@@ -157,9 +211,22 @@ public struct ContributorsViewerView: View {
                     description: "No contributors match your search."
                 )
             } else {
-                List(store.filteredContributorRows) { row in
-                    ContributorListButton(row: row) { contributorID in
-                        store.send(.contributorButtonTapped(contributorID))
+                List {
+                    if let errorMessage = store.errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    ForEach(store.filteredContributorRows) { row in
+                        ContributorListButton(row: row) { contributorID in
+                            store.send(.contributorButtonTapped(contributorID))
+                        }
+                    }
+                    .onDelete { offsets in
+                        deleteContributors(at: offsets)
                     }
                 }
                 .listStyle(.plain)
@@ -184,6 +251,15 @@ public struct ContributorsViewerView: View {
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
             ContributorDetailView(store: detailStore)
         }
+    }
+
+    func deleteContributors(at offsets: IndexSet) {
+        let contributorIDs = offsets.compactMap { offset in
+            store.filteredContributorRows.indices.contains(offset)
+                ? store.filteredContributorRows[offset].contributorID
+                : nil
+        }
+        store.send(.deleteContributors(contributorIDs))
     }
 }
 

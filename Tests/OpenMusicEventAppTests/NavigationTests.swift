@@ -1885,6 +1885,89 @@ struct NavigationTests {
     }
 
     @Test
+    func contributorsViewerDeleteRemovesContributor() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let contributorID = contributorLocalID("amy")
+        let performanceID = performanceLocalID("opening")
+        let contributorRecordID = OMERecord.Contributor.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            contributorID: contributorID
+        )
+        let performanceRecordID = OMERecord.Performance.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            performanceID: performanceID
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertContributor(db, eventID: eventID, contributorID: "amy", name: "Amy")
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Opening"
+            )
+            try Self.insertPerformanceContributor(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                contributorID: "amy"
+            )
+            try OMERecord.Relationship.insert {
+                OMERecord.Relationship(
+                    subject: .init(contributorID: contributorRecordID),
+                    role: .performer,
+                    object: .init(performanceID: performanceRecordID),
+                    createdAt: "2026-08-07T00:00:00Z"
+                )
+            }
+            .execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: ContributorsViewer.State(eventID: eventID)) {
+                ContributorsViewer()
+            }
+        }
+
+        await store.send(.deleteContributors([contributorID]))?.value
+
+        #expect(store.state.errorMessage == nil)
+
+        try await database.read { db in
+            let contributor = try ContributorDetail.contributorQuery(
+                contributorID: contributorID,
+                eventID: eventID
+            )
+            .fetchOne(db)
+            let performanceContributorCount = try OMERecord.Performance.Contributors
+                .where { $0.performanceID.organizerID.eq(performanceRecordID.organizerID) }
+                .where { $0.performanceID.eventID.eq(performanceRecordID.eventID) }
+                .where { $0.performanceID.performanceID.eq(performanceRecordID.performanceID) }
+                .fetchCount(db)
+            let relationshipCount = try OMERecord.Relationship.fetchCount(db)
+
+            #expect(contributor == nil)
+            #expect(performanceContributorCount == 0)
+            #expect(relationshipCount == 0)
+        }
+    }
+
+    @Test
     func contributorProfileUnhydratedDoesNotRequireActorCacheTables() async throws {
         let database = try makeCoreDatabase()
         let selectedEventID = eventID("event-1")

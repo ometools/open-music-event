@@ -10,6 +10,8 @@
       "blur-material" : null,
       "layers" : [
         {
+          "glass" : true,
+          "hidden" : false,
           "image-name" : "logo-layer-m-cage.png",
           "name" : "logo-layer-m-cage",
           "position" : {
@@ -23,7 +25,7 @@
         {
           "blend-mode-specializations" : [
             {
-              "value" : "soft-light"
+              "value" : "normal"
             },
             {
               "appearance" : "dark",
@@ -39,6 +41,7 @@
               "value" : false
             }
           ],
+          "hidden" : true,
           "image-name" : "logo-layer-portal.png",
           "name" : "logo-layer-portal",
           "opacity-specializations" : [
@@ -59,6 +62,8 @@
           }
         },
         {
+          "glass" : true,
+          "hidden" : false,
           "image-name" : "logo-layer-o-e.png",
           "name" : "logo-layer-o-e",
           "position" : {

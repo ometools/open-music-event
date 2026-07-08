@@ -57,12 +57,11 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             timeout: .seconds(1)
         ) {
             $0.sourcePatchStatus = .generated(patch)
-            $0.sourceProposalStatus = .composing
         }
         await task?.value
 
-        #expect(store.state.sourceProposal?.eventID == eventID)
-        #expect(store.state.sourceProposal?.patch == patch)
+        #expect(store.state.sourceProposal == nil)
+        #expect(store.state.sourceProposalStatus == .idle)
         await store.dismount()
     }
 
@@ -94,6 +93,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
 
         let task = store.send(.proposeChangeButtonTapped) {
+            $0.isPreparingSourceProposal = true
             $0.sourcePatchStatus = .generating
         }
         await store.receive(
@@ -101,6 +101,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             .equals(.success(patch)),
             timeout: .seconds(1)
         ) {
+            $0.isPreparingSourceProposal = false
             $0.sourcePatchStatus = .generated(patch)
             $0.sourceProposalStatus = .composing
         }
@@ -116,6 +117,20 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         try await seedSourceBackedEvent(eventID, in: database)
+        let staleGroup = SourceChangeGroup(
+            id: OME.Contributor.tableName,
+            displayName: "Contributor",
+            added: 1,
+            modified: 0,
+            deleted: 0
+        )
+        let currentGroup = SourceChangeGroup(
+            id: OME.Contributor.tableName,
+            displayName: "Contributor",
+            added: 0,
+            modified: 1,
+            deleted: 0
+        )
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -131,7 +146,21 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             $0.defaultDatabase = database
         } operation: {
             var state = EventWorkspace.State(eventID: eventID)
+            state.workspaceSummary = EventWorkspaceSummary(
+                eventID: eventID,
+                availability: .available,
+                groups: [currentGroup]
+            )
             state.sourcePatchStatus = .generated(patch)
+            state.sourceProposal = SourceProposalFlow.State(
+                eventID: eventID,
+                workspaceSummary: EventWorkspaceSummary(
+                    eventID: eventID,
+                    availability: .available,
+                    groups: [staleGroup]
+                ),
+                patch: patch
+            )
             return TestStore(initialState: state) {
                 EventWorkspace()
             }
@@ -142,6 +171,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
         #expect(store.state.sourceProposal?.eventID == eventID)
         #expect(store.state.sourceProposal?.patch == patch)
+        expectNoDifference(
+            store.state.sourceProposal?.sourceChangeGroups,
+            [currentGroup]
+        )
 
         await store.dismount()
     }
@@ -465,7 +498,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func sourcePatchRegenerationPreservesInlineProposalTitleAndDescription() async throws {
+    func sourcePatchGenerationDoesNotCacheInlineProposal() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         try await seedSourceBackedEvent(eventID, in: database)
@@ -509,12 +542,11 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         store.send(.sourcePatchGenerationResponse(.success(regeneratedPatch))) {
             $0.sourcePatchStatus = .generated(regeneratedPatch)
-            $0.sourceProposalStatus = .composing
+            $0.sourceProposal = nil
+            $0.sourceProposalStatus = .idle
         }
 
-        #expect(store.state.sourceProposal?.patch == regeneratedPatch)
-        #expect(store.state.sourceProposal?.sourceProposalTitle == "Update the event")
-        #expect(store.state.sourceProposal?.sourceProposalDescription == "Describe the changes.")
+        #expect(store.state.sourceProposal == nil)
         await store.dismount()
     }
 
@@ -548,6 +580,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         store.send(.sourcePatchGenerationResponse(.success(SourcePatch()))) {
             $0.sourcePatchStatus = .generated(SourcePatch())
+            $0.sourceProposal = nil
             $0.sourceProposalStatus = .idle
         }
 

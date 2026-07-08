@@ -139,6 +139,7 @@ public struct EventWorkspace {
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
         @Fetch public var workspaceSummary: EventWorkspaceSummary
+        public var isPreparingSourceProposal = false
         public var isResettingEdits = false
         public var resetEditsFailure: ResetEditsFailure?
         public var sourcePatchStatus: SourcePatchStatus = .notGenerated
@@ -405,6 +406,7 @@ public struct EventWorkspace {
 
             case .resetEditsResponse(.success):
                 state.isResettingEdits = false
+                state.isPreparingSourceProposal = false
                 state.resetEditsFailure = nil
                 state.sourcePatchStatus = .generated(SourcePatch())
                 state.sourceProposal = nil
@@ -415,6 +417,7 @@ public struct EventWorkspace {
                 state.resetEditsFailure = failure
 
             case .sourceProposal(.delegate(.dismissed)):
+                state.isPreparingSourceProposal = false
                 state.sourceProposal = nil
                 switch state.sourceProposalStatus {
                 case .composing, .failed:
@@ -426,23 +429,34 @@ public struct EventWorkspace {
             case .proposeChangeButtonTapped:
                 guard state.canReviewSourceProposal else { return }
                 guard case let .generated(patch) = state.sourcePatchStatus else {
+                    state.isPreparingSourceProposal = true
                     generateSourcePatch(eventID: state.eventID, state: &state)
                     return
                 }
                 guard !patch.isEmpty else { return }
-                state.updateSourceProposal(for: patch)
+                state.presentSourceProposal(for: patch)
 
             case let .reviewSemanticDiffButtonTapped(review):
                 loadTangledPullReviewSemanticDiff(review: review, state: &state)
 
             case let .sourcePatchGenerationResponse(.success(patch)):
                 state.sourcePatchStatus = .generated(patch)
-                state.updateSourceProposal(for: patch)
+                if state.isPreparingSourceProposal {
+                    state.isPreparingSourceProposal = false
+                    state.presentSourceProposal(for: patch)
+                } else {
+                    state.sourceProposal = nil
+                    state.sourceProposalStatus = .idle
+                }
 
             case let .sourcePatchGenerationResponse(.failure(failure)):
+                state.isPreparingSourceProposal = false
                 state.sourcePatchStatus = .failed(failure)
+                state.sourceProposal = nil
+                state.sourceProposalStatus = .idle
 
             case let .sourcePatchInvalidationReceived(invalidation):
+                state.isPreparingSourceProposal = false
                 state.sourcePatchStatus = .needsGeneration(invalidation)
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
@@ -1709,28 +1723,18 @@ private extension EventSourceProvenanceRecord {
 }
 
 private extension EventWorkspace.State {
-    mutating func updateSourceProposal(for patch: SourcePatch) {
+    mutating func presentSourceProposal(for patch: SourcePatch) {
         guard !patch.isEmpty, canReviewSourceProposal else {
             sourceProposal = nil
             sourceProposalStatus = .idle
             return
         }
 
-        let existingDescription = sourceProposal?.sourceProposalDescription
-        let existingTitle = sourceProposal?.sourceProposalTitle
-        var sourceProposal = SourceProposalFlow.State(
+        sourceProposal = SourceProposalFlow.State(
             eventID: eventID,
             workspaceSummary: workspaceSummary,
             patch: patch
         )
-        if let existingTitle {
-            sourceProposal.sourceProposalTitle = existingTitle
-        }
-        if let existingDescription {
-            sourceProposal.sourceProposalDescription = existingDescription
-        }
-
-        self.sourceProposal = sourceProposal
         sourceProposalStatus = .composing
     }
 
