@@ -101,6 +101,11 @@ struct MyEventsView: View {
                     } label: {
                         EventRowView(event: event)
                     }
+                    .contextMenu {
+                        Button("Delete Event", role: .destructive) {
+                            confirmDeleteCreatedEvent(event.id)
+                        }
+                    }
                 }
                 .onDelete { offsets in
                     confirmDeleteCreatedEvents(at: offsets)
@@ -138,6 +143,10 @@ struct MyEventsView: View {
                 : nil
         }
         store.send(.deleteCreatedEventsButtonTapped(eventIDs))
+    }
+
+    func confirmDeleteCreatedEvent(_ eventID: OMERecord.Event.ID) {
+        store.send(.deleteCreatedEventsButtonTapped([eventID]))
     }
 }
 

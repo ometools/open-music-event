@@ -28,25 +28,7 @@ public enum OpenMusicEventAppDependencyProfile: Sendable {
     case whiteLabel
 }
 
-public enum OpenMusicEventDependencies {
-    public static func prepare(
-        _ dependencies: inout DependencyValues,
-        profile: OpenMusicEventAppDependencyProfile = .generic,
-        update: (inout DependencyValues) throws -> Void = { _ in }
-    ) throws {
-        try OME.prepareDependencies(&dependencies)
-        switch profile {
-        case .generic:
-            break
-        case .whiteLabel:
-            dependencies.tangledSourceCheckout = .archive
-        }
-        try update(&dependencies)
-    }
-}
-
 extension OME {
-
     public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
         try dependencies.bootstrapDatabase()
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
