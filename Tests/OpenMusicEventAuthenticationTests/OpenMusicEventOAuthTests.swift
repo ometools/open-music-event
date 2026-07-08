@@ -167,6 +167,65 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
+    func preparedAuthorizationBrokerAutoStartsStoredSessionPermissionUpgrade() async throws {
+        OpenMusicEventOAuth.resetStoredSession()
+        let session = openMusicEventTestSession(
+            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+        )
+        OpenMusicEventOAuth.session.withLock {
+            $0 = session
+        }
+        defer {
+            OpenMusicEventOAuth.resetStoredSession()
+        }
+        let center = AuthorizationRequestCenter()
+        var dependencies = DependencyValues()
+        dependencies.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
+            center: center
+        )
+        OpenMusicEventOAuth.prepareDependencies(&dependencies)
+        let broker = dependencies.oauthAuthorizationBroker
+        let observedRequest = await observeAuthorizationRequest(from: center)
+        let authorization = Task {
+            try await broker.authorize(OpenMusicEventOAuth.proposalAuthRequirement)
+        }
+
+        let request = try #require(await observedRequest.value)
+        await center.cancel()
+        _ = await authorization.result
+
+        #expect(request.requirement == OpenMusicEventOAuth.proposalAuthRequirement)
+        #expect(request.loginHint == session.accountID.rawValue.description)
+        #expect(request.startsImmediately)
+    }
+
+    @Test
+    func preparedAuthorizationBrokerKeepsLoggedOutAuthorizationRequestManual() async throws {
+        OpenMusicEventOAuth.resetStoredSession()
+        defer {
+            OpenMusicEventOAuth.resetStoredSession()
+        }
+        let center = AuthorizationRequestCenter()
+        var dependencies = DependencyValues()
+        dependencies.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
+            center: center
+        )
+        OpenMusicEventOAuth.prepareDependencies(&dependencies)
+        let broker = dependencies.oauthAuthorizationBroker
+        let observedRequest = await observeAuthorizationRequest(from: center)
+        let authorization = Task {
+            try await broker.authorize(OpenMusicEventOAuth.proposalAuthRequirement)
+        }
+
+        let request = try #require(await observedRequest.value)
+        await center.cancel()
+        _ = await authorization.result
+
+        #expect(request.requirement == OpenMusicEventOAuth.proposalAuthRequirement)
+        #expect(request.startsImmediately == false)
+    }
+
+    @Test
     func preparedDependenciesExposeSelectedSessionStoreFallback() {
         OpenMusicEventOAuth.resetStoredSession()
         var dependencies = DependencyValues()
@@ -234,10 +293,6 @@ struct OpenMusicEventOAuthTests {
             sessionStore.upsert(.placeholder)
 
             try keychainStorage.setData(
-                JSONEncoder().encode(OAuth.Session.placeholder),
-                OpenMusicEventOAuth.sessionKeychainItem
-            )
-            try keychainStorage.setData(
                 JSONEncoder().encode(sessionStore),
                 OpenMusicEventOAuth.sessionStoreKeychainItem
             )
@@ -268,6 +323,34 @@ private let testSignUpServerConfiguration = OAuthSignUpServerConfiguration(
 
 private func signUpServerFaviconURL(host: String) -> URL {
     URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=128")!
+}
+
+private func observeAuthorizationRequest(
+    from center: AuthorizationRequestCenter
+) async -> Task<AuthorizationRequestCenter.Request?, Never> {
+    let stream = await center.requests()
+    return Task {
+        var iterator = stream.makeAsyncIterator()
+        while let yieldedRequest = await iterator.next() {
+            if let request = yieldedRequest {
+                return request
+            }
+        }
+        return nil
+    }
+}
+
+private func openMusicEventTestSession(
+    permissions: Set<OAuth.Permission>
+) -> OAuth.Session {
+    var session = OAuth.Session.placeholder
+    session.scope = OAuth.Scope(
+        rawValue: permissions
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: " ")
+    )
+    return session
 }
 
 private struct TestOEmbedFetch: Error {}

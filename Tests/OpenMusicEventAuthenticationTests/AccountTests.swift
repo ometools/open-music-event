@@ -382,7 +382,6 @@ private extension Account.State {
             selectedMode: selectedMode,
             signInLoginHint: signInLoginHint,
             authFailureMessage: Shared<ErrorMessage?>(value: nil),
-            session: Shared<OAuth.Session?>(value: nil),
             sessionStore: Shared<OAuth.SessionStore>(value: OAuth.SessionStore())
         )
     }

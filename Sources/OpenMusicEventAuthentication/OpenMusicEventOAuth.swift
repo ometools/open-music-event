@@ -36,11 +36,6 @@ public extension DependencyValues {
     }
 }
 
-private let openMusicEventOAuthSession = Shared<OAuth.Session?>(
-    wrappedValue: nil,
-    KeychainSharedKey(item: OpenMusicEventOAuth.sessionKeychainItem)
-)
-
 private let openMusicEventOAuthSessionStore = Shared(
     wrappedValue: OAuth.SessionStore(),
     KeychainSharedKey(item: OpenMusicEventOAuth.sessionStoreKeychainItem)
@@ -49,10 +44,6 @@ private let openMusicEventOAuthSessionStore = Shared(
 private let openMusicEventAuthFailureMessage = Shared<ErrorMessage?>(value: nil)
 
 public enum OpenMusicEventOAuth {
-    static let sessionKeychainItem = KeychainStorageItem(
-        service: "fm.woody.openMusicEvent",
-        account: "oauth.session"
-    )
     static let sessionStoreKeychainItem = KeychainStorageItem(
         service: "fm.woody.openMusicEvent",
         account: "oauth.sessionStore"
@@ -176,7 +167,6 @@ public enum OpenMusicEventOAuth {
     )
 
     public static let storage = OAuthSessionStorage(
-        session: openMusicEventOAuthSession,
         sessionStore: openMusicEventOAuthSessionStore,
         authFailureMessage: openMusicEventAuthFailureMessage
     )
@@ -197,11 +187,17 @@ public enum OpenMusicEventOAuth {
         let authorizationRequests = dependencies.openMusicEventAuthorizationRequests
             .openMusicEventDefaultingSignUpServerConfiguration(
                 dependencies.openMusicEventSignUpServerConfiguration
-            )
+        )
         dependencies.openMusicEventAuthorizationRequests = authorizationRequests
         dependencies.oauthAppConfiguration = appConfiguration
         dependencies.oauthAppManifest = appManifest
-        dependencies.oauthAuthorizationBroker = authorizationRequests.broker()
+        dependencies.oauthAuthorizationBroker = authorizationRequests
+            .openMusicEventAutoStartingAuthorizationUpgrades(
+                session: { session.wrappedValue },
+                sessionStore: { sessionStore.wrappedValue },
+                appManifest: appManifest
+            )
+            .broker()
         dependencies.oauthBrowserStrategy = .webAuthenticationSession
         dependencies.getDefaultSession = {
             session.wrappedValue

@@ -296,12 +296,14 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func authenticatedDependencyModifierExposesStoredSession() {
-        let session = Shared<OAuth.Session?>(value: .placeholder)
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(.placeholder)
+        let sessionStore = Shared<OAuth.SessionStore>(value: sessionStoreValue)
         let authFailureMessage = Shared<ErrorMessage?>(value: nil)
         let store = Store(initialState: SessionProbe.State()) {
             SessionProbe()
                 .openMusicEventAuthenticatedSession(
-                    session: session,
+                    sessionStore: sessionStore,
                     authFailureMessage: authFailureMessage
                 )
         }
@@ -313,7 +315,6 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func authenticatedDependencyModifierExposesSelectedSessionStoreFallback() {
-        let session = Shared<OAuth.Session?>(value: nil)
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(.placeholder)
         let sessionStore = Shared<OAuth.SessionStore>(value: sessionStoreValue)
@@ -321,7 +322,6 @@ struct AuthenticationCoordinatorTests {
         let store = Store(initialState: SessionProbe.State()) {
             SessionProbe()
                 .openMusicEventAuthenticatedSession(
-                    session: session,
                     sessionStore: sessionStore,
                     authFailureMessage: authFailureMessage
                 )
@@ -438,7 +438,6 @@ private extension OAuthAuthenticationCoordinator.State {
     static func localTestState() -> Self {
         Self(
             storage: OAuthSessionStorage(
-                session: Shared<OAuth.Session?>(value: nil),
                 sessionStore: Shared<OAuth.SessionStore>(value: OAuth.SessionStore()),
                 authFailureMessage: Shared<ErrorMessage?>(value: nil)
             )

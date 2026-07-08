@@ -111,7 +111,6 @@ public struct Account {
             signInLoginHint: String = "",
             signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
             authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
-            session: Shared<OAuth.Session?>,
             sessionStore: Shared<OAuth.SessionStore>
         ) {
             self.init(
@@ -120,7 +119,6 @@ public struct Account {
                 signInLoginHint: signInLoginHint,
                 signUpServerConfiguration: signUpServerConfiguration,
                 storage: OAuthSessionStorage(
-                    session: session,
                     sessionStore: sessionStore,
                     authFailureMessage: authFailureMessage
                 )
@@ -842,12 +840,10 @@ public extension OAuthAccount.State {
 
     init(
         authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
-        session: Shared<OAuth.Session?>,
         sessionStore: Shared<OAuth.SessionStore>
     ) {
         self.init(
             storage: OAuthSessionStorage(
-                session: session,
                 sessionStore: sessionStore,
                 authFailureMessage: authFailureMessage
             )

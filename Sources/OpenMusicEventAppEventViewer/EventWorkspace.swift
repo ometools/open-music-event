@@ -202,7 +202,7 @@ public struct EventWorkspace {
             Result<Void, TangledPullReviewDeleteFailure>
         )
         case tangledPullReviewsResponse(Result<[TangledPullReview], TangledPullReviewFailure>)
-    }
+    } 
 
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var sourcePatchGenerator
@@ -210,6 +210,7 @@ public struct EventWorkspace {
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
     public var body: some Feature {
+        let _ = Self._logChanges()
         Update { state, action in
             func generateSourcePatch(
                 eventID: OMERecord.Event.ID,

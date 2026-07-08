@@ -94,6 +94,7 @@ public struct SourceProposalFlow {
     @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
 
     public var body: some Feature {
+        let _ = Self._logChanges()
         Update { state, action in
             func createSourceProposal(
                 target: SourceProposalTarget,
