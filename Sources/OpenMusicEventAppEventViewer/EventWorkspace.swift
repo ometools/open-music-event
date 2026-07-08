@@ -405,7 +405,7 @@ public struct EventWorkspace {
 
                 let index = min(pendingRemoval?.index ?? reviews.count, reviews.count)
                 reviews.insert(restoredReview, at: index)
-                state.tangledPullReviewStatus = .loaded(reviews)
+                state.tangledPullReviewStatus = .loaded(reviews.tangledPullReviewsSortedByDate)
             }
 
             switch action {
@@ -537,7 +537,9 @@ public struct EventWorkspace {
 
             case let .tangledPullReviewsResponse(.success(reviews)):
                 state.tangledPullReviewStatus = .loaded(
-                    reviews.filter { !state.locallyRemovedTangledPullReviewIDs.contains($0.id) }
+                    reviews
+                        .filter { !state.locallyRemovedTangledPullReviewIDs.contains($0.id) }
+                        .tangledPullReviewsSortedByDate
                 )
 
             case let .tangledPullReviewsResponse(.failure(failure)):
@@ -927,25 +929,19 @@ struct TangledPullReviewRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(review.createdAt.tangledPullReviewCreatedAtTitle)
-                        .font(.headline)
-
-                    Text(review.organizerDestinationTitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(review.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                    .layoutPriority(1)
                 Spacer()
-
                 TangledPullReviewStateChip(state: review.state)
             }
 
-            Text(review.title)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .lineLimit(2)
+            Text(review.pullRequestMetadataTitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
             if let body = review.body?.sourceReviewPreview, !body.isEmpty {
                 Text(body)
@@ -1022,6 +1018,10 @@ struct TangledPullReviewStateChip: View {
 }
 
 private extension TangledPullReview {
+    var pullRequestMetadataTitle: String {
+        "Opened \(createdAt.tangledPullReviewCreatedAtTitle) for \(organizerDestinationTitle)"
+    }
+
     var organizerDestinationTitle: String {
         targetBranch == "main" ? "Main organizer" : "\(targetBranch) organizer"
     }
@@ -1032,6 +1032,26 @@ private extension TangledPullReview {
 
     var commentCountTitle: String {
         commentCount == 1 ? "1 comment" : "\(commentCount) comments"
+    }
+}
+
+private extension Collection where Element == TangledPullReview {
+    var tangledPullReviewsSortedByDate: [TangledPullReview] {
+        sorted { lhs, rhs in
+            switch (
+                lhs.createdAt.tangledPullReviewCreatedAtDate,
+                rhs.createdAt.tangledPullReviewCreatedAtDate
+            ) {
+            case let (.some(lhsDate), .some(rhsDate)):
+                lhsDate > rhsDate
+            case (.some(_), .none):
+                true
+            case (.none, .some(_)):
+                false
+            case (.none, .none):
+                lhs.createdAt > rhs.createdAt
+            }
+        }
     }
 }
 
@@ -2144,8 +2164,12 @@ private extension SourcePatchFileChange.Kind {
 }
 
 private extension String {
+    var tangledPullReviewCreatedAtDate: Date? {
+        ISO8601DateFormatter().date(from: self)
+    }
+
     var tangledPullReviewCreatedAtTitle: String {
-        guard let date = ISO8601DateFormatter().date(from: self) else { return self }
+        guard let date = tangledPullReviewCreatedAtDate else { return self }
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
