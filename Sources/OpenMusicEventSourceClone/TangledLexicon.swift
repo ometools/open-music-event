@@ -41,6 +41,7 @@ public enum TangledOAuthRequirements {
 
     public static let proposalAuthRequirement = OAuth.AuthRequirement(
         permissions: [
+            publicKeyCreatePermission,
             patchBlobPermission,
             pullCreatePermission,
         ]

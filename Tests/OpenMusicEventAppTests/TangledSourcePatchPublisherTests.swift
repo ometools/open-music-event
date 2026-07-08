@@ -135,6 +135,7 @@ struct TangledSourcePatchPublisherTests {
         let commitRequests = Mutex([CommitRequest]())
         let formatPatchRequests = Mutex([FormatPatchRequest]())
         let pushRequests = Mutex([PushRequest]())
+        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
         let largeEventContents = "name: New\n"
             + String(repeating: "description: A long proposal patch line.\n", count: 8_000)
         let proposalTitle = "Update Wicked Woods 2025 source"
@@ -169,6 +170,9 @@ struct TangledSourcePatchPublisherTests {
                 pdsHost: "owner.pds.example"
             )
             $0[XRPC.Client.self] = .liveValue
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                authorizedRequirements.withLock { $0.append(requirement) }
+            }
             $0.pdsHost = "publisher.pds.example"
             $0.httpClient = HTTPClient { request, body in
                 await requestRecorder.record(request, body)
@@ -297,6 +301,10 @@ struct TangledSourcePatchPublisherTests {
         }
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
+        #expect(
+            authorizedRequirements.withLock { $0 }
+                == [TangledOAuthRequirements.proposalAuthRequirement]
+        )
         #expect(openRequests.withLock { $0.map(\.standardizedFileURL) } == [repositoryURL.standardizedFileURL])
         let createBranchRequest = try #require(createBranchRequests.withLock { $0.first })
         #expect(createBranchRequest.name == branchName)
@@ -546,6 +554,7 @@ struct TangledSourcePatchPublisherTests {
             withIntermediateDirectories: true
         )
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
+        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
 
         let error = await #expect(throws: TangledSourcePatchPublisherError.self) {
             try await withDependencies {
@@ -555,6 +564,9 @@ struct TangledSourcePatchPublisherTests {
                     pdsHost: "owner.pds.example"
                 )
                 $0[XRPC.Client.self] = .liveValue
+                $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                    authorizedRequirements.withLock { $0.append(requirement) }
+                }
                 $0.httpClient = HTTPClient { request, body in
                     await requestRecorder.record(request, body)
                     return Data(
@@ -608,6 +620,7 @@ struct TangledSourcePatchPublisherTests {
             )
         )
         #expect(await requestRecorder.requests.count == 1)
+        #expect(authorizedRequirements.withLock { $0 }.isEmpty)
     }
 
     @Test
@@ -635,6 +648,7 @@ struct TangledSourcePatchPublisherTests {
         let cloneRequests = Mutex([CloneRequest]())
         let openRequests = Mutex([URL]())
         let pushRequests = Mutex([PushRequest]())
+        let publishEvents = Mutex([String]())
 
         let publication = try await withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 1_779_800_000)
@@ -647,6 +661,10 @@ struct TangledSourcePatchPublisherTests {
                 pdsHost: "owner.pds.example"
             )
             $0[XRPC.Client.self] = .liveValue
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                #expect(requirement == TangledOAuthRequirements.proposalAuthRequirement)
+                publishEvents.withLock { $0.append("authorize") }
+            }
             $0.pdsHost = "publisher.pds.example"
             $0.httpClient = HTTPClient { request, body in
                 await requestRecorder.record(request, body)
@@ -742,7 +760,8 @@ struct TangledSourcePatchPublisherTests {
                 }
             )
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
-                credentials
+                publishEvents.withLock { $0.append("credentials") }
+                return credentials
             }
         } operation: {
             try await TangledSourcePatchPublisher().publish(
@@ -778,6 +797,7 @@ struct TangledSourcePatchPublisherTests {
         }
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
+        #expect(publishEvents.withLock { $0 } == ["authorize", "credentials"])
         let cloneRequest = try #require(cloneRequests.withLock { $0.first })
         #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(cloneRequest.checkout == "main")

@@ -39,6 +39,10 @@ struct OpenMusicEventOAuthTests {
         #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=delete"))
         #expect(permissions.contains("blob:application/gzip"))
         #expect(permissions.contains("blob:text/x-patch"))
+        #expect(
+            OpenMusicEventOAuth.proposalAuthRequirement.permissions
+                .contains(OpenMusicEventOAuth.tangledPublicKeyCreatePermission)
+        )
 
         #expect(
             OpenMusicEventOAuth.appManifest.maximumPermissions

@@ -32,6 +32,8 @@ public struct TangledSourcePatchPublisher: Sendable {
 
         let repository = try TangledRepositoryReference(parsing: remote.reference)
         let targetRepository = try await targetRepository(repository)
+        @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
+        try await authorizationBroker.authorize(TangledOAuthRequirements.proposalAuthRequirement)
         let gitBackedPatch = try await gitBackedPreparedPatch(
             preparedPatch,
             repository: repository,
