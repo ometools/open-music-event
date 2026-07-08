@@ -13,7 +13,7 @@ import Testing
 @Suite(.tcaExhaustivity(.off))
 struct StageDuplicationTests {
     @Test
-    func opensCopyStagesFromOtherEventSheetWhenCurrentEventIsEmpty() async throws {
+    func emitsCopyStagesFromOtherEventRequestWhenCurrentEventIsEmpty() async throws {
         let database = try makePreparedDatabase()
         let fixture = try await seedEventSet(database: database)
         let store = makeStagesViewerStore(
@@ -21,9 +21,34 @@ struct StageDuplicationTests {
             database: database
         )
 
-        store.send(.fromOtherEventButtonTapped)
+        let copyTask = store.send(.fromOtherEventButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.copyStagesFromEvent(fixture.currentEventID)),
+            timeout: .seconds(1)
+        )
+        await copyTask?.value
+    }
 
-        #expect(store.state.destination != nil)
+    @Test
+    func emitsCopyStagesFromOtherEventRequestWhenCurrentEventHasOnlySingletonStage() async throws {
+        let database = try makePreparedDatabase()
+        let fixture = try await seedEventSet(database: database)
+        try await database.write { db in
+            try EventSingletonStage.insert(eventID: fixture.currentEventID, in: db)
+        }
+        let store = makeStagesViewerStore(
+            eventID: fixture.currentEventID,
+            database: database
+        )
+
+        let copyTask = store.send(.fromOtherEventButtonTapped)
+        await store.receive(
+            key: EventEditingRequested.self,
+            value: .equals(.copyStagesFromEvent(fixture.currentEventID)),
+            timeout: .seconds(1)
+        )
+        await copyTask?.value
     }
 
     @Test
@@ -116,6 +141,46 @@ struct StageDuplicationTests {
         #expect(mainStage.images?.count == 1)
         #expect(image.assetKey == nil)
         #expect(image.url?.absoluteString == "https://example.com/main-stage.png")
+    }
+
+    @Test
+    func copiesSelectedStagesFromOtherEventOverSingletonStage() async throws {
+        let database = try makePreparedDatabase()
+        let fixture = try await seedEventSet(database: database)
+        try await database.write { db in
+            try EventSingletonStage.insert(eventID: fixture.currentEventID, in: db)
+            try insertStage(
+                db,
+                eventID: fixture.sourceEventID,
+                stageID: "main-stage",
+                name: "Main Stage",
+                sortIndex: 1
+            )
+            try insertStage(
+                db,
+                eventID: fixture.sourceEventID,
+                stageID: "woods",
+                name: "Woods",
+                sortIndex: 2
+            )
+        }
+        let store = makeCopyStagesStore(
+            eventID: fixture.currentEventID,
+            database: database
+        )
+
+        await store.send(.task)?.value
+        await store.send(.copyButtonTapped)?.value
+
+        #expect(store.state.errorMessage == nil)
+        #expect(store.state.isCopying == false)
+        #expect(store.isPresented == false)
+
+        let stages = try await database.read { db in
+            try StagesViewer.stagesQuery(eventID: fixture.currentEventID).fetchAll(db)
+        }
+        expectNoDifference(stages.map(\.id.stageID.rawValue.rawValue), ["main-stage", "woods"])
+        expectNoDifference(stages.map(\.name), ["Main Stage", "Woods"])
     }
 
     @Test

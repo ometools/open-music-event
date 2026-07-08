@@ -40,7 +40,7 @@ public struct StagesViewer {
         @FetchAll public var stages: [OMERecord.Stage]
 
         public var canCopyStagesFromOtherEvent: Bool {
-            stages.isEmpty
+            stages.isEmpty || StagesViewer.hasOnlyReplaceableSingletonStage(stages)
         }
 
         public var filteredStages: [OMERecord.Stage] {
@@ -76,6 +76,19 @@ public struct StagesViewer {
             .where { $0.id.organizerID.eq(eventID.organizerID) }
             .where { $0.id.eventID.eq(eventID.eventID) }
             .order { ($0.sortIndex.asc(nulls: .last), $0.name.collate(.nocase)) }
+    }
+
+    static func hasOnlyReplaceableSingletonStage(_ stages: [OMERecord.Stage]) -> Bool {
+        guard stages.count == 1, let stage = stages.first else { return false }
+        return stage.id.stageID == OMERecord.Stage.singletonID
+            && stage.name == OMERecord.Stage.singletonName
+            && stage.color == OMERecord.Stage.singletonColor
+            && stage.category == nil
+            && stage.sortIndex == nil
+            && stage.images == nil
+            && stage.systemIconName == nil
+            && stage.iconShortCode == nil
+            && stage.lineup == nil
     }
 
     public var body: some Feature {
@@ -119,7 +132,7 @@ public struct StagesViewer {
                 break
 
             case .fromOtherEventButtonTapped:
-                guard state.stages.isEmpty else {
+                guard state.canCopyStagesFromOtherEvent else {
                     state.errorMessage = "This event already has stages."
                     return
                 }
@@ -421,14 +434,21 @@ public struct CopyStagesFromEvent {
             throw CopyStagesFromEventError.selectedStagesNotFound
         }
 
-        let destinationStageIDs = Set(
-            try StagesViewer
-                .stagesQuery(eventID: destinationEventID)
-                .fetchAll(db)
-                .map(\.id.stageID)
-        )
-        guard !sourceStages.contains(where: { destinationStageIDs.contains($0.id.stageID) }) else {
-            throw CopyStagesFromEventError.selectedStagesAlreadyExist
+        let destinationStages = try StagesViewer
+            .stagesQuery(eventID: destinationEventID)
+            .fetchAll(db)
+        let destinationStageIDs = Set(destinationStages.map(\.id.stageID))
+        let isReplacingSingletonStage = StagesViewer
+            .hasOnlyReplaceableSingletonStage(destinationStages)
+
+        if !isReplacingSingletonStage {
+            guard !sourceStages.contains(where: { destinationStageIDs.contains($0.id.stageID) }) else {
+                throw CopyStagesFromEventError.selectedStagesAlreadyExist
+            }
+        }
+
+        if isReplacingSingletonStage {
+            try deleteSingletonStage(eventID: destinationEventID, in: db)
         }
 
         try OMERecord.Stage.insert {
@@ -439,6 +459,18 @@ public struct CopyStagesFromEvent {
         .execute(db)
 
         return sourceStages.count
+    }
+
+    private static func deleteSingletonStage(
+        eventID: OMERecord.Event.ID,
+        in db: Database
+    ) throws {
+        try OMERecord.Stage
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+            .where { $0.id.stageID.eq(OMERecord.Stage.singletonID) }
+            .delete()
+            .execute(db)
     }
 
     static func sourceEventOptions(
@@ -555,6 +587,14 @@ public struct StagesViewerView: View {
         #endif
         .navigationTitle("Stages")
         .toolbar {
+            if store.canCopyStagesFromOtherEvent && !store.stages.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("From Other Event") {
+                        store.send(.fromOtherEventButtonTapped)
+                    }
+                }
+            }
+
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     store.send(.addButtonTapped)
