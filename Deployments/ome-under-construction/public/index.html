@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Open Music Event is being built: a native iOS and Android app for structured music-event calendars.">
+  <meta name="description" content="Open Music Event is a native iOS and Android app for music-event schedules, stages, artists, maps, and updates.">
   <meta property="og:title" content="Open Music Event">
-  <meta property="og:description" content="A native iOS and Android app for structured music-event calendars.">
+  <meta property="og:description" content="A native iOS and Android app for music-event schedules, stages, artists, maps, and updates.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://openmusicevent.app/">
   <meta property="og:image" content="https://openmusicevent.app/assets/ome-logo-sample-wordmark-2026-05.jpg">
@@ -14,14 +14,19 @@
     :root {
       color-scheme: dark;
       --bg: #060708;
-      --panel: #111315;
+      --surface: #0d0f10;
+      --panel: #121517;
+      --panel-strong: #181c1f;
       --text: #f5f7f7;
       --muted: #a8b0b3;
+      --soft: #d9e0e2;
       --line: #30363a;
+      --line-soft: rgba(255, 255, 255, 0.1);
       --cyan: #78e0d6;
-      --violet: #a985ff;
+      --green: #a8d98e;
       --rose: #f18aa8;
       --amber: #ffc473;
+      --shadow: rgba(0, 0, 0, 0.34);
       font-family:
         ui-sans-serif,
         system-ui,
@@ -35,13 +40,26 @@
       box-sizing: border-box;
     }
 
+    html {
+      background: var(--bg);
+      scroll-behavior: smooth;
+    }
+
     body {
       margin: 0;
       min-height: 100vh;
       background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 32rem),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 34rem),
+        linear-gradient(90deg, rgba(120, 224, 214, 0.08), rgba(241, 138, 168, 0.06) 46%, rgba(255, 196, 115, 0.06)),
         var(--bg);
       color: var(--text);
+    }
+
+    body,
+    button,
+    input,
+    textarea {
+      font: inherit;
     }
 
     a {
@@ -54,39 +72,90 @@
       text-decoration-color: var(--cyan);
     }
 
-    .page {
-      display: grid;
+    img {
+      max-width: 100%;
+    }
+
+    .page-shell {
       min-height: 100vh;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(6, 7, 8, 0.82);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav {
+      width: min(100%, 70rem);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1.25rem;
+    }
+
+    .brand-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.7rem;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      width: 2.1rem;
+      height: 2.1rem;
+      display: inline-grid;
       place-items: center;
-      padding: 3rem 1.25rem;
+      border: 1px solid var(--line-soft);
+      background: var(--panel);
+      color: var(--cyan);
+      font-size: 0.72rem;
+      letter-spacing: 0;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
     }
 
     .hero {
-      width: min(100%, 56rem);
-    }
-
-    .logo-wrap {
-      display: flex;
-      justify-content: center;
-      margin-bottom: 2.25rem;
-    }
-
-    .logo {
-      display: block;
-      width: min(100%, 34rem);
-      height: auto;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 1rem 4rem rgba(0, 0, 0, 0.32);
+      width: min(100%, 70rem);
+      min-height: calc(100vh - 4rem);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(18rem, 0.75fr);
+      align-items: center;
+      gap: clamp(2rem, 5vw, 5rem);
+      padding: 4rem 1.25rem 3.25rem;
     }
 
     .status {
       display: inline-flex;
       align-items: center;
       gap: 0.6rem;
-      margin: 0 0 1rem;
+      margin: 0 0 1.05rem;
       color: var(--muted);
       font-size: 0.82rem;
-      font-weight: 700;
+      font-weight: 800;
       letter-spacing: 0;
       text-transform: uppercase;
     }
@@ -96,112 +165,955 @@
       width: 0.7rem;
       height: 0.7rem;
       border-radius: 999px;
-      background: linear-gradient(135deg, var(--cyan), var(--violet) 48%, var(--rose));
-      box-shadow: 0 0 1.2rem rgba(120, 224, 214, 0.42);
+      background: var(--cyan);
+      box-shadow: 0 0 1.2rem rgba(120, 224, 214, 0.48);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
     }
 
     h1 {
-      max-width: 14ch;
-      margin: 0;
-      font-size: clamp(3rem, 8vw, 5.8rem);
-      line-height: 0.96;
+      max-width: 11ch;
+      margin-bottom: 1.3rem;
+      font-size: clamp(3.6rem, 8vw, 6.7rem);
+      line-height: 0.92;
       letter-spacing: 0;
     }
 
     .lede {
       max-width: 43rem;
-      margin: 1.5rem 0 0;
-      color: var(--muted);
-      font-size: clamp(1.1rem, 2vw, 1.35rem);
+      margin-bottom: 0;
+      color: var(--soft);
+      font-size: clamp(1.1rem, 2vw, 1.38rem);
       line-height: 1.55;
     }
 
-    .details {
+    .hero-actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.85rem;
-      margin-top: 2.25rem;
-      padding-top: 2rem;
-      border-top: 1px solid var(--line);
-      color: #dbe0e2;
-      font-size: 0.98rem;
-      line-height: 1.45;
+      gap: 0.8rem;
+      margin-top: 2rem;
     }
 
-    .detail {
-      min-width: min(100%, 14rem);
-      padding: 0.9rem 1rem;
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.9rem;
+      padding: 0.85rem 1.05rem;
       border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .button.primary {
+      border-color: rgba(120, 224, 214, 0.72);
+      background: var(--cyan);
+      color: #071010;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .hero-card {
+      border: 1px solid var(--line-soft);
+      background: rgba(13, 15, 16, 0.8);
+      box-shadow: 0 1.2rem 4rem var(--shadow);
+    }
+
+    .logo {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .hero-card-body {
+      display: grid;
+      gap: 1rem;
+      padding: 1.15rem;
+    }
+
+    .signal-list {
+      display: grid;
+      gap: 0.65rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--soft);
+      font-size: 0.95rem;
+      line-height: 1.4;
+    }
+
+    .signal-list li {
+      display: grid;
+      grid-template-columns: 0.65rem 1fr;
+      gap: 0.65rem;
+      align-items: start;
+    }
+
+    .signal-list li::before {
+      content: "";
+      width: 0.55rem;
+      height: 0.55rem;
+      margin-top: 0.45rem;
+      background: var(--green);
+    }
+
+    .section {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(6, 7, 8, 0.72);
+    }
+
+    .section.alt {
+      background: rgba(13, 15, 16, 0.86);
+    }
+
+    .section-inner {
+      width: min(100%, 70rem);
+      margin: 0 auto;
+      padding: clamp(3rem, 7vw, 5.5rem) 1.25rem;
+    }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 0.72fr) minmax(18rem, 1fr);
+      gap: clamp(1.25rem, 4vw, 4rem);
+      align-items: end;
+      margin-bottom: 2rem;
+    }
+
+    .eyebrow {
+      margin-bottom: 0.65rem;
+      color: var(--cyan);
+      font-size: 0.78rem;
+      font-weight: 900;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin-bottom: 0;
+      font-size: clamp(2rem, 4vw, 3.2rem);
+      line-height: 1.03;
+      letter-spacing: 0;
+    }
+
+    .section-copy {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.6;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.9rem;
+    }
+
+    .feature {
+      min-height: 8.8rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 7.4rem;
+      gap: 1rem;
+      align-items: center;
+      padding: 1rem;
+      border: 1px solid var(--line-soft);
       background: var(--panel);
     }
 
-    .detail strong {
+    .feature-content {
+      min-width: 0;
+    }
+
+    .feature-icon {
+      display: inline-grid;
+      place-items: center;
+      width: 2.2rem;
+      height: 2.2rem;
+      margin-bottom: 1.4rem;
+      background: #20262a;
+      color: var(--cyan);
+      font-size: 0.82rem;
+      font-weight: 900;
+    }
+
+    .feature-shot {
+      margin: 0;
+      width: 100%;
+      height: 6.6rem;
+      overflow: hidden;
+      border: 1px solid var(--line-soft);
+      background: var(--panel-strong);
+    }
+
+    .feature-shot img {
       display: block;
-      margin-bottom: 0.25rem;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+    }
+
+    .feature h3 {
+      margin-bottom: 0.45rem;
+      font-size: 1.05rem;
+      line-height: 1.2;
+    }
+
+    .feature p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 0.94rem;
+      line-height: 1.48;
+    }
+
+    .principle-callout {
+      display: grid;
+      grid-template-columns: minmax(0, 0.55fr) minmax(18rem, 1fr);
+      gap: clamp(1rem, 3vw, 2.5rem);
+      align-items: start;
+      margin-top: 1rem;
+      padding: clamp(1.15rem, 3vw, 1.7rem);
+      border: 1px solid rgba(120, 224, 214, 0.28);
+      background:
+        linear-gradient(135deg, rgba(120, 224, 214, 0.12), rgba(168, 217, 142, 0.07)),
+        var(--panel);
+    }
+
+    .principle-callout h3 {
+      margin-bottom: 0;
+      font-size: clamp(1.45rem, 3vw, 2.2rem);
+      line-height: 1.05;
+    }
+
+    .principle-callout p {
+      margin-bottom: 0;
+      color: var(--soft);
+      font-size: 1.03rem;
+      line-height: 1.58;
+    }
+
+    .embed-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(19rem, 0.9fr);
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .feed-panel,
+    .contributors-panel {
+      border: 1px solid var(--line-soft);
+      background: var(--surface);
+      box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.22);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .panel-title {
+      margin-bottom: 0;
+      font-size: 1rem;
+      line-height: 1.2;
+    }
+
+    .panel-link {
+      color: var(--cyan);
+      font-size: 0.88rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .feed-list {
+      display: grid;
+      gap: 0;
+    }
+
+    .post-card {
+      display: grid;
+      gap: 0.65rem;
+      padding: 1rem;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .post-card:last-child {
+      border-bottom: 0;
+    }
+
+    .post-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.35;
+    }
+
+    .post-author {
+      color: var(--soft);
+      font-weight: 800;
+    }
+
+    .post-text {
+      margin-bottom: 0;
       color: var(--text);
-      font-size: 0.86rem;
+      font-size: 1rem;
+      line-height: 1.52;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
 
-    .accent {
-      height: 0.18rem;
-      width: 12rem;
-      max-width: 45vw;
-      margin-top: 2.75rem;
-      background: linear-gradient(90deg, var(--cyan), var(--violet), var(--rose), var(--amber));
+    .post-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.35;
     }
 
-    @media (max-width: 42rem) {
-      .page {
-        place-items: start center;
-        padding-top: 2rem;
+    .post-actions a {
+      color: var(--cyan);
+      font-weight: 800;
+    }
+
+    .feed-fallback {
+      padding: 1rem;
+      border-top: 1px solid transparent;
+    }
+
+    .feed-fallback p {
+      margin-bottom: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .contributors-grid {
+      display: grid;
+      gap: 0;
+    }
+
+    .contributor-card {
+      display: grid;
+      grid-template-columns: 3.15rem 1fr;
+      gap: 0.85rem;
+      align-items: center;
+      min-height: 5.2rem;
+      padding: 1rem;
+      border-bottom: 1px solid var(--line-soft);
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .contributor-card:last-child {
+      border-bottom: 0;
+    }
+
+    .contributor-card:hover {
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .avatar {
+      width: 3.15rem;
+      height: 3.15rem;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border: 1px solid var(--line-soft);
+      background: var(--panel-strong);
+      color: var(--cyan);
+      font-weight: 900;
+    }
+
+    .avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .contributor-name {
+      margin-bottom: 0.18rem;
+      color: var(--text);
+      font-size: 1rem;
+      font-weight: 850;
+      line-height: 1.2;
+    }
+
+    .contributor-role,
+    .contributor-handle {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.35;
+    }
+
+    .contributor-handle {
+      color: var(--cyan);
+    }
+
+    .outcome {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .outcome-card {
+      padding: clamp(1.2rem, 3vw, 1.7rem);
+      border: 1px solid var(--line-soft);
+      background: var(--panel);
+    }
+
+    .outcome-card h3 {
+      margin-bottom: 0.5rem;
+      font-size: 1.25rem;
+    }
+
+    .outcome-card p {
+      margin-bottom: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .site-footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: #050607;
+    }
+
+    .footer-inner {
+      width: min(100%, 70rem);
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.4rem 1.25rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 58rem) {
+      .hero,
+      .section-heading,
+      .embed-layout,
+      .outcome {
+        grid-template-columns: 1fr;
       }
 
-      .logo-wrap {
-        justify-content: flex-start;
-        margin-bottom: 1.75rem;
+      .hero {
+        min-height: auto;
+        padding-top: 2.6rem;
       }
 
-      .logo {
-        width: min(100%, 22rem);
+      .hero-card {
+        max-width: 28rem;
+      }
+
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .principle-callout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 40rem) {
+      .site-header {
+        position: static;
+      }
+
+      .nav {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .nav-links {
+        width: 100%;
+        justify-content: space-between;
+        gap: 0.75rem;
       }
 
       h1 {
-        max-width: 12ch;
+        max-width: 10ch;
+        font-size: clamp(3rem, 16vw, 4.8rem);
       }
 
-      .details {
-        display: grid;
+      .hero {
+        gap: 1.25rem;
+        padding-top: 1.5rem;
+        padding-bottom: 1.5rem;
+      }
+
+      .lede {
+        font-size: 1.03rem;
+      }
+
+      .hero-actions {
+        margin-top: 1.25rem;
+      }
+
+      .hero-card {
+        max-width: 14rem;
+      }
+
+      .hero-card-body {
+        display: none;
+      }
+
+      .logo {
+        border-bottom: 0;
+      }
+
+      .hero-actions,
+      .button {
+        width: 100%;
+      }
+
+      .hero-actions .button:not(.primary) {
+        display: none;
+      }
+
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .feature {
+        grid-template-columns: minmax(0, 1fr) 5.7rem;
+        min-height: 7.7rem;
+        gap: 0.8rem;
+      }
+
+      .feature-shot {
+        height: 5.4rem;
+      }
+
+      .panel-header,
+      .post-meta,
+      .footer-inner {
+        align-items: flex-start;
+        flex-direction: column;
       }
     }
   </style>
 </head>
 <body>
-  <main class="page">
-    <section class="hero" aria-labelledby="page-title">
-      <div class="logo-wrap">
-        <img class="logo" src="assets/ome-logo-sample-wordmark-2026-05.jpg" alt="Open Music Event">
+  <div class="page-shell">
+    <header class="site-header">
+      <nav class="nav" aria-label="Main navigation">
+        <a class="brand-link" href="#top">
+          <span class="brand-mark" aria-hidden="true">OME</span>
+          <span>Open Music Event</span>
+        </a>
+        <div class="nav-links">
+          <a href="#latest">Latest</a>
+          <a href="#contributors">Contributors</a>
+          <a href="https://bsky.app/profile/openmusicevent.app">Bluesky</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="status">Under construction</p>
+          <h1 id="page-title">Open Music Event</h1>
+          <p class="lede">
+            A native community event guide for music festivals, venues, and local shows:
+            schedules, stages, artists, maps, posters, and updates in one place.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button primary" href="https://bsky.app/profile/openmusicevent.app">Follow the project</a>
+            <a class="button" href="#latest">See latest updates</a>
+          </div>
+        </div>
+
+        <aside class="hero-card" aria-label="Project summary">
+          <img class="logo" src="assets/ome-logo-sample-wordmark-2026-05.jpg" alt="Open Music Event">
+          <div class="hero-card-body">
+            <ul class="signal-list">
+              <li>Built for communities that want their music events to be easier to find, follow, and share.</li>
+              <li>Useful beyond the poster: times, places, artists, maps, and context.</li>
+              <li>Public identity at <a href="https://bsky.app/profile/openmusicevent.app">openmusicevent.app</a>.</li>
+            </ul>
+          </div>
+        </aside>
+      </section>
+
+      <section class="section" aria-labelledby="clarity-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">What it is</p>
+              <h2 id="clarity-title">A practical event companion for when the poster is not enough.</h2>
+            </div>
+            <p class="section-copy">
+              Open Music Event is for shows where the lineup, schedule, people, and places deserve a clear home.
+              Communities get a place to gather and share event context; organizers get a calmer way to keep information current.
+            </p>
+          </div>
+
+          <div class="feature-grid" aria-label="Core areas">
+            <article class="feature">
+              <div class="feature-content">
+                <span class="feature-icon" aria-hidden="true">01</span>
+                <h3>Schedules</h3>
+                <p>Readable days, times, stages, and performance details without flattening the event into an image.</p>
+              </div>
+              <figure class="feature-shot">
+                <img
+                  src="assets/ome-schedule.jpeg"
+                  alt="The schedule tab of OpenMusicEvent, showing the Sunday 2025 performance calendar of the Unicorn Lounge stage at Wicked Woods music festival."
+                >
+              </figure>
+            </article>
+            <article class="feature">
+              <div class="feature-content">
+                <span class="feature-icon" aria-hidden="true">02</span>
+                <h3>Artists and people</h3>
+                <p>Artists, crews, organizers, venues, and guests can have profiles that explain how they fit into the event.</p>
+              </div>
+              <figure class="feature-shot">
+                <img
+                  src="assets/ome-artist-detail.jpeg"
+                  alt="The contributor profile for the artist Bonzai in the Wicked Woods App. It shows his hero image, when he played, and his bio."
+                  loading="lazy"
+                >
+              </figure>
+            </article>
+            <article class="feature">
+              <div class="feature-content">
+                <span class="feature-icon" aria-hidden="true">03</span>
+                <h3>Places</h3>
+                <p>Stages, maps, posters, and location context can live next to the schedule they explain.</p>
+              </div>
+              <figure class="feature-shot">
+                <img
+                  src="assets/ome-location.jpeg"
+                  alt="A screenshot of the Open Music Event app, showing the Location feature. It displays a map, an open in maps button, and event provided directions to the site."
+                  loading="lazy"
+                >
+              </figure>
+            </article>
+            <article class="feature">
+              <div class="feature-content">
+                <span class="feature-icon" aria-hidden="true">04</span>
+                <h3>Updates</h3>
+                <p>When details change, the event guide should be able to change too, without asking everyone to hunt through screenshots.</p>
+              </div>
+              <figure class="feature-shot">
+                <img
+                  src="assets/ome-updates.jpeg"
+                  alt="A screenshot of the Comms tab in the Open Music Event, showing the channels that were used by wicked woods to communicate to their attendees. The General and Emergency channels have a notification bell, indicating that the user receives push notifications for posts in that channel."
+                  loading="lazy"
+                >
+              </figure>
+            </article>
+            <article class="feature">
+              <div class="feature-content">
+                <span class="feature-icon" aria-hidden="true">05</span>
+                <h3>Credit all contributors</h3>
+                <p>Credit contributors to your organization, venue, and each performance, down to hired labor and the people who make the show possible.</p>
+              </div>
+              <figure class="feature-shot">
+                <img
+                  src="assets/ome-more.jpeg"
+                  alt="A screenshot of the More tab in Open Music Event. This shows all the features that they have hydrated for the 2025 events. Comms, contact info, festival location, festival site map, posters, settings, edit and about."
+                  loading="lazy"
+                >
+              </figure>
+            </article>
+          </div>
+
+          <article class="principle-callout">
+            <h3>Open Source / Open Data</h3>
+            <p>
+              Your organization's event information should live with you on the open internet.
+              Calendars, schedules, artist profiles, places, and updates should be able to flow into this app or any other.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section alt" id="latest" aria-labelledby="latest-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Freshness</p>
+              <h2 id="latest-title">Latest from Open Music Event</h2>
+            </div>
+            <p class="section-copy">
+              Project notes and launch updates are posted on Bluesky.
+              The feed below loads recent posts when it can and falls back to a direct profile link.
+            </p>
+          </div>
+
+          <div class="embed-layout">
+            <section class="feed-panel" aria-label="Latest posts">
+              <div class="panel-header">
+                <h3 class="panel-title">Recent posts</h3>
+                <a class="panel-link" href="https://bsky.app/profile/openmusicevent.app">Open profile</a>
+              </div>
+              <div class="feed-list" id="feed-list" aria-live="polite">
+                <article class="post-card">
+                  <div class="post-meta">
+                    <span class="post-author">@openmusicevent.app</span>
+                    <span>Loading latest posts</span>
+                  </div>
+                  <p class="post-text">
+                    If the live feed is unavailable, follow Open Music Event on Bluesky for project updates.
+                  </p>
+                  <div class="post-actions">
+                    <a href="https://bsky.app/profile/openmusicevent.app">Open on Bluesky</a>
+                  </div>
+                </article>
+              </div>
+              <div class="feed-fallback" id="feed-fallback">
+                <p>
+                  Feed embeds use the public Bluesky API. If your browser blocks the request,
+                  the profile remains available directly.
+                </p>
+                <a class="button" href="https://bsky.app/profile/openmusicevent.app">Visit @openmusicevent.app</a>
+              </div>
+            </section>
+
+            <section class="contributors-panel" id="contributors" aria-labelledby="contributors-title">
+              <div class="panel-header">
+                <h3 class="panel-title" id="contributors-title">Contributors</h3>
+                <a class="panel-link" href="https://bsky.app/profile/openmusicevent.app">Project identity</a>
+              </div>
+              <div class="contributors-grid" id="contributors-grid">
+                <a class="contributor-card" href="https://bsky.app/profile/woody.fm" data-handle="woody.fm">
+                  <span class="avatar" aria-hidden="true">WM</span>
+                  <span>
+                    <span class="contributor-name">Woodrow Melling</span>
+                    <span class="contributor-role">Design, engineering, and product direction</span>
+                    <span class="contributor-handle">@woody.fm</span>
+                  </span>
+                </a>
+                <a class="contributor-card" href="https://bsky.app/profile/openmusicevent.app" data-handle="openmusicevent.app">
+                  <span class="avatar" aria-hidden="true">OME</span>
+                  <span>
+                    <span class="contributor-name">Open Music Event</span>
+                    <span class="contributor-role">Project updates, identity, and public launch surface</span>
+                    <span class="contributor-handle">@openmusicevent.app</span>
+                  </span>
+                </a>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="outcome-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Outcome</p>
+              <h2 id="outcome-title">Better event information before, during, and after the show.</h2>
+            </div>
+            <p class="section-copy">
+              The app should make the event easier to attend and easier to keep accurate.
+              The public surface starts small, then grows as real events and organizers shape it.
+            </p>
+          </div>
+
+          <div class="outcome">
+            <article class="outcome-card">
+              <h3>For attendees</h3>
+              <p>
+                Clear schedules, stage context, contributor profiles, posters, maps, and event details in a native app surface.
+              </p>
+            </article>
+            <article class="outcome-card">
+              <h3>For organizers</h3>
+              <p>
+                A clearer way to keep event information organized, update it when plans change, and carry useful details forward.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span>Open Music Event is under active development.</span>
+        <span class="footer-links">
+          <a href="https://bsky.app/profile/openmusicevent.app">Bluesky</a>
+          <a href="https://openmusicevent.app/.well-known/oauth-client-metadata.json">OAuth metadata</a>
+        </span>
       </div>
+    </footer>
+  </div>
 
-      <p class="status">Under construction</p>
-      <h1 id="page-title">Open Music Event is being built.</h1>
-      <p class="lede">
-        A native iOS and Android app for structured music-event calendars,
-        source-backed schedules, stages, contributors, maps, and event details.
-      </p>
+  <script type="module">
+    const actor = "openmusicevent.app";
+    const feedList = document.querySelector("#feed-list");
+    const feedFallback = document.querySelector("#feed-fallback");
 
-      <div class="details" aria-label="Project links">
-        <p class="detail">
-          <strong>ATProto identity</strong>
-          <a href="https://bsky.app/profile/openmusicevent.app">openmusicevent.app</a>
-        </p>
-        <p class="detail">
-          <strong>Public launch surface</strong>
-          More event and organizer information is on the way.
-        </p>
-      </div>
+    const blueskyProfileURL = (handle) => `https://bsky.app/profile/${encodeURIComponent(handle)}`;
 
-      <div class="accent" aria-hidden="true"></div>
-    </section>
-  </main>
+    const postURL = (post) => {
+      const uri = post?.uri ?? "";
+      const parts = uri.split("/");
+      const rkey = parts[parts.length - 1];
+      const handle = post?.author?.handle ?? actor;
+      return rkey ? `https://bsky.app/profile/${encodeURIComponent(handle)}/post/${encodeURIComponent(rkey)}` : blueskyProfileURL(handle);
+    };
+
+    const formatDate = (value) => {
+      if (!value) return "Recent";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "Recent";
+      return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      }).format(date);
+    };
+
+    const textContent = (value) => {
+      if (value == null) return "";
+      return String(value);
+    };
+
+    const element = (tag, className, text) => {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text != null) node.textContent = text;
+      return node;
+    };
+
+    const renderFeed = (items) => {
+      const posts = items
+        .map((item) => item.post)
+        .filter((post) => post?.record?.text)
+        .slice(0, 4);
+
+      if (posts.length === 0) {
+        throw new Error("No displayable posts");
+      }
+
+      feedList.replaceChildren(...posts.map((post) => {
+        const article = element("article", "post-card");
+
+        const meta = element("div", "post-meta");
+        meta.append(
+          element("span", "post-author", `@${post.author?.handle ?? actor}`),
+          element("span", null, formatDate(post.record?.createdAt))
+        );
+
+        const text = element("p", "post-text", textContent(post.record.text));
+
+        const actions = element("div", "post-actions");
+        const link = element("a", null, "Open on Bluesky");
+        link.href = postURL(post);
+        actions.append(link);
+
+        article.append(meta, text, actions);
+        return article;
+      }));
+
+      feedFallback.hidden = true;
+    };
+
+    const loadFeed = async () => {
+      const endpoint = new URL("https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed");
+      endpoint.searchParams.set("actor", actor);
+      endpoint.searchParams.set("limit", "6");
+      endpoint.searchParams.set("filter", "posts_no_replies");
+
+      const response = await fetch(endpoint);
+      if (!response.ok) {
+        throw new Error(`Feed request failed: ${response.status}`);
+      }
+
+      const payload = await response.json();
+      renderFeed(payload.feed ?? []);
+    };
+
+    const hydrateContributors = async () => {
+      const cards = Array.from(document.querySelectorAll("[data-handle]"));
+      const handles = cards.map((card) => card.dataset.handle).filter(Boolean);
+      if (handles.length === 0) return;
+
+      const endpoint = new URL("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfiles");
+      for (const handle of handles) {
+        endpoint.searchParams.append("actors", handle);
+      }
+
+      const response = await fetch(endpoint);
+      if (!response.ok) return;
+
+      const payload = await response.json();
+      const profilesByHandle = new Map(
+        (payload.profiles ?? []).map((profile) => [profile.handle, profile])
+      );
+
+      for (const card of cards) {
+        const profile = profilesByHandle.get(card.dataset.handle);
+        if (!profile) continue;
+
+        const name = card.querySelector(".contributor-name");
+        const handle = card.querySelector(".contributor-handle");
+        const avatar = card.querySelector(".avatar");
+
+        if (profile.displayName && name) {
+          name.textContent = profile.displayName;
+        }
+        if (profile.handle && handle) {
+          handle.textContent = `@${profile.handle}`;
+        }
+        if (profile.avatar && avatar) {
+          const image = document.createElement("img");
+          image.src = profile.avatar;
+          image.alt = "";
+          image.loading = "lazy";
+          avatar.replaceChildren(image);
+        }
+      }
+    };
+
+    loadFeed().catch(() => {
+      feedFallback.hidden = false;
+    });
+
+    hydrateContributors().catch(() => {});
+  </script>
 </body>
 </html>
