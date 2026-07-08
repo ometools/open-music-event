@@ -1,7 +1,9 @@
+import ATProto
 import ATProtoOAuth
 import Clocks
 import ComposableArchitecture2
 import Dependencies
+import Foundation
 import Sharing
 import TCATProtoAuthentication
 import Testing
@@ -281,10 +283,32 @@ struct AccountTests {
 
     @Test
     func signUpSuccessStoresSelectedSession() async throws {
+        let keychainStorage = InMemoryKeychainStorage()
+        let sessionStoreItem = KeychainStorageItem(
+            service: "fm.woody.openMusicEvent.tests",
+            account: "account.signUp.sessionStore"
+        )
+        let selectedSessionIDItem = KeychainStorageItem(
+            service: "fm.woody.openMusicEvent.tests",
+            account: "account.signUp.selectedSessionID"
+        )
+        let sessionStore = Shared(
+            wrappedValue: OAuth.SessionStore(),
+            KeychainSharedKey(item: sessionStoreItem)
+        )
+        let selectedSessionID = Shared(
+            wrappedValue: Atmosphere.Account.ID?.none,
+            KeychainSharedKey(item: selectedSessionIDItem)
+        )
         let accountAuthorization = AccountDirectAuthorizationRecorder()
-        let state = Account.State.localTestState(selectedMode: .signUp)
+        let state = Account.State.localTestState(
+            selectedMode: .signUp,
+            sessionStore: sessionStore,
+            selectedSessionID: selectedSessionID
+        )
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
+            $0.keychainStorage = .inMemory(keychainStorage)
             $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
         } operation: {
             Store(initialState: state) {
@@ -301,6 +325,28 @@ struct AccountTests {
         #expect(store.session == .placeholder)
         #expect(store.isSignUpInProgress == false)
         #expect(store.errorMessage == nil)
+        try await waitForCondition {
+            keychainStorage.data(for: sessionStoreItem) != nil &&
+                keychainStorage.data(for: selectedSessionIDItem) != nil
+        }
+        let savedSessionStoreData = try #require(
+            keychainStorage.data(for: sessionStoreItem)
+        )
+        let savedSessionStore = try JSONDecoder().decode(
+            OAuth.SessionStore.self,
+            from: savedSessionStoreData
+        )
+        let savedSelectedSessionIDData = try #require(
+            keychainStorage.data(for: selectedSessionIDItem)
+        )
+        let savedSelectedSessionID = try JSONDecoder().decode(
+            Atmosphere.Account.ID?.self,
+            from: savedSelectedSessionIDData
+        )
+        #expect(
+            savedSessionStore[OAuth.Session.placeholder.accountID] == OAuth.Session.placeholder
+        )
+        #expect(savedSelectedSessionID == OAuth.Session.placeholder.accountID)
     }
 
     @Test
@@ -341,8 +387,10 @@ struct AccountTests {
     func logoutClearsStoredSessionAndCancelsRequests() async {
         let recorder = AccountAuthorizationRecorder()
         let state = Account.State.localTestState()
-        state.oauth.state.$session.withLock { $0 = .placeholder }
         state.oauth.state.$sessionStore.withLock { $0.upsert(.placeholder) }
+        state.oauth.state.$selectedSessionID.withLock {
+            $0 = OAuth.Session.placeholder.accountID
+        }
         let store = withDependencies {
             $0.openMusicEventAuthorizationRequests = .recording(recorder)
         } operation: {
@@ -355,7 +403,7 @@ struct AccountTests {
         await task?.value
 
         #expect(store.session == nil)
-        #expect(store.sessionStore.selectedSession == nil)
+        #expect(store.sessionStore[OAuth.Session.placeholder.accountID] == nil)
         #expect(await recorder.didCancel)
     }
 }
@@ -375,14 +423,18 @@ private extension Account.State {
     static func localTestState(
         isAuthenticationSheetPresented: Bool = false,
         selectedMode: Account.Mode = .signIn,
-        signInLoginHint: String = ""
+        signInLoginHint: String = "",
+        authFailureMessage: Shared<ErrorMessage?> = Shared(value: nil),
+        sessionStore: Shared<OAuth.SessionStore> = Shared(value: OAuth.SessionStore()),
+        selectedSessionID: Shared<Atmosphere.Account.ID?> = Shared(value: nil)
     ) -> Self {
         Self(
             isAuthenticationSheetPresented: isAuthenticationSheetPresented,
             selectedMode: selectedMode,
             signInLoginHint: signInLoginHint,
-            authFailureMessage: Shared<ErrorMessage?>(value: nil),
-            sessionStore: Shared<OAuth.SessionStore>(value: OAuth.SessionStore())
+            authFailureMessage: authFailureMessage,
+            sessionStore: sessionStore,
+            selectedSessionID: selectedSessionID
         )
     }
 }

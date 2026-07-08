@@ -209,6 +209,34 @@ public struct EventWorkspace {
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
+
+    private func refreshTangledPullReviews(
+        eventID: OMERecord.Event.ID,
+        state: inout State
+    ) {
+        guard state.sourceProvenance?.sourceKind == .tangled else {
+            state.tangledPullReviewStatus = .notLoaded
+            return
+        }
+
+        let tangledPullReviewClient = tangledPullReviewClient
+        state.tangledPullReviewStatus = .loading
+        store.addTask {
+            do {
+                let reviews = try await tangledPullReviewClient.list(
+                    OpenMusicEventTangledPullReviewRequest(eventID: eventID)
+                )
+                try store.send(.tangledPullReviewsResponse(.success(reviews)))
+            } catch {
+                try store.send(
+                    .tangledPullReviewsResponse(
+                        .failure(TangledPullReviewFailure(error))
+                    )
+                )
+            }
+        }
+    }
+
     public var body: some Feature {
         let _ = Self._logChanges()
         Update { state, action in
@@ -229,33 +257,6 @@ public struct EventWorkspace {
                         try store.send(
                             .sourcePatchGenerationResponse(
                                 .failure(SourcePatchGenerationFailure(error))
-                            )
-                        )
-                    }
-                }
-            }
-
-            func refreshTangledPullReviews(
-                eventID: OMERecord.Event.ID,
-                state: inout State
-            ) {
-                guard state.sourceProvenance?.sourceKind == .tangled else {
-                    state.tangledPullReviewStatus = .notLoaded
-                    return
-                }
-
-                let tangledPullReviewClient = tangledPullReviewClient
-                state.tangledPullReviewStatus = .loading
-                store.addTask {
-                    do {
-                        let reviews = try await tangledPullReviewClient.list(
-                            OpenMusicEventTangledPullReviewRequest(eventID: eventID)
-                        )
-                        try store.send(.tangledPullReviewsResponse(.success(reviews)))
-                    } catch {
-                        try store.send(
-                            .tangledPullReviewsResponse(
-                                .failure(TangledPullReviewFailure(error))
                             )
                         )
                     }
@@ -539,6 +540,7 @@ public struct EventWorkspace {
         }
         .onMount { state in
             let eventID = state.eventID
+            refreshTangledPullReviews(eventID: eventID, state: &state)
             store.addTask {
                 for await invalidation in sourcePatchInvalidations.stream() {
                     guard invalidation.eventID == eventID else { continue }

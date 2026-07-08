@@ -1,3 +1,4 @@
+import ATProto
 import ATProtoOAuth
 import Dependencies
 import Foundation
@@ -39,6 +40,10 @@ public extension DependencyValues {
 private let openMusicEventOAuthSessionStore = Shared(
     wrappedValue: OAuth.SessionStore(),
     KeychainSharedKey(item: OpenMusicEventOAuth.sessionStoreKeychainItem)
+)
+
+private let openMusicEventSelectedOAuthSessionID = Shared<Atmosphere.Account.ID?>(
+    .appStorage("openMusicEventSelectedOAuthSessionID")
 )
 
 private let openMusicEventAuthFailureMessage = Shared<ErrorMessage?>(value: nil)
@@ -168,7 +173,8 @@ public enum OpenMusicEventOAuth {
 
     public static let storage = OAuthSessionStorage(
         sessionStore: openMusicEventOAuthSessionStore,
-        authFailureMessage: openMusicEventAuthFailureMessage
+        authFailureMessage: openMusicEventAuthFailureMessage,
+        selectedSessionID: openMusicEventSelectedOAuthSessionID
     )
 
     public static var authFailureMessage: Shared<ErrorMessage?> {
@@ -183,30 +189,40 @@ public enum OpenMusicEventOAuth {
         storage.sessionStore
     }
 
+    public static var selectedSessionID: Shared<Atmosphere.Account.ID?> {
+        openMusicEventSelectedOAuthSessionID
+    }
+
     public static func prepareDependencies(_ dependencies: inout DependencyValues) {
         let authorizationRequests = dependencies.openMusicEventAuthorizationRequests
             .openMusicEventDefaultingSignUpServerConfiguration(
                 dependencies.openMusicEventSignUpServerConfiguration
         )
+        let sessionStore = OpenMusicEventOAuth.sessionStore
+        let selectedSessionID = OpenMusicEventOAuth.selectedSessionID
+        let getSelectedOAuthSessionID: @Sendable () -> Atmosphere.Account.ID? = {
+            selectedSessionID.wrappedValue
+        }
+        let selectedSession: @Sendable () -> OAuth.Session? = {
+            sessionStore.wrappedValue[getSelectedOAuthSessionID()]
+        }
         dependencies.openMusicEventAuthorizationRequests = authorizationRequests
         dependencies.oauthAppConfiguration = appConfiguration
         dependencies.oauthAppManifest = appManifest
+        dependencies.getSelectedOAuthSessionID = getSelectedOAuthSessionID
         dependencies.oauthAuthorizationBroker = authorizationRequests
             .openMusicEventAutoStartingAuthorizationUpgrades(
-                session: { session.wrappedValue },
+                session: selectedSession,
                 sessionStore: { sessionStore.wrappedValue },
                 appManifest: appManifest
             )
             .broker()
         dependencies.oauthBrowserStrategy = .webAuthenticationSession
         dependencies.getDefaultSession = {
-            session.wrappedValue
-                ?? sessionStore.wrappedValue.selectedSession
-                ?? .placeholder
+            selectedSession() ?? .placeholder
         }
         dependencies.getOptionalDefaultSession = {
-            session.wrappedValue
-                ?? sessionStore.wrappedValue.selectedSession
+            selectedSession()
         }
         dependencies.oauthScopes = appManifest.basePermissions.permissions
             .sorted { $0.rawValue < $1.rawValue }
@@ -245,6 +261,7 @@ public enum OpenMusicEventOAuth {
 
     public static func resetStoredSession() {
         storage.reset()
+        selectedSessionID.withLock { $0 = nil }
     }
 
     public static func enforceStoredAuthenticationFreshness() async throws {

@@ -172,8 +172,11 @@ struct OpenMusicEventOAuthTests {
         let session = openMusicEventTestSession(
             permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
         )
-        OpenMusicEventOAuth.session.withLock {
-            $0 = session
+        OpenMusicEventOAuth.sessionStore.withLock {
+            $0.upsert(session)
+        }
+        OpenMusicEventOAuth.selectedSessionID.withLock {
+            $0 = session.accountID
         }
         defer {
             OpenMusicEventOAuth.resetStoredSession()
@@ -234,6 +237,9 @@ struct OpenMusicEventOAuthTests {
         OpenMusicEventOAuth.sessionStore.withLock {
             $0 = sessionStore
         }
+        OpenMusicEventOAuth.selectedSessionID.withLock {
+            $0 = OAuth.Session.placeholder.accountID
+        }
         defer {
             OpenMusicEventOAuth.resetStoredSession()
         }
@@ -291,6 +297,9 @@ struct OpenMusicEventOAuthTests {
             OpenMusicEventOAuth.resetStoredSession()
             var sessionStore = OAuth.SessionStore()
             sessionStore.upsert(.placeholder)
+            OpenMusicEventOAuth.selectedSessionID.withLock {
+                $0 = OAuth.Session.placeholder.accountID
+            }
 
             try keychainStorage.setData(
                 JSONEncoder().encode(sessionStore),
@@ -299,7 +308,15 @@ struct OpenMusicEventOAuthTests {
 
             try await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
 
-            #expect(OpenMusicEventOAuth.session.wrappedValue == .placeholder)
+            var dependencies = DependencyValues()
+            OpenMusicEventOAuth.prepareDependencies(&dependencies)
+
+            withDependencies {
+                $0 = dependencies
+            } operation: {
+                @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
+                #expect(getOptionalDefaultSession() == .placeholder)
+            }
             #expect(OpenMusicEventOAuth.sessionStore.wrappedValue == sessionStore)
         }
     }

@@ -1,7 +1,9 @@
+import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
 import ComposableForms
 import Dependencies
+import IssueReporting
 import Sharing
 import SwiftUI
 import TCATProtoAuthentication
@@ -111,7 +113,8 @@ public struct Account {
             signInLoginHint: String = "",
             signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
             authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
-            sessionStore: Shared<OAuth.SessionStore>
+            sessionStore: Shared<OAuth.SessionStore>,
+            selectedSessionID: Shared<Atmosphere.Account.ID?> = Shared(value: nil)
         ) {
             self.init(
                 isAuthenticationSheetPresented: isAuthenticationSheetPresented,
@@ -120,7 +123,8 @@ public struct Account {
                 signUpServerConfiguration: signUpServerConfiguration,
                 storage: OAuthSessionStorage(
                     sessionStore: sessionStore,
-                    authFailureMessage: authFailureMessage
+                    authFailureMessage: authFailureMessage,
+                    selectedSessionID: selectedSessionID
                 )
             )
         }
@@ -237,10 +241,18 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.upsert(session)
                     }
-                    state.oauth.state.$session.withLock {
-                        $0 = state.oauth.state.sessionStore.selectedSession
+                    state.oauth.state.$selectedSessionID.withLock {
+                        $0 = session.accountID
                     }
                     state.isAuthenticationSheetPresented = false
+                    let sessionStore = state.oauth.state.$sessionStore
+                    let selectedSessionID = state.oauth.state.$selectedSessionID
+                    store.addTask {
+                        await saveOpenMusicEventAuthenticationStorage(
+                            sessionStore: sessionStore,
+                            selectedSessionID: selectedSessionID
+                        )
+                    }
 
                 case .loginResponse(.failure(.cancelled)):
                     state.oauth.state.isLoginInProgress = false
@@ -314,10 +326,18 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.upsert(session)
                     }
-                    state.oauth.state.$session.withLock {
-                        $0 = state.oauth.state.sessionStore.selectedSession
+                    state.oauth.state.$selectedSessionID.withLock {
+                        $0 = session.accountID
                     }
                     state.isAuthenticationSheetPresented = false
+                    let sessionStore = state.oauth.state.$sessionStore
+                    let selectedSessionID = state.oauth.state.$selectedSessionID
+                    store.addTask {
+                        await saveOpenMusicEventAuthenticationStorage(
+                            sessionStore: sessionStore,
+                            selectedSessionID: selectedSessionID
+                        )
+                    }
 
                 case .signUpResponse(.failure(.cancelled)):
                     state.oauth.state.isSignUpInProgress = false
@@ -822,6 +842,18 @@ struct AccountSignUpServerImagePlaceholder: View {
     }
 }
 
+private func saveOpenMusicEventAuthenticationStorage(
+    sessionStore: Shared<OAuth.SessionStore>,
+    selectedSessionID: Shared<Atmosphere.Account.ID?>
+) async {
+    do {
+        try await sessionStore.save()
+        try await selectedSessionID.save()
+    } catch {
+        reportIssue(error)
+    }
+}
+
 public extension OAuthAccount {
     init() {
         @Dependency(\.openMusicEventSignUpServerConfiguration)
@@ -840,12 +872,14 @@ public extension OAuthAccount.State {
 
     init(
         authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
-        sessionStore: Shared<OAuth.SessionStore>
+        sessionStore: Shared<OAuth.SessionStore>,
+        selectedSessionID: Shared<Atmosphere.Account.ID?> = OpenMusicEventOAuth.selectedSessionID
     ) {
         self.init(
             storage: OAuthSessionStorage(
                 sessionStore: sessionStore,
-                authFailureMessage: authFailureMessage
+                authFailureMessage: authFailureMessage,
+                selectedSessionID: selectedSessionID
             )
         )
     }

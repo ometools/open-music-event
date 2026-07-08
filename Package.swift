@@ -108,6 +108,7 @@ let package = Package(
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "ComposableForms", package: "swift-composable-forms"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
                 .product(name: "WebMetadataClient", package: "swift-web-metadata"),

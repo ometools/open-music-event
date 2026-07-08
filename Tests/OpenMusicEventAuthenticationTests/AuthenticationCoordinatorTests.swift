@@ -1,3 +1,4 @@
+import ATProto
 import ComposableArchitecture2
 import Dependencies
 import DependenciesTestSupport
@@ -299,11 +300,15 @@ struct AuthenticationCoordinatorTests {
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(.placeholder)
         let sessionStore = Shared<OAuth.SessionStore>(value: sessionStoreValue)
+        let selectedSessionID = Shared<Atmosphere.Account.ID?>(
+            value: OAuth.Session.placeholder.accountID
+        )
         let authFailureMessage = Shared<ErrorMessage?>(value: nil)
         let store = Store(initialState: SessionProbe.State()) {
             SessionProbe()
                 .openMusicEventAuthenticatedSession(
                     sessionStore: sessionStore,
+                    selectedSessionID: selectedSessionID,
                     authFailureMessage: authFailureMessage
                 )
         }
@@ -318,11 +323,15 @@ struct AuthenticationCoordinatorTests {
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(.placeholder)
         let sessionStore = Shared<OAuth.SessionStore>(value: sessionStoreValue)
+        let selectedSessionID = Shared<Atmosphere.Account.ID?>(
+            value: OAuth.Session.placeholder.accountID
+        )
         let authFailureMessage = Shared<ErrorMessage?>(value: nil)
         let store = Store(initialState: SessionProbe.State()) {
             SessionProbe()
                 .openMusicEventAuthenticatedSession(
                     sessionStore: sessionStore,
+                    selectedSessionID: selectedSessionID,
                     authFailureMessage: authFailureMessage
                 )
         }
@@ -439,7 +448,8 @@ private extension OAuthAuthenticationCoordinator.State {
         Self(
             storage: OAuthSessionStorage(
                 sessionStore: Shared<OAuth.SessionStore>(value: OAuth.SessionStore()),
-                authFailureMessage: Shared<ErrorMessage?>(value: nil)
+                authFailureMessage: Shared<ErrorMessage?>(value: nil),
+                selectedSessionID: Shared<Atmosphere.Account.ID?>(value: nil)
             )
         )
     }
