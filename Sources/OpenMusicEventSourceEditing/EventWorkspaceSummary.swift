@@ -78,12 +78,25 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
                 groups: []
             )
         }
+        guard let sourceProvenance = try EventSourceProvenanceRecord
+            .where { $0.id.eq(eventID) }
+            .fetchOne(db)
+        else {
+            return EventWorkspaceSummary(
+                eventID: eventID,
+                availability: .notInWorkspace,
+                groups: []
+            )
+        }
         let sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-            try SourceEditingComparer().summary(
+            try openMusicEventSourceEditSummary(
                 in: db,
                 baselineSchemaName: baselineSchemaName,
-                recordTypes: OME.sourceRecordTypes,
-                scope: .openMusicEvent(eventID: eventID)
+                sourceBaselineID: sourceProvenance.sourceBaselineID,
+                calendarID: OME.Calendar.ID(
+                    ownerID: eventID.organizerID,
+                    calendarID: OME.Calendar.defaultID
+                )
             )
         }
 

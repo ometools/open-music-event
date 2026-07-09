@@ -112,11 +112,20 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
     static var live: Self {
         Self { sourceRepository, request in
             @Dependency(\.defaultDatabase) var database
+            @Dependency(\.openMusicEventSourcePatchConversion) var eventConversion
 
-            let calendar = try await database.read { db in
-                try OME.Calendar
+            let (calendar, sourceEvents) = try await database.read { db in
+                let calendar = try OME.Calendar
                     .where { $0.id.eq(request.calendarID) }
                     .fetchOne(db)
+                let sourceEvents = try EventSourceProvenanceRecord
+                    .where { $0.sourceBaselineID.eq(request.sourceBaselineID) }
+                    .where { $0.id.organizerID.eq(request.calendarID.ownerID) }
+                    .fetchAll(db)
+                    .sorted { lhs, rhs in
+                        lhs.sourceEventDirectory < rhs.sourceEventDirectory
+                    }
+                return (calendar, sourceEvents)
             }
             guard let calendar else {
                 throw OpenMusicEventCalendarSourcePatchConversionError.calendarNotFound(request.calendarID)
@@ -134,6 +143,29 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
                         parentLocalID: request.calendarID.calendarID.rawValue.rawValue
                     )
                 )
+            var eventsByDirectory = Dictionary(
+                uniqueKeysWithValues: sourceRepository.events.map { ($0.directoryName, $0) }
+            )
+            for sourceEvent in sourceEvents {
+                let existingSourceEvent = eventsByDirectory[sourceEvent.sourceEventDirectory]?.components
+                    ?? .emptyForNewSourcePatch
+                let updatedSourceEvent = try await eventConversion.update(
+                    existingSourceEvent,
+                    OpenMusicEventSourcePatchRequest(eventID: sourceEvent.id)
+                )
+                eventsByDirectory[sourceEvent.sourceEventDirectory] = DirectoryContent(
+                    directoryName: sourceEvent.sourceEventDirectory,
+                    components: updatedSourceEvent
+                )
+            }
+            let updatedSourceEvents = sourceRepository.events.map { event in
+                eventsByDirectory[event.directoryName] ?? event
+            }
+            let existingSourceEventDirectories = Set(sourceRepository.events.map(\.directoryName))
+            let addedSourceEvents = sourceEvents
+                .filter { !existingSourceEventDirectories.contains($0.sourceEventDirectory) }
+                .compactMap { eventsByDirectory[$0.sourceEventDirectory] }
+            sourceRepository.events = updatedSourceEvents + addedSourceEvents
             return sourceRepository
         }
     }

@@ -57,6 +57,22 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
         groups.reduce(0) { $0 + $1.totalCount }
     }
 
+    public var focusedCount: Int {
+        switch target {
+        case .calendar:
+            totalCount
+
+        case let .event(eventID):
+            groups.reduce(0) { total, group in
+                total + group.records.filter { $0.matches(eventID: eventID) }.count
+            }
+        }
+    }
+
+    public var outOfTargetCount: Int {
+        max(0, totalCount - focusedCount)
+    }
+
     public var badgeCount: Int? {
         guard case .available = availability, totalCount > 0 else { return nil }
         return totalCount
@@ -372,7 +388,6 @@ public struct EventWorkspace {
 
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
-    @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var sourcePatchGenerator
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
     var calendarSourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
@@ -410,30 +425,18 @@ public struct EventWorkspace {
         let _ = Self._logChanges()
         Update { state, action in
             func generateSourcePatch(
-                target: SourceProposalTarget,
                 state: inout State
             ) {
-                guard state.canReviewSourceProposal else { return }
-                let sourcePatchGenerator = sourcePatchGenerator
+                guard state.canReviewSourceProposal,
+                      let sourcePatchRequest = state.workspaceSourcePatchRequest
+                else { return }
                 let calendarSourcePatchGenerator = calendarSourcePatchGenerator
                 state.sourcePatchStatus = .generating
                 store.addTask {
                     do {
-                        let patch: SourcePatch
-                        switch target {
-                        case let .calendar(calendarID, sourceBaselineID):
-                            patch = try await calendarSourcePatchGenerator.generate(
-                                OpenMusicEventCalendarSourcePatchRequest(
-                                    calendarID: calendarID,
-                                    sourceBaselineID: sourceBaselineID
-                                )
-                            )
-
-                        case let .event(eventID):
-                            patch = try await sourcePatchGenerator.generate(
-                                OpenMusicEventSourcePatchRequest(eventID: eventID)
-                            )
-                        }
+                        let patch = try await calendarSourcePatchGenerator.generate(
+                            sourcePatchRequest
+                        )
                         try store.send(.sourcePatchGenerationResponse(.success(patch)))
                     } catch {
                         try store.send(
@@ -455,7 +458,9 @@ public struct EventWorkspace {
                 case .failed, .notLoaded, nil:
                     break
                 }
-                guard let sourceProvenance = state.sourceReviewProvenance else { return }
+                guard let sourceProvenance = state.sourceReviewProvenance,
+                      let sourceBaselineID = state.sourceBaselineID
+                else { return }
                 let target = state.target
                 let sourceSnapshot = tangledPullReviewSourceSnapshot
                 state.tangledPullReviewSemanticDiffs[review.id] = .loading
@@ -463,6 +468,7 @@ public struct EventWorkspace {
                     do {
                         let diff = try await TangledPullReviewSemanticDiff.reviewBranchDiff(
                             target: target,
+                            sourceBaselineID: sourceBaselineID,
                             review: review,
                             sourceProvenance: sourceProvenance,
                             sourceSnapshot: sourceSnapshot
@@ -653,7 +659,7 @@ public struct EventWorkspace {
                 deleteTangledPullReviewForever(review, state: &state)
 
             case .generateSourcePatchButtonTapped:
-                generateSourcePatch(target: state.target, state: &state)
+                generateSourcePatch(state: &state)
                 refreshTangledPullReviews(target: state.target, state: &state)
 
             case let .mergeTangledPullReviewButtonTapped(review):
@@ -732,7 +738,7 @@ public struct EventWorkspace {
                 guard state.canReviewSourceProposal else { return }
                 guard case let .generated(patch) = state.sourcePatchStatus else {
                     state.isPreparingSourceProposal = true
-                    generateSourcePatch(target: state.target, state: &state)
+                    generateSourcePatch(state: &state)
                     return
                 }
                 guard !patch.isEmpty else { return }
@@ -892,6 +898,14 @@ public struct EventWorkspaceView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+            }
+
+            if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
+                Text(
+                    "\(store.sourceWorkspaceSummary.outOfTargetCount) changes are outside this event."
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal)
@@ -2178,6 +2192,15 @@ private extension SourcePatchInvalidation.Operation {
     }
 }
 
+private extension SourceRecordChange {
+    func matches(eventID: OMERecord.Event.ID) -> Bool {
+        primaryKeyValues.first { $0.columnName == "organizerID" }?.value
+            == String(describing: eventID.organizerID).databaseValue
+            && primaryKeyValues.first { $0.columnName == "eventID" }?.value
+                == eventID.eventID.rawValue.rawValue.databaseValue
+    }
+}
+
 private extension OMERecord.SourceDatabaseInsertion.SourceKind {
     var sourceIndicatorTitle: String {
         switch self {
@@ -2266,6 +2289,27 @@ private extension EventWorkspace.State {
         sourceBaseline?.sourceProvenance ?? sourceProvenance?.sourceProvenance
     }
 
+    var workspaceSourcePatchRequest: OpenMusicEventCalendarSourcePatchRequest? {
+        switch target {
+        case let .calendar(calendarID, sourceBaselineID):
+            OpenMusicEventCalendarSourcePatchRequest(
+                calendarID: calendarID,
+                sourceBaselineID: sourceBaselineID
+            )
+
+        case let .event(eventID):
+            sourceBaselineID.map {
+                OpenMusicEventCalendarSourcePatchRequest(
+                    calendarID: OMERecord.Calendar.ID(
+                        ownerID: eventID.organizerID,
+                        calendarID: OMERecord.Calendar.defaultID
+                    ),
+                    sourceBaselineID: $0
+                )
+            }
+        }
+    }
+
     mutating func dismissSourceProposal() {
         let status = sourceProposal?.status ?? sourceProposalStatus
         sourceProposal = nil
@@ -2333,6 +2377,7 @@ private extension EventWorkspace.State {
 private extension EventWorkspace.TangledPullReviewSemanticDiff {
     static func reviewBranchDiff(
         target: SourceProposalTarget,
+        sourceBaselineID: SourceBaselineRecord.ID,
         review: TangledPullReview,
         sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance,
         sourceSnapshot: TangledPullReviewSourceSnapshotClient
@@ -2376,31 +2421,31 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
         }
 
         let summary = try await workingDatabase.read { db in
+            let calendarID: OME.Calendar.ID
             switch target {
-            case let .calendar(calendarID, sourceBaselineID):
-                let baselineSchemaName = "review_source_baseline"
-                try #sql(
-                    "ATTACH DATABASE \(bind: baselineDatabase.path) AS \(quote: baselineSchemaName)"
-                )
-                .execute(db)
-                defer {
-                    try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
-                }
-                return try openMusicEventSourceEditSummary(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName,
-                    sourceBaselineID: sourceBaselineID,
-                    calendarID: calendarID
-                )
+            case let .calendar(targetCalendarID, _):
+                calendarID = targetCalendarID
 
             case let .event(eventID):
-                return try SourceEditingComparer().summary(
-                    in: db,
-                    baselineDatabase: baselineDatabase,
-                    recordTypes: OME.sourceRecordTypes,
-                    scope: .openMusicEvent(eventID: eventID)
+                calendarID = OME.Calendar.ID(
+                    ownerID: eventID.organizerID,
+                    calendarID: OME.Calendar.defaultID
                 )
             }
+            let baselineSchemaName = "review_source_baseline"
+            try #sql(
+                "ATTACH DATABASE \(bind: baselineDatabase.path) AS \(quote: baselineSchemaName)"
+            )
+            .execute(db)
+            defer {
+                try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+            }
+            return try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: baselineSchemaName,
+                sourceBaselineID: sourceBaselineID,
+                calendarID: calendarID
+            )
         }
         switch summary.availability {
         case .available:

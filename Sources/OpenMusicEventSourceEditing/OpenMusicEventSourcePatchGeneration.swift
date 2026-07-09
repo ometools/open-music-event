@@ -381,7 +381,7 @@ private enum OpenMusicEventCalendarSourcePatchConversionKey: DependencyKey {
     }
 }
 
-private extension OpenMusicEventSourceEvent {
+extension OpenMusicEventSourceEvent {
     static var emptyForNewSourcePatch: Self {
         OpenMusicEventSourceEvent(
             event: EventDTO(
