@@ -61,6 +61,7 @@ public struct OpenMusicEventAppRoot {
     public enum Action {
         case authentication(AuthenticationCoordinator.Action)
         case destination(Destination.Action)
+        case editorNavigationAuthorized(OMERecord.Event.ID, EventTarget?)
         case eventViewerDismissed
         case handleNavigationRequest(NavigationRequest)
         case openRoute(AppRoute)
@@ -74,6 +75,7 @@ public struct OpenMusicEventAppRoot {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.eventEditingAuthorization) var eventEditingAuthorization
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -137,6 +139,41 @@ public struct OpenMusicEventAppRoot {
             prefetchAssetsOnOpen(eventID)
         }
 
+        let authorizeEditorNavigation:
+            (OMERecord.Event.ID, EventTarget?) -> Void = { eventID, target in
+            let eventEditingAuthorization = eventEditingAuthorization
+            store.addTask {
+                let result: Void? = await store.withErrorHandling(
+                    fallbackMessage: .eventEditingAuthorizationFailed,
+                    operation: .eventEditingAuthorization
+                ) {
+                    try await eventEditingAuthorization.authorize(eventID)
+                }
+                guard result != nil else { return }
+                try store.send(.editorNavigationAuthorized(eventID, target))
+            }
+        }
+
+        let openEventViewerAfterAuthorization:
+            (OMERecord.Event.ID, EventTarget?, inout State) -> Void = { eventID, target, state in
+            guard target?.eventFeature.isEditorFeature == true else {
+                openEventViewer(eventID, target, &state)
+                return
+            }
+
+            do {
+                switch try eventEditingAuthorization.authorizationStatus(eventID) {
+                case .satisfied:
+                    openEventViewer(eventID, target, &state)
+
+                case .impossible, .signInRequired, .upgradeAvailable, .wrongAccount:
+                    authorizeEditorNavigation(eventID, target)
+                }
+            } catch {
+                authorizeEditorNavigation(eventID, target)
+            }
+        }
+
         Features {
             Update { state, action in
                 switch action {
@@ -145,6 +182,9 @@ public struct OpenMusicEventAppRoot {
 
                 case .destination:
                     break
+
+                case let .editorNavigationAuthorized(eventID, target):
+                    openEventViewer(eventID, target, &state)
 
                 case .eventViewerDismissed:
                     state.destination = nil
@@ -155,7 +195,7 @@ public struct OpenMusicEventAppRoot {
                 case .handleNavigationRequest(let request):
                     switch request {
                     case let .event(eventID, target):
-                        openEventViewer(eventID, target, &state)
+                        openEventViewerAfterAuthorization(eventID, target, &state)
 
                     case let .externalURL(url):
                         state.openExternalURL(url)
@@ -163,7 +203,7 @@ public struct OpenMusicEventAppRoot {
 
                 case .openRoute(let route):
                     if case let .event(eventID, target) = route.navigationRequest {
-                        openEventViewer(eventID, target, &state)
+                        openEventViewerAfterAuthorization(eventID, target, &state)
                     }
 
                 case .openURL(let url):

@@ -111,6 +111,12 @@ public enum OpenMusicEventOAuth {
     public static let tangledPullStatusAuthRequirement =
         TangledOAuthRequirements.pullStatusAuthRequirement
 
+    public static let tangledWorkspaceManagementAuthRequirement =
+        OAuth.AuthRequirement(
+            permissions: tangledPublicKeyAuthRequirement.permissions
+                .union(tangledPullRequestSurfaceAuthRequirement.permissions)
+        )
+
     public static let baseAuthRequirement = OAuth.AuthRequirement(
         permissions: [.atproto]
     )

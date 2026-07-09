@@ -7,6 +7,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
+import OpenMusicEventViewers
 import OpenMusicEventWhiteLabel
 import SQLiteData
 import SwiftUI
@@ -430,8 +431,8 @@ struct WhiteLabelRootActionsMenu: View {
                     Label(
                         teamWorkspaceDetailStore.isPreparingTeamWorkspaceEditor
                             ? "Preparing Workspace"
-                            : "Manage Workspace",
-                        systemImage: "person.3"
+                            : "Workspace",
+                        systemImage: EventFeature.workspace.systemImage
                     )
                 }
                 .disabled(teamWorkspaceDetailStore.isPreparingTeamWorkspaceEditor)
@@ -440,10 +441,10 @@ struct WhiteLabelRootActionsMenu: View {
             Button {
                 store.send(.accountManagementButtonTapped)
             } label: {
-                Label("Account Management", systemImage: "person.crop.circle")
+                Label("Account", systemImage: "person.crop.circle")
             }
         } label: {
-            Label("Manage", systemImage: "gearshape")
+            Label("Actions", systemImage: "gearshape")
                 .labelStyle(.iconOnly)
         }
     }
@@ -458,7 +459,7 @@ struct WhiteLabelRootAccountManagementView: View {
             Form {
                 AccountView(store: accountStore)
             }
-            .navigationTitle("Account Management")
+            .navigationTitle("Account")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {

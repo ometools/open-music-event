@@ -5,6 +5,7 @@ import IssueReporting
 import Sharing
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
+import OpenMusicEventAuthentication
 import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
 import SQLiteData
@@ -84,6 +85,7 @@ public struct EventViewer {
     public typealias EventFeature = OpenMusicEventViewers.EventFeature
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.eventEditingAuthorization) var eventEditingAuthorization
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
     @StoreTaskID var sourceDataRefreshTask
 
@@ -642,7 +644,15 @@ public struct EventViewer {
     public enum Action {
         case closeButtonTapped
         case destination(Destination.Action)
+        case editorEntryAuthorized(EditorEntry)
         case eventSearch(EventSearch.Action)
+        case selectedFeatureChanged(EventFeature)
+    }
+
+    public enum EditorEntry: Equatable, Sendable {
+        case feature(EventFeature)
+        case intent(EventEditingIntent)
+        case target(EventTarget)
     }
 
     @Feature
@@ -659,6 +669,36 @@ public struct EventViewer {
         case stageForm(Spawn<EditStage>)
     }
 
+    private func authorizeEditorEntry(_ entry: EditorEntry, eventID: OMERecord.Event.ID) {
+        let eventEditingAuthorization = eventEditingAuthorization
+        store.addTask {
+            let result: Void? = await store.withErrorHandling(
+                fallbackMessage: .eventEditingAuthorizationFailed,
+                operation: .eventEditingAuthorization
+            ) {
+                try await eventEditingAuthorization.authorize(eventID)
+            }
+            guard result != nil else { return }
+            try store.send(.editorEntryAuthorized(entry))
+        }
+    }
+
+    private func enterOrAuthorizeEditorEntry(_ entry: EditorEntry, state: inout State) {
+        do {
+            switch try eventEditingAuthorization.authorizationStatus(state.eventID) {
+            case .satisfied:
+                store.withDependencies {
+                    state.enterEditorEntry(entry)
+                }
+
+            case .impossible, .signInRequired, .upgradeAvailable, .wrongAccount:
+                authorizeEditorEntry(entry, eventID: state.eventID)
+            }
+        } catch {
+            authorizeEditorEntry(entry, eventID: state.eventID)
+        }
+    }
+
     public var body: some Feature {
         let _ = Self._logChanges()
         Update { state, action in
@@ -671,17 +711,34 @@ public struct EventViewer {
             case .destination:
                 break
 
+            case let .editorEntryAuthorized(entry):
+                store.withDependencies {
+                    state.enterEditorEntry(entry)
+                }
+
             case .eventSearch:
                 break
+
+            case let .selectedFeatureChanged(feature):
+                guard feature.isEditorFeature else {
+                    state.selectedFeature = feature
+                    return
+                }
+                enterOrAuthorizeEditorEntry(.feature(feature), state: &state)
             }
         }
         .onEvent(NavigationRequested.self) { request, state in
-            guard case let .event(eventID, target) = request, eventID == state.eventID else { return }
-            state.navigate(to: target)
+            if case let .event(eventID, target) = request, eventID == state.eventID {
+                if let target, target.eventFeature.isEditorFeature {
+                    enterOrAuthorizeEditorEntry(.target(target), state: &state)
+                } else {
+                    state.navigate(to: target)
+                }
+            }
         }
         .onEvent(EventEditingRequested.self) { intent, state in
-            store.withDependencies {
-                state.handleEditingIntent(intent)
+            if intent.eventID == state.eventID {
+                enterOrAuthorizeEditorEntry(.intent(intent), state: &state)
             }
         }
         .onEvent(SourceDataRefreshRequested.self) { request, state in
@@ -864,7 +921,7 @@ public struct EventViewerView: View {
 
         var body: some View {
             TabFeaturesView(
-                selection: $store.selectedFeature,
+                selection: selectedFeature,
                 layout: $tabLayout
             ) {
                 if store.installedFeatures.contains(.search) {
@@ -1031,12 +1088,20 @@ public struct EventViewerView: View {
 
             }
         }
+
+        private var selectedFeature: Binding<EventViewer.EventFeature> {
+            Binding {
+                store.selectedFeature
+            } set: { feature in
+                store.send(.selectedFeatureChanged(feature))
+            }
+        }
     }
     #endif
 
     #if os(iOS)
     private var legacyiOSTabView: some View {
-        TabView(selection: $store.selectedFeature) {
+        TabView(selection: selectedFeature) {
             ForEach(store.spawn(\.scheduleViewers)) { featureStore in
                 let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
                 viewerTab(feature) {
@@ -1137,7 +1202,7 @@ public struct EventViewerView: View {
     #endif
 
     private var defaultTabView: some View {
-        TabView(selection: $store.selectedFeature) {
+        TabView(selection: selectedFeature) {
             ForEach(store.spawn(\.scheduleViewers)) { featureStore in
                 let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
                 viewerTab(feature) {
@@ -1256,6 +1321,89 @@ public struct EventViewerView: View {
                 Label(feature.title, systemImage: feature.systemImage)
             }
             .badge(badgeValue ?? 0)
+    }
+
+    private var selectedFeature: Binding<EventViewer.EventFeature> {
+        Binding {
+            store.selectedFeature
+        } set: { feature in
+            store.send(.selectedFeatureChanged(feature))
+        }
+    }
+}
+
+private extension EventViewer.State {
+    mutating func enterEditorEntry(_ entry: EventViewer.EditorEntry) {
+        switch entry {
+        case let .feature(feature):
+            selectEditorFeature(feature)
+
+        case let .intent(intent):
+            handleEditingIntent(intent)
+
+        case let .target(target):
+            navigate(to: target)
+        }
+    }
+
+    mutating func selectEditorFeature(_ feature: EventViewer.EventFeature) {
+        selectedFeature = feature
+        switch feature {
+        case .settings:
+            if eventSettings == nil {
+                eventSettings = Spawn(EventSettings.State(eventID: eventID))
+            }
+
+        case .workspace:
+            if eventWorkspace == nil {
+                eventWorkspace = eventWorkspaceSpawn(eventID: eventID)
+            }
+
+        case .about,
+             .communications,
+             .contactInfo,
+             .contributors,
+             .location,
+             .notifications,
+             .posters,
+             .schedule,
+             .search,
+             .siteMap,
+             .stages:
+            break
+        }
+    }
+}
+
+private extension EventEditingIntent {
+    var eventID: OMERecord.Event.ID {
+        switch self {
+        case let .addPerformance(eventID, _, _),
+             let .addPosters(eventID),
+             let .addSchedule(eventID),
+             let .copyStagesFromEvent(eventID),
+             let .createContributor(eventID),
+             let .createStage(eventID),
+             let .deletePerformance(eventID, _),
+             let .editContactInfo(eventID),
+             let .editContributor(eventID, _),
+             let .editEventInfo(eventID),
+             let .editEventPolicies(eventID),
+             let .editLocation(eventID),
+             let .editPerformance(eventID, _),
+             let .editReportingLink(eventID),
+             let .editStage(eventID, _),
+             let .eventSettings(eventID),
+             let .eventWorkspace(eventID):
+            return eventID
+
+        case let .deletePoster(posterID),
+             let .editPoster(posterID):
+            return OMERecord.Event.ID(
+                organizerID: posterID.organizerID,
+                eventID: posterID.eventID
+            )
+        }
     }
 }
 

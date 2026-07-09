@@ -49,7 +49,10 @@
     "About" : {
 
     },
-    "Account Management" : {
+    "Account" : {
+
+    },
+    "Actions" : {
 
     },
     "Add" : {
@@ -406,13 +409,7 @@
         }
       }
     },
-    "Manage" : {
-
-    },
     "Manage Team Workspace" : {
-
-    },
-    "Manage Workspace" : {
 
     },
     "My Events" : {

@@ -62,6 +62,39 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
+    func tangledWorkspaceManagementRequirementIncludesFullEditSurface() throws {
+        let permissions = Set(
+            OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement
+                .permissions
+                .map(\.rawValue)
+        )
+
+        #expect(permissions.contains("repo:sh.tangled.publicKey?action=create"))
+        #expect(permissions.contains("repo:sh.tangled.repo.pull?action=create"))
+        #expect(permissions.contains("repo:sh.tangled.repo.pull?action=update"))
+        #expect(permissions.contains("repo:sh.tangled.repo.pull?action=delete"))
+        #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=create"))
+        #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=update"))
+        #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=delete"))
+        #expect(permissions.contains("blob:application/gzip"))
+
+        let requested = try OAuth.requestedPermissions(
+            for: OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement,
+            currentSession: nil,
+            manifest: OpenMusicEventOAuth.appManifest
+        )
+
+        #expect(
+            requested
+                .missing(
+                    OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement
+                        .permissions
+                )
+                .isEmpty
+        )
+    }
+
+    @Test
     func manifestAcceptsLegacyPatchScopeDuringPublicKeyAuthorization() {
         let previouslyGranted = OAuth.GrantedPermissions([
             .atproto,
