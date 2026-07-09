@@ -22,6 +22,7 @@ struct AccountTests {
         #expect(store.isAuthenticationSheetPresented == false)
         #expect(store.selectedMode == .signIn)
         #expect(store.accountIDDescription == nil)
+        #expect(store.surface == .authentication)
     }
 
     @Test
@@ -58,6 +59,7 @@ struct AccountTests {
 
         #expect(store.isAuthenticationSheetPresented)
         #expect(store.sessionStore[session.accountID] == session)
+        #expect(store.surface == .accountManagement)
     }
 
     @Test
@@ -596,6 +598,35 @@ struct AccountTests {
 
         #expect(store.session == nil)
         #expect(store.sessionStore[OAuth.Session.placeholder.accountID] == nil)
+        #expect(await recorder.didCancel)
+    }
+
+    @Test
+    func accountManagementLogOutReturnsToAuthenticationSurface() async {
+        let recorder = AccountAuthorizationRecorder()
+        let state = Account.State.localTestState()
+        state.oauth.state.$sessionStore.withLock { $0.upsert(.placeholder) }
+        state.oauth.state.$selectedSessionID.withLock {
+            $0 = OAuth.Session.placeholder.accountID
+        }
+        let store = withDependencies {
+            $0.openMusicEventAuthorizationRequests = .recording(recorder)
+        } operation: {
+            Store(initialState: state) {
+                Account()
+            }
+        }
+
+        #expect(store.surface == .accountManagement)
+
+        let task = store.send(.signOutAllButtonTapped)
+        await task?.value
+
+        #expect(store.session == nil)
+        #expect(store.sessionStore.sessions.isEmpty)
+        #expect(store.selectedSessionID == nil)
+        #expect(store.surface == .authentication)
+        #expect(store.isAuthenticationSheetPresented == false)
         #expect(await recorder.didCancel)
     }
 }

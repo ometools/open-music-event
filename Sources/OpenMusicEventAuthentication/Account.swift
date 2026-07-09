@@ -83,6 +83,11 @@ public struct Account {
         }
     }
 
+    public enum Surface: Equatable, Sendable {
+        case authentication
+        case accountManagement
+    }
+
     public enum Mode: String, CaseIterable, Equatable, Hashable, Sendable {
         case signIn
         case signUp
@@ -255,6 +260,10 @@ public struct Account {
         public var signInLoginHint: String {
             get { signInForm.value.handle }
             set { signInForm.value.handle = newValue }
+        }
+
+        public var surface: Surface {
+            accountRows.isEmpty ? .authentication : .accountManagement
         }
 
         public var signUpServerHost: String {
@@ -545,35 +554,43 @@ public struct AccountView: View {
         self.store = store
     }
 
+    @ViewBuilder
     public var body: some View {
+        switch store.surface {
+        case .authentication:
+            AccountAuthenticationFormSections(store: store)
+            AccountAuthenticationSubmitSection(store: store)
+
+        case .accountManagement:
+            AccountManagementSection(store: store)
+        }
+    }
+}
+
+struct AccountManagementSection: View {
+    @Bindable var store: StoreOf<Account>
+
+    var body: some View {
         Section("Account") {
-            if store.accountRows.isEmpty {
+            ForEach(store.accountRows) { row in
                 Button {
-                    store.send(.accountButtonTapped)
+                    store.send(.accountRowTapped(row.id))
                 } label: {
-                    Text("Sign In or Sign Up")
+                    AccountRowView(row: row)
                 }
-            } else {
-                ForEach(store.accountRows) { row in
-                    Button {
-                        store.send(.accountRowTapped(row.id))
-                    } label: {
-                        AccountRowView(row: row)
-                    }
-                    .buttonStyle(.plain)
-                }
+                .buttonStyle(.plain)
+            }
 
-                Button {
-                    store.send(.accountButtonTapped)
-                } label: {
-                    Text("Add Account")
-                }
+            Button {
+                store.send(.accountButtonTapped)
+            } label: {
+                Text("Add Another Account")
+            }
 
-                Button(role: .destructive) {
-                    store.send(.signOutAllButtonTapped)
-                } label: {
-                    Text("Sign Out of All Accounts")
-                }
+            Button(role: .destructive) {
+                store.send(.signOutAllButtonTapped)
+            } label: {
+                Text("Log Out of All Accounts")
             }
 
             if let errorMessage = store.errorMessage {
@@ -656,59 +673,7 @@ struct AccountAuthenticationSheetView: View {
     var body: some View {
         NavigationStack {
             SwiftUI.Form {
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Your Atmosphere account")
-                            .font(.headline)
-                        Text(
-                            "Use one portable social account across Open Music Event and other AT Protocol apps."
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Section {
-                    Picker("Account action", selection: $store.selectedMode) {
-                        ForEach(Account.Mode.allCases, id: \.self) { mode in
-                            Text(mode.title)
-                                .tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    switch store.selectedMode {
-                    case .signIn:
-                            Text(store.selectedMode.helperText)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-
-                            TextField("name.atmo.social", text: $store.signInForm.value.handle)
-                                #if !os(macOS)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                #endif
-
-                            FormFieldValidationStatus(
-                                validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
-                            )
-
-                    case .signUp:
-                            Text(store.selectedMode.helperText)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-
-                    }
-
-                    if store.selectedMode == .signUp {
-                        AccountSignUpServerFormView(store: store)
-                    }
-                } footer: {
-                    Text("Already use Bluesky? Your Bluesky handle works too.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                AccountAuthenticationFormSections(store: store)
             }
             .navigationTitle("Account")
             .safeEdgeExpansion(edge: .bottom) {
@@ -721,6 +686,95 @@ struct AccountAuthenticationSheetView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+struct AccountAuthenticationFormSections: View {
+    @Bindable var store: StoreOf<Account>
+    let showsIntro: Bool
+
+    init(
+        store: StoreOf<Account>,
+        showsIntro: Bool = true
+    ) {
+        self.store = store
+        self.showsIntro = showsIntro
+    }
+
+    var body: some View {
+        if showsIntro {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Your Atmosphere account")
+                        .font(.headline)
+                    Text(
+                        "Use one portable social account across Open Music Event and other AT Protocol apps."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+
+        Section {
+            Picker("Account action", selection: $store.selectedMode) {
+                ForEach(Account.Mode.allCases, id: \.self) { mode in
+                    Text(mode.title)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            switch store.selectedMode {
+            case .signIn:
+                Text(store.selectedMode.helperText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                TextField("name.atmo.social", text: $store.signInForm.value.handle)
+                    #if !os(macOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    #endif
+
+                FormFieldValidationStatus(
+                    validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
+                )
+
+            case .signUp:
+                Text(store.selectedMode.helperText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if store.selectedMode == .signUp {
+                AccountSignUpServerFormView(store: store)
+            }
+        } footer: {
+            Text("Already use Bluesky? Your Bluesky handle works too.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+
+        if let errorMessage = store.errorMessage {
+            Section {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+}
+
+struct AccountAuthenticationSubmitSection: View {
+    @Bindable var store: StoreOf<Account>
+
+    var body: some View {
+        Section {
+            AccountAuthenticationSubmitButton(store: store)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.extraLarge)
         }
     }
 }
