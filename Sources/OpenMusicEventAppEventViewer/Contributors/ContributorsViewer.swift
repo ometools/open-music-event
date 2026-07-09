@@ -191,9 +191,14 @@ public struct ContributorsViewer {
 
 public struct ContributorsViewerView: View {
     @Bindable var store: StoreOf<ContributorsViewer>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<ContributorsViewer>) {
+    public init(
+        store: StoreOf<ContributorsViewer>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -228,6 +233,7 @@ public struct ContributorsViewerView: View {
                     .onDelete { offsets in
                         deleteContributors(at: offsets)
                     }
+                    .deleteDisabled(!showsAuthoringControls)
                 }
                 .listStyle(.plain)
             }
@@ -239,17 +245,22 @@ public struct ContributorsViewerView: View {
         #endif
         .navigationTitle("Contributors")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    store.send(.addButtonTapped)
-                } label: {
-                    Image(systemName: "plus")
-                        .accessibilityLabel("Add Contributor")
+            if showsAuthoringControls {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.addButtonTapped)
+                    } label: {
+                        Image(systemName: "plus")
+                            .accessibilityLabel("Add Contributor")
+                    }
                 }
             }
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
-            ContributorDetailView(store: detailStore)
+            ContributorDetailView(
+                store: detailStore,
+                showsAuthoringControls: showsAuthoringControls
+            )
         }
     }
 

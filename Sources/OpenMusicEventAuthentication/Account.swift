@@ -132,6 +132,7 @@ public struct Account {
     public struct State: Equatable {
         public init(
             isAuthenticationSheetPresented: Bool = false,
+            authRequirement: OAuth.AuthRequirement = OpenMusicEventOAuth.baseAuthRequirement,
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
             signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
@@ -146,6 +147,7 @@ public struct Account {
                 .availableOption(serverHost: signUpServerHost)?
                 .id
 
+            self.authRequirement = authRequirement
             self.isAuthenticationSheetPresented = isAuthenticationSheetPresented
             self.oauth = Spawn(OAuthAccount.State(storage: storage))
             self.selectedMode = selectedMode
@@ -165,6 +167,7 @@ public struct Account {
 
         public init(
             isAuthenticationSheetPresented: Bool = false,
+            authRequirement: OAuth.AuthRequirement = OpenMusicEventOAuth.baseAuthRequirement,
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
             signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
@@ -174,6 +177,7 @@ public struct Account {
         ) {
             self.init(
                 isAuthenticationSheetPresented: isAuthenticationSheetPresented,
+                authRequirement: authRequirement,
                 selectedMode: selectedMode,
                 signInLoginHint: signInLoginHint,
                 signUpServerConfiguration: signUpServerConfiguration,
@@ -185,6 +189,7 @@ public struct Account {
             )
         }
 
+        public var authRequirement: OAuth.AuthRequirement
         public var isAuthenticationSheetPresented: Bool
         public var accountIdentities: [Atmosphere.Account.ID: AccountIdentityResolution] = [:]
         public var oauth: Spawn<OAuthAccount>
@@ -403,12 +408,13 @@ public struct Account {
                     let loginHint = value.handle.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !loginHint.isEmpty else { return }
                     let sessionStore = state.oauth.state.sessionStore
+                    let authRequirement = state.authRequirement
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = true
                     store.addTask {
                         do {
                             let session = try await accountAuthorizationClient.signIn(
-                                OpenMusicEventOAuth.baseAuthRequirement,
+                                authRequirement,
                                 loginHint,
                                 sessionStore
                             )
@@ -427,12 +433,13 @@ public struct Account {
                     guard !state.isLoginInProgress else { return }
                     let serverHost = value.serverHost.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !serverHost.isEmpty else { return }
+                    let authRequirement = state.authRequirement
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isSignUpInProgress = true
                     store.addTask {
                         do {
                             let session = try await accountAuthorizationClient.signUp(
-                                OpenMusicEventOAuth.baseAuthRequirement,
+                                authRequirement,
                                 serverHost
                             )
                             try store.send(.signUpResponse(.success(session)))

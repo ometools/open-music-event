@@ -547,13 +547,16 @@ private struct DeletePerformanceError: Error {}
 public struct ScheduleViewerView: View {
     @Bindable var store: StoreOf<ScheduleViewer>
     @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    let showsAuthoringControls: Bool
 
     public init(
         store: StoreOf<ScheduleViewer>,
-        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>
+        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>,
+        showsAuthoringControls: Bool = true
     ) {
         self.store = store
         self._selectedScheduleID = selectedScheduleID
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -575,6 +578,7 @@ public struct ScheduleViewerView: View {
                             selectedScheduleID: selectedScheduleID
                         ),
                         selectedStageID: $store.selectedStageID,
+                        showsAuthoringControls: showsAuthoringControls,
                         onEditPerformanceTapped: { performanceID in
                             store.send(.editPerformanceButtonTapped(performanceID))
                         },
@@ -589,7 +593,8 @@ public struct ScheduleViewerView: View {
                 case .list:
                     SchedulePerformanceListView(
                         store: store,
-                        selectedScheduleID: selectedScheduleID
+                        selectedScheduleID: selectedScheduleID,
+                        showsAuthoringControls: showsAuthoringControls
                     )
                 }
             }
@@ -598,11 +603,13 @@ public struct ScheduleViewerView: View {
             store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID)
         )
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                ScheduleAddMenu(
-                    store: store,
-                    selectedScheduleID: selectedScheduleID
-                )
+            if showsAuthoringControls {
+                ToolbarItem(placement: .primaryAction) {
+                    ScheduleAddMenu(
+                        store: store,
+                        selectedScheduleID: selectedScheduleID
+                    )
+                }
             }
             ToolbarItem(placement: .primaryAction) {
                 ScheduleModeMenu(store: store)
@@ -643,7 +650,10 @@ public struct ScheduleViewerView: View {
             Text("This removes the performance from this schedule.")
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
-            PerformanceDetailView(store: detailStore)
+            PerformanceDetailView(
+                store: detailStore,
+                showsAuthoringControls: showsAuthoringControls
+            )
         }
         .environment(\.showStageNameLabels, store.showStageNameLabels)
     }
@@ -717,6 +727,7 @@ struct SchedulePerformanceListView: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     @Bindable var store: StoreOf<ScheduleViewer>
     let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    let showsAuthoringControls: Bool
 
     var body: some View {
         let rows = store.state.visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
@@ -986,9 +997,14 @@ public struct PerformanceDetail {
 
 public struct PerformanceDetailView: View {
     @Bindable var store: StoreOf<PerformanceDetail>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<PerformanceDetail>) {
+    public init(
+        store: StoreOf<PerformanceDetail>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -1042,13 +1058,15 @@ public struct PerformanceDetailView: View {
 
                 }
                 .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            store.send(.editButtonTapped)
-                        } label: {
-                            Label("Edit Performance", systemImage: "pencil")
+                    if showsAuthoringControls {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                store.send(.editButtonTapped)
+                            } label: {
+                                Label("Edit Performance", systemImage: "pencil")
+                            }
+                            .disabled(!store.canEditPerformance)
                         }
-                        .disabled(!store.canEditPerformance)
                     }
                 }
             } else {
@@ -1061,7 +1079,10 @@ public struct PerformanceDetailView: View {
             }
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
-            ContributorDetailView(store: detailStore)
+            ContributorDetailView(
+                store: detailStore,
+                showsAuthoringControls: showsAuthoringControls
+            )
         }
     }
 }

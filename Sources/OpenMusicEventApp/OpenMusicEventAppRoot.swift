@@ -61,7 +61,7 @@ public struct OpenMusicEventAppRoot {
     public enum Action {
         case authentication(AuthenticationCoordinator.Action)
         case destination(Destination.Action)
-        case editorNavigationAuthorized(OMERecord.Event.ID, EventTarget?)
+        case authoringNavigationAuthorized(OMERecord.Event.ID, EventTarget?, Authoring.Scope)
         case eventViewerDismissed
         case handleNavigationRequest(NavigationRequest)
         case openRoute(AppRoute)
@@ -75,7 +75,7 @@ public struct OpenMusicEventAppRoot {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.eventEditingAuthorization) var eventEditingAuthorization
+    @Dependency(\.authoringPolicy) var authoringPolicy
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -119,12 +119,21 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
-        let openEventViewer: (OMERecord.Event.ID, EventTarget?, inout State) -> Void = { eventID, target, state in
+        let openEventViewer:
+            (OMERecord.Event.ID, EventTarget?, Authoring.Mode?, inout State) -> Void = { eventID, target, authoringMode, state in
             withEventViewerWorkspaceDependencies(eventID) {
                 if state.launchEventViewer != nil {
-                    state.launchEventViewer = Spawn(.route(eventID: eventID, target: target))
+                    state.launchEventViewer = Spawn(.route(
+                        eventID: eventID,
+                        target: target,
+                        authoringMode: authoringMode
+                    ))
                 } else {
-                    state.destination = .eventViewer(Spawn(.route(eventID: eventID, target: target)))
+                    state.destination = .eventViewer(Spawn(.route(
+                        eventID: eventID,
+                        target: target,
+                        authoringMode: authoringMode
+                    )))
                 }
             }
             if state.persistsSelectedEvent, state.selectedEventID != eventID {
@@ -139,38 +148,43 @@ public struct OpenMusicEventAppRoot {
             prefetchAssetsOnOpen(eventID)
         }
 
-        let authorizeEditorNavigation:
+        let authorizeAuthoringNavigation:
             (OMERecord.Event.ID, EventTarget?) -> Void = { eventID, target in
-            let eventEditingAuthorization = eventEditingAuthorization
+            let authoringPolicy = authoringPolicy
             store.addTask {
-                let result: Void? = await store.withErrorHandling(
-                    fallbackMessage: .eventEditingAuthorizationFailed,
-                    operation: .eventEditingAuthorization
+                let result = await store.withErrorHandling(
+                    fallbackMessage: .authoringAuthorizationFailed,
+                    operation: .authoringAuthorization
                 ) {
-                    try await eventEditingAuthorization.authorize(eventID)
+                    try await authoringPolicy.authorize(
+                        Authoring.Request(
+                            eventID: eventID,
+                            editorTarget: target
+                        )
+                    )
                 }
-                guard result != nil else { return }
-                try store.send(.editorNavigationAuthorized(eventID, target))
+                guard let scope = result else { return }
+                try store.send(.authoringNavigationAuthorized(eventID, target, scope))
             }
         }
 
         let openEventViewerAfterAuthorization:
             (OMERecord.Event.ID, EventTarget?, inout State) -> Void = { eventID, target, state in
             guard target?.eventFeature.isEditorFeature == true else {
-                openEventViewer(eventID, target, &state)
+                openEventViewer(eventID, target, nil, &state)
                 return
             }
 
             do {
-                switch try eventEditingAuthorization.authorizationStatus(eventID) {
-                case .satisfied:
-                    openEventViewer(eventID, target, &state)
+                switch try authoringPolicy.mode(.event(eventID)) {
+                case .authoring:
+                    openEventViewer(eventID, target, nil, &state)
 
-                case .impossible, .signInRequired, .upgradeAvailable, .wrongAccount:
-                    authorizeEditorNavigation(eventID, target)
+                case .attendee:
+                    authorizeAuthoringNavigation(eventID, target)
                 }
             } catch {
-                authorizeEditorNavigation(eventID, target)
+                authorizeAuthoringNavigation(eventID, target)
             }
         }
 
@@ -183,8 +197,8 @@ public struct OpenMusicEventAppRoot {
                 case .destination:
                     break
 
-                case let .editorNavigationAuthorized(eventID, target):
-                    openEventViewer(eventID, target, &state)
+                case let .authoringNavigationAuthorized(eventID, target, scope):
+                    openEventViewer(eventID, target, .authoring(scope), &state)
 
                 case .eventViewerDismissed:
                     state.destination = nil
@@ -400,6 +414,44 @@ private extension OpenMusicEventAppRoot.State {
             true
         case .whiteLabel:
             false
+        }
+    }
+}
+
+private extension Authoring.Request {
+    init(eventID: OMERecord.Event.ID, editorTarget: EventTarget?) {
+        switch editorTarget?.eventFeature {
+        case .workspace:
+            self.init(
+                subject: .event(eventID),
+                feature: .workspace,
+                action: .manageWorkspace
+            )
+
+        case .settings:
+            self.init(
+                subject: .event(eventID),
+                feature: .settings,
+                action: .enterAuthoring
+            )
+
+        case .about,
+             .communications,
+             .contactInfo,
+             .contributors,
+             .location,
+             .notifications,
+             .posters,
+             .schedule,
+             .search,
+             .siteMap,
+             .stages,
+             .none:
+            self.init(
+                subject: .event(eventID),
+                feature: .event,
+                action: .enterAuthoring
+            )
         }
     }
 }

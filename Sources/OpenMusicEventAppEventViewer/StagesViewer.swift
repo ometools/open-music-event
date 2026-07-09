@@ -532,9 +532,14 @@ private extension CopyStagesFromEvent.SourceEventOption {
 
 public struct StagesViewerView: View {
     @Bindable var store: StoreOf<StagesViewer>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<StagesViewer>) {
+    public init(
+        store: StoreOf<StagesViewer>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -542,6 +547,7 @@ public struct StagesViewerView: View {
             if store.stages.isEmpty {
                 EmptyStagesView(
                     errorMessage: store.errorMessage,
+                    showsAuthoringControls: showsAuthoringControls,
                     onAddStage: {
                         store.send(.addButtonTapped)
                     },
@@ -576,6 +582,7 @@ public struct StagesViewerView: View {
                     .onDelete { offsets in
                         deleteStages(at: offsets)
                     }
+                    .deleteDisabled(!showsAuthoringControls)
                 }
                 .listStyle(.plain)
             }
@@ -587,7 +594,7 @@ public struct StagesViewerView: View {
         #endif
         .navigationTitle("Stages")
         .toolbar {
-            if store.canCopyStagesFromOtherEvent && !store.stages.isEmpty {
+            if showsAuthoringControls, store.canCopyStagesFromOtherEvent && !store.stages.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
                     Button("From Other Event") {
                         store.send(.fromOtherEventButtonTapped)
@@ -595,17 +602,22 @@ public struct StagesViewerView: View {
                 }
             }
 
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    store.send(.addButtonTapped)
-                } label: {
-                    Image(systemName: "plus")
-                        .accessibilityLabel("Add Event Stage")
+            if showsAuthoringControls {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.addButtonTapped)
+                    } label: {
+                        Image(systemName: "plus")
+                            .accessibilityLabel("Add Event Stage")
+                    }
                 }
             }
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).stageDetail) { detailStore in
-            StageDetailView(store: detailStore)
+            StageDetailView(
+                store: detailStore,
+                showsAuthoringControls: showsAuthoringControls
+            )
         }
     }
 
@@ -621,6 +633,7 @@ public struct StagesViewerView: View {
 
 struct EmptyStagesView: View {
     var errorMessage: String?
+    var showsAuthoringControls: Bool
     var onAddStage: () -> Void
     var onCopyFromOtherEvent: () -> Void
 
@@ -641,20 +654,22 @@ struct EmptyStagesView: View {
                     .multilineTextAlignment(.center)
             }
 
-            VStack(spacing: 10) {
-                Button {
-                    onCopyFromOtherEvent()
-                } label: {
-                    Label("From Other Event", systemImage: "square.on.square")
-                }
-                .buttonStyle(.borderedProminent)
+            if showsAuthoringControls {
+                VStack(spacing: 10) {
+                    Button {
+                        onCopyFromOtherEvent()
+                    } label: {
+                        Label("From Other Event", systemImage: "square.on.square")
+                    }
+                    .buttonStyle(.borderedProminent)
 
-                Button {
-                    onAddStage()
-                } label: {
-                    Label("Add Stage", systemImage: "plus")
+                    Button {
+                        onAddStage()
+                    } label: {
+                        Label("Add Stage", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
 
             if let errorMessage {
@@ -904,9 +919,14 @@ public struct StageDetail {
 
 public struct StageDetailView: View {
     @Bindable var store: StoreOf<StageDetail>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<StageDetail>) {
+    public init(
+        store: StoreOf<StageDetail>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -948,9 +968,11 @@ public struct StageDetailView: View {
                     }
                 }
                 .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Edit") {
-                            store.send(.editButtonTapped)
+                    if showsAuthoringControls {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Edit") {
+                                store.send(.editButtonTapped)
+                            }
                         }
                     }
                 }

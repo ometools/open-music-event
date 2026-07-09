@@ -44,9 +44,14 @@ public struct ContactInfoViewer {
 
 public struct ContactInfoViewerView: View {
     @Bindable var store: StoreOf<ContactInfoViewer>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<ContactInfoViewer>) {
+    public init(
+        store: StoreOf<ContactInfoViewer>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -76,7 +81,7 @@ public struct ContactInfoViewerView: View {
             }
         }
         .toolbar {
-            if store.event != nil {
+            if showsAuthoringControls, store.event != nil {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Edit") {
                         store.send(.editButtonTapped)

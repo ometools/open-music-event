@@ -1,5 +1,6 @@
 import ATProto
 import ComposableArchitecture2
+import CustomDump
 import Dependencies
 import Foundation
 import OpenMusicEventAuthentication
@@ -33,7 +34,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
-        $0.loadingPhase = .preparing
+        $0.loadingPhase = .locatingSource
       }?.value
 
       #expect(store.state.isLoading == false)
@@ -82,7 +83,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
-        $0.loadingPhase = .preparing
+        $0.loadingPhase = .locatingSource
       }?.value
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
@@ -121,7 +122,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
-        $0.loadingPhase = .preparing
+        $0.loadingPhase = .locatingSource
       }?.value
 
       #expect(await recorder.events == [.storedAuthentication, .sourceImport])
@@ -157,7 +158,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
-        $0.loadingPhase = .preparing
+        $0.loadingPhase = .resolvingOrganizer
       }?.value
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
@@ -198,12 +199,140 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
-        $0.loadingPhase = .preparing
+        $0.loadingPhase = .locatingSource
       }?.value
 
       #expect(store.state.teamWorkspaceDetail?.state.sourceBaselineID == sourceBaselineID)
       #expect(store.state.organizationRoot == nil)
       #expect(store.state.errorMessage == nil)
+    }
+  }
+
+  @Test
+  func singleTangledSourceConfiguresAccountForWorkspaceManagementScopes() async throws {
+    try await withNonExhaustiveTest {
+      let database = try makePreparedDatabase()
+      let organizerID = organizerID("wickedwoods")
+      let selectedEventID = eventID(organizerID: organizerID, eventID: "2025")
+      let descriptor = WhiteLabelSourceDescriptor(
+        reference: .source("https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome")
+      )
+      let source = sourceProvenance("wicked-woods-ome")
+      let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+      let importCompleted = AsyncStream.makeStream(of: Void.self)
+
+      let store = makeStore(
+        configuration: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
+        database: database
+      ) {
+        $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
+        $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { importedOrganizerID, _ in
+          #expect(importedOrganizerID == organizerID)
+          try await insertSourceBackedEvent(
+            selectedEventID,
+            source: source,
+            into: database
+          )
+          importCompleted.continuation.yield(())
+          importCompleted.continuation.finish()
+          return [selectedEventID]
+        }
+      }
+
+      await store.send(WhiteLabelRoot.Action.task) {
+        $0.isLoading = true
+        $0.loadingPhase = .locatingSource
+      }?.value
+      for await _ in importCompleted.stream { break }
+      let clock = ContinuousClock()
+      let loadingDeadline = clock.now.advanced(by: .seconds(1))
+      while store.state.isLoading && clock.now < loadingDeadline {
+        await Task.yield()
+      }
+
+      let requiredPermissions = Set(
+        OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement.permissions.map(\.rawValue)
+      )
+      let accountPermissions = Set(
+        store.state.account.state.authRequirement.permissions.map(\.rawValue)
+      )
+      let provenanceSourceBaselineIDs = try await database.read { db in
+        try EventSourceProvenanceRecord
+          .fetchAll(db)
+          .compactMap(\.sourceBaselineID)
+      }
+
+      #expect(store.state.errorMessage == nil)
+      #expect(provenanceSourceBaselineIDs == [sourceBaselineID])
+      #expect(store.state.authoringSubject == .sourceBaseline(sourceBaselineID))
+      #expect(accountPermissions == requiredPermissions)
+    }
+  }
+
+  @Test
+  func enterAuthoringButtonAuthorizesSingleSourceRoot() async throws {
+    try await withNonExhaustiveTest {
+      let database = try makePreparedDatabase()
+      let organizerID = organizerID("wickedwoods")
+      let selectedEventID = eventID(organizerID: organizerID, eventID: "2025")
+      let descriptor = WhiteLabelSourceDescriptor(
+        reference: .source("https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome")
+      )
+      let source = sourceProvenance("wicked-woods-ome")
+      let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+      let recorder = AuthoringRequestRecorder()
+
+      let store = makeStore(
+        configuration: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
+        database: database
+      ) {
+        $0.authoringPolicy = AuthoringPolicyClient(
+          authenticate: { _ in OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement },
+          authorize: { request in
+            await recorder.record(request)
+            return .all
+          },
+          mode: { _ in .attendee }
+        )
+        $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
+        $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { importedOrganizerID, _ in
+          #expect(importedOrganizerID == organizerID)
+          try await insertSourceBackedEvent(
+            selectedEventID,
+            source: source,
+            into: database
+          )
+          return [selectedEventID]
+        }
+      }
+
+      await store.send(WhiteLabelRoot.Action.task) {
+        $0.isLoading = true
+        $0.loadingPhase = .locatingSource
+      }?.value
+
+      #expect(store.state.authoringSubject == .sourceBaseline(sourceBaselineID))
+      #expect(store.state.authoringMode == .attendee)
+      #expect(!store.state.showsAuthoringControls)
+
+      await store.send(.enterAuthoringButtonTapped) {
+        $0.isAuthoringAuthorizationInFlight = true
+      }?.value
+
+      let requests = await recorder.requests()
+      expectNoDifference(
+        requests,
+        [
+          Authoring.Request(
+            subject: .sourceBaseline(sourceBaselineID),
+            feature: .workspace,
+            action: .enterAuthoring
+          )
+        ]
+      )
+      #expect(store.state.authoringMode == .authoring(.all))
+      #expect(store.state.showsAuthoringControls)
+      #expect(!store.state.isAuthoringAuthorizationInFlight)
     }
   }
 
@@ -231,7 +360,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
-        $0.loadingPhase = .preparing
+        $0.loadingPhase = .locatingSource
       }?.value
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
@@ -259,7 +388,7 @@ struct WhiteLabelRootTests {
 
       await store.send(WhiteLabelRoot.Action.task) {
         $0.isLoading = true
-        $0.loadingPhase = .preparing
+        $0.loadingPhase = .locatingSource
       }?.value
 
       #expect(
@@ -403,6 +532,18 @@ private actor SourceImportRecorder {
     descriptor: WhiteLabelSourceDescriptor
   ) {
     values.append(SourceImportRecord(organizerID: organizerID, descriptor: descriptor))
+  }
+}
+
+private actor AuthoringRequestRecorder {
+  private var values: [Authoring.Request] = []
+
+  func requests() -> [Authoring.Request] {
+    values
+  }
+
+  func record(_ request: Authoring.Request) {
+    values.append(request)
   }
 }
 

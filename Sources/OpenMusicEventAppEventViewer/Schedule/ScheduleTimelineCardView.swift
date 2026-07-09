@@ -14,6 +14,7 @@ struct SchedulePerformanceTimelineCard: DateIntervalRepresentable, Equatable, Id
 struct ScheduleTimelineCardView: View {
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage
+    let showsAuthoringControls: Bool
     let editAction: () -> Void
     let deleteAction: () -> Void
     let action: () -> Void
@@ -26,16 +27,18 @@ struct ScheduleTimelineCardView: View {
         .accessibilityLabel(performance.title)
         .accessibilityHint(performance.timeRangeText)
         .contextMenu {
-            Button {
-                editAction()
-            } label: {
-                Label("Edit Performance", systemImage: "pencil")
-            }
+            if showsAuthoringControls {
+                Button {
+                    editAction()
+                } label: {
+                    Label("Edit Performance", systemImage: "pencil")
+                }
 
-            Button(role: .destructive) {
-                deleteAction()
-            } label: {
-                Label("Delete Performance", systemImage: "trash")
+                Button(role: .destructive) {
+                    deleteAction()
+                } label: {
+                    Label("Delete Performance", systemImage: "trash")
+                }
             }
         }
     }

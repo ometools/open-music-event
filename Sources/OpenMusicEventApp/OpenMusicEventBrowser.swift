@@ -1095,13 +1095,16 @@ public struct TeamWorkspaceDetailView: View {
     @Bindable var store: StoreOf<TeamWorkspaceDetail>
     @Dependency(\.date.now) var now
     let isManageWorkspaceToolbarItemVisible: Bool
+    let showsAuthoringControls: Bool
 
     public init(
         store: StoreOf<TeamWorkspaceDetail>,
-        isManageWorkspaceToolbarItemVisible: Bool = true
+        isManageWorkspaceToolbarItemVisible: Bool = true,
+        showsAuthoringControls: Bool = true
     ) {
         self.store = store
         self.isManageWorkspaceToolbarItemVisible = isManageWorkspaceToolbarItemVisible
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     @State var sourceSectionExpanded = false
@@ -1195,17 +1198,17 @@ public struct TeamWorkspaceDetailView: View {
             }
         }
         .toolbar {
-            if store.canEditCalendar {
+            if showsAuthoringControls, store.canEditCalendar {
                 Button("Edit Calendar", systemImage: "pencil") {
                     store.send(.editButtonTapped)
                 }
             }
-            if store.canCreateEvent {
+            if showsAuthoringControls, store.canCreateEvent {
                 Button("Add Event", systemImage: "plus") {
                     store.send(.addEventButtonTapped)
                 }
             }
-            if isManageWorkspaceToolbarItemVisible && store.canManageSource {
+            if showsAuthoringControls, isManageWorkspaceToolbarItemVisible && store.canManageSource {
                 Button(
                     store.isPreparingTeamWorkspaceEditor
                         ? "Preparing Team Workspace"

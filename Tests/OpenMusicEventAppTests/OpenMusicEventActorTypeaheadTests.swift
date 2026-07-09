@@ -16,7 +16,7 @@ struct OpenMusicEventActorTypeaheadTests {
 
         let identities = try await withDependencies {
             $0.context = .test
-            try OpenMusicEventDependencies.prepare(&$0)
+            try OME.prepareDependencies(&$0)
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = HTTPClient { request, body in
                 await requestRecorder.record(request, body)
@@ -87,7 +87,7 @@ struct OpenMusicEventActorTypeaheadTests {
 
         let identities = try await withDependencies {
             $0.context = .test
-            try OpenMusicEventDependencies.prepare(&$0)
+            try OME.prepareDependencies(&$0)
             $0[XRPC.Client.self] = .liveValue
             $0.httpClient = HTTPClient { request, body in
                 await requestRecorder.record(request, body)

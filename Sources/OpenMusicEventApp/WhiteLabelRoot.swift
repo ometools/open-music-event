@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import Foundation
+import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventSource
@@ -22,14 +23,21 @@ public struct WhiteLabelRoot {
         }
 
         public var account = Spawn(Account.State())
+        public var authoringMode: Authoring.Mode = .attendee
+        public var authoringSubject: Authoring.Subject?
         public var configuration: WhiteLabelAppConfiguration
         public var errorMessage: String?
         public var isAccountManagementPresented = false
+        public var isAuthoringAuthorizationInFlight = false
         public var isLoading = false
         public var loadingPhase: LoadingPhase = .idle
         public var organizationRoot: Spawn<OrganizationRoot>?
         public var organizerID: OMERecord.Organizer.ID?
         public var teamWorkspaceDetail: Spawn<TeamWorkspaceDetail>?
+
+        public var showsAuthoringControls: Bool {
+            authoringMode.isAuthoring
+        }
 
         public enum LoadingPhase: Equatable, Sendable {
             case idle
@@ -44,9 +52,14 @@ public struct WhiteLabelRoot {
     public enum Action {
         case accountManagementButtonTapped
         case accountManagementDoneButtonTapped
+        case enterAuthoringAuthorizationFailed(Authoring.Subject)
+        case enterAuthoringAuthorized(Authoring.Subject, Authoring.Scope)
+        case enterAuthoringButtonTapped
         case retryButtonTapped
+        case task
     }
 
+    @Dependency(\.authoringPolicy) var authoringPolicy
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.openMusicEventStoredAuthentication) var storedAuthentication
     @Dependency(\.whiteLabelDevelopmentSourceOverride) var developmentSourceOverride
@@ -60,10 +73,50 @@ public struct WhiteLabelRoot {
         Update { state, action in
             switch action {
             case .accountManagementButtonTapped:
+                state.refreshAuthoringMode()
                 state.isAccountManagementPresented = true
 
             case .accountManagementDoneButtonTapped:
+                state.refreshAuthoringMode()
                 state.isAccountManagementPresented = false
+
+            case let .enterAuthoringAuthorizationFailed(subject):
+                state.isAuthoringAuthorizationInFlight = false
+                guard state.authoringSubject == subject else { return }
+
+            case let .enterAuthoringAuthorized(subject, scope):
+                state.isAuthoringAuthorizationInFlight = false
+                guard state.authoringSubject == subject else { return }
+                state.authoringMode = .authoring(scope)
+
+            case .enterAuthoringButtonTapped:
+                guard !state.isAuthoringAuthorizationInFlight,
+                      let authoringSubject = state.authoringSubject
+                else { return }
+                state.refreshAuthoringMode()
+                guard !state.showsAuthoringControls else { return }
+
+                let authoringPolicy = authoringPolicy
+                state.isAuthoringAuthorizationInFlight = true
+                store.addTask {
+                    let scope = await store.withErrorHandling(
+                        fallbackMessage: .authoringAuthorizationFailed,
+                        operation: .authoringAuthorization
+                    ) {
+                        try await authoringPolicy.authorize(
+                            Authoring.Request(
+                                subject: authoringSubject,
+                                feature: .workspace,
+                                action: .enterAuthoring
+                            )
+                        )
+                    }
+                    guard let scope else {
+                        try store.send(.enterAuthoringAuthorizationFailed(authoringSubject))
+                        return
+                    }
+                    try store.send(.enterAuthoringAuthorized(authoringSubject, scope))
+                }
 
             case .retryButtonTapped:
                 guard !state.isLoading else { return }
@@ -71,8 +124,13 @@ public struct WhiteLabelRoot {
                 state.isLoading = true
                 state.loadingPhase = .preparing
 
-                loadData()
+                loadData(configuration: state.configuration)
 
+            case .task:
+                guard !state.isLoading else { return }
+                state.isLoading = true
+                state.loadingPhase = .preparing
+                loadData(configuration: state.configuration)
 
             }
         }
@@ -86,13 +144,15 @@ public struct WhiteLabelRoot {
             TeamWorkspaceDetail()
         }
         .onMount { state in
-            loadData()
+            guard !state.isLoading else { return }
+            state.isLoading = true
+            state.loadingPhase = .preparing
+            loadData(configuration: state.configuration)
         }
     }
 
 
-    func loadData() {
-        let configuration = store.configuration
+    func loadData(configuration: WhiteLabelAppConfiguration) {
         let database = self.database
         let developmentSourceOverride = self.developmentSourceOverride
         let identityResolver = self.identityResolver
@@ -158,6 +218,7 @@ public struct WhiteLabelRoot {
                         organizerID: loadedRoot.organizerID,
                         sourceBaselineIDs: loadedRoot.sourceBaselineIDs
                     )
+                    $0.refreshAuthoringMode()
                 }
                 return
             }
@@ -187,6 +248,7 @@ public struct WhiteLabelRoot {
                         organizerID: cachedOrganizerID,
                         sourceBaselineIDs: sourceBaselineIDs
                     )
+                    $0.refreshAuthoringMode()
                 } else {
                     $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
                 }
@@ -269,8 +331,8 @@ public struct WhiteLabelRoot {
     ) async throws -> [SourceBaselineRecord.ID] {
         try await database.read { db in
             let provenanceRecords = try EventSourceProvenanceRecord
-                .where { $0.id.organizerID.eq(organizerID) }
                 .fetchAll(db)
+                .filter { $0.id.organizerID == organizerID }
             var seen: Set<SourceBaselineRecord.ID> = []
             return provenanceRecords.compactMap(\.sourceBaselineID).filter {
                 seen.insert($0).inserted
@@ -316,10 +378,11 @@ public struct WhiteLabelRootView: View {
         Group {
             if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail) {
                 NavigationStack {
-                    TeamWorkspaceDetailView(
-                        store: teamWorkspaceDetailStore,
-                        isManageWorkspaceToolbarItemVisible: false
-                    )
+                TeamWorkspaceDetailView(
+                    store: teamWorkspaceDetailStore,
+                    isManageWorkspaceToolbarItemVisible: false,
+                    showsAuthoringControls: store.showsAuthoringControls
+                )
                     .whiteLabelRootActionsToolbar(store: store)
                 }
             } else if let organizationRootStore = store.spawn(\.organizationRoot) {
@@ -423,7 +486,23 @@ struct WhiteLabelRootActionsMenu: View {
 
     var body: some View {
         Menu {
+            if store.authoringSubject != nil,
+               !store.showsAuthoringControls {
+                Button {
+                    store.send(.enterAuthoringButtonTapped)
+                } label: {
+                    Label(
+                        store.isAuthoringAuthorizationInFlight
+                            ? "Entering Authoring"
+                            : "Enter Authoring",
+                        systemImage: "square.and.pencil"
+                    )
+                }
+                .disabled(store.isAuthoringAuthorizationInFlight)
+            }
+
             if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail),
+               store.showsAuthoringControls,
                teamWorkspaceDetailStore.canManageSource {
                 Button {
                     teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
@@ -489,16 +568,34 @@ extension View {
 }
 
 private extension WhiteLabelRoot.State {
+    mutating func refreshAuthoringMode() {
+        @Dependency(\.authoringPolicy) var authoringPolicy
+
+        guard let authoringSubject else {
+            authoringMode = .attendee
+            account.state.authRequirement = OpenMusicEventOAuth.baseAuthRequirement
+            return
+        }
+
+        authoringMode = (try? authoringPolicy.mode(authoringSubject)) ?? .attendee
+        account.state.authRequirement = (
+            try? authoringPolicy.authenticate(authoringSubject)
+        ) ?? OpenMusicEventOAuth.baseAuthRequirement
+    }
+
     mutating func setLoadedRoot(
         organizerID: OMERecord.Organizer.ID,
         sourceBaselineIDs: [SourceBaselineRecord.ID]
     ) {
         if sourceBaselineIDs.count == 1, let sourceBaselineID = sourceBaselineIDs.first {
+            authoringSubject = .sourceBaseline(sourceBaselineID)
             organizationRoot = nil
             if teamWorkspaceDetail?.state.sourceBaselineID != sourceBaselineID {
                 teamWorkspaceDetail = Spawn(TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID))
             }
         } else {
+            authoringSubject = nil
+            authoringMode = .attendee
             teamWorkspaceDetail = nil
             if organizationRoot?.state.organizerID != organizerID {
                 organizationRoot = Spawn(OrganizationRoot.State(organizerID: organizerID))

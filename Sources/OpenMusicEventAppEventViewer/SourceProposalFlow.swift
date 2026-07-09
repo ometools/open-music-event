@@ -99,6 +99,7 @@ public struct SourceProposalFlow {
     }
 
     @Dependency(\.openMusicEventSourcePatchLocationResolver) var sourcePatchLocationResolver
+    @Dependency(\.authoringPolicy) var authoringPolicy
     @Dependency(\.openMusicEventCalendarSourcePatchLocationResolver) var calendarSourcePatchLocationResolver
     @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
 
@@ -129,6 +130,7 @@ public struct SourceProposalFlow {
 
                 let calendarSourcePatchLocationResolver = calendarSourcePatchLocationResolver
                 let description = value.description.sourceProposalValue
+                let authoringPolicy = authoringPolicy
                 let patch = state.patch
                 let sourcePatchLocationResolver = sourcePatchLocationResolver
                 let sourcePatchPublisher = sourcePatchPublisher
@@ -144,6 +146,7 @@ public struct SourceProposalFlow {
                             calendarSourcePatchLocationResolver: calendarSourcePatchLocationResolver,
                             sourcePatchLocationResolver: sourcePatchLocationResolver
                         )
+                        _ = try await authoringPolicy.authorize(target.authoringRequest)
                         return try await sourcePatchPublisher.publish(
                             SourcePatchPublishRequest(
                                 description: description,
@@ -186,6 +189,26 @@ public struct SourceProposalFlow {
             case .form:
                 break
             }
+        }
+    }
+}
+
+private extension SourceProposalTarget {
+    var authoringRequest: Authoring.Request {
+        switch self {
+        case let .calendar(_, sourceBaselineID):
+            Authoring.Request(
+                subject: .sourceBaseline(sourceBaselineID),
+                feature: .publish,
+                action: .publish
+            )
+
+        case let .event(eventID):
+            Authoring.Request(
+                subject: .event(eventID),
+                feature: .publish,
+                action: .publish
+            )
         }
     }
 }

@@ -54,25 +54,33 @@ extension OMERecord.Event {
 }
 
 extension OpenMusicEventViewers.EventFeature {
-    static var defaultFeatures: [Self] {
-        defaultReadOnlyFeatures.filter { $0 != .search && $0 != .about }
-            + editorFeatures
+    static func defaultFeatures(authoringMode: Authoring.Mode) -> [Self] {
+        let authoringFeatures = authoringMode.isAuthoring ? editorFeatures : []
+        return defaultReadOnlyFeatures.filter { $0 != .search && $0 != .about }
+            + authoringFeatures
             + [.search, .about]
     }
 
-    static func features(eventID: OMERecord.Event.ID) -> [Self] {
+    static func features(
+        eventID: OMERecord.Event.ID,
+        authoringMode: Authoring.Mode
+    ) -> [Self] {
         @Dependency(\.defaultDatabase) var database
         let stages = (try? database.read { db in
             try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
         }) ?? []
-        return features(scheduleDivisions: ScheduleViewer.scheduleDivisions(stages: stages))
+        return features(
+            scheduleDivisions: ScheduleViewer.scheduleDivisions(stages: stages),
+            authoringMode: authoringMode
+        )
     }
 
     static func features(
-        scheduleDivisions: [ScheduleDivision]
+        scheduleDivisions: [ScheduleDivision],
+        authoringMode: Authoring.Mode
     ) -> [Self] {
         let divisions = scheduleDivisions.isEmpty ? [.schedule] : scheduleDivisions
-        return divisions.map(Self.schedule) + defaultFeatures.filter {
+        return divisions.map(Self.schedule) + defaultFeatures(authoringMode: authoringMode).filter {
             $0.scheduleDivision == nil
         }
     }
@@ -85,24 +93,31 @@ public struct EventViewer {
     public typealias EventFeature = OpenMusicEventViewers.EventFeature
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.eventEditingAuthorization) var eventEditingAuthorization
+    @Dependency(\.authoringPolicy) var authoringPolicy
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
     @StoreTaskID var sourceDataRefreshTask
 
     public struct State: Identifiable {
         public init(eventID: OMERecord.Event.ID) {
+            let authoringMode = Self.authoringMode(eventID: eventID)
             self.init(
                 eventID: eventID,
-                features: EventFeature.features(eventID: eventID)
+                authoringMode: authoringMode,
+                features: EventFeature.features(
+                    eventID: eventID,
+                    authoringMode: authoringMode
+                )
             )
         }
 
         public init(
             eventID: OMERecord.Event.ID,
+            authoringMode: Authoring.Mode = .attendee,
             features: [EventFeature]
         ) {
             let eventTimeZone = Self.eventTimeZone(eventID: eventID)
 
+            self.authoringMode = authoringMode
             self.eventID = eventID
             self.eventTimeZone = eventTimeZone
             self._eventViewerState = Shared(.eventViewerState(eventID))
@@ -170,11 +185,41 @@ public struct EventViewer {
             }
         }
 
+        mutating func refreshAuthoringMode() {
+            self.authoringMode = Self.authoringMode(eventID: eventID)
+        }
+
+        mutating func reloadFeaturesForAuthoringMode(
+            preserving selectedFeature: EventFeature? = nil
+        ) {
+            let selectedFeature = selectedFeature ?? self.selectedFeature
+            let features = withEventDependencies {
+                EventFeature.features(
+                    eventID: eventID,
+                    authoringMode: authoringMode
+                )
+            }
+            self.installedFeatures = features
+            self.selectedFeature = features.contains(selectedFeature)
+                ? selectedFeature
+                : features.first ?? .schedule(.schedule)
+            self.installFeatureStores(features)
+        }
+
+        mutating func setAuthoringMode(_ authoringMode: Authoring.Mode) {
+            self.authoringMode = authoringMode
+            self.reloadFeaturesForAuthoringMode()
+        }
+
         mutating func reloadAfterSourceDataRefresh() {
+            self.refreshAuthoringMode()
             let selectedFeature = self.selectedFeature
             self.eventTimeZone = Self.eventTimeZone(eventID: eventID)
             let features = withEventDependencies {
-                EventFeature.features(eventID: eventID)
+                EventFeature.features(
+                    eventID: eventID,
+                    authoringMode: authoringMode
+                )
             }
             self.installedFeatures = features
             self.selectedFeature = features.contains(selectedFeature)
@@ -185,13 +230,27 @@ public struct EventViewer {
 
         public static func route(
             eventID: OMERecord.Event.ID,
-            target: EventTarget?
+            target: EventTarget?,
+            authoringMode: Authoring.Mode? = nil
         ) -> Self {
-            var state = Self(eventID: eventID)
-            state.navigate(to: target)
+            let authoringMode = authoringMode ?? Self.authoringMode(eventID: eventID)
+            var state = Self(
+                eventID: eventID,
+                authoringMode: authoringMode,
+                features: EventFeature.features(
+                    eventID: eventID,
+                    authoringMode: authoringMode
+                )
+            )
+            if let target, target.eventFeature.isEditorFeature, !state.showsAuthoringControls {
+                state.pendingAuthoringEntry = .target(target)
+            } else {
+                state.navigate(to: target)
+            }
             return state
         }
 
+        public var authoringMode: Authoring.Mode
         public let eventID: OMERecord.Event.ID
         public var eventTimeZone: TimeZone
         @Shared public var eventViewerState: EventViewerState
@@ -214,8 +273,14 @@ public struct EventViewer {
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
         public var destination: Destination.State?
+        public var isAuthoringRequestInFlight = false
+        public var pendingAuthoringEntry: EditorEntry?
 
         public var id: OMERecord.Event.ID { eventID }
+
+        public var showsAuthoringControls: Bool {
+            authoringMode.isAuthoring
+        }
 
         public var needsStageDisambiguation: Bool {
             stages.count > 1
@@ -639,12 +704,20 @@ public struct EventViewer {
                 }
             ) ?? .current
         }
+
+        private static func authoringMode(eventID: OMERecord.Event.ID) -> Authoring.Mode {
+            @Dependency(\.authoringPolicy) var authoringPolicy
+            return (
+                try? authoringPolicy.mode(.event(eventID))
+            ) ?? .attendee
+        }
     }
 
     public enum Action {
+        case authoringEntryAuthorizationFailed(EditorEntry)
+        case authoringEntryAuthorized(EditorEntry, Authoring.Scope)
         case closeButtonTapped
         case destination(Destination.Action)
-        case editorEntryAuthorized(EditorEntry)
         case eventSearch(EventSearch.Action)
         case selectedFeatureChanged(EventFeature)
     }
@@ -669,34 +742,46 @@ public struct EventViewer {
         case stageForm(Spawn<EditStage>)
     }
 
-    private func authorizeEditorEntry(_ entry: EditorEntry, eventID: OMERecord.Event.ID) {
-        let eventEditingAuthorization = eventEditingAuthorization
+    private func authorizeAuthoringEntry(
+        _ entry: EditorEntry,
+        request: Authoring.Request,
+        state: inout State
+    ) {
+        let authoringPolicy = authoringPolicy
+        state.isAuthoringRequestInFlight = true
+        state.pendingAuthoringEntry = entry
         store.addTask {
-            let result: Void? = await store.withErrorHandling(
-                fallbackMessage: .eventEditingAuthorizationFailed,
-                operation: .eventEditingAuthorization
+            let scope = await store.withErrorHandling(
+                fallbackMessage: .authoringAuthorizationFailed,
+                operation: .authoringAuthorization
             ) {
-                try await eventEditingAuthorization.authorize(eventID)
+                try await authoringPolicy.authorize(request)
             }
-            guard result != nil else { return }
-            try store.send(.editorEntryAuthorized(entry))
+            guard let scope else {
+                try store.send(.authoringEntryAuthorizationFailed(entry))
+                return
+            }
+            try store.send(.authoringEntryAuthorized(entry, scope))
         }
     }
 
-    private func enterOrAuthorizeEditorEntry(_ entry: EditorEntry, state: inout State) {
-        do {
-            switch try eventEditingAuthorization.authorizationStatus(state.eventID) {
-            case .satisfied:
-                store.withDependencies {
-                    state.enterEditorEntry(entry)
-                }
-
-            case .impossible, .signInRequired, .upgradeAvailable, .wrongAccount:
-                authorizeEditorEntry(entry, eventID: state.eventID)
-            }
-        } catch {
-            authorizeEditorEntry(entry, eventID: state.eventID)
+    private func enterOrAuthorizeAuthoringEntry(_ entry: EditorEntry, state: inout State) {
+        let previousAuthoringMode = state.authoringMode
+        state.refreshAuthoringMode()
+        if state.authoringMode != previousAuthoringMode {
+            state.reloadFeaturesForAuthoringMode()
         }
+        guard !state.showsAuthoringControls else {
+            store.withDependencies {
+                state.enterAuthoringEntry(entry)
+            }
+            return
+        }
+        authorizeAuthoringEntry(
+            entry,
+            request: entry.authoringRequest(eventID: state.eventID),
+            state: &state
+        )
     }
 
     public var body: some Feature {
@@ -711,9 +796,18 @@ public struct EventViewer {
             case .destination:
                 break
 
-            case let .editorEntryAuthorized(entry):
+            case let .authoringEntryAuthorizationFailed(entry):
+                guard state.pendingAuthoringEntry == entry else { return }
+                state.isAuthoringRequestInFlight = false
+                state.pendingAuthoringEntry = nil
+
+            case let .authoringEntryAuthorized(entry, scope):
+                guard state.pendingAuthoringEntry == entry else { return }
+                state.isAuthoringRequestInFlight = false
+                state.pendingAuthoringEntry = nil
+                state.setAuthoringMode(.authoring(scope))
                 store.withDependencies {
-                    state.enterEditorEntry(entry)
+                    state.enterAuthoringEntry(entry)
                 }
 
             case .eventSearch:
@@ -724,13 +818,23 @@ public struct EventViewer {
                     state.selectedFeature = feature
                     return
                 }
-                enterOrAuthorizeEditorEntry(.feature(feature), state: &state)
+                enterOrAuthorizeAuthoringEntry(.feature(feature), state: &state)
             }
+        }
+        .onMount { state in
+            let mountedAuthoringMode = state.authoringMode
+            state.refreshAuthoringMode()
+            if mountedAuthoringMode.isAuthoring, !state.authoringMode.isAuthoring {
+                state.authoringMode = mountedAuthoringMode
+            }
+            state.reloadFeaturesForAuthoringMode()
+            guard let pendingAuthoringEntry = state.pendingAuthoringEntry else { return }
+            enterOrAuthorizeAuthoringEntry(pendingAuthoringEntry, state: &state)
         }
         .onEvent(NavigationRequested.self) { request, state in
             if case let .event(eventID, target) = request, eventID == state.eventID {
                 if let target, target.eventFeature.isEditorFeature {
-                    enterOrAuthorizeEditorEntry(.target(target), state: &state)
+                    enterOrAuthorizeAuthoringEntry(.target(target), state: &state)
                 } else {
                     state.navigate(to: target)
                 }
@@ -738,7 +842,7 @@ public struct EventViewer {
         }
         .onEvent(EventEditingRequested.self) { intent, state in
             if intent.eventID == state.eventID {
-                enterOrAuthorizeEditorEntry(.intent(intent), state: &state)
+                enterOrAuthorizeAuthoringEntry(.intent(intent), state: &state)
             }
         }
         .onEvent(SourceDataRefreshRequested.self) { request, state in
@@ -941,7 +1045,8 @@ public struct EventViewerView: View {
                     ) {
                         ScheduleViewerView(
                             store: featureStore,
-                            selectedScheduleID: store.state.$eventViewerState.selectedScheduleID
+                            selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                            showsAuthoringControls: store.showsAuthoringControls
                         )
                     }
                 }
@@ -954,7 +1059,10 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.contributors.labelTint,
                         navigation: .stack
                     ) {
-                        ContributorsViewerView(store: featureStore)
+                        ContributorsViewerView(
+                            store: featureStore,
+                            showsAuthoringControls: store.showsAuthoringControls
+                        )
                     }
                 }
 
@@ -966,7 +1074,10 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.stages.labelTint,
                         navigation: .stack
                     ) {
-                        StagesViewerView(store: featureStore)
+                        StagesViewerView(
+                            store: featureStore,
+                            showsAuthoringControls: store.showsAuthoringControls
+                        )
                     }
                 }
 
@@ -990,7 +1101,10 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.contactInfo.labelTint,
                         navigation: .stack
                     ) {
-                        ContactInfoViewerView(store: featureStore)
+                        ContactInfoViewerView(
+                            store: featureStore,
+                            showsAuthoringControls: store.showsAuthoringControls
+                        )
                     }
                 }
 
@@ -1002,7 +1116,10 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.location.labelTint,
                         navigation: .stack
                     ) {
-                        LocationViewerView(store: featureStore)
+                        LocationViewerView(
+                            store: featureStore,
+                            showsAuthoringControls: store.showsAuthoringControls
+                        )
                     }
                 }
 
@@ -1026,7 +1143,10 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.posters.labelTint,
                         navigation: .stack
                     ) {
-                        PostersViewerView(store: featureStore)
+                        PostersViewerView(
+                            store: featureStore,
+                            showsAuthoringControls: store.showsAuthoringControls
+                        )
                     }
                 }
 
@@ -1075,7 +1195,10 @@ public struct EventViewerView: View {
                         labelTint: EventViewer.EventFeature.about.labelTint,
                         navigation: .stack
                     ) {
-                        EventInfoViewerView(store: featureStore)
+                        EventInfoViewerView(
+                            store: featureStore,
+                            showsAuthoringControls: store.showsAuthoringControls
+                        )
                             .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button("Close") {
@@ -1107,7 +1230,8 @@ public struct EventViewerView: View {
                 viewerTab(feature) {
                     ScheduleViewerView(
                         store: featureStore,
-                        selectedScheduleID: store.state.$eventViewerState.selectedScheduleID
+                        selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                        showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
                 .tag(feature)
@@ -1115,14 +1239,20 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.contributorsViewer) {
                 viewerTab(.contributors) {
-                    ContributorsViewerView(store: featureStore)
+                    ContributorsViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.contributors)
             }
 
             if let featureStore = store.spawn(\.stagesViewer) {
                 viewerTab(.stages) {
-                    StagesViewerView(store: featureStore)
+                    StagesViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.stages)
             }
@@ -1136,14 +1266,20 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.contactInfoViewer) {
                 viewerTab(.contactInfo) {
-                    ContactInfoViewerView(store: featureStore)
+                    ContactInfoViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.contactInfo)
             }
 
             if let featureStore = store.spawn(\.locationViewer) {
                 viewerTab(.location) {
-                    LocationViewerView(store: featureStore)
+                    LocationViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.location)
             }
@@ -1164,7 +1300,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.postersViewer) {
                 viewerTab(.posters) {
-                    PostersViewerView(store: featureStore)
+                    PostersViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.posters)
             }
@@ -1192,7 +1331,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
-                    EventInfoViewerView(store: featureStore)
+                    EventInfoViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.about)
             }
@@ -1208,7 +1350,8 @@ public struct EventViewerView: View {
                 viewerTab(feature) {
                     ScheduleViewerView(
                         store: featureStore,
-                        selectedScheduleID: store.state.$eventViewerState.selectedScheduleID
+                        selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                        showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
                 .tag(feature)
@@ -1216,14 +1359,20 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.contributorsViewer) {
                 viewerTab(.contributors) {
-                    ContributorsViewerView(store: featureStore)
+                    ContributorsViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.contributors)
             }
 
             if let featureStore = store.spawn(\.stagesViewer) {
                 viewerTab(.stages) {
-                    StagesViewerView(store: featureStore)
+                    StagesViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.stages)
             }
@@ -1237,14 +1386,20 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.contactInfoViewer) {
                 viewerTab(.contactInfo) {
-                    ContactInfoViewerView(store: featureStore)
+                    ContactInfoViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.contactInfo)
             }
 
             if let featureStore = store.spawn(\.locationViewer) {
                 viewerTab(.location) {
-                    LocationViewerView(store: featureStore)
+                    LocationViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.location)
             }
@@ -1258,7 +1413,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.postersViewer) {
                 viewerTab(.posters) {
-                    PostersViewerView(store: featureStore)
+                    PostersViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.posters)
             }
@@ -1286,7 +1444,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventInfoViewer) {
                 viewerTab(.about) {
-                    EventInfoViewerView(store: featureStore)
+                    EventInfoViewerView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.about)
             }
@@ -1333,10 +1494,10 @@ public struct EventViewerView: View {
 }
 
 private extension EventViewer.State {
-    mutating func enterEditorEntry(_ entry: EventViewer.EditorEntry) {
+    mutating func enterAuthoringEntry(_ entry: EventViewer.EditorEntry) {
         switch entry {
         case let .feature(feature):
-            selectEditorFeature(feature)
+            selectAuthoringFeature(feature)
 
         case let .intent(intent):
             handleEditingIntent(intent)
@@ -1346,7 +1507,8 @@ private extension EventViewer.State {
         }
     }
 
-    mutating func selectEditorFeature(_ feature: EventViewer.EventFeature) {
+    mutating func selectAuthoringFeature(_ feature: EventViewer.EventFeature) {
+        guard installedFeatures.contains(feature) else { return }
         selectedFeature = feature
         switch feature {
         case .settings:
@@ -1375,7 +1537,141 @@ private extension EventViewer.State {
     }
 }
 
+private extension EventViewer.EditorEntry {
+    func authoringRequest(eventID: OMERecord.Event.ID) -> Authoring.Request {
+        switch self {
+        case let .feature(feature):
+            return feature.authoringRequest(eventID: eventID)
+
+        case let .intent(intent):
+            return intent.authoringRequest
+
+        case let .target(target):
+            return target.eventFeature.authoringRequest(eventID: eventID)
+        }
+    }
+}
+
+private extension EventViewer.EventFeature {
+    func authoringRequest(eventID: OMERecord.Event.ID) -> Authoring.Request {
+        switch self {
+        case .settings:
+            return Authoring.Request(
+                subject: .event(eventID),
+                feature: .settings,
+                action: .enterAuthoring
+            )
+
+        case .workspace:
+            return Authoring.Request(
+                subject: .event(eventID),
+                feature: .workspace,
+                action: .manageWorkspace
+            )
+
+        case .about,
+             .communications,
+             .contactInfo,
+             .contributors,
+             .location,
+             .notifications,
+             .posters,
+             .schedule,
+             .search,
+             .siteMap,
+             .stages:
+            return Authoring.Request(
+                subject: .event(eventID),
+                feature: .event,
+                action: .enterAuthoring
+            )
+        }
+    }
+}
+
 private extension EventEditingIntent {
+    var authoringRequest: Authoring.Request {
+        Authoring.Request(
+            subject: .event(eventID),
+            feature: authoringFeature,
+            action: authoringAction
+        )
+    }
+
+    var authoringAction: Authoring.Action {
+        switch self {
+        case .addPerformance,
+             .addPosters,
+             .addSchedule,
+             .copyStagesFromEvent,
+             .createContributor,
+             .createStage:
+            return .create
+
+        case .deletePerformance,
+             .deletePoster:
+            return .delete
+
+        case .eventSettings:
+            return .enterAuthoring
+
+        case .eventWorkspace:
+            return .manageWorkspace
+
+        case .editContactInfo,
+             .editContributor,
+             .editEventInfo,
+             .editEventPolicies,
+             .editLocation,
+             .editPerformance,
+             .editPoster,
+             .editReportingLink,
+             .editStage:
+            return .update
+        }
+    }
+
+    var authoringFeature: Authoring.Feature {
+        switch self {
+        case .addPerformance,
+             .addSchedule,
+             .deletePerformance,
+             .editPerformance:
+            return .schedule
+
+        case .createContributor,
+             .editContributor:
+            return .contributors
+
+        case .copyStagesFromEvent,
+             .createStage,
+             .editStage:
+            return .stages
+
+        case .deletePoster,
+             .editPoster,
+             .addPosters:
+            return .posters
+
+        case .editContactInfo:
+            return .contactInfo
+
+        case .editLocation:
+            return .location
+
+        case .eventSettings,
+             .editEventPolicies,
+             .editReportingLink:
+            return .settings
+
+        case .eventWorkspace:
+            return .workspace
+
+        case .editEventInfo:
+            return .event
+        }
+    }
+
     var eventID: OMERecord.Event.ID {
         switch self {
         case let .addPerformance(eventID, _, _),

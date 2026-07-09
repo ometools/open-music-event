@@ -8,6 +8,7 @@ struct ScheduleSingleStageAtOnceView: View {
     let stages: [OMERecord.Stage]
     let performances: [OMERecord.Performance]
     @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+    let showsAuthoringControls: Bool
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
@@ -83,6 +84,7 @@ struct ScheduleSingleStageAtOnceView: View {
                 performances: performances,
                 timeRange: timeRange,
                 pageHeight: scheduleHeight(for: timeRange),
+                showsAuthoringControls: showsAuthoringControls,
                 onEditPerformanceTapped: { performanceID in
                     onEditPerformanceTapped(performanceID)
                 },
@@ -153,6 +155,7 @@ struct ScheduleStageTimelinePager: View {
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
     let pageHeight: CGFloat
+    let showsAuthoringControls: Bool
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
@@ -166,6 +169,7 @@ struct ScheduleStageTimelinePager: View {
                             stage: stage,
                             performances: performances(for: stage),
                             timeRange: timeRange,
+                            showsAuthoringControls: showsAuthoringControls,
                             onEditPerformanceTapped: { performanceID in
                                 onEditPerformanceTapped(performanceID)
                             },
@@ -197,6 +201,7 @@ struct ScheduleStageTimelinePage: View {
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
+    let showsAuthoringControls: Bool
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
@@ -206,6 +211,7 @@ struct ScheduleStageTimelinePage: View {
             ScheduleTimelineCardView(
                 performance: card.item.performance,
                 stage: stage,
+                showsAuthoringControls: showsAuthoringControls,
                 editAction: {
                     onEditPerformanceTapped(card.item.id)
                 },

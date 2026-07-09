@@ -63,9 +63,14 @@ public struct EventInfoViewer {
 
 public struct EventInfoViewerView: View {
     @Bindable var store: StoreOf<EventInfoViewer>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<EventInfoViewer>) {
+    public init(
+        store: StoreOf<EventInfoViewer>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -125,9 +130,11 @@ public struct EventInfoViewerView: View {
                     }
                 }
                 .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Edit") {
-                            store.send(.editButtonTapped)
+                    if showsAuthoringControls {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Edit") {
+                                store.send(.editButtonTapped)
+                            }
                         }
                     }
                 }

@@ -199,9 +199,14 @@ public struct ContributorDetail {
 
 public struct ContributorDetailView: View {
     @Bindable var store: StoreOf<ContributorDetail>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<ContributorDetail>) {
+    public init(
+        store: StoreOf<ContributorDetail>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -212,6 +217,7 @@ public struct ContributorDetailView: View {
                     stageContext: store.state.stageContext,
                     performanceRows: store.performanceRows,
                     timeZone: store.timeZone,
+                    showsAuthoringControls: showsAuthoringControls,
                     performanceButtonTapped: { performanceID in
                         store.send(.performanceButtonTapped(performanceID))
                     },
@@ -229,7 +235,10 @@ public struct ContributorDetailView: View {
             }
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
-            PerformanceDetailView(store: detailStore)
+            PerformanceDetailView(
+                store: detailStore,
+                showsAuthoringControls: showsAuthoringControls
+            )
         }
     }
 }

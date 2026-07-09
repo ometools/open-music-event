@@ -10,6 +10,7 @@ struct ContributorDetailContentView: View {
     let stageContext: ContributorStageContext
     let performanceRows: [PerformanceRow]
     let timeZone: TimeZone
+    let showsAuthoringControls: Bool
     let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let editButtonTapped: () -> Void
 
@@ -39,8 +40,10 @@ struct ContributorDetailContentView: View {
             )
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit", action: editButtonTapped)
+            if showsAuthoringControls {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit", action: editButtonTapped)
+                }
             }
         }
     }

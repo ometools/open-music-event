@@ -48,9 +48,14 @@ public struct LocationViewer {
 
 public struct LocationViewerView: View {
     @Bindable var store: StoreOf<LocationViewer>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<LocationViewer>) {
+    public init(
+        store: StoreOf<LocationViewer>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -124,7 +129,7 @@ public struct LocationViewerView: View {
             }
         }
         .toolbar {
-            if store.event != nil {
+            if showsAuthoringControls, store.event != nil {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Edit") {
                         store.send(.editButtonTapped)

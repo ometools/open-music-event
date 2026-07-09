@@ -9,7 +9,7 @@ struct OpenMusicEventDependenciesTests {
     func preparedDependenciesUseConstellationBackfillForTangledPullReviews() throws {
         let source = try withDependencies {
             $0.context = .test
-            try OpenMusicEventDependencies.prepare(&$0)
+            try OME.prepareDependencies(&$0)
         } operation: {
             @Dependency(\.tangledPullReviewListSource) var source
             return source

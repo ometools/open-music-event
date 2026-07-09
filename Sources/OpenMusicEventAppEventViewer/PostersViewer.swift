@@ -265,9 +265,14 @@ public struct PosterDetail {
 
 public struct PosterDetailView: View {
     @Bindable var store: StoreOf<PosterDetail>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<PosterDetail>) {
+    public init(
+        store: StoreOf<PosterDetail>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -304,11 +309,13 @@ public struct PosterDetailView: View {
         }
         .navigationTitle(store.navigationTitle)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") {
-                    store.send(.editButtonTapped)
+            if showsAuthoringControls {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") {
+                        store.send(.editButtonTapped)
+                    }
+                    .disabled(store.poster == nil)
                 }
-                .disabled(store.poster == nil)
             }
         }
         .sheet(item: $store.scope(\.destination, action: \.destination).editPoster) { editStore in
@@ -655,9 +662,14 @@ public struct EditPosterView: View {
 
 public struct PostersViewerView: View {
     @Bindable var store: StoreOf<PostersViewer>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<PostersViewer>) {
+    public init(
+        store: StoreOf<PostersViewer>,
+        showsAuthoringControls: Bool = true
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
@@ -668,10 +680,12 @@ public struct PostersViewerView: View {
                 } description: {
                     Text("No posters have been added to this event yet.")
                 } actions: {
-                    Button {
-                        store.send(.addButtonTapped)
-                    } label: {
-                        Label("Add Posters", systemImage: "plus")
+                    if showsAuthoringControls {
+                        Button {
+                            store.send(.addButtonTapped)
+                        } label: {
+                            Label("Add Posters", systemImage: "plus")
+                        }
                     }
                 }
             } else {
@@ -689,17 +703,22 @@ public struct PostersViewerView: View {
         }
         .navigationTitle("Posters")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    store.send(.addButtonTapped)
-                } label: {
-                    Image(systemName: "plus")
-                        .accessibilityLabel("Add Posters")
+            if showsAuthoringControls {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.addButtonTapped)
+                    } label: {
+                        Image(systemName: "plus")
+                            .accessibilityLabel("Add Posters")
+                    }
                 }
             }
         }
         .navigationDestination(item: $store.scope(\.destination, action: \.destination).posterDetail) { detailStore in
-            PosterDetailView(store: detailStore)
+            PosterDetailView(
+                store: detailStore,
+                showsAuthoringControls: showsAuthoringControls
+            )
         }
         .sheet(isPresented: $store.importImages.isPresented) {
             if let importStore = store.spawn(\.importImages) {
