@@ -778,7 +778,7 @@ public struct TeamWorkspaceDetail {
 
         var destination: Destination.State?
         var editCalendar: EditCalendar.State?
-        var teamWorkspaceEditor: TeamWorkspaceEditor.State?
+        var teamWorkspaceEditor: SourceWorkspace.State?
         var isPreparingTeamWorkspaceEditor = false
 
         @DebugSnapshotIgnored
@@ -859,7 +859,7 @@ public struct TeamWorkspaceDetail {
         case editCalendar(EditCalendar.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case manageSourceButtonTapped
-        case teamWorkspaceEditor(TeamWorkspaceEditor.Action)
+        case teamWorkspaceEditor(SourceWorkspace.Action)
         case task
     }
 
@@ -1042,11 +1042,10 @@ public struct TeamWorkspaceDetail {
                         let workspaceDatabase = try sourceWorkspaceDatabase
                             .sourceBaseline(sourceBaselineID)
                         return withDependencies {
-                            $0.useSourceWorkspaceDatabase(workspaceDatabase)
+                            $0.sourceEditingSession = workspaceDatabase.sourceEditingSession
                         } operation: {
-                            TeamWorkspaceEditor.State(
-                                sourceBaselineID: sourceBaselineID,
-                                calendarID: calendarID
+                            SourceWorkspace.State(
+                                target: .calendar(calendarID, sourceBaselineID)
                             )
                         }
                     } cleanup: {
@@ -1062,6 +1061,20 @@ public struct TeamWorkspaceDetail {
                     }
                 }
 
+            case let .teamWorkspaceEditor(
+                .delegate(
+                    .createEventRequested(sourceBaselineID: sourceBaselineID, calendarID: calendarID)
+                )
+            ):
+                state.destination = .createEvent(
+                    Spawn(
+                        TeamWorkspaceCreateEvent.State(
+                            sourceBaselineID: sourceBaselineID,
+                            calendarID: calendarID
+                        )
+                    )
+                )
+
             case .teamWorkspaceEditor:
                 return
 
@@ -1076,13 +1089,15 @@ public struct TeamWorkspaceDetail {
             EditCalendar()
         }
         .ifLet(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor) {
-            TeamWorkspaceEditor()
+            SourceWorkspace()
                 .transformDependency(\.self) { (dependencies: inout DependencyValues) in
-                    let sourceBaselineID = store.teamWorkspaceEditor!.sourceBaselineID
+                    guard case let .calendar(_, sourceBaselineID) = store.teamWorkspaceEditor!.target else {
+                        return
+                    }
                     do {
                         let workspaceDatabase = try dependencies.sourceWorkspaceDatabase
                             .sourceBaseline(sourceBaselineID)
-                        dependencies.useSourceWorkspaceDatabase(workspaceDatabase)
+                        dependencies.sourceEditingSession = workspaceDatabase.sourceEditingSession
                     } catch {
                         reportIssue(error)
                     }
@@ -1194,7 +1209,7 @@ public struct TeamWorkspaceDetailView: View {
         }
         .sheet(item: $store.scope(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor)) { teamWorkspaceEditorStore in
             NavigationStack {
-                TeamWorkspaceEditorView(store: teamWorkspaceEditorStore)
+                SourceWorkspaceView(store: teamWorkspaceEditorStore)
             }
         }
         .toolbar {
@@ -1264,300 +1279,6 @@ public struct TeamWorkspaceDetailView: View {
                 CalendarEntryRowView(row: row)
             }
         }
-    }
-}
-
-@Feature
-public struct TeamWorkspaceEditor {
-    public init() {}
-
-    public struct State: Identifiable {
-        public init(
-            sourceBaselineID: SourceBaselineRecord.ID,
-            calendarID: OMERecord.Calendar.ID
-        ) {
-            self.sourceBaselineID = sourceBaselineID
-            self.calendarID = calendarID
-            self._editSummary = Fetch(
-                wrappedValue: SourceEditSummary(
-                    sourceBaselineID: sourceBaselineID,
-                    availability: .missingBaseline,
-                    groups: []
-                ),
-                SourceEditSummaryRequest(
-                    sourceBaselineID: sourceBaselineID,
-                    calendarID: calendarID
-                )
-            )
-            self._sourceBaseline = FetchOne(
-                SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
-            )
-        }
-
-        public var id: SourceBaselineRecord.ID { sourceBaselineID }
-
-        public let calendarID: OMERecord.Calendar.ID
-
-        public var destination: Destination.State?
-
-        @DebugSnapshotIgnored
-        @Fetch public var editSummary: SourceEditSummary
-
-        @DebugSnapshotIgnored
-        @FetchOne public var sourceBaseline: SourceBaselineRecord?
-
-        public let sourceBaselineID: SourceBaselineRecord.ID
-        public var sourcePatchStatus: EventWorkspace.SourcePatchStatus = .notGenerated
-        @DebugSnapshotIgnored
-        public var sourceProposal: SourceProposalFlow.State?
-        public var sourceProposalStatus: EventWorkspace.SourceProposalStatus = .idle
-
-        var fetchLoadFailures: [FetchLoadFailure] {
-            [
-                FetchLoadFailure(label: "TeamWorkspaceEditor.editSummary", error: $editSummary.loadError),
-                FetchLoadFailure(
-                    label: "TeamWorkspaceEditor.sourceBaseline",
-                    error: $sourceBaseline.loadError
-                ),
-            ]
-            .compactMap { $0 }
-        }
-
-        public var sourceChangesScope: SourceChangesScope {
-            .source(
-                sourceBaselineID: sourceBaselineID,
-                calendarID: calendarID
-            )
-        }
-
-        var canCreateSourceProposal: Bool {
-            guard case let .generated(patch) = sourcePatchStatus,
-                  !patch.isEmpty,
-                  sourceProposalStatus.canCreateProposal
-            else { return false }
-            return true
-        }
-    }
-
-    public enum Action {
-        case createEventButtonTapped
-        case destination(Destination.Action)
-        case generateSourcePatchButtonTapped
-        case proposeChangeButtonTapped
-        case sourcePatchGenerationResponse(
-            Result<SourcePatch, EventWorkspace.SourcePatchGenerationFailure>
-        )
-        case sourceProposal(SourceProposalFlow.Action)
-        case sourceProposalDismissed
-    }
-
-    @Feature
-    public enum Destination {
-        case createEvent(Spawn<TeamWorkspaceCreateEvent>)
-    }
-
-    @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
-    var sourcePatchGenerator
-
-    public var body: some Feature {
-        Update { state, action in
-            func generateSourcePatch(state: inout State) {
-                let calendarID = state.calendarID
-                let sourceBaselineID = state.sourceBaselineID
-                let sourcePatchGenerator = sourcePatchGenerator
-                state.sourcePatchStatus = .generating
-                store.addTask {
-                    let patch = await store.withErrorHandling(
-                        fallbackMessage: .sourcePatchGenerationFailed,
-                        operation: .sourcePatchGeneration
-                    ) {
-                        try await sourcePatchGenerator.generate(
-                            OpenMusicEventCalendarSourcePatchRequest(
-                                calendarID: calendarID,
-                                sourceBaselineID: sourceBaselineID
-                            )
-                        )
-                    } cleanup: {
-                        $0.sourcePatchStatus = .failed(
-                            EventWorkspace.SourcePatchGenerationFailure(
-                                TeamWorkspaceEditorSourcePatchGenerationError()
-                            )
-                        )
-                    }
-
-                    guard let patch else { return }
-                    try store.send(.sourcePatchGenerationResponse(.success(patch)))
-                }
-            }
-
-            switch action {
-            case .createEventButtonTapped:
-                state.destination = .createEvent(
-                    Spawn(
-                        TeamWorkspaceCreateEvent.State(
-                            sourceBaselineID: state.sourceBaselineID,
-                            calendarID: state.calendarID
-                        )
-                    )
-                )
-
-            case .destination:
-                return
-
-            case .generateSourcePatchButtonTapped:
-                generateSourcePatch(state: &state)
-
-            case .proposeChangeButtonTapped:
-                guard case let .generated(patch) = state.sourcePatchStatus else {
-                    generateSourcePatch(state: &state)
-                    return
-                }
-                guard !patch.isEmpty else { return }
-                state.sourceProposal = SourceProposalFlow.State(
-                    target: .calendar(state.calendarID, state.sourceBaselineID),
-                    sourceChangeGroups: state.editSummary.groups,
-                    sourceRecordComparisons: state.editSummary.recordComparisons,
-                    patch: patch
-                )
-                state.sourceProposalStatus = .composing
-
-            case let .sourcePatchGenerationResponse(.success(patch)):
-                state.sourcePatchStatus = .generated(patch)
-
-            case let .sourcePatchGenerationResponse(.failure(failure)):
-                state.sourcePatchStatus = .failed(failure)
-
-            case .sourceProposal(.delegate(.created)),
-                .sourceProposal(.delegate(.dismissed)),
-                .sourceProposalDismissed:
-                state.dismissSourceProposal()
-
-            case .sourceProposal:
-                break
-            }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
-        }
-        .ifLet(\.sourceProposal, action: \.sourceProposal) {
-            SourceProposalFlow()
-        }
-        .onChange(of: store.sourceProposal?.status) { _, status, state in
-            guard let status else { return }
-            state.sourceProposalStatus = status
-        }
-    }
-}
-
-private extension TeamWorkspaceEditor.State {
-    mutating func dismissSourceProposal() {
-        let status = sourceProposal?.status ?? sourceProposalStatus
-        sourceProposal = nil
-        switch status {
-        case .composing, .failed:
-            sourceProposalStatus = .idle
-        case .created, .idle, .proposing:
-            sourceProposalStatus = status
-        }
-    }
-}
-
-public struct TeamWorkspaceEditorView: View {
-    @Bindable var store: StoreOf<TeamWorkspaceEditor>
-
-    public init(store: StoreOf<TeamWorkspaceEditor>) {
-        self.store = store
-    }
-
-    public var body: some View {
-        content
-        .navigationTitle("Team Workspace")
-        .sheet(item: $store.scope(\.destination, action: \.destination).createEvent) { createEventStore in
-            NavigationStack {
-                TeamWorkspaceCreateEventView(store: createEventStore)
-            }
-        }
-        .toolbar {
-            Button("Create Event", systemImage: "plus") {
-                store.send(.createEventButtonTapped)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if !store.fetchLoadFailures.isEmpty {
-            List {
-                FetchLoadErrorSection(failures: store.fetchLoadFailures)
-            }
-        } else {
-            SourceChangesReviewPanel(
-                availability: SourceChangesAvailability(store.editSummary.availability),
-                groups: store.editSummary.groups,
-                recordComparisons: store.editSummary.recordComparisons,
-                mode: .workspace,
-                sourcePatchStatus: store.sourcePatchStatus,
-                onReviewChanges: {
-                    store.send(.generateSourcePatchButtonTapped)
-                }
-            ) {
-                sourceSection
-            } auxiliarySection: {
-                EmptyView()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var sourceSection: some View {
-        if let sourceBaseline = store.sourceBaseline {
-            Section("Source") {
-                SourceBaselineIndicatorView(sourceBaseline: sourceBaseline)
-            }
-        }
-    }
-}
-
-private struct TeamWorkspaceEditorSourcePatchGenerationError: Error {}
-
-struct SourceBaselineIndicatorView: View {
-    let sourceBaseline: SourceBaselineRecord
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(sourceBaseline.sourceKind.sourceIndicatorTitle, systemImage: "folder")
-
-            Text(sourceBaseline.sourceReference)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .textSelection(.enabled)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(sourceBaseline.sourceRefTitle)
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-private extension OMERecord.SourceDatabaseInsertion.SourceKind {
-    var sourceIndicatorTitle: String {
-        switch self {
-        case .local:
-            "Local Source"
-        case .tangled:
-            "Tangled Source"
-        }
-    }
-}
-
-private extension SourceBaselineRecord {
-    var sourceRefTitle: String {
-        ref ?? "default ref"
     }
 }
 

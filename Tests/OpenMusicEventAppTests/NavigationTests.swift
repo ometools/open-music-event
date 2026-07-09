@@ -881,6 +881,7 @@ struct NavigationTests {
         let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
         let reporter = IssueRecordingReporter()
         let recorder = SourcePatchDatabaseRecorder()
+        let appSourceReference = "app://routed-source-management"
         let workspaceSourceReference = "workspace://routed-source-management"
         let patch = SourcePatch()
 
@@ -888,8 +889,8 @@ struct NavigationTests {
             try SourceBaselineRecord.insert {
                 SourceBaselineRecord(
                     id: sourceBaselineID,
-                    sourceKind: .tangled,
-                    sourceReference: "app://routed-source-management",
+                    sourceKind: .local,
+                    sourceReference: appSourceReference,
                     ref: "HEAD",
                     databaseFileName: "app-baseline.sqlite",
                     importedAt: Date(timeIntervalSince1970: 1_800)
@@ -901,7 +902,7 @@ struct NavigationTests {
             try SourceBaselineRecord.insert {
                 SourceBaselineRecord(
                     id: sourceBaselineID,
-                    sourceKind: .tangled,
+                    sourceKind: .local,
                     sourceReference: workspaceSourceReference,
                     ref: "HEAD",
                     databaseFileName: "workspace-baseline.sqlite",
@@ -937,15 +938,10 @@ struct NavigationTests {
                     }
             } operation: {
                 var state = TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
-                state.teamWorkspaceEditor = withDependencies {
-                    $0.defaultDatabase = workspaceDatabase
-                    $0.sourceReferenceDatabase = .missing
-                } operation: {
-                    TeamWorkspaceEditor.State(
-                        sourceBaselineID: sourceBaselineID,
-                        calendarID: calendarID
-                    )
-                }
+                state.teamWorkspaceEditor = SourceWorkspace.State(
+                    sourceBaselineID: sourceBaselineID,
+                    calendarID: calendarID
+                )
                 return TestStore(initialState: state) {
                     TeamWorkspaceDetail()
                 }
@@ -972,7 +968,7 @@ struct NavigationTests {
         }
 
         #expect(store.state.teamWorkspaceEditor?.sourceBaselineID == sourceBaselineID)
-        #expect(await recorder.sourceReferences == [workspaceSourceReference])
+        #expect(await recorder.sourceReferences == [appSourceReference])
         #expect(reporter.messages.isEmpty)
     }
 

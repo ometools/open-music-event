@@ -13,19 +13,27 @@ import TangledXRPC
 import XRPCClient
 
 public struct OpenMusicEventTangledPullReviewRequest: Equatable, Sendable {
-    public var eventID: OME.Event.ID
+    public var target: OpenMusicEventSourceTarget
 
     public init(eventID: OME.Event.ID) {
-        self.eventID = eventID
+        self.init(target: .event(eventID))
+    }
+
+    public init(target: OpenMusicEventSourceTarget) {
+        self.target = target
     }
 }
 
 public struct OpenMusicEventTangledPullReviewMergeRequest: Equatable, Sendable {
-    public var eventID: OME.Event.ID
+    public var target: OpenMusicEventSourceTarget
     public var review: TangledPullReview
 
     public init(eventID: OME.Event.ID, review: TangledPullReview) {
-        self.eventID = eventID
+        self.init(target: .event(eventID), review: review)
+    }
+
+    public init(target: OpenMusicEventSourceTarget, review: TangledPullReview) {
+        self.target = target
         self.review = review
     }
 }
@@ -228,12 +236,15 @@ public extension TangledPullReviewClient {
     static var openMusicEvent: Self {
         Self(
             list: { request in
+                @Dependency(\.openMusicEventCalendarSourcePatchLocationResolver)
+                var calendarSourcePatchLocationResolver
                 @Dependency(\.openMusicEventSourcePatchLocationResolver) var locationResolver
                 @Dependency(\.tangledPullReviewListSource) var listSource
                 @Dependency(XRPC.Client.self) var xrpcClient
 
-                let location = try await locationResolver.resolve(
-                    OpenMusicEventSourcePatchRequest(eventID: request.eventID)
+                let location = try await request.target.resolveLocation(
+                    calendarSourcePatchLocationResolver: calendarSourcePatchLocationResolver,
+                    sourcePatchLocationResolver: locationResolver
                 )
                 guard let remote = location.remote else {
                     throw TangledPullReviewClientError.missingRemote
@@ -314,7 +325,7 @@ public extension TangledPullReviewClient {
                 let pullAuthorDID = try requireDIDAuthority(pullURI)
                 let pullRecord = try await xrpcClient.tangledPullRecord(pullURI)
                 let mergeRepository = try await TangledPullReviewMergeRepository
-                    .resolve(eventID: request.eventID)
+                    .resolve(target: request.target)
                 guard mergeRepository.repoDID == pullRecord.value.target.repo else {
                     throw TangledPullReviewClientError.targetRepositoryMismatch(
                         expected: mergeRepository.repoDID.description,
@@ -521,12 +532,15 @@ private struct TangledPullReviewMergeRepository: Sendable {
     var ownerDID: DID
     var repoDID: DID
 
-    static func resolve(eventID: OME.Event.ID) async throws -> Self {
+    static func resolve(target: OpenMusicEventSourceTarget) async throws -> Self {
+        @Dependency(\.openMusicEventCalendarSourcePatchLocationResolver)
+        var calendarLocationResolver
         @Dependency(\.openMusicEventSourcePatchLocationResolver) var locationResolver
         @Dependency(XRPC.Client.self) var xrpcClient
 
-        let location = try await locationResolver.resolve(
-            OpenMusicEventSourcePatchRequest(eventID: eventID)
+        let location = try await target.resolveLocation(
+            calendarSourcePatchLocationResolver: calendarLocationResolver,
+            sourcePatchLocationResolver: locationResolver
         )
         guard let remote = location.remote else {
             throw TangledPullReviewClientError.missingRemote

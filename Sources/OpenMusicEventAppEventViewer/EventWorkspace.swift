@@ -10,6 +10,95 @@ import SourceEditing
 import SQLiteData
 import SwiftUI
 
+public struct SourceWorkspaceSummary: Equatable, Sendable {
+    public var availability: SourceChangesAvailability
+    public var groups: [SourceChangeGroup]
+    public var recordComparisons: SourceRecordComparisons
+    public var target: SourceProposalTarget
+
+    public init(
+        target: SourceProposalTarget,
+        availability: SourceChangesAvailability,
+        groups: [SourceChangeGroup],
+        recordComparisons: SourceRecordComparisons = .empty
+    ) {
+        self.target = target
+        self.availability = availability
+        self.groups = groups
+        self.recordComparisons = recordComparisons
+    }
+
+    public init(
+        target: SourceProposalTarget,
+        eventSummary: EventWorkspaceSummary
+    ) {
+        self.init(
+            target: target,
+            availability: SourceChangesAvailability(eventSummary.availability),
+            groups: eventSummary.groups,
+            recordComparisons: eventSummary.recordComparisons
+        )
+    }
+
+    public init(
+        target: SourceProposalTarget,
+        sourceSummary: SourceEditSummary
+    ) {
+        self.init(
+            target: target,
+            availability: SourceChangesAvailability(sourceSummary.availability),
+            groups: sourceSummary.groups,
+            recordComparisons: sourceSummary.recordComparisons
+        )
+    }
+
+    public var totalCount: Int {
+        groups.reduce(0) { $0 + $1.totalCount }
+    }
+
+    public var badgeCount: Int? {
+        guard case .available = availability, totalCount > 0 else { return nil }
+        return totalCount
+    }
+
+    static func initialValue(target: SourceProposalTarget) -> Self {
+        switch target {
+        case .event:
+            Self(target: target, availability: .notInWorkspace, groups: [])
+        case .calendar:
+            Self(target: target, availability: .workspaceNeedsPreparation, groups: [])
+        }
+    }
+}
+
+public struct SourceWorkspaceSummaryRequest: FetchKeyRequest {
+    public var target: SourceProposalTarget
+
+    public init(target: SourceProposalTarget) {
+        self.target = target
+    }
+
+    public func fetch(_ db: Database) throws -> SourceWorkspaceSummary {
+        switch target {
+        case let .event(eventID):
+            return SourceWorkspaceSummary(
+                target: target,
+                eventSummary: try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+            )
+
+        case let .calendar(calendarID, sourceBaselineID):
+            return SourceWorkspaceSummary(
+                target: target,
+                sourceSummary: try SourceEditSummaryRequest(
+                    sourceBaselineID: sourceBaselineID,
+                    calendarID: calendarID
+                )
+                .fetch(db)
+            )
+        }
+    }
+}
+
 @Feature
 public struct EventWorkspace {
     public init() {}
@@ -139,25 +228,36 @@ public struct EventWorkspace {
         public init() {}
     }
 
-    public struct State {
+    public struct State: Identifiable {
         public init(eventID: OMERecord.Event.ID) {
-            self.eventID = eventID
-            self._workspaceSummary = Fetch(
-                wrappedValue: EventWorkspaceSummary(
-                    eventID: eventID,
-                    availability: .notInWorkspace,
-                    groups: []
-                ),
-                EventWorkspaceSummaryRequest(eventID: eventID)
+            self.init(target: .event(eventID))
+        }
+
+        public init(
+            sourceBaselineID: SourceBaselineRecord.ID,
+            calendarID: OMERecord.Calendar.ID
+        ) {
+            self.init(target: .calendar(calendarID, sourceBaselineID))
+        }
+
+        public init(target: SourceProposalTarget) {
+            self.target = target
+            self._sourceWorkspaceSummary = Fetch(
+                wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
+                SourceWorkspaceSummaryRequest(target: target)
             )
             self._sourceProvenance = FetchOne(
-                EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
+                Self.sourceProvenanceQuery(target: target)
+            )
+            self._sourceBaseline = FetchOne(
+                Self.sourceBaselineQuery(target: target)
             )
         }
 
-        public let eventID: OMERecord.Event.ID
+        public let target: SourceProposalTarget
+        public var id: String { target.id }
         @DebugSnapshotIgnored
-        @Fetch public var workspaceSummary: EventWorkspaceSummary
+        @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
         public var isPreparingSourceProposal = false
         public var isResettingEdits = false
         public var resetEditsFailure: ResetEditsFailure?
@@ -176,19 +276,61 @@ public struct EventWorkspace {
         public var tangledPullReviewDeleteFailures: [String: TangledPullReviewDeleteFailure] = [:]
         public var tangledPullReviewMergeFailures: [String: TangledPullReviewMergeFailure] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
+        @FetchOne public var sourceBaseline: SourceBaselineRecord?
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
 
         public var changeCount: Int? {
-            workspaceSummary.badgeCount
+            sourceWorkspaceSummary.badgeCount
+        }
+
+        public var eventID: OMERecord.Event.ID {
+            guard case let .event(eventID) = target else {
+                preconditionFailure("Calendar source workspaces do not have one event ID.")
+            }
+            return eventID
+        }
+
+        public var sourceBaselineID: SourceBaselineRecord.ID? {
+            switch target {
+            case let .calendar(_, sourceBaselineID):
+                sourceBaselineID
+            case .event:
+                sourceProvenance?.sourceBaselineID
+            }
+        }
+
+        public var calendarID: OMERecord.Calendar.ID? {
+            switch target {
+            case let .calendar(calendarID, _):
+                calendarID
+            case .event:
+                nil
+            }
         }
 
         public var sourceChangesScope: SourceChangesScope {
-            .event(eventID)
+            switch target {
+            case let .calendar(calendarID, sourceBaselineID):
+                .source(sourceBaselineID: sourceBaselineID, calendarID: calendarID)
+            case let .event(eventID):
+                .event(eventID)
+            }
+        }
+
+        public var workspaceSummary: EventWorkspaceSummary {
+            EventWorkspaceSummary(
+                eventID: eventID,
+                availability: sourceWorkspaceSummary.availability.eventWorkspaceAvailability,
+                groups: sourceWorkspaceSummary.groups,
+                recordComparisons: sourceWorkspaceSummary.recordComparisons
+            )
         }
     }
 
     public enum Action {
         case closeTangledPullReviewButtonTapped(TangledPullReview)
+        case createEventButtonTapped
+        case delegate(Delegate)
         case deleteTangledPullReviewForeverButtonTapped(TangledPullReview)
         case generateSourcePatchButtonTapped
         case mergeTangledPullReviewButtonTapped(TangledPullReview)
@@ -218,19 +360,29 @@ public struct EventWorkspace {
             Result<Void, TangledPullReviewMergeFailure>
         )
         case tangledPullReviewsResponse(Result<[TangledPullReview], TangledPullReviewFailure>)
-    } 
+    }
+
+    public enum Delegate: Equatable, Sendable {
+        case createEventRequested(
+            sourceBaselineID: SourceBaselineRecord.ID,
+            calendarID: OMERecord.Calendar.ID
+        )
+    }
 
     @Dependency(\.eventWorkspaceResetter) var workspaceResetter
+    @Dependency(\.sourceDataRefresh) var sourceDataRefresh
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var sourcePatchGenerator
+    @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
+    var calendarSourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
 
     private func refreshTangledPullReviews(
-        eventID: OMERecord.Event.ID,
+        target: SourceProposalTarget,
         state: inout State
     ) {
-        guard state.sourceProvenance?.sourceKind == .tangled else {
+        guard state.sourceKind == .tangled else {
             state.tangledPullReviewStatus = .notLoaded
             return
         }
@@ -240,7 +392,7 @@ public struct EventWorkspace {
         store.addTask {
             do {
                 let reviews = try await tangledPullReviewClient.list(
-                    OpenMusicEventTangledPullReviewRequest(eventID: eventID)
+                    OpenMusicEventTangledPullReviewRequest(target: target)
                 )
                 try store.send(.tangledPullReviewsResponse(.success(reviews)))
             } catch {
@@ -257,17 +409,30 @@ public struct EventWorkspace {
         let _ = Self._logChanges()
         Update { state, action in
             func generateSourcePatch(
-                eventID: OMERecord.Event.ID,
+                target: SourceProposalTarget,
                 state: inout State
             ) {
                 guard state.canReviewSourceProposal else { return }
                 let sourcePatchGenerator = sourcePatchGenerator
+                let calendarSourcePatchGenerator = calendarSourcePatchGenerator
                 state.sourcePatchStatus = .generating
                 store.addTask {
                     do {
-                        let patch = try await sourcePatchGenerator.generate(
-                            OpenMusicEventSourcePatchRequest(eventID: eventID)
-                        )
+                        let patch: SourcePatch
+                        switch target {
+                        case let .calendar(calendarID, sourceBaselineID):
+                            patch = try await calendarSourcePatchGenerator.generate(
+                                OpenMusicEventCalendarSourcePatchRequest(
+                                    calendarID: calendarID,
+                                    sourceBaselineID: sourceBaselineID
+                                )
+                            )
+
+                        case let .event(eventID):
+                            patch = try await sourcePatchGenerator.generate(
+                                OpenMusicEventSourcePatchRequest(eventID: eventID)
+                            )
+                        }
                         try store.send(.sourcePatchGenerationResponse(.success(patch)))
                     } catch {
                         try store.send(
@@ -289,16 +454,16 @@ public struct EventWorkspace {
                 case .failed, .notLoaded, nil:
                     break
                 }
-                guard let sourceProvenance = state.sourceProvenance else { return }
-                let eventID = state.eventID
+                guard let sourceProvenance = state.sourceReviewProvenance else { return }
+                let target = state.target
                 let sourceSnapshot = tangledPullReviewSourceSnapshot
                 state.tangledPullReviewSemanticDiffs[review.id] = .loading
                 store.addTask {
                     do {
                         let diff = try await TangledPullReviewSemanticDiff.reviewBranchDiff(
-                            eventID: eventID,
+                            target: target,
                             review: review,
-                            sourceProvenance: sourceProvenance.sourceProvenance,
+                            sourceProvenance: sourceProvenance,
                             sourceSnapshot: sourceSnapshot
                         )
                         try store.send(
@@ -385,7 +550,7 @@ public struct EventWorkspace {
                       !state.deletingTangledPullReviewIDs.contains(review.id)
                 else { return }
 
-                let eventID = state.eventID
+                let target = state.target
                 let tangledPullReviewClient = tangledPullReviewClient
                 state.mergingTangledPullReviewIDs.insert(review.id)
                 state.tangledPullReviewMergeFailures[review.id] = nil
@@ -393,7 +558,7 @@ public struct EventWorkspace {
                     do {
                         try await tangledPullReviewClient.merge(
                             OpenMusicEventTangledPullReviewMergeRequest(
-                                eventID: eventID,
+                                target: target,
                                 review: review
                             )
                         )
@@ -465,35 +630,67 @@ public struct EventWorkspace {
             case let .closeTangledPullReviewButtonTapped(review):
                 closeTangledPullReview(review, state: &state)
 
+            case .createEventButtonTapped:
+                guard case let .calendar(calendarID, sourceBaselineID) = state.target else {
+                    return
+                }
+                store.addTask {
+                    try store.send(
+                        .delegate(
+                            .createEventRequested(
+                                sourceBaselineID: sourceBaselineID,
+                                calendarID: calendarID
+                            )
+                        )
+                    )
+                }
+
+            case .delegate:
+                return
+
             case let .deleteTangledPullReviewForeverButtonTapped(review):
                 deleteTangledPullReviewForever(review, state: &state)
 
             case .generateSourcePatchButtonTapped:
-                generateSourcePatch(eventID: state.eventID, state: &state)
-                refreshTangledPullReviews(eventID: state.eventID, state: &state)
+                generateSourcePatch(target: state.target, state: &state)
+                refreshTangledPullReviews(target: state.target, state: &state)
 
             case let .mergeTangledPullReviewButtonTapped(review):
                 mergeTangledPullReview(review, state: &state)
 
             case .refreshSourceButtonTapped:
-                guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
-                    return
-                }
-                let request = SourceDataRefreshRequest(
-                    eventID: state.eventID,
-                    sourceBaselineID: sourceBaselineID
-                )
-                store.addTask {
-                    try store.post(key: SourceDataRefreshRequested.self, value: request)
+                switch state.target {
+                case let .calendar(_, sourceBaselineID):
+                    let sourceDataRefresh = sourceDataRefresh
+                    store.addTask {
+                        let _: Void? = await store.withErrorHandling(
+                            fallbackMessage: .sourceDataRefreshFailed,
+                            operation: .sourceDataRefresh
+                        ) {
+                            try await sourceDataRefresh.refresh(sourceBaselineID)
+                        }
+                    }
+
+                case let .event(eventID):
+                    guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
+                        return
+                    }
+                    let request = SourceDataRefreshRequest(
+                        eventID: eventID,
+                        sourceBaselineID: sourceBaselineID
+                    )
+                    store.addTask {
+                        try store.post(key: SourceDataRefreshRequested.self, value: request)
+                    }
                 }
 
             case .refreshTangledPullReviewsButtonTapped:
-                refreshTangledPullReviews(eventID: state.eventID, state: &state)
+                refreshTangledPullReviews(target: state.target, state: &state)
 
             case .resetEditsButtonTapped:
                 guard !state.isResettingEdits else { return }
+                guard case let .event(eventID) = state.target else { return }
                 let workspaceResetter = workspaceResetter
-                let eventID = state.eventID
                 state.isResettingEdits = true
                 state.resetEditsFailure = nil
                 store.addTask {
@@ -524,7 +721,7 @@ public struct EventWorkspace {
             case .sourceProposal(.delegate(.created)):
                 state.isPreparingSourceProposal = false
                 state.dismissSourceProposal()
-                refreshTangledPullReviews(eventID: state.eventID, state: &state)
+                refreshTangledPullReviews(target: state.target, state: &state)
 
             case .sourceProposal(.delegate(.dismissed)):
                 state.isPreparingSourceProposal = false
@@ -534,7 +731,7 @@ public struct EventWorkspace {
                 guard state.canReviewSourceProposal else { return }
                 guard case let .generated(patch) = state.sourcePatchStatus else {
                     state.isPreparingSourceProposal = true
-                    generateSourcePatch(eventID: state.eventID, state: &state)
+                    generateSourcePatch(target: state.target, state: &state)
                     return
                 }
                 guard !patch.isEmpty else { return }
@@ -611,11 +808,11 @@ public struct EventWorkspace {
             }
         }
         .onMount { state in
-            let eventID = state.eventID
-            refreshTangledPullReviews(eventID: eventID, state: &state)
+            let target = state.target
+            refreshTangledPullReviews(target: target, state: &state)
             store.addTask {
                 for await invalidation in sourcePatchInvalidations.stream() {
-                    guard invalidation.eventID == eventID else { continue }
+                    guard await target.matches(invalidation: invalidation) else { continue }
                     try store.send(.sourcePatchInvalidationReceived(invalidation))
                 }
             }
@@ -630,12 +827,16 @@ public struct EventWorkspace {
     }
 }
 
+public typealias SourceWorkspace = EventWorkspace
+public typealias SourceWorkspaceView = EventWorkspaceView
+
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
-    @State var selectedTab: EventWorkspaceTab = .propose
+    @State var selectedTab: EventWorkspaceTab
 
     public init(store: StoreOf<EventWorkspace>) {
         self.store = store
+        self._selectedTab = State(initialValue: store.defaultWorkspaceTab)
     }
 
     public var body: some View {
@@ -644,10 +845,17 @@ public struct EventWorkspaceView: View {
             workspaceTabPicker
             workspaceTabContent
         }
-        .navigationTitle("Workspace")
+        .navigationTitle(navigationTitle)
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
         .sheet(item: $store.scope(\.sourceProposal, action: \.sourceProposal)) { proposalStore in
             SourceProposalComposerView(store: proposalStore)
+        }
+        .toolbar {
+            if store.canCreateEvent {
+                Button("Create Event", systemImage: "plus") {
+                    store.send(.createEventButtonTapped)
+                }
+            }
         }
     }
 
@@ -659,27 +867,27 @@ public struct EventWorkspaceView: View {
                     Text("Current Changes")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(store.workspaceSummary.totalCount, format: .number)
+                    Text(store.sourceWorkspaceSummary.totalCount, format: .number)
                         .font(.title3)
                         .monospacedDigit()
                 }
 
                 Spacer()
 
-                if let sourceProvenance = store.sourceProvenance {
+                if let sourceContext = store.sourceContext {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(sourceProvenance.sourceKind.sourceIndicatorTitle)
+                        Text(sourceContext.sourceKind.sourceIndicatorTitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(sourceProvenance.sourceEventDirectory)
+                        Text(sourceContext.detailTitle)
                             .font(.subheadline)
                             .lineLimit(1)
                     }
                 }
             }
 
-            if let sourceProvenance = store.sourceProvenance {
-                Text(sourceProvenance.sourceReference)
+            if let sourceContext = store.sourceContext {
+                Text(sourceContext.sourceReference)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -692,7 +900,7 @@ public struct EventWorkspaceView: View {
     private var workspaceTabPicker: some View {
         Picker("Workspace", selection: $selectedTab) {
             ForEach(EventWorkspaceTab.allCases) { tab in
-                Text(tab.title).tag(tab)
+                Text(tab.title(for: store.target)).tag(tab)
             }
         }
         .pickerStyle(.segmented)
@@ -700,9 +908,18 @@ public struct EventWorkspaceView: View {
         .padding(.bottom, 8)
     }
 
+    private var navigationTitle: Text {
+        switch store.target {
+        case .calendar:
+            Text("Team Workspace")
+        case .event:
+            Text("Workspace")
+        }
+    }
+
     @ViewBuilder
     private var workspaceTabContent: some View {
-        switch store.workspaceSummary.availability {
+        switch store.sourceWorkspaceSummary.availability {
         case .available:
             switch selectedTab {
             case .propose:
@@ -743,7 +960,7 @@ public struct EventWorkspaceView: View {
     @ViewBuilder
     private var changesActionSection: some View {
         Section {
-            if store.workspaceSummary.totalCount == 0 {
+            if store.sourceWorkspaceSummary.totalCount == 0 {
                 Text("No unpublished changes")
                     .foregroundStyle(.secondary)
             } else if store.canReviewSourceProposal {
@@ -766,11 +983,11 @@ public struct EventWorkspaceView: View {
     @ViewBuilder
     private var semanticDiffSections: some View {
 
-        SourceChangeSummarySection(groups: store.workspaceSummary.groups)
-        ForEach(store.workspaceSummary.groups.filter { !$0.records.isEmpty }) { group in
+        SourceChangeSummarySection(groups: store.sourceWorkspaceSummary.groups)
+        ForEach(store.sourceWorkspaceSummary.groups.filter { !$0.records.isEmpty }) { group in
             SourceChangeGroupSections(
                 group: group,
-                recordComparisons: store.workspaceSummary.recordComparisons
+                recordComparisons: store.sourceWorkspaceSummary.recordComparisons
             )
         }
     }
@@ -778,15 +995,15 @@ public struct EventWorkspaceView: View {
     @ViewBuilder
     private var sourceSection: some View {
         Section("Source") {
-            if let sourceProvenance = store.sourceProvenance {
-                SourceIndicatorView(sourceProvenance: sourceProvenance)
+            if let sourceContext = store.sourceContext {
+                SourceIndicatorView(sourceContext: sourceContext)
 
                 Button {
                     store.send(.refreshSourceButtonTapped)
                 } label: {
                     Label("Refresh Source", systemImage: "arrow.clockwise")
                 }
-                .disabled(sourceProvenance.sourceBaselineID == nil)
+                .disabled(store.sourceBaselineID == nil)
             } else {
                 Text("Team workspace required")
                     .foregroundStyle(.secondary)
@@ -824,7 +1041,7 @@ public struct EventWorkspaceView: View {
 
     @ViewBuilder
     private var reviewSection: some View {
-        if store.sourceProvenance?.sourceKind == .tangled {
+        if store.sourceKind == .tangled {
             tangledPullReviewsSection(title: "Review")
         } else {
             ExistingProposalsSection(
@@ -837,7 +1054,7 @@ public struct EventWorkspaceView: View {
 
     @ViewBuilder
     private func tangledPullReviewsSection(title: String) -> some View {
-        if store.sourceProvenance?.sourceKind == .tangled {
+        if store.sourceKind == .tangled {
             Section(title) {
                 switch store.tangledPullReviewStatus {
                 case let .failed(failure):
@@ -1001,10 +1218,15 @@ enum EventWorkspaceTab: String, CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    var title: String {
+    func title(for target: SourceProposalTarget) -> String {
         switch self {
         case .propose:
-            "Propose"
+            switch target {
+            case .calendar:
+                "Changes"
+            case .event:
+                "Propose"
+            }
         case .review:
             "Review"
         }
@@ -1394,6 +1616,19 @@ public enum SourceChangesAvailability: Equatable, Sendable {
             self = .unavailable(reason)
         }
     }
+
+    var eventWorkspaceAvailability: EventWorkspaceSummary.Availability {
+        switch self {
+        case .available:
+            .available
+        case .workspaceNeedsPreparation:
+            .workspaceNeedsPreparation
+        case .notInWorkspace:
+            .notInWorkspace
+        case let .unavailable(reason):
+            .unavailable(reason)
+        }
+    }
 }
 
 public enum SourceChangesReviewMode: Equatable, Sendable {
@@ -1514,22 +1749,41 @@ public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: Vi
     }
 }
 
+struct SourceWorkspaceSourceContext: Equatable, Sendable {
+    var detailTitle: String
+    var sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind
+    var sourceReference: String
+    var sourceRefTitle: String
+
+    init(
+        detailTitle: String,
+        sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind,
+        sourceReference: String,
+        sourceRefTitle: String
+    ) {
+        self.detailTitle = detailTitle
+        self.sourceKind = sourceKind
+        self.sourceReference = sourceReference
+        self.sourceRefTitle = sourceRefTitle
+    }
+}
+
 struct SourceIndicatorView: View {
-    let sourceProvenance: EventSourceProvenanceRecord
+    let sourceContext: SourceWorkspaceSourceContext
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label(sourceProvenance.sourceKind.sourceIndicatorTitle, systemImage: "folder")
+            Label(sourceContext.sourceKind.sourceIndicatorTitle, systemImage: "folder")
 
-            Text(sourceProvenance.sourceReference)
+            Text(sourceContext.sourceReference)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .textSelection(.enabled)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(sourceProvenance.sourceRefTitle)
-                Text("events/\(sourceProvenance.sourceEventDirectory)")
+                Text(sourceContext.sourceRefTitle)
+                Text(sourceContext.detailTitle)
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -1938,6 +2192,76 @@ private extension EventSourceProvenanceRecord {
 }
 
 private extension EventWorkspace.State {
+    static func sourceBaselineQuery(
+        target: SourceProposalTarget
+    ) -> some SelectStatementOf<SourceBaselineRecord> {
+        switch target {
+        case let .calendar(_, sourceBaselineID):
+            SourceBaselineRecord.where { $0.id.eq(sourceBaselineID) }
+
+        case let .event(eventID):
+            SourceBaselineRecord.where { sourceBaseline in
+                EventSourceProvenanceRecord
+                    .where { $0.id.eq(eventID) }
+                    .where { $0.sourceBaselineID.eq(sourceBaseline.id) }
+                    .exists()
+            }
+        }
+    }
+
+    static func sourceProvenanceQuery(
+        target: SourceProposalTarget
+    ) -> some SelectStatementOf<EventSourceProvenanceRecord> {
+        switch target {
+        case let .calendar(calendarID, sourceBaselineID):
+            EventSourceProvenanceRecord
+                .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                .where { $0.id.organizerID.eq(calendarID.ownerID) }
+
+        case let .event(eventID):
+            EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
+        }
+    }
+
+    var defaultWorkspaceTab: EventWorkspaceTab {
+        switch target {
+        case .calendar:
+            .propose
+        case .event:
+            .propose
+        }
+    }
+
+    var sourceContext: SourceWorkspaceSourceContext? {
+        if let sourceBaseline {
+            return SourceWorkspaceSourceContext(
+                detailTitle: "Organizer source",
+                sourceKind: sourceBaseline.sourceKind,
+                sourceReference: sourceBaseline.sourceReference,
+                sourceRefTitle: sourceBaseline.ref ?? "default ref"
+            )
+        }
+
+        if let sourceProvenance {
+            return SourceWorkspaceSourceContext(
+                detailTitle: "events/\(sourceProvenance.sourceEventDirectory)",
+                sourceKind: sourceProvenance.sourceKind,
+                sourceReference: sourceProvenance.sourceReference,
+                sourceRefTitle: sourceProvenance.sourceRefTitle
+            )
+        }
+
+        return nil
+    }
+
+    var sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind? {
+        sourceBaseline?.sourceKind ?? sourceProvenance?.sourceKind
+    }
+
+    var sourceReviewProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance? {
+        sourceBaseline?.sourceProvenance ?? sourceProvenance?.sourceProvenance
+    }
+
     mutating func dismissSourceProposal() {
         let status = sourceProposal?.status ?? sourceProposalStatus
         sourceProposal = nil
@@ -1957,17 +2281,19 @@ private extension EventWorkspace.State {
         }
 
         sourceProposal = SourceProposalFlow.State(
-            eventID: eventID,
-            workspaceSummary: workspaceSummary,
+            target: target,
+            sourceChangeGroups: sourceWorkspaceSummary.groups,
+            sourceRecordComparisons: sourceWorkspaceSummary.recordComparisons,
             patch: patch
         )
         sourceProposalStatus = .composing
     }
 
     var canResetEdits: Bool {
-        guard !isResettingEdits,
-              workspaceSummary.totalCount > 0,
-              case .available = workspaceSummary.availability
+        guard case .event = target,
+              !isResettingEdits,
+              sourceWorkspaceSummary.totalCount > 0,
+              case .available = sourceWorkspaceSummary.availability
         else { return false }
         return true
     }
@@ -1981,12 +2307,17 @@ private extension EventWorkspace.State {
         return true
     }
 
+    var canCreateEvent: Bool {
+        guard case .calendar = target else { return false }
+        return true
+    }
+
     var canReviewSourceProposal: Bool {
-        sourceProvenance?.sourceBaselineID != nil
+        sourceBaselineID != nil
     }
 
     var canProposeLocalChanges: Bool {
-        guard workspaceSummary.totalCount > 0,
+        guard sourceWorkspaceSummary.totalCount > 0,
               canReviewSourceProposal,
               !sourcePatchStatus.isGenerating,
               !sourceProposalStatus.isProposing
@@ -1997,7 +2328,7 @@ private extension EventWorkspace.State {
 
 private extension EventWorkspace.TangledPullReviewSemanticDiff {
     static func reviewBranchDiff(
-        eventID: OME.Event.ID,
+        target: SourceProposalTarget,
         review: TangledPullReview,
         sourceProvenance: OME.SourceDatabaseInsertion.SourceProvenance,
         sourceSnapshot: TangledPullReviewSourceSnapshotClient
@@ -2019,7 +2350,7 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
 
         let insertion = try await sourceSnapshot.insertion(
             TangledPullReviewSourceSnapshotRequest(
-                organizerID: eventID.organizerID,
+                organizerID: target.organizerID,
                 review: review,
                 sourceProvenance: sourceProvenance
             )
@@ -2041,12 +2372,31 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
         }
 
         let summary = try await workingDatabase.read { db in
-            try SourceEditingComparer().summary(
-                in: db,
-                baselineDatabase: baselineDatabase,
-                recordTypes: OME.sourceRecordTypes,
-                scope: .openMusicEvent(eventID: eventID)
-            )
+            switch target {
+            case let .calendar(calendarID, sourceBaselineID):
+                let baselineSchemaName = "review_source_baseline"
+                try #sql(
+                    "ATTACH DATABASE \(bind: baselineDatabase.path) AS \(quote: baselineSchemaName)"
+                )
+                .execute(db)
+                defer {
+                    try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+                }
+                return try openMusicEventSourceEditSummary(
+                    in: db,
+                    baselineSchemaName: baselineSchemaName,
+                    sourceBaselineID: sourceBaselineID,
+                    calendarID: calendarID
+                )
+
+            case let .event(eventID):
+                return try SourceEditingComparer().summary(
+                    in: db,
+                    baselineDatabase: baselineDatabase,
+                    recordTypes: OME.sourceRecordTypes,
+                    scope: .openMusicEvent(eventID: eventID)
+                )
+            }
         }
         switch summary.availability {
         case .available:
@@ -2057,6 +2407,29 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
 
         case let .unavailable(reason):
             throw TangledPullReviewSemanticDiffError.unavailable(reason)
+        }
+    }
+}
+
+private extension SourceProposalTarget {
+    func matches(invalidation: SourcePatchInvalidation) async -> Bool {
+        switch self {
+        case let .event(eventID):
+            return invalidation.eventID == eventID
+
+        case let .calendar(calendarID, sourceBaselineID):
+            guard invalidation.eventID.organizerID == calendarID.ownerID else {
+                return false
+            }
+            @Dependency(\.defaultDatabase) var database
+            return (
+                try? await database.read { db in
+                    try EventSourceProvenanceRecord
+                        .where { $0.id.eq(invalidation.eventID) }
+                        .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                        .fetchOne(db) != nil
+                }
+            ) ?? false
         }
     }
 }

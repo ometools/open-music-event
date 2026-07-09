@@ -27,6 +27,52 @@ public struct OpenMusicEventCalendarSourcePatchRequest: Equatable, Sendable {
     }
 }
 
+public enum OpenMusicEventSourceTarget: Equatable, Hashable, Identifiable, Sendable {
+    case calendar(OME.Calendar.ID, SourceBaselineRecord.ID)
+    case event(OME.Event.ID)
+
+    public var id: String {
+        switch self {
+        case let .calendar(calendarID, sourceBaselineID):
+            "calendar:\(calendarID.ownerID):\(calendarID.calendarID.rawValue.rawValue):\(sourceBaselineID.rawValue)"
+        case let .event(eventID):
+            "event:\(eventID.organizerID):\(eventID.eventID.rawValue.rawValue)"
+        }
+    }
+
+    public var calendarSourcePatchRequest: OpenMusicEventCalendarSourcePatchRequest? {
+        guard case let .calendar(calendarID, sourceBaselineID) = self else { return nil }
+        return OpenMusicEventCalendarSourcePatchRequest(
+            calendarID: calendarID,
+            sourceBaselineID: sourceBaselineID
+        )
+    }
+
+    public var eventID: OME.Event.ID? {
+        guard case let .event(eventID) = self else { return nil }
+        return eventID
+    }
+
+    public var eventSourcePatchRequest: OpenMusicEventSourcePatchRequest? {
+        guard case let .event(eventID) = self else { return nil }
+        return OpenMusicEventSourcePatchRequest(eventID: eventID)
+    }
+
+    public var organizerID: OME.Organizer.ID {
+        switch self {
+        case let .calendar(calendarID, _):
+            calendarID.ownerID
+        case let .event(eventID):
+            eventID.organizerID
+        }
+    }
+
+    public var sourceBaselineID: SourceBaselineRecord.ID? {
+        guard case let .calendar(_, sourceBaselineID) = self else { return nil }
+        return sourceBaselineID
+    }
+}
+
 public enum OpenMusicEventSourcePatchGenerationError: Equatable, Error, Sendable {
     case notSourceBacked(OME.Event.ID)
     case sourceBaselineNotFound(SourceBaselineRecord.ID)
@@ -147,6 +193,28 @@ public extension OpenMusicEventCalendarSourcePatchLocationResolver {
                     reference: sourceBaseline.sourceReference,
                     ref: sourceBaseline.ref
                 )
+            )
+        }
+    }
+}
+
+public extension OpenMusicEventSourceTarget {
+    func resolveLocation(
+        calendarSourcePatchLocationResolver: OpenMusicEventCalendarSourcePatchLocationResolver,
+        sourcePatchLocationResolver: OpenMusicEventSourcePatchLocationResolver
+    ) async throws -> SourcePatchLocation {
+        switch self {
+        case let .calendar(calendarID, sourceBaselineID):
+            try await calendarSourcePatchLocationResolver.resolve(
+                OpenMusicEventCalendarSourcePatchRequest(
+                    calendarID: calendarID,
+                    sourceBaselineID: sourceBaselineID
+                )
+            )
+
+        case let .event(eventID):
+            try await sourcePatchLocationResolver.resolve(
+                OpenMusicEventSourcePatchRequest(eventID: eventID)
             )
         }
     }

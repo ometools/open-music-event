@@ -175,7 +175,7 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
             )
         }
         let sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-            try sourceEditSummary(
+            try openMusicEventSourceEditSummary(
                 in: db,
                 baselineSchemaName: baselineSchemaName,
                 sourceBaselineID: sourceBaselineID,
@@ -202,7 +202,7 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
     }
 }
 
-private func sourceEditSummary(
+public func openMusicEventSourceEditSummary(
     in db: Database,
     baselineSchemaName: String,
     sourceBaselineID: SourceBaselineRecord.ID,

@@ -6,20 +6,7 @@ import Foundation
 import OpenMusicEventSourceEditing
 import SourceEditing
 
-public enum SourceProposalTarget: Equatable, Identifiable, Sendable {
-    case calendar(OMERecord.Calendar.ID, SourceBaselineRecord.ID)
-    case event(OMERecord.Event.ID)
-
-    public var id: String {
-        switch self {
-        case let .calendar(calendarID, sourceBaselineID):
-            "calendar:\(calendarID.ownerID):\(calendarID.calendarID.rawValue.rawValue):\(sourceBaselineID.rawValue)"
-        case let .event(eventID):
-            "event:\(eventID.organizerID):\(eventID.eventID.rawValue.rawValue)"
-        }
-    }
-
-}
+public typealias SourceProposalTarget = OpenMusicEventSourceTarget
 
 @Feature
 public struct SourceProposalFlow {
@@ -254,28 +241,6 @@ extension SourceProposalFlow.State {
             && status.canCreateProposal
             && form.canSubmit
             && title.sourceProposalValue != nil
-    }
-}
-
-private extension SourceProposalTarget {
-    func resolveLocation(
-        calendarSourcePatchLocationResolver: OpenMusicEventCalendarSourcePatchLocationResolver,
-        sourcePatchLocationResolver: OpenMusicEventSourcePatchLocationResolver
-    ) async throws -> SourcePatchLocation {
-        switch self {
-        case let .calendar(calendarID, sourceBaselineID):
-            try await calendarSourcePatchLocationResolver.resolve(
-                OpenMusicEventCalendarSourcePatchRequest(
-                    calendarID: calendarID,
-                    sourceBaselineID: sourceBaselineID
-                )
-            )
-
-        case let .event(eventID):
-            try await sourcePatchLocationResolver.resolve(
-                OpenMusicEventSourcePatchRequest(eventID: eventID)
-            )
-        }
     }
 }
 
