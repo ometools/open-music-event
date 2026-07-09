@@ -39,7 +39,6 @@ public struct WhiteLabelRoot {
 
     public enum Action {
         case retryButtonTapped
-        case task
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -54,112 +53,15 @@ public struct WhiteLabelRoot {
 
         Update { state, action in
             switch action {
-            case .retryButtonTapped, .task:
+            case .retryButtonTapped:
                 guard !state.isLoading else { return }
                 state.errorMessage = nil
                 state.isLoading = true
                 state.loadingPhase = .preparing
 
-                let configuration = state.configuration
-                let database = self.database
-                let developmentSourceOverride = self.developmentSourceOverride
-                let identityResolver = self.identityResolver
-                let sourceImport = self.sourceImport
-                let sourceRegistry = self.sourceRegistry
-                let storedAuthentication = self.storedAuthentication
-                store.addTask {
-                    let updateLoadingPhase: (State.LoadingPhase) async -> Void = { phase in
-                        _ = try? store.modify {
-                            $0.loadingPhase = phase
-                        }
-                    }
+                loadData()
 
-                    let _: Void? = await store.withErrorHandling(
-                        fallbackMessage: .storedAuthenticationLoadFailed,
-                        operation: .storedAuthenticationLoad
-                    ) {
-                        try await storedAuthentication.enforceFreshness()
-                    }
 
-                    let loadedRoot = await store.withErrorHandling(
-                        fallbackMessage: .whiteLabelLoadFailed,
-                        operation: .whiteLabelLoad
-                    ) {
-                        await updateLoadingPhase(Self.initialLoadingPhase(
-                            configuration,
-                            developmentSourceOverride: developmentSourceOverride
-                        ))
-                        let resolvedSource = try await Self.resolveSource(
-                            configuration,
-                            developmentSourceOverride: developmentSourceOverride,
-                            identityResolver: identityResolver,
-                            sourceRegistry: sourceRegistry
-                        )
-                        await updateLoadingPhase(.importingSource)
-                        _ = try await sourceImport.ensureImported(
-                            resolvedSource.organizerID,
-                            resolvedSource.descriptor
-                        )
-                        await updateLoadingPhase(.openingEvent)
-                        let sourceBaselineIDs = try await Self.sourceBaselineIDs(
-                            for: resolvedSource.organizerID,
-                            in: database
-                        )
-                        return LoadedRoot(
-                            organizerID: resolvedSource.organizerID,
-                            sourceBaselineIDs: sourceBaselineIDs
-                        )
-                    } cleanup: {
-                        $0.isLoading = false
-                        $0.loadingPhase = .idle
-                    } parseError: {
-                        SourceImportError.parser
-                    }
-
-                    if let loadedRoot {
-                        try store.modify {
-                            $0.errorMessage = nil
-                            $0.isLoading = false
-                            $0.loadingPhase = .idle
-                            $0.organizerID = loadedRoot.organizerID
-                            $0.setLoadedRoot(
-                                organizerID: loadedRoot.organizerID,
-                                sourceBaselineIDs: loadedRoot.sourceBaselineIDs
-                            )
-                        }
-                        return
-                    }
-
-                    let cachedOrganizerID = try? await Self.cachedOrganizerID(
-                        for: configuration,
-                        database: database,
-                        developmentSourceOverride: developmentSourceOverride,
-                        identityResolver: identityResolver
-                    )
-                    let sourceBaselineIDs: [SourceBaselineRecord.ID]
-                    if let cachedOrganizerID {
-                        sourceBaselineIDs = (try? await Self.sourceBaselineIDs(
-                            for: cachedOrganizerID,
-                            in: database
-                        )) ?? []
-                    } else {
-                        sourceBaselineIDs = []
-                    }
-                    try store.modify {
-                        $0.isLoading = false
-                        $0.loadingPhase = .idle
-                        if let cachedOrganizerID {
-                            $0.errorMessage = "Unable to refresh \(configuration.brand.displayName)."
-                            $0.organizerID = cachedOrganizerID
-                            $0.setLoadedRoot(
-                                organizerID: cachedOrganizerID,
-                                sourceBaselineIDs: sourceBaselineIDs
-                            )
-                        } else {
-                            $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
-                        }
-                    }
-                }
             }
         }
         .ifLet(\.organizationRoot) {
@@ -167,6 +69,113 @@ public struct WhiteLabelRoot {
         }
         .ifLet(\.teamWorkspaceDetail) {
             TeamWorkspaceDetail()
+        }
+        .onMount { state in
+            loadData()
+        }
+    }
+
+
+    func loadData() {
+        let configuration = store.configuration
+        let database = self.database
+        let developmentSourceOverride = self.developmentSourceOverride
+        let identityResolver = self.identityResolver
+        let sourceImport = self.sourceImport
+        let sourceRegistry = self.sourceRegistry
+        let storedAuthentication = self.storedAuthentication
+        store.addTask {
+            let updateLoadingPhase: (State.LoadingPhase) async -> Void = { phase in
+                _ = try? store.modify {
+                    $0.loadingPhase = phase
+                }
+            }
+
+            let _: Void? = await store.withErrorHandling(
+                fallbackMessage: .storedAuthenticationLoadFailed,
+                operation: .storedAuthenticationLoad
+            ) {
+                try await storedAuthentication.enforceFreshness()
+            }
+
+            let loadedRoot = await store.withErrorHandling(
+                fallbackMessage: .whiteLabelLoadFailed,
+                operation: .whiteLabelLoad
+            ) {
+                await updateLoadingPhase(Self.initialLoadingPhase(
+                    configuration,
+                    developmentSourceOverride: developmentSourceOverride
+                ))
+                let resolvedSource = try await Self.resolveSource(
+                    configuration,
+                    developmentSourceOverride: developmentSourceOverride,
+                    identityResolver: identityResolver,
+                    sourceRegistry: sourceRegistry
+                )
+                await updateLoadingPhase(.importingSource)
+                _ = try await sourceImport.ensureImported(
+                    resolvedSource.organizerID,
+                    resolvedSource.descriptor
+                )
+                await updateLoadingPhase(.openingEvent)
+                let sourceBaselineIDs = try await Self.sourceBaselineIDs(
+                    for: resolvedSource.organizerID,
+                    in: database
+                )
+                return LoadedRoot(
+                    organizerID: resolvedSource.organizerID,
+                    sourceBaselineIDs: sourceBaselineIDs
+                )
+            } cleanup: {
+                $0.isLoading = false
+                $0.loadingPhase = .idle
+            } parseError: {
+                SourceImportError.parser
+            }
+
+            if let loadedRoot {
+                try store.modify {
+                    $0.errorMessage = nil
+                    $0.isLoading = false
+                    $0.loadingPhase = .idle
+                    $0.organizerID = loadedRoot.organizerID
+                    $0.setLoadedRoot(
+                        organizerID: loadedRoot.organizerID,
+                        sourceBaselineIDs: loadedRoot.sourceBaselineIDs
+                    )
+                }
+                return
+            }
+
+            let cachedOrganizerID = try? await Self.cachedOrganizerID(
+                for: configuration,
+                database: database,
+                developmentSourceOverride: developmentSourceOverride,
+                identityResolver: identityResolver
+            )
+            let sourceBaselineIDs: [SourceBaselineRecord.ID]
+            if let cachedOrganizerID {
+                sourceBaselineIDs = (try? await Self.sourceBaselineIDs(
+                    for: cachedOrganizerID,
+                    in: database
+                )) ?? []
+            } else {
+                sourceBaselineIDs = []
+            }
+            try store.modify {
+                $0.isLoading = false
+                $0.loadingPhase = .idle
+                if let cachedOrganizerID {
+                    $0.errorMessage = "Unable to refresh \(configuration.brand.displayName)."
+                    $0.organizerID = cachedOrganizerID
+                    $0.setLoadedRoot(
+                        organizerID: cachedOrganizerID,
+                        sourceBaselineIDs: sourceBaselineIDs
+                    )
+                } else {
+                    $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
+                }
+            }
         }
     }
 
@@ -299,9 +308,6 @@ public struct WhiteLabelRootView: View {
                     LoadingView(store: store)
                 }
             }
-        }
-        .task {
-            await store.send(.task)?.value
         }
     }
 

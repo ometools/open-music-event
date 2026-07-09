@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Open Music Event is a native iOS and Android app for music-event schedules, stages, artists, maps, and updates.">
+  <meta name="description" content="Open Music Event is a community event guide for music schedules, stages, artists, maps, and updates.">
   <meta property="og:title" content="Open Music Event">
-  <meta property="og:description" content="A native iOS and Android app for music-event schedules, stages, artists, maps, and updates.">
+  <meta property="og:description" content="A community event guide for music schedules, stages, artists, maps, and updates.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://openmusicevent.app/">
   <meta property="og:image" content="https://openmusicevent.app/assets/ome-logo-sample-wordmark-2026-05.jpg">
@@ -102,7 +102,7 @@
     .brand-link {
       display: inline-flex;
       align-items: center;
-      gap: 0.7rem;
+      gap: 0.55rem;
       color: var(--text);
       font-size: 0.95rem;
       font-weight: 800;
@@ -110,15 +110,22 @@
     }
 
     .brand-mark {
-      width: 2.1rem;
-      height: 2.1rem;
-      display: inline-grid;
-      place-items: center;
-      border: 1px solid var(--line-soft);
-      background: var(--panel);
-      color: var(--cyan);
-      font-size: 0.72rem;
-      letter-spacing: 0;
+      display: block;
+      width: 2.15rem;
+      height: 2.15rem;
+      object-fit: contain;
+    }
+
+    .brand-name {
+      display: inline-block;
+      background: linear-gradient(90deg, #47a9a8, #6650d3 34%, #d34f7a 68%, #d8823d);
+      color: transparent;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      line-height: 1;
+      text-transform: uppercase;
+      -webkit-background-clip: text;
+      background-clip: text;
     }
 
     .nav-links {
@@ -139,13 +146,15 @@
 
     .hero {
       width: min(100%, 70rem);
-      min-height: calc(100vh - 4rem);
+      min-height: min(38rem, calc(100vh - 4rem));
       margin: 0 auto;
-      display: grid;
-      grid-template-columns: minmax(0, 1.05fr) minmax(18rem, 0.75fr);
+      display: flex;
       align-items: center;
-      gap: clamp(2rem, 5vw, 5rem);
-      padding: 4rem 1.25rem 3.25rem;
+      padding: clamp(3.25rem, 10vw, 7rem) 1.25rem clamp(2.75rem, 7vw, 5rem);
+    }
+
+    .hero-content {
+      max-width: 44rem;
     }
 
     .status {
@@ -223,51 +232,6 @@
       transform: translateY(-1px);
     }
 
-    .hero-card {
-      border: 1px solid var(--line-soft);
-      background: rgba(13, 15, 16, 0.8);
-      box-shadow: 0 1.2rem 4rem var(--shadow);
-    }
-
-    .logo {
-      display: block;
-      width: 100%;
-      height: auto;
-      border-bottom: 1px solid var(--line-soft);
-    }
-
-    .hero-card-body {
-      display: grid;
-      gap: 1rem;
-      padding: 1.15rem;
-    }
-
-    .signal-list {
-      display: grid;
-      gap: 0.65rem;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-      color: var(--soft);
-      font-size: 0.95rem;
-      line-height: 1.4;
-    }
-
-    .signal-list li {
-      display: grid;
-      grid-template-columns: 0.65rem 1fr;
-      gap: 0.65rem;
-      align-items: start;
-    }
-
-    .signal-list li::before {
-      content: "";
-      width: 0.55rem;
-      height: 0.55rem;
-      margin-top: 0.45rem;
-      background: var(--green);
-    }
-
     .section {
       border-top: 1px solid rgba(255, 255, 255, 0.08);
       background: rgba(6, 7, 8, 0.72);
@@ -321,12 +285,12 @@
     }
 
     .feature {
-      min-height: 8.8rem;
+      min-height: 8.6rem;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 7.4rem;
-      gap: 1rem;
+      grid-template-columns: minmax(0, 1fr) minmax(4.6rem, 5.35rem);
+      gap: clamp(0.85rem, 2vw, 1.35rem);
       align-items: center;
-      padding: 1rem;
+      padding: 1rem 1rem 1rem clamp(1rem, 2vw, 1.25rem);
       border: 1px solid var(--line-soft);
       background: var(--panel);
     }
@@ -335,33 +299,44 @@
       min-width: 0;
     }
 
-    .feature-icon {
+    .feature-kicker {
       display: inline-grid;
       place-items: center;
-      width: 2.2rem;
-      height: 2.2rem;
-      margin-bottom: 1.4rem;
-      background: #20262a;
+      width: 2rem;
+      height: 2rem;
+      margin-bottom: 0.75rem;
+      border: 1px solid rgba(120, 224, 214, 0.36);
+      background: rgba(120, 224, 214, 0.08);
       color: var(--cyan);
-      font-size: 0.82rem;
-      font-weight: 900;
+    }
+
+    .feature-kicker svg {
+      width: 1.1rem;
+      height: 1.1rem;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
     }
 
     .feature-shot {
       margin: 0;
       width: 100%;
-      height: 6.6rem;
+      aspect-ratio: 9 / 16;
+      max-height: 8.2rem;
       overflow: hidden;
       border: 1px solid var(--line-soft);
       background: var(--panel-strong);
+      box-shadow: 0 0.9rem 1.8rem rgba(0, 0, 0, 0.24);
     }
 
     .feature-shot img {
       display: block;
       width: 100%;
-      height: 100%;
+      height: 112%;
       object-fit: cover;
-      object-position: top center;
+      object-position: center 8%;
     }
 
     .feature h3 {
@@ -509,6 +484,23 @@
       gap: 0;
     }
 
+    .project-card {
+      display: grid;
+      grid-template-columns: 3.15rem 1fr;
+      gap: 0.85rem;
+      align-items: center;
+      min-height: 5.2rem;
+      padding: 1rem;
+      border: 1px solid var(--line-soft);
+      background: var(--surface);
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .project-card:hover {
+      background: rgba(255, 255, 255, 0.035);
+    }
+
     .contributor-card {
       display: grid;
       grid-template-columns: 3.15rem 1fr;
@@ -574,6 +566,11 @@
       gap: 1rem;
     }
 
+    .outcome-heading {
+      max-width: 40rem;
+      margin-bottom: 2rem;
+    }
+
     .outcome-card {
       padding: clamp(1.2rem, 3vw, 1.7rem);
       border: 1px solid var(--line-soft);
@@ -627,7 +624,6 @@
     }
 
     @media (max-width: 58rem) {
-      .hero,
       .section-heading,
       .embed-layout,
       .outcome {
@@ -639,8 +635,8 @@
         padding-top: 2.6rem;
       }
 
-      .hero-card {
-        max-width: 28rem;
+      .hero {
+        min-height: auto;
       }
 
       .feature-grid {
@@ -687,16 +683,9 @@
         margin-top: 1.25rem;
       }
 
-      .hero-card {
-        max-width: 14rem;
-      }
-
-      .hero-card-body {
-        display: none;
-      }
-
-      .logo {
-        border-bottom: 0;
+      .brand-name {
+        max-width: 12rem;
+        line-height: 1.1;
       }
 
       .hero-actions,
@@ -713,13 +702,13 @@
       }
 
       .feature {
-        grid-template-columns: minmax(0, 1fr) 5.7rem;
+        grid-template-columns: minmax(0, 1fr) 4.8rem;
         min-height: 7.7rem;
         gap: 0.8rem;
       }
 
       .feature-shot {
-        height: 5.4rem;
+        max-height: 7rem;
       }
 
       .panel-header,
@@ -736,12 +725,15 @@
     <header class="site-header">
       <nav class="nav" aria-label="Main navigation">
         <a class="brand-link" href="#top">
-          <span class="brand-mark" aria-hidden="true">OME</span>
-          <span>Open Music Event</span>
+          <img
+            class="brand-mark"
+            src="assets/ome-logo-final-mark-2026-07-03.png"
+            alt=""
+          >
+          <span class="brand-name">Open Music Event</span>
         </a>
         <div class="nav-links">
           <a href="#latest">Latest</a>
-          <a href="#contributors">Contributors</a>
           <a href="https://bsky.app/profile/openmusicevent.app">Bluesky</a>
         </div>
       </nav>
@@ -749,11 +741,11 @@
 
     <main id="top">
       <section class="hero" aria-labelledby="page-title">
-        <div>
+        <div class="hero-content">
           <p class="status">Under construction</p>
           <h1 id="page-title">Open Music Event</h1>
           <p class="lede">
-            A native community event guide for music festivals, venues, and local shows:
+            A community event guide for music festivals, venues, and local shows:
             schedules, stages, artists, maps, posters, and updates in one place.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
@@ -761,38 +753,37 @@
             <a class="button" href="#latest">See latest updates</a>
           </div>
         </div>
-
-        <aside class="hero-card" aria-label="Project summary">
-          <img class="logo" src="assets/ome-logo-sample-wordmark-2026-05.jpg" alt="Open Music Event">
-          <div class="hero-card-body">
-            <ul class="signal-list">
-              <li>Built for communities that want their music events to be easier to find, follow, and share.</li>
-              <li>Useful beyond the poster: times, places, artists, maps, and context.</li>
-              <li>Public identity at <a href="https://bsky.app/profile/openmusicevent.app">openmusicevent.app</a>.</li>
-            </ul>
-          </div>
-        </aside>
       </section>
 
       <section class="section" aria-labelledby="clarity-title">
         <div class="section-inner">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">What it is</p>
+              <p class="eyebrow">Open Music Event is</p>
               <h2 id="clarity-title">A practical event companion for when the poster is not enough.</h2>
             </div>
             <p class="section-copy">
-              Open Music Event is for shows where the lineup, schedule, people, and places deserve a clear home.
-              Communities get a place to gather and share event context; organizers get a calmer way to keep information current.
+              Open Music Event is a dedicated home for your show's lineup, schedule, artists, crew, and spaces.
+              Communities can gather and share event context; organizers get a calmer way to keep the latest event information current with their teams.
             </p>
           </div>
 
           <div class="feature-grid" aria-label="Core areas">
             <article class="feature">
               <div class="feature-content">
-                <span class="feature-icon" aria-hidden="true">01</span>
-                <h3>Schedules</h3>
-                <p>Readable days, times, stages, and performance details without flattening the event into an image.</p>
+                <span class="feature-kicker" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M8 2v4"></path>
+                    <path d="M16 2v4"></path>
+                    <path d="M3 10h18"></path>
+                    <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                    <path d="M8 14h.01"></path>
+                    <path d="M12 14h.01"></path>
+                    <path d="M16 14h.01"></path>
+                  </svg>
+                </span>
+                <h3>Create and manage schedules</h3>
+                <p>Create and circulate performance dates, set times, stage locations, and artist details without flattening the event into a screenshot.</p>
               </div>
               <figure class="feature-shot">
                 <img
@@ -803,9 +794,18 @@
             </article>
             <article class="feature">
               <div class="feature-content">
-                <span class="feature-icon" aria-hidden="true">02</span>
-                <h3>Artists and people</h3>
-                <p>Artists, crews, organizers, venues, and guests can have profiles that explain how they fit into the event.</p>
+                <span class="feature-kicker" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <circle cx="12" cy="7" r="3.2"></circle>
+                    <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+                    <circle cx="5.5" cy="9.5" r="2.3"></circle>
+                    <path d="M1.8 19a4.7 4.7 0 0 1 5.1-4.6"></path>
+                    <circle cx="18.5" cy="9.5" r="2.3"></circle>
+                    <path d="M17.1 14.4A4.7 4.7 0 0 1 22.2 19"></path>
+                  </svg>
+                </span>
+                <h3>Put your people center stage</h3>
+                <p>Artists, crews, organizers, venues, and guests can have profiles that explain why they matter to the event.</p>
               </div>
               <figure class="feature-shot">
                 <img
@@ -817,9 +817,14 @@
             </article>
             <article class="feature">
               <div class="feature-content">
-                <span class="feature-icon" aria-hidden="true">03</span>
+                <span class="feature-kicker" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                  </svg>
+                </span>
                 <h3>Places</h3>
-                <p>Stages, maps, posters, and location context can live next to the schedule they explain.</p>
+                <p>Put stage locations, event maps, posters, and arrival details next to the schedule they explain.</p>
               </div>
               <figure class="feature-shot">
                 <img
@@ -831,9 +836,14 @@
             </article>
             <article class="feature">
               <div class="feature-content">
-                <span class="feature-icon" aria-hidden="true">04</span>
+                <span class="feature-kicker" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M10.3 21a2 2 0 0 0 3.4 0"></path>
+                    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+                  </svg>
+                </span>
                 <h3>Updates</h3>
-                <p>When details change, the event guide should be able to change too, without asking everyone to hunt through screenshots.</p>
+                <p>When details change, your event guide can change too, without asking everyone to hunt through screenshots.</p>
               </div>
               <figure class="feature-shot">
                 <img
@@ -845,7 +855,12 @@
             </article>
             <article class="feature">
               <div class="feature-content">
-                <span class="feature-icon" aria-hidden="true">05</span>
+                <span class="feature-kicker" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <circle cx="12" cy="8" r="5"></circle>
+                    <path d="M8.5 13.5 7 22l5-3 5 3-1.5-8.5"></path>
+                  </svg>
+                </span>
                 <h3>Credit all contributors</h3>
                 <p>Credit contributors to your organization, venue, and each performance, down to hired labor and the people who make the show possible.</p>
               </div>
@@ -862,10 +877,34 @@
           <article class="principle-callout">
             <h3>Open Source / Open Data</h3>
             <p>
-              Your organization's event information should live with you on the open internet.
-              Calendars, schedules, artist profiles, places, and updates should be able to flow into this app or any other.
+              Your event information should live with you on the open internet.
+              Calendars, schedules, artist profiles, places, and updates can flow into this app or any other.
             </p>
           </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="outcome-title">
+        <div class="section-inner">
+          <div class="outcome-heading">
+            <p class="eyebrow">One home for</p>
+            <h2 id="outcome-title">Better event information before, during, and after the show.</h2>
+          </div>
+
+          <div class="outcome">
+            <article class="outcome-card">
+              <h3>For attendees</h3>
+              <p>
+                Clear schedules, stage context, contributor profiles, posters, maps, and event details in a focused app surface.
+              </p>
+            </article>
+            <article class="outcome-card">
+              <h3>For organizers</h3>
+              <p>
+                A clearer way to keep event information organized, update it when plans change, and carry useful details forward.
+              </p>
+            </article>
+          </div>
         </div>
       </section>
 
@@ -873,20 +912,24 @@
         <div class="section-inner">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">Freshness</p>
+              <p class="eyebrow">What's new</p>
               <h2 id="latest-title">Latest from Open Music Event</h2>
             </div>
-            <p class="section-copy">
-              Project notes and launch updates are posted on Bluesky.
-              The feed below loads recent posts when it can and falls back to a direct profile link.
-            </p>
+            <a class="project-card" href="https://bsky.app/profile/openmusicevent.app" data-handle="openmusicevent.app">
+              <span class="avatar" aria-hidden="true">OME</span>
+              <span>
+                <span class="contributor-name">Open Music Event</span>
+                <span class="contributor-role">Project updates, identity, and public launch surface</span>
+                <span class="contributor-handle">@openmusicevent.app</span>
+              </span>
+            </a>
           </div>
 
           <div class="embed-layout">
             <section class="feed-panel" aria-label="Latest posts">
               <div class="panel-header">
                 <h3 class="panel-title">Recent posts</h3>
-                <a class="panel-link" href="https://bsky.app/profile/openmusicevent.app">Open profile</a>
+                <a class="panel-link" href="https://bsky.app/profile/openmusicevent.app">Bluesky</a>
               </div>
               <div class="feed-list" id="feed-list" aria-live="polite">
                 <article class="post-card">
@@ -904,8 +947,7 @@
               </div>
               <div class="feed-fallback" id="feed-fallback">
                 <p>
-                  Feed embeds use the public Bluesky API. If your browser blocks the request,
-                  the profile remains available directly.
+                  If the live feed cannot load, the project profile remains available directly.
                 </p>
                 <a class="button" href="https://bsky.app/profile/openmusicevent.app">Visit @openmusicevent.app</a>
               </div>
@@ -914,7 +956,7 @@
             <section class="contributors-panel" id="contributors" aria-labelledby="contributors-title">
               <div class="panel-header">
                 <h3 class="panel-title" id="contributors-title">Contributors</h3>
-                <a class="panel-link" href="https://bsky.app/profile/openmusicevent.app">Project identity</a>
+                <a class="panel-link" href="https://bsky.app/profile/openmusicevent.app">Bluesky</a>
               </div>
               <div class="contributors-grid" id="contributors-grid">
                 <a class="contributor-card" href="https://bsky.app/profile/woody.fm" data-handle="woody.fm">
@@ -925,46 +967,8 @@
                     <span class="contributor-handle">@woody.fm</span>
                   </span>
                 </a>
-                <a class="contributor-card" href="https://bsky.app/profile/openmusicevent.app" data-handle="openmusicevent.app">
-                  <span class="avatar" aria-hidden="true">OME</span>
-                  <span>
-                    <span class="contributor-name">Open Music Event</span>
-                    <span class="contributor-role">Project updates, identity, and public launch surface</span>
-                    <span class="contributor-handle">@openmusicevent.app</span>
-                  </span>
-                </a>
               </div>
             </section>
-          </div>
-        </div>
-      </section>
-
-      <section class="section" aria-labelledby="outcome-title">
-        <div class="section-inner">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Outcome</p>
-              <h2 id="outcome-title">Better event information before, during, and after the show.</h2>
-            </div>
-            <p class="section-copy">
-              The app should make the event easier to attend and easier to keep accurate.
-              The public surface starts small, then grows as real events and organizers shape it.
-            </p>
-          </div>
-
-          <div class="outcome">
-            <article class="outcome-card">
-              <h3>For attendees</h3>
-              <p>
-                Clear schedules, stage context, contributor profiles, posters, maps, and event details in a native app surface.
-              </p>
-            </article>
-            <article class="outcome-card">
-              <h3>For organizers</h3>
-              <p>
-                A clearer way to keep event information organized, update it when plans change, and carry useful details forward.
-              </p>
-            </article>
           </div>
         </div>
       </section>
