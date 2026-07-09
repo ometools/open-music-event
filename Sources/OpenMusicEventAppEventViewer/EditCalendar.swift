@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import ComposableForms
 import Dependencies
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
@@ -293,13 +294,11 @@ public struct EditCalendarView: View {
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                if store.isSaving {
-                    ProgressView()
-                } else {
-                    Button(store.submitButtonTitle) {
-                        store.send(.saveButtonTapped)
-                    }
-                    .disabled(!store.canSubmit)
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSubmit
+                ) {
+                    store.send(.saveButtonTapped)
                 }
             }
         }

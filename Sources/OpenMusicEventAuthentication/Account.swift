@@ -4,6 +4,7 @@ import ComposableArchitecture2
 import ComposableForms
 import Dependencies
 import IssueReporting
+import OpenMusicEventComponents
 import Sharing
 import SwiftUI
 import Tagged
@@ -98,24 +99,6 @@ public struct Account {
                 "Sign in with your handle, like name.atmo.social or your own domain."
             case .signUp:
                 "Choose a provider to create your Atmosphere account. Your provider hosts your account and data, and you can move later."
-            }
-        }
-
-        var progressTitle: String {
-            switch self {
-            case .signIn:
-                "Signing In..."
-            case .signUp:
-                "Signing Up..."
-            }
-        }
-
-        var systemImage: String {
-            switch self {
-            case .signIn:
-                "person.crop.circle.badge.checkmark"
-            case .signUp:
-                "person.crop.circle.badge.plus"
             }
         }
 
@@ -780,7 +763,6 @@ struct AccountAuthenticationSubmitSection: View {
     var body: some View {
         Section {
             AccountAuthenticationSubmitButton(store: store)
-                .buttonStyle(.borderedProminent)
                 .controlSize(.extraLarge)
         }
     }
@@ -874,7 +856,6 @@ struct AccountAuthenticationSafeEdgeAction: View {
 
         case .signUp:
             AccountAuthenticationSubmitButton(store: store)
-                .buttonStyle(.borderedProminent)
                 .controlSize(.extraLarge)
         }
     }
@@ -884,17 +865,12 @@ struct AccountAuthenticationSubmitButton: View {
     @Bindable var store: StoreOf<Account>
 
     var body: some View {
-        Button {
+        SubmitButton(
+            isInProgress: store.isWorking,
+            isDisabled: store.isAuthenticationFormSubmitDisabled
+        ) {
             store.send(.submitAuthenticationFormButtonTapped)
-        } label: {
-            if store.isWorking {
-                Label(store.selectedMode.progressTitle, systemImage: "hourglass")
-            } else {
-                Label(store.selectedMode.title, systemImage: store.selectedMode.systemImage)
-            }
         }
-        .labelStyle(.titleAndIcon)
-        .disabled(store.isAuthenticationFormSubmitDisabled)
     }
 }
 
@@ -907,31 +883,9 @@ struct AccountProminentSignInButton: View {
 
             AccountAuthenticationSubmitButton(store: store)
                 .frame(minWidth: 220)
-                .accountProminentSignInButtonStyle()
 
             Spacer(minLength: 0)
         }
-    }
-}
-
-extension View {
-    @ViewBuilder
-    func accountProminentSignInButtonStyle() -> some View {
-        #if os(iOS) || os(macOS)
-        if #available(iOS 26, macOS 26, *) {
-            self
-                .buttonStyle(.glassProminent)
-                .controlSize(.extraLarge)
-        } else {
-            self
-                .buttonStyle(.borderedProminent)
-                .controlSize(.extraLarge)
-        }
-        #else
-        self
-            .buttonStyle(.borderedProminent)
-            .controlSize(.extraLarge)
-        #endif
     }
 }
 

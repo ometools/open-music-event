@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import SwiftUI
 
@@ -440,13 +441,11 @@ public struct ImportImagesView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                if store.isSaving {
-                    ProgressView()
-                } else {
-                    Button("Add") {
-                        store.send(.saveButtonTapped)
-                    }
-                    .disabled(!store.canSave)
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSave
+                ) {
+                    store.send(.saveButtonTapped)
                 }
             }
         }

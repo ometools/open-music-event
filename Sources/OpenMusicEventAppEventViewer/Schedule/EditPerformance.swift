@@ -2,6 +2,7 @@ import ATProto
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventComponents
 import ScheduleComponents
 import SQLiteData
 import SwiftUI
@@ -1059,13 +1060,11 @@ public struct EditPerformanceView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                if store.isSaving {
-                    ProgressView()
-                } else {
-                    Button(store.submitButtonTitle) {
-                        store.send(.saveButtonTapped)
-                    }
-                    .disabled(!store.canSubmit)
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSubmit
+                ) {
+                    store.send(.saveButtonTapped)
                 }
             }
         }

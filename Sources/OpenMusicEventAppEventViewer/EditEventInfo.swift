@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import Lexicon
+import OpenMusicEventComponents
 import OpenMusicEventTimeZones
 import SQLiteData
 import SwiftUITabFeatures
@@ -301,13 +302,11 @@ public struct EditEventInfoView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                if store.isSaving {
-                    ProgressView()
-                } else {
-                    Button("Save") {
-                        store.send(.saveButtonTapped)
-                    }
-                    .disabled(!store.canSubmit)
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSubmit
+                ) {
+                    store.send(.saveButtonTapped)
                 }
             }
         }

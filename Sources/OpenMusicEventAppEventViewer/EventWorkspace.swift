@@ -3,6 +3,7 @@ import ComposableForms
 import Foundation
 import GRDB
 import Lexicon
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
@@ -1941,10 +1942,13 @@ public struct SourceProposalComposerView: View {
                     .disabled(store.status.isProposing)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create Proposal") {
+                    SubmitButton(
+                        .propose,
+                        isInProgress: store.status.isProposing,
+                        isDisabled: !store.canCreateSourceProposal
+                    ) {
                         store.send(.createProposalButtonTapped)
                     }
-                    .disabled(!store.canCreateSourceProposal)
                 }
             }
         }

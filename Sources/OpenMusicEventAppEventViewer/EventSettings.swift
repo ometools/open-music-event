@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import SQLiteData
@@ -323,13 +324,11 @@ public struct EditReportingLinkView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                if store.isSaving {
-                    ProgressView()
-                } else {
-                    Button("Save") {
-                        store.send(.saveButtonTapped)
-                    }
-                    .disabled(!store.canSubmit)
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSubmit
+                ) {
+                    store.send(.saveButtonTapped)
                 }
             }
         }

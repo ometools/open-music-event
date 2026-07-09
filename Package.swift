@@ -14,6 +14,7 @@ let package = Package(
         .library(name: "OpenMusicEventEditors", targets: ["OpenMusicEventEditors"]),
         .library(name: "OpenMusicEventViewers", targets: ["OpenMusicEventViewers"]),
         .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
+        .library(name: "OpenMusicEventComponents", targets: ["OpenMusicEventComponents"]),
         .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
         .library(name: "OpenMusicEventImages", targets: ["OpenMusicEventImages"]),
         .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
@@ -77,6 +78,7 @@ let package = Package(
                 "ErrorHandling",
                 "OpenMusicEventAppEventViewer",
                 "OpenMusicEventAuthentication",
+                "OpenMusicEventComponents",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventImages",
                 "OpenMusicEventLexicon",
@@ -103,6 +105,7 @@ let package = Package(
             name: "OpenMusicEventAuthentication",
             dependencies: [
                 "OpenMusicEventSourceClone",
+                "OpenMusicEventComponents",
                 .product(name: "ATProto", package: "swift-composable-atmosphere"),
                 .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
                 .product(name: "ATProtoServer", package: "swift-composable-atmosphere"),
@@ -123,6 +126,7 @@ let package = Package(
                 "BlueskyActorCache",
                 "ErrorHandling",
                 "LiquidGlassSegmentedPicker",
+                "OpenMusicEventComponents",
                 "OpenMusicEventDatabase",
                 "OpenMusicEventEditors",
                 "OpenMusicEventImages",
@@ -147,6 +151,9 @@ let package = Package(
                 .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
+        ),
+        .target(
+            name: "OpenMusicEventComponents"
         ),
         .target(
             name: "OpenMusicEventViewers",

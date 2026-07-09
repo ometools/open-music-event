@@ -8,6 +8,7 @@ import AppKit
 #elseif !SKIP && canImport(UIKit)
 import UIKit
 #endif
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
@@ -805,10 +806,12 @@ public struct CopyStagesFromEventView: View {
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button("Copy") {
+                SubmitButton(
+                    isInProgress: store.isCopying,
+                    isDisabled: !store.canCopy
+                ) {
                     store.send(.copyButtonTapped)
                 }
-                .disabled(!store.canCopy)
             }
         }
     }
@@ -1539,13 +1542,11 @@ public struct EditStageView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                if store.isSaving {
-                    ProgressView()
-                } else {
-                    Button(store.submitButtonTitle) {
-                        store.send(.saveButtonTapped)
-                    }
-                    .disabled(!store.canSubmit)
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSubmit
+                ) {
+                    store.send(.saveButtonTapped)
                 }
             }
         }

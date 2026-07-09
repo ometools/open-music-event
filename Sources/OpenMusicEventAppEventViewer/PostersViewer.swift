@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
@@ -648,13 +649,11 @@ public struct EditPosterView: View {
         }
 
         ToolbarItem(placement: .confirmationAction) {
-            if store.isSaving || store.isDeleting {
-                ProgressView()
-            } else {
-                Button("Save") {
-                    store.send(.saveButtonTapped)
-                }
-                .disabled(!store.canSubmit)
+            SubmitButton(
+                isInProgress: store.isSaving || store.isDeleting,
+                isDisabled: !store.canSubmit
+            ) {
+                store.send(.saveButtonTapped)
             }
         }
     }

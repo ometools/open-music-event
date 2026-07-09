@@ -3,6 +3,7 @@ import Dependencies
 import ErrorHandling
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
@@ -226,13 +227,11 @@ struct TangledSourceDownloadView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                if store.isImporting {
-                    ProgressView()
-                } else {
-                    Button("Import") {
-                        store.send(.importButtonTapped)
-                    }
-                    .disabled(!store.canImport)
+                SubmitButton(
+                    isInProgress: store.isImporting,
+                    isDisabled: !store.canImport
+                ) {
+                    store.send(.importButtonTapped)
                 }
             }
         }

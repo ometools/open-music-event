@@ -3,6 +3,7 @@ import ComposableForms
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventComponents
 import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import OpenMusicEventTimeZones
@@ -381,13 +382,11 @@ struct TeamWorkspaceCreateEventView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                if store.isSaving {
-                    ProgressView()
-                } else {
-                    Button("Create") {
-                        store.send(.saveButtonTapped)
-                    }
-                    .disabled(!store.canSubmit)
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSubmit
+                ) {
+                    store.send(.saveButtonTapped)
                 }
             }
         }

@@ -3,6 +3,7 @@ import ComposableForms
 import Dependencies
 import Foundation
 import Lexicon
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
@@ -325,13 +326,11 @@ public struct EditEventPoliciesView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                if store.isSaving {
-                    ProgressView()
-                } else {
-                    Button("Save") {
-                        store.send(.saveButtonTapped)
-                    }
-                    .disabled(!store.canSubmit)
+                SubmitButton(
+                    isInProgress: store.isSaving,
+                    isDisabled: !store.canSubmit
+                ) {
+                    store.send(.saveButtonTapped)
                 }
             }
         }

@@ -154,9 +154,6 @@
         }
       }
     },
-    "Create" : {
-
-    },
     "Create Event" : {
 
     },
@@ -377,9 +374,6 @@
     "https://tangled.org/owner/repo" : {
 
     },
-    "Import" : {
-
-    },
     "Import Team Workspace" : {
 
     },
@@ -540,6 +534,7 @@
     },
     "Save" : {
       "comment" : "Button title indicating that the current contents should be saved",
+      "extractionState" : "stale",
       "localizations" : {
         "es" : {
           "stringUnit" : {
@@ -650,9 +645,6 @@
       }
     },
     "Tangled did not return a source archive." : {
-
-    },
-    "Team Workspace" : {
 
     },
     "Team Workspaces" : {

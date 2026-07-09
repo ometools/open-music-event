@@ -1,4 +1,5 @@
 import SwiftUI
+import OpenMusicEventComponents
 
 
 enum ContentTab: String, Hashable {
@@ -124,11 +125,10 @@ struct ItemView : View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
+                SubmitButton(isDisabled: !viewModel.isUpdated(item)) {
                     viewModel.save(item: item)
                     dismiss()
                 }
-                .disabled(!viewModel.isUpdated(item))
             }
         }
     }
