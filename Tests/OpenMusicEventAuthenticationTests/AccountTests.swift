@@ -37,6 +37,30 @@ struct AccountTests {
     }
 
     @Test
+    func accountButtonPresentsAuthenticationSheetWhenAlreadySignedIn() async throws {
+        let session = try accountTestSession(
+            did: "did:plc:alice123",
+            pdsHost: "alice.pds.example"
+        )
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(session)
+        let store = Store(
+            initialState: Account.State.localTestState(
+                sessionStore: Shared(value: sessionStoreValue),
+                selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
+            )
+        ) {
+            Account()
+        }
+
+        let task = store.send(.accountButtonTapped)
+        await task?.value
+
+        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.sessionStore[session.accountID] == session)
+    }
+
+    @Test
     func dismissingAuthenticationSheetClearsPresentation() async {
         let store = Store(
             initialState: Account.State.localTestState(isAuthenticationSheetPresented: true)
@@ -131,6 +155,123 @@ struct AccountTests {
     }
 
     @Test
+    func accountRowsLoadFriendlyIdentityLabels() async throws {
+        let session = try accountTestSession(
+            did: "did:plc:alice123",
+            pdsHost: "alice.pds.example"
+        )
+        let identity = ActorIdentity(
+            did: session.accountID.rawValue,
+            handle: Atmosphere.Account.Handle(rawValue: "alice.example.com"),
+            displayName: "Alice Example",
+            source: .canonicalResolution
+        )
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(session)
+        let store = withDependencies {
+            $0.actorIdentityLookup.resolve = { input in
+                #expect(input == "did:plc:alice123")
+                return identity
+            }
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    sessionStore: Shared(value: sessionStoreValue),
+                    selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
+                )
+            ) {
+                Account()
+            }
+        }
+
+        let task = store.send(.accountRowsAppeared)
+        await task?.value
+        try await waitForCondition {
+            store.accountRows.first?.title == "Alice Example"
+        }
+
+        let row = try #require(store.accountRows.first)
+        #expect(row.title == "Alice Example")
+        #expect(row.subtitle == "alice.example.com")
+        #expect(!row.title.contains("did:"))
+        #expect(!row.subtitle.contains("did:"))
+    }
+
+    @Test
+    func accountRowsFallbackDoesNotSurfaceDID() async throws {
+        let session = try accountTestSession(
+            did: "did:plc:fallback123",
+            pdsHost: "fallback.pds.example"
+        )
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(session)
+        var state = Account.State.localTestState(
+            sessionStore: Shared(value: sessionStoreValue),
+            selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
+        )
+        state.accountIdentities[session.accountID] = .loaded(
+            ActorIdentity(
+                did: session.accountID.rawValue,
+                handle: Atmosphere.Account.Handle(
+                    rawValue: session.accountID.rawValue.description
+                ),
+                source: .canonicalResolution
+            )
+        )
+
+        let row = try #require(state.accountRows.first)
+
+        #expect(row.title == "AT Protocol account")
+        #expect(row.subtitle == "Hosted by fallback.pds.example")
+        #expect(!row.title.contains("did:"))
+        #expect(!row.subtitle.contains("did:"))
+    }
+
+    @Test
+    func selectingStoredAccountUpdatesSelectedSessionID() async throws {
+        let keychainStorage = InMemoryKeychainStorage()
+        let selectedSessionIDItem = KeychainStorageItem(
+            service: "fm.woody.openMusicEvent.tests",
+            account: "account.select.selectedSessionID"
+        )
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(alice)
+        sessionStoreValue.upsert(bob)
+        let selectedSessionID = Shared(
+            wrappedValue: alice.accountID as Atmosphere.Account.ID?,
+            KeychainSharedKey(item: selectedSessionIDItem)
+        )
+        let store = withDependencies {
+            $0.keychainStorage = .inMemory(keychainStorage)
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    sessionStore: Shared(value: sessionStoreValue),
+                    selectedSessionID: selectedSessionID
+                )
+            ) {
+                Account()
+            }
+        }
+
+        let task = store.send(.accountRowTapped(bob.accountID))
+        await task?.value
+
+        #expect(store.selectedSessionID == bob.accountID)
+        #expect(store.session == bob)
+        try await waitForCondition {
+            keychainStorage.data(for: selectedSessionIDItem) != nil
+        }
+        let savedSelectedSessionID = try JSONDecoder().decode(
+            Atmosphere.Account.ID?.self,
+            from: try #require(keychainStorage.data(for: selectedSessionIDItem))
+        )
+        #expect(savedSelectedSessionID == bob.accountID)
+    }
+
+    @Test
     func signInFormLaunchesDirectAuthorizationWithLoginHint() async {
         let accountAuthorization = AccountDirectAuthorizationRecorder()
         let authorizationRequests = AccountAuthorizationRecorder()
@@ -166,6 +307,57 @@ struct AccountTests {
         #expect(store.isAuthenticationSheetPresented == false)
         #expect(store.isLoginInProgress == false)
         #expect(store.errorMessage == nil)
+    }
+
+    @Test
+    func signInFormAddsSecondAccountAndSelectsIt() async throws {
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(alice)
+        let accountAuthorization = AccountDirectAuthorizationRecorder(
+            signInContinuation: .suspended
+        )
+        let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
+            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    isAuthenticationSheetPresented: true,
+                    signInLoginHint: "bob.example.com",
+                    sessionStore: Shared(value: sessionStoreValue),
+                    selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
+                )
+            ) {
+                Account()
+            }
+        }
+
+        let task = store.send(.submitAuthenticationFormButtonTapped)
+        try await waitForCondition {
+            store.isLoginInProgress
+        }
+        #expect(
+            await accountAuthorization.signInRequests == [
+                AccountDirectAuthorizationRecorder.SignInRequest(
+                    requirement: OpenMusicEventOAuth.baseAuthRequirement,
+                    loginHint: "bob.example.com",
+                    sessionStore: sessionStoreValue
+                )
+            ]
+        )
+
+        await accountAuthorization.resumeSignIn(returning: bob)
+        await task?.value
+        try await waitForCondition {
+            store.session == bob
+        }
+
+        #expect(store.sessionStore[alice.accountID] == alice)
+        #expect(store.sessionStore[bob.accountID] == bob)
+        #expect(store.selectedSessionID == bob.accountID)
+        #expect(store.isAuthenticationSheetPresented == false)
     }
 
     @Test
@@ -437,6 +629,24 @@ private extension Account.State {
             selectedSessionID: selectedSessionID
         )
     }
+}
+
+private func accountTestSession(
+    did didString: String,
+    pdsHost: String
+) throws -> OAuth.Session {
+    let did = try #require(DID(didString))
+    return OAuth.Session(
+        accountID: Atmosphere.Account.ID(did),
+        pdsHost: ATProto.PDSHost(pdsHost),
+        tokenEndpoint: OAuth.AuthorizationServer.TokenEndpoint(
+            URL(string: "https://\(pdsHost)/oauth/token")!
+        ),
+        scope: "atproto",
+        accessToken: OAuth.AccessToken(rawValue: "\(didString)-access-token"),
+        refreshToken: OAuth.RefreshToken(rawValue: "\(didString)-refresh-token"),
+        dpopKey: OAuth.DPOP.Key()
+    )
 }
 
 private let accountTestSignUpServerConfiguration = OAuthSignUpServerConfiguration(

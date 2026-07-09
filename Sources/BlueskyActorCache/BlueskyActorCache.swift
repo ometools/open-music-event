@@ -204,6 +204,49 @@ extension DependencyValues {
     }
 }
 
+public enum BlueskyActorCacheDependencies {
+    public static func prepareDependencies(_ dependencies: inout DependencyValues) {
+        dependencies.actorIdentityLookup = .blueskyActorProfileCacheBacked()
+    }
+}
+
+public extension ActorIdentityLookupClient {
+    static func blueskyActorProfileCacheBacked(
+        fallback: ActorIdentityLookupClient = .liveValue,
+        staleAfter: TimeInterval = 60 * 60 * 24,
+        retryAfter: TimeInterval = 60 * 5
+    ) -> Self {
+        Self { input in
+            @Dependency(\.blueskyActorProfileCache)
+            var blueskyActorProfileCache
+
+            let cachedProfile = try? await blueskyActorProfileCache.cachedProfile(input)
+            let refreshedProfile = try? await blueskyActorProfileCache.refreshProfileIfNeeded(
+                input,
+                staleAfter,
+                retryAfter
+            )
+            if let identity = (refreshedProfile ?? cachedProfile).flatMap(ActorIdentity.init) {
+                return identity
+            }
+            return try await fallback.resolve(input)
+        }
+    }
+}
+
+private extension ActorIdentity {
+    init?(_ profile: BlueskyActorProfile) {
+        guard let did = DID(profile.did) else { return nil }
+        self.init(
+            did: did,
+            handle: Atmosphere.Account.Handle(rawValue: profile.handle),
+            displayName: profile.displayName,
+            avatar: profile.avatar,
+            source: .canonicalResolution
+        )
+    }
+}
+
 private enum BlueskyActorProfileCacheClientKey: DependencyKey {
     static var liveValue: BlueskyActorProfileCacheClient { .live }
 

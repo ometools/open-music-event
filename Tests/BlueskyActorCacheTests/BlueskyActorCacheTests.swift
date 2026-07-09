@@ -1,3 +1,4 @@
+import ATProto
 import CustomDump
 import Dependencies
 import Foundation
@@ -191,6 +192,82 @@ struct BlueskyActorCacheTests {
         #expect(refreshed == nil)
         #expect(await requestRecorder.requests.isEmpty)
     }
+
+    @Test
+    func cacheBackedActorIdentityLookupUsesProfileCache() async throws {
+        let profile = BlueskyActorProfile(
+            did: "did:plc:alice123",
+            handle: "alice.example.com",
+            displayName: "Alice Example",
+            avatar: URL(string: "https://cdn.example/alice.jpg")
+        )
+        let lookup = ActorIdentityLookupClient.blueskyActorProfileCacheBacked()
+
+        let identity = try await withDependencies {
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { actor in
+                    #expect(actor == "did:plc:alice123")
+                    return profile
+                },
+                refreshProfile: { _ in
+                    Issue.record("Cached profile lookup should not force a refresh.")
+                    return profile
+                },
+                refreshProfileIfNeeded: { actor, _, _ in
+                    #expect(actor == "did:plc:alice123")
+                    return nil
+                }
+            )
+        } operation: {
+            try await lookup.resolve("did:plc:alice123")
+        }
+
+        expectNoDifference(
+            identity,
+            ActorIdentity(
+                did: DID("did:plc:alice123")!,
+                handle: Atmosphere.Account.Handle(rawValue: "alice.example.com"),
+                displayName: "Alice Example",
+                avatar: URL(string: "https://cdn.example/alice.jpg"),
+                source: .canonicalResolution
+            )
+        )
+    }
+
+    @Test
+    func cacheBackedActorIdentityLookupFallsBackWhenCacheMisses() async throws {
+        var fallback = ActorIdentityLookupClient()
+        fallback.resolve = { input in
+            #expect(input == "did:plc:bob123")
+            return ActorIdentity(
+                did: DID("did:plc:bob123")!,
+                handle: Atmosphere.Account.Handle(rawValue: "bob.example.com"),
+                source: .canonicalResolution
+            )
+        }
+        let lookup = ActorIdentityLookupClient.blueskyActorProfileCacheBacked(
+            fallback: fallback
+        )
+
+        let identity = try await withDependencies {
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { _ in nil },
+                refreshProfile: { _ in
+                    Issue.record("Cache miss lookup should use refreshProfileIfNeeded.")
+                    throw CacheBackedActorIdentityLookupTestError.unexpectedRefresh
+                },
+                refreshProfileIfNeeded: { _, _, _ in nil }
+            )
+        } operation: {
+            try await lookup.resolve("did:plc:bob123")
+        }
+
+        #expect(identity.handle?.rawValue == "bob.example.com")
+    }
+}
+
+private enum CacheBackedActorIdentityLookupTestError: Error {
+    case unexpectedRefresh
 }
 
 private func makePreparedDatabase() throws -> any DatabaseWriter {

@@ -1,6 +1,7 @@
 import Foundation
 import SkipFuse
 import SwiftUI
+import BlueskyActorCache
 import Dependencies
 import SQLiteData
 import ComposableArchitecture2
@@ -33,6 +34,7 @@ extension OME {
         try dependencies.bootstrapDatabase()
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
+        BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
         dependencies.sourceControl = LibGit2SourceControlClient.live
         dependencies.tangledSourceCheckout = .archive
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent

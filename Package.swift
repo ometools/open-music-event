@@ -353,6 +353,7 @@ let package = Package(
             name: "BlueskyActorCacheTests",
             dependencies: [
                 "BlueskyActorCache",
+                .product(name: "ATProto", package: "swift-composable-atmosphere"),
                 .product(name: "CustomDump", package: "swift-custom-dump"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
