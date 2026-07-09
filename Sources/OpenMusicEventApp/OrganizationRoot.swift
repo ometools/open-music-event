@@ -37,15 +37,23 @@ public struct OrganizationRoot {
 }
 
 public struct OrganizationRootView: View {
-    public init(store: StoreOf<OrganizationRoot>) {
+    public init(
+        store: StoreOf<OrganizationRoot>,
+        whiteLabelRootStore: StoreOf<WhiteLabelRoot>? = nil
+    ) {
         self.store = store
+        self.whiteLabelRootStore = whiteLabelRootStore
     }
 
     @Bindable var store: StoreOf<OrganizationRoot>
+    let whiteLabelRootStore: StoreOf<WhiteLabelRoot>?
 
     public var body: some View {
         NavigationStack {
-            OrganizerDetailView(store: store.spawn(\.organizerDetail))
+            OrganizerDetailView(
+                store: store.spawn(\.organizerDetail),
+                whiteLabelRootStore: whiteLabelRootStore
+            )
         }
     }
 }

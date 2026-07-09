@@ -183,9 +183,14 @@ public struct CalendarDetail {
 
 public struct CalendarDetailView: View {
     @Bindable var store: StoreOf<CalendarDetail>
+    let whiteLabelRootStore: StoreOf<WhiteLabelRoot>?
 
-    public init(store: StoreOf<CalendarDetail>) {
+    public init(
+        store: StoreOf<CalendarDetail>,
+        whiteLabelRootStore: StoreOf<WhiteLabelRoot>? = nil
+    ) {
         self.store = store
+        self.whiteLabelRootStore = whiteLabelRootStore
     }
 
     public var body: some View {
@@ -241,6 +246,7 @@ public struct CalendarDetailView: View {
                 store.send(.editButtonTapped)
             }
         }
+        .whiteLabelRootActionsToolbar(store: whiteLabelRootStore)
     }
 
     private var calendarTitle: String {

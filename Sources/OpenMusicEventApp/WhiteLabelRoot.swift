@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
@@ -19,8 +20,10 @@ public struct WhiteLabelRoot {
             self.configuration = configuration
         }
 
+        public var account = Spawn(Account.State())
         public var configuration: WhiteLabelAppConfiguration
         public var errorMessage: String?
+        public var isAccountManagementPresented = false
         public var isLoading = false
         public var loadingPhase: LoadingPhase = .idle
         public var organizationRoot: Spawn<OrganizationRoot>?
@@ -38,6 +41,8 @@ public struct WhiteLabelRoot {
     }
 
     public enum Action {
+        case accountManagementButtonTapped
+        case accountManagementDoneButtonTapped
         case retryButtonTapped
     }
 
@@ -53,6 +58,12 @@ public struct WhiteLabelRoot {
 
         Update { state, action in
             switch action {
+            case .accountManagementButtonTapped:
+                state.isAccountManagementPresented = true
+
+            case .accountManagementDoneButtonTapped:
+                state.isAccountManagementPresented = false
+
             case .retryButtonTapped:
                 guard !state.isLoading else { return }
                 state.errorMessage = nil
@@ -63,6 +74,9 @@ public struct WhiteLabelRoot {
 
 
             }
+        }
+        .spawn(\.account) {
+            Account()
         }
         .ifLet(\.organizationRoot) {
             OrganizationRoot()
@@ -296,18 +310,34 @@ public struct WhiteLabelRootView: View {
     @Bindable var store: StoreOf<WhiteLabelRoot>
 
     public var body: some View {
+        let accountStore = store.spawn(\.account)
+
         Group {
             if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail) {
                 NavigationStack {
-                    TeamWorkspaceDetailView(store: teamWorkspaceDetailStore)
+                    TeamWorkspaceDetailView(
+                        store: teamWorkspaceDetailStore,
+                        isManageWorkspaceToolbarItemVisible: false
+                    )
+                    .whiteLabelRootActionsToolbar(store: store)
                 }
             } else if let organizationRootStore = store.spawn(\.organizationRoot) {
-                OrganizationRootView(store: organizationRootStore)
+                OrganizationRootView(
+                    store: organizationRootStore,
+                    whiteLabelRootStore: store
+                )
             } else {
                 NavigationStack {
                     LoadingView(store: store)
+                        .whiteLabelRootActionsToolbar(store: store)
                 }
             }
+        }
+        .sheet(isPresented: $store.isAccountManagementPresented) {
+            WhiteLabelRootAccountManagementView(
+                store: store,
+                accountStore: accountStore
+            )
         }
     }
 
@@ -382,6 +412,76 @@ public struct WhiteLabelRootView: View {
                     }
                 }
                 .padding(.vertical, 4)
+            }
+        }
+    }
+}
+
+struct WhiteLabelRootActionsMenu: View {
+    let store: StoreOf<WhiteLabelRoot>
+
+    var body: some View {
+        Menu {
+            if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail),
+               teamWorkspaceDetailStore.canManageSource {
+                Button {
+                    teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
+                } label: {
+                    Label(
+                        teamWorkspaceDetailStore.isPreparingTeamWorkspaceEditor
+                            ? "Preparing Workspace"
+                            : "Manage Workspace",
+                        systemImage: "person.3"
+                    )
+                }
+                .disabled(teamWorkspaceDetailStore.isPreparingTeamWorkspaceEditor)
+            }
+
+            Button {
+                store.send(.accountManagementButtonTapped)
+            } label: {
+                Label("Account Management", systemImage: "person.crop.circle")
+            }
+        } label: {
+            Label("Manage", systemImage: "gearshape")
+                .labelStyle(.iconOnly)
+        }
+    }
+}
+
+struct WhiteLabelRootAccountManagementView: View {
+    let store: StoreOf<WhiteLabelRoot>
+    let accountStore: StoreOf<Account>
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                AccountView(store: accountStore)
+            }
+            .navigationTitle("Account Management")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        store.send(.accountManagementDoneButtonTapped)
+                    }
+                }
+            }
+        }
+        .accountAuthenticationSheet(store: accountStore)
+    }
+}
+
+extension View {
+    func whiteLabelRootActionsToolbar(store: StoreOf<WhiteLabelRoot>) -> some View {
+        whiteLabelRootActionsToolbar(store: Optional(store))
+    }
+
+    func whiteLabelRootActionsToolbar(store: StoreOf<WhiteLabelRoot>?) -> some View {
+        toolbar {
+            if let store {
+                ToolbarItem(placement: .primaryAction) {
+                    WhiteLabelRootActionsMenu(store: store)
+                }
             }
         }
     }

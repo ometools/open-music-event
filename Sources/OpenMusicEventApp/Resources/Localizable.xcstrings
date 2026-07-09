@@ -49,6 +49,9 @@
     "About" : {
 
     },
+    "Account Management" : {
+
+    },
     "Add" : {
       "comment" : "Button in items list that will cause a new item to be added",
       "localizations" : {
@@ -233,6 +236,9 @@
     "Directory" : {
 
     },
+    "Done" : {
+
+    },
     "Edit Calendar" : {
 
     },
@@ -400,7 +406,13 @@
         }
       }
     },
+    "Manage" : {
+
+    },
     "Manage Team Workspace" : {
+
+    },
+    "Manage Workspace" : {
 
     },
     "My Events" : {
@@ -503,6 +515,9 @@
       }
     },
     "Preparing Team Workspace" : {
+
+    },
+    "Preparing Workspace" : {
 
     },
     "Previous Events" : {

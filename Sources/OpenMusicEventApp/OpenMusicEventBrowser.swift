@@ -601,9 +601,14 @@ public struct OrganizerDetail {
 public struct OrganizerDetailView: View {
     @Bindable var store: StoreOf<OrganizerDetail>
     @Dependency(\.date.now) var now
+    let whiteLabelRootStore: StoreOf<WhiteLabelRoot>?
 
-    public init(store: StoreOf<OrganizerDetail>) {
+    public init(
+        store: StoreOf<OrganizerDetail>,
+        whiteLabelRootStore: StoreOf<WhiteLabelRoot>? = nil
+    ) {
         self.store = store
+        self.whiteLabelRootStore = whiteLabelRootStore
     }
 
     public var body: some View {
@@ -661,13 +666,17 @@ public struct OrganizerDetailView: View {
             }
         }
         .navigationDestination(item: $store.scope(\.calendarDetail, action: \.calendarDetail)) { detailStore in
-            CalendarDetailView(store: detailStore)
+            CalendarDetailView(
+                store: detailStore,
+                whiteLabelRootStore: whiteLabelRootStore
+            )
         }
         .toolbar {
             Button("Add Event", systemImage: "plus") {
                 store.send(.addEventButtonTapped)
             }
         }
+        .whiteLabelRootActionsToolbar(store: whiteLabelRootStore)
     }
 
     private var defaultCalendarEntryRows: CalendarDetail.EntryRows {
@@ -1085,9 +1094,14 @@ public struct TeamWorkspaceDetail {
 public struct TeamWorkspaceDetailView: View {
     @Bindable var store: StoreOf<TeamWorkspaceDetail>
     @Dependency(\.date.now) var now
+    let isManageWorkspaceToolbarItemVisible: Bool
 
-    public init(store: StoreOf<TeamWorkspaceDetail>) {
+    public init(
+        store: StoreOf<TeamWorkspaceDetail>,
+        isManageWorkspaceToolbarItemVisible: Bool = true
+    ) {
         self.store = store
+        self.isManageWorkspaceToolbarItemVisible = isManageWorkspaceToolbarItemVisible
     }
 
     @State var sourceSectionExpanded = false
@@ -1191,7 +1205,7 @@ public struct TeamWorkspaceDetailView: View {
                     store.send(.addEventButtonTapped)
                 }
             }
-            if store.canManageSource {
+            if isManageWorkspaceToolbarItemVisible && store.canManageSource {
                 Button(
                     store.isPreparingTeamWorkspaceEditor
                         ? "Preparing Team Workspace"
