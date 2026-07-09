@@ -11,7 +11,7 @@ import SQLiteData
 import SwiftUI
 
 @Feature
-public struct WhiteLabelBootstrap {
+public struct WhiteLabelRoot {
     public init() {}
 
     public struct State {
@@ -279,96 +279,109 @@ public struct WhiteLabelBootstrap {
     }
 }
 
-public struct WhiteLabelBootstrapView: View {
-    public init(store: StoreOf<WhiteLabelBootstrap>) {
+public struct WhiteLabelRootView: View {
+    public init(store: StoreOf<WhiteLabelRoot>) {
         self.store = store
     }
 
-    @Bindable var store: StoreOf<WhiteLabelBootstrap>
+    @Bindable var store: StoreOf<WhiteLabelRoot>
 
     public var body: some View {
-        content
-            .task {
-                await store.send(.task)?.value
+        Group {
+            if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail) {
+                NavigationStack {
+                    TeamWorkspaceDetailView(store: teamWorkspaceDetailStore)
+                }
+            } else if let organizationRootStore = store.spawn(\.organizationRoot) {
+                OrganizationRootView(store: organizationRootStore)
+            } else {
+                NavigationStack {
+                    LoadingView(store: store)
+                }
             }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail) {
-            NavigationStack {
-                TeamWorkspaceDetailView(store: teamWorkspaceDetailStore)
-            }
-        } else if let organizationRootStore = store.spawn(\.organizationRoot) {
-            OrganizationRootView(store: organizationRootStore)
-        } else {
-            NavigationStack {
-                loadingView
-            }
+        }
+        .task {
+            await store.send(.task)?.value
         }
     }
 
-    private var loadingView: some View {
-        List {
-            header
+    struct LoadingView: View {
+        let store: StoreOf<WhiteLabelRoot>
 
-            if store.isLoading {
-                loadingStatus
-            }
+        var body: some View {
+            List {
+                Header(configuration: store.configuration)
 
-            if let errorMessage = store.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Button("Retry") {
-                        store.send(.retryButtonTapped)
+                if store.isLoading {
+                    LoadingStatus(
+                        displayName: store.configuration.brand.displayName,
+                        phase: store.loadingPhase
+                    )
+                }
+
+                if let errorMessage = store.errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Button("Retry") {
+                            store.send(.retryButtonTapped)
+                        }
                     }
                 }
             }
+            .navigationTitle(store.configuration.brand.displayName)
         }
-        .navigationTitle(store.configuration.brand.displayName)
     }
 
-    private var loadingStatus: some View {
-        Section {
-            HStack(alignment: .top, spacing: 12) {
-                ProgressView()
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(store.loadingPhase.title(displayName: store.configuration.brand.displayName))
-                        .font(.headline)
-                    Text(store.loadingPhase.detail)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+    struct Header: View {
+        let configuration: WhiteLabelAppConfiguration
+
+        var body: some View {
+            Section {
+                HStack(spacing: 12) {
+                    Image(systemName: configuration.brand.systemImage)
+                        .font(.title2)
+                        .foregroundColor(.accentColor)
+                    VStack(alignment: .leading) {
+                        Text(configuration.brand.displayName)
+                            .font(.headline)
+                        if let handle = configuration.handle {
+                            Text(handle)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
         }
     }
 
-    private var header: some View {
-        Section {
-            HStack(spacing: 12) {
-                Image(systemName: store.configuration.brand.systemImage)
-                    .font(.title2)
-                    .foregroundColor(.accentColor)
-                VStack(alignment: .leading) {
-                    Text(store.configuration.brand.displayName)
-                        .font(.headline)
-                    if let handle = store.configuration.handle {
-                        Text(handle)
+    struct LoadingStatus: View {
+        let displayName: String
+        let phase: WhiteLabelRoot.State.LoadingPhase
+
+        var body: some View {
+            Section {
+                HStack(alignment: .top, spacing: 12) {
+                    ProgressView()
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(phase.title(displayName: displayName))
+                            .font(.headline)
+                        Text(phase.detail)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
         }
     }
 }
 
-private extension WhiteLabelBootstrap.State {
+private extension WhiteLabelRoot.State {
     mutating func setLoadedRoot(
         organizerID: OMERecord.Organizer.ID,
         sourceBaselineIDs: [SourceBaselineRecord.ID]
@@ -387,7 +400,7 @@ private extension WhiteLabelBootstrap.State {
     }
 }
 
-private extension WhiteLabelBootstrap.State.LoadingPhase {
+private extension WhiteLabelRoot.State.LoadingPhase {
     func title(displayName: String) -> String {
         switch self {
         case .idle:

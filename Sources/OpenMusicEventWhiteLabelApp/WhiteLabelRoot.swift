@@ -1,7 +1,7 @@
 import Dependencies
 import Foundation
 import HTTPClient
-import OpenMusicEventApp
+@_exported import OpenMusicEventApp
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
@@ -9,20 +9,6 @@ import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import OpenMusicEventWhiteLabel
 import SQLiteData
-
-public typealias WhiteLabelRoot = WhiteLabelBootstrap
-public typealias WhiteLabelRootView = WhiteLabelBootstrapView
-
-public enum WhiteLabelDependencies {
-    public static func prepare(_ dependencies: inout DependencyValues) throws {
-        try OpenMusicEventDependencies.prepare(
-            &dependencies,
-            profile: .whiteLabel
-        ) {
-            $0.whiteLabelSourceImport = .live
-        }
-    }
-}
 
 public extension WhiteLabelSourceImportClient {
     static var live: Self {

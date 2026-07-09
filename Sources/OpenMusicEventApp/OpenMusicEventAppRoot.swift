@@ -21,21 +21,34 @@ public struct OpenMusicEventAppRoot {
         public init(variant: OpenMusicEventAppVariant = .generic) {
             self.variant = variant
             if case let .whiteLabel(configuration) = variant {
-                self.whiteLabelBootstrap = Spawn(
-                    WhiteLabelBootstrap.State(configuration: configuration)
+                self.whiteLabelRoot = Spawn(
+                    WhiteLabelRoot.State(configuration: configuration)
                 )
             }
         }
 
         public var authentication = AuthenticationCoordinator.State()
         public var browser = Spawn(OpenMusicEventBrowser.State())
+        public var destination: Destination.State?
         public var errorNotifications = Spawn(ErrorNotifications.State())
-        public var eventViewer: Spawn<EventViewer>?
+        public var eventViewer: Spawn<EventViewer>? {
+            get {
+                guard case let .some(.eventViewer(eventViewer)) = destination else { return nil }
+                return eventViewer
+            }
+            set {
+                if let newValue {
+                    destination = .eventViewer(newValue)
+                } else {
+                    destination = nil
+                }
+            }
+        }
         public var hasRestoredSelectedEventAtLaunch = false
         var inAppBrowserPresentation: InAppBrowserPresentation?
         public var launchEventViewer: Spawn<EventViewer>?
         public var variant: OpenMusicEventAppVariant
-        public var whiteLabelBootstrap: Spawn<WhiteLabelBootstrap>? = nil
+        public var whiteLabelRoot: Spawn<WhiteLabelRoot>? = nil
 
         @FetchOne(AppState.find(1))
         public var appState: AppState?
@@ -47,11 +60,17 @@ public struct OpenMusicEventAppRoot {
 
     public enum Action {
         case authentication(AuthenticationCoordinator.Action)
+        case destination(Destination.Action)
         case eventViewerDismissed
         case handleNavigationRequest(NavigationRequest)
         case openRoute(AppRoute)
         case openURL(URL)
         case task
+    }
+
+    @Feature
+    public enum Destination {
+        case eventViewer(Spawn<EventViewer>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -103,7 +122,7 @@ public struct OpenMusicEventAppRoot {
                 if state.launchEventViewer != nil {
                     state.launchEventViewer = Spawn(.route(eventID: eventID, target: target))
                 } else {
-                    state.eventViewer = Spawn(.route(eventID: eventID, target: target))
+                    state.destination = .eventViewer(Spawn(.route(eventID: eventID, target: target)))
                 }
             }
             if state.persistsSelectedEvent, state.selectedEventID != eventID {
@@ -124,8 +143,11 @@ public struct OpenMusicEventAppRoot {
                 case .authentication:
                     break
 
+                case .destination:
+                    break
+
                 case .eventViewerDismissed:
-                    state.eventViewer = nil
+                    state.destination = nil
                     if state.persistsSelectedEvent {
                         clearSelectedEvent()
                     }
@@ -203,16 +225,16 @@ public struct OpenMusicEventAppRoot {
         .spawn(\.errorNotifications) {
             ErrorNotifications()
         }
-        .ifLet(\.whiteLabelBootstrap) {
-            WhiteLabelBootstrap()
+        .ifLet(\.whiteLabelRoot) {
+            WhiteLabelRoot()
         }
-        .ifLet(\.eventViewer) {
-            EventViewer()
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
                 .openMusicEventAuthenticatedSession()
                 .transformDependency(\.self) { (dependencies: inout DependencyValues) in
                     guard dependencies.sourceEditingSession == nil else { return }
                     do {
-                        guard let eventID = store.eventViewer?.eventID,
+                        guard let eventID = store.destination?.eventViewer?.eventID,
                               let sourceEditingSession = try dependencies.sourceWorkspaceDatabase
                                 .event(eventID)?
                                 .sourceEditingSession
@@ -253,92 +275,74 @@ public struct OpenMusicEventAppRootView: View {
     @Bindable var store: StoreOf<OpenMusicEventAppRoot>
 
     public var body: some View {
-        content
-            .task {
-                await store.send(.task)?.value
-            }
-            .onOpenURL { url in
-                store.send(.openURL(url))
-            }
-            #if os(iOS)
-            .environment(
-                \.openURL,
-                OpenURLAction { url in
-                    guard url.isOpenMusicEventHandledURL else {
-                        return .systemAction
-                    }
-                    store.send(.openURL(url))
-                    return .handled
-                }
-            )
-            .sheet(item: $store.inAppBrowserPresentation) { presentation in
-                InAppSafariView(url: presentation.url)
-                    .ignoresSafeArea()
-            }
-            #endif
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if let launchEventViewerStore = store.spawn(\.launchEventViewer) {
-            AuthenticationCoordinatorView(store: authenticationStore) {
+        AuthenticationCoordinatorView(
+            store: store.scope(\.authentication, action: \.authentication),
+            isPresentationEnabled: store.destination?.eventViewer == nil
+        ) {
+            if let launchEventViewerStore = store.spawn(\.launchEventViewer) {
                 EventViewerView(store: launchEventViewerStore)
-            }
-        } else {
-            AuthenticationCoordinatorView(
-                store: authenticationStore,
-                isPresentationEnabled: rootAuthenticationPresentationEnabled
-            ) {
-                surfaceView
+            } else {
+                OpenMusicEventAppSurfaceView(store: store)
             }
         }
-    }
-
-    private var authenticationStore: StoreOf<AuthenticationCoordinator> {
-        store.scope(\.authentication, action: \.authentication)
-    }
-
-    @ViewBuilder
-    private var surfaceView: some View {
-        mainContent
-            .openMusicEventFullScreenCover(
-                item: eventViewerStore,
-                onDismiss: {
-                    store.send(.eventViewerDismissed)
-                }
-            ) { eventViewerStore in
-                AuthenticationCoordinatorView(store: authenticationStore) {
-                    EventViewerView(store: eventViewerStore)
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var mainContent: some View {
-        switch store.variant {
-        case .generic:
-            OpenMusicEventBrowserView(store: store.spawn(\.browser))
-
-        case .whiteLabel:
-            if let whiteLabelStore = store.spawn(\.whiteLabelBootstrap) {
-                WhiteLabelBootstrapView(store: whiteLabelStore)
-            }
+        .task {
+            await store.send(.task)?.value
         }
-    }
-
-    private var eventViewerStore: Binding<StoreOf<EventViewer>?> {
-        Binding(
-            get: { store.spawn(\.eventViewer) },
-            set: { eventViewerStore in
-                if eventViewerStore == nil {
-                    store.send(.eventViewerDismissed)
+        .onOpenURL { url in
+            store.send(.openURL(url))
+        }
+        #if os(iOS)
+        .environment(
+            \.openURL,
+            OpenURLAction { url in
+                guard url.isOpenMusicEventHandledURL else {
+                    return .systemAction
                 }
+                store.send(.openURL(url))
+                return .handled
             }
         )
+        .sheet(item: $store.inAppBrowserPresentation) { presentation in
+            InAppSafariView(url: presentation.url)
+                .ignoresSafeArea()
+        }
+        #endif
+    }
+}
+
+struct OpenMusicEventAppSurfaceView: View {
+    init(store: StoreOf<OpenMusicEventAppRoot>) {
+        self.store = store
     }
 
-    private var rootAuthenticationPresentationEnabled: Bool {
-        store.eventViewer == nil
+    @Bindable var store: StoreOf<OpenMusicEventAppRoot>
+
+    var body: some View {
+        Group {
+            switch store.variant {
+            case .generic:
+                OpenMusicEventBrowserView(store: store.spawn(\.browser))
+
+            case .whiteLabel:
+                if let whiteLabelStore = store.spawn(\.whiteLabelRoot) {
+                    WhiteLabelRootView(store: whiteLabelStore)
+                } else {
+                    EmptyView()
+                }
+            }
+        }
+        .openMusicEventFullScreenCover(
+            item: $store.scope(\.destination, action: \.destination).eventViewer,
+            onDismiss: {
+                store.send(.eventViewerDismissed)
+            }
+        ) { eventViewerStore in
+            AuthenticationCoordinatorView(
+                store: store.scope(\.authentication, action: \.authentication)
+            ) {
+                EventViewerView(store: eventViewerStore)
+            }
+        }
     }
 }
 
