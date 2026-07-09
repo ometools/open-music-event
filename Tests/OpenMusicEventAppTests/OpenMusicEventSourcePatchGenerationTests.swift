@@ -558,6 +558,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
             $0.sourceWorkingTreeMaterializer = .live(
                 temporaryDirectoryURL: workingRootURL
             )
+            $0.openMusicEventSourcePatchConversion = .live
             $0.openMusicEventCalendarSourcePatchConversion = .live
             $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
         } operation: {
@@ -584,6 +585,144 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(newText.contains("url: https://example.com/calendar-logo.png"))
         #expect(newText.contains("role: logo"))
         #expect(newText.contains("renderKind: transparent"))
+    }
+
+    @Test
+    func calendarGeneratorUpdatesAllSourceBackedEventDirectoriesFromDatabase() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "calendar.yml",
+            contents: "name: Wicked Woods\n"
+        )
+        try fixture.writeFile(
+            "events/2025/event.yml",
+            contents: """
+            name: Wicked Woods 2025
+            timeZone: America/Denver
+            """
+        )
+        try fixture.writeFile(
+            "events/2026/event.yml",
+            contents: """
+            name: Wicked Woods 2026
+            timeZone: America/Denver
+            """
+        )
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:sourcepatch"))
+        let calendarID = OME.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        let source = localSourceProvenance(repositoryURL: fixture.repositoryURL)
+        let sourceBaseline = SourceBaselineRecord(
+            source: source,
+            databaseFileName: "baseline.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
+        let event2025ID = sourceBackedEventID(
+            source: source,
+            sourceEventDirectory: "2025"
+        )
+        let event2026ID = sourceBackedEventID(
+            source: source,
+            sourceEventDirectory: "2026"
+        )
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+            try OME.Calendar.insert {
+                OME.Calendar.Draft(
+                    id: calendarID,
+                    name: "Wicked Woods",
+                    description: nil,
+                    images: nil
+                )
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert {
+                sourceBaseline
+            }
+            .execute(db)
+
+            for (eventID, directory, name) in [
+                (event2025ID, "2025", "Updated Wicked Woods 2025"),
+                (event2026ID, "2026", "Updated Wicked Woods 2026"),
+            ] {
+                try OME.Event.insert {
+                    OME.Event.Draft(
+                        id: eventID,
+                        name: name,
+                        description: nil,
+                        startDate: nil,
+                        endDate: nil,
+                        status: nil,
+                        mode: nil,
+                        locations: nil,
+                        uris: nil,
+                        timeZone: TimeZone(identifier: "America/Denver")!,
+                        images: nil,
+                        contactNumbers: nil,
+                        categoryConfigs: nil
+                    )
+                }
+                .execute(db)
+                try EventSourceProvenanceRecord.insert {
+                    EventSourceProvenanceRecord(
+                        id: eventID,
+                        sourceBaselineID: sourceBaseline.id,
+                        sourceKind: source.kind,
+                        sourceReference: source.reference,
+                        ref: source.ref,
+                        eventIDOrigin: .inferred,
+                        sourceEventDirectory: directory
+                    )
+                }
+                .execute(db)
+            }
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventSourcePatchConversion = .live
+            $0.openMusicEventCalendarSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventCalendarSourcePatchRequest(
+                    calendarID: calendarID,
+                    sourceBaselineID: sourceBaseline.id
+                )
+            )
+        }
+
+        let changesByPath = Dictionary(
+            uniqueKeysWithValues: patch.fileChanges.map { ($0.path, $0) }
+        )
+        #expect(patch.fileChanges.map(\.path).sorted() == [
+            "events/2025/event.yml",
+            "events/2026/event.yml",
+        ])
+        let event2025Text = String(
+            decoding: try #require(changesByPath["events/2025/event.yml"]?.newContents),
+            as: UTF8.self
+        )
+        let event2026Text = String(
+            decoding: try #require(changesByPath["events/2026/event.yml"]?.newContents),
+            as: UTF8.self
+        )
+        #expect(event2025Text.contains("name: Updated Wicked Woods 2025"))
+        #expect(event2026Text.contains("name: Updated Wicked Woods 2026"))
     }
 
     @Test

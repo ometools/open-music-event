@@ -32,6 +32,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     func generateSourcePatchButtonLoadsPatch() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        let expectedSourceBaselineID = sourceBaselineID(for: eventID)
         try await seedSourceBackedEvent(eventID, in: database)
         let patch = SourcePatch(
             fileChanges: [
@@ -45,8 +46,16 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
-            $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = SourcePatchGenerator { request in
-                #expect(request == OpenMusicEventSourcePatchRequest(eventID: eventID))
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
+                #expect(
+                    request == OpenMusicEventCalendarSourcePatchRequest(
+                        calendarID: OME.Calendar.ID(
+                            ownerID: eventID.organizerID,
+                            calendarID: OME.Calendar.defaultID
+                        ),
+                        sourceBaselineID: expectedSourceBaselineID
+                    )
+                )
                 return patch
             }
         } operation: {
@@ -76,6 +85,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     func proposeChangeReviewsChangesWhenPatchIsNotReady() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        let expectedSourceBaselineID = sourceBaselineID(for: eventID)
         try await seedSourceBackedEvent(eventID, in: database)
         let patch = SourcePatch(
             fileChanges: [
@@ -89,8 +99,16 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
-            $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = SourcePatchGenerator { request in
-                #expect(request == OpenMusicEventSourcePatchRequest(eventID: eventID))
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
+                #expect(
+                    request == OpenMusicEventCalendarSourcePatchRequest(
+                        calendarID: OME.Calendar.ID(
+                            ownerID: eventID.organizerID,
+                            calendarID: OME.Calendar.defaultID
+                        ),
+                        sourceBaselineID: expectedSourceBaselineID
+                    )
+                )
                 return patch
             }
         } operation: {
@@ -784,6 +802,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     func marksSourcePatchNeedsGenerationWhenCurrentEventInvalidates() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        try await seedSourceBackedEvent(eventID, in: database)
         let invalidation = SourcePatchInvalidation(
             eventID: eventID,
             operation: .update,
@@ -816,16 +835,24 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func ignoresSourcePatchInvalidationsForOtherEvents() async throws {
+    func marksSourcePatchNeedsGenerationWhenSourceWorkspaceEventInvalidates() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
-        let otherEventInvalidation = SourcePatchInvalidation(
-            eventID: testEventID("event-2"),
+        let sourceBaselineID = sourceBaselineID(for: eventID)
+        let sourceWorkspaceEventID = testEventID("event-2")
+        try await seedSourceBackedEvent(eventID, in: database)
+        try await seedAdditionalSourceBackedEvent(
+            sourceWorkspaceEventID,
+            sourceBaselineID: sourceBaselineID,
+            in: database
+        )
+        let unrelatedEventInvalidation = SourcePatchInvalidation(
+            eventID: testEventID("event-3"),
             operation: .update,
             tableName: OME.Contributor.tableName
         )
-        let matchingEventInvalidation = SourcePatchInvalidation(
-            eventID: eventID,
+        let sourceWorkspaceEventInvalidation = SourcePatchInvalidation(
+            eventID: sourceWorkspaceEventID,
             operation: .update,
             tableName: OME.Contributor.tableName
         )
@@ -842,15 +869,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        stream.continuation.yield(otherEventInvalidation)
-        stream.continuation.yield(matchingEventInvalidation)
+        stream.continuation.yield(unrelatedEventInvalidation)
+        stream.continuation.yield(sourceWorkspaceEventInvalidation)
 
         await store.receive(
             \.sourcePatchInvalidationReceived,
-            .equals(matchingEventInvalidation),
+            .equals(sourceWorkspaceEventInvalidation),
             timeout: .seconds(1)
         ) {
-            $0.sourcePatchStatus = .needsGeneration(matchingEventInvalidation)
+            $0.sourcePatchStatus = .needsGeneration(sourceWorkspaceEventInvalidation)
         }
 
         stream.continuation.finish()
@@ -1663,6 +1690,45 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                     ref: nil,
                     databaseFileName: "reference.sqlite",
                     importedAt: Date(timeIntervalSince1970: 0)
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceBaselineID: sourceBaselineID,
+                    sourceKind: .local,
+                    sourceReference: "/tmp/source-repository",
+                    ref: nil,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: eventID.eventID.rawValue.rawValue
+                )
+            }
+            .execute(db)
+        }
+    }
+
+    private func seedAdditionalSourceBackedEvent(
+        _ eventID: OME.Event.ID,
+        sourceBaselineID: SourceBaselineRecord.ID,
+        in database: any DatabaseWriter
+    ) async throws {
+        try await database.write { db in
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Source Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: TimeZone(identifier: "UTC")!,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
                 )
             }
             .execute(db)

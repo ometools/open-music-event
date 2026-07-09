@@ -37,6 +37,7 @@ struct OpenMusicEventOAuthTests {
         #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=create"))
         #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=update"))
         #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=delete"))
+        #expect(permissions.contains("rpc:sh.tangled.repo.merge"))
         #expect(permissions.contains("blob:application/gzip"))
         #expect(permissions.contains("blob:text/x-patch"))
         #expect(
@@ -57,6 +58,11 @@ struct OpenMusicEventOAuthTests {
         #expect(
             OpenMusicEventOAuth.appManifest.maximumPermissions
                 .missing(OpenMusicEventOAuth.tangledPullDeleteAuthRequirement.permissions)
+                .isEmpty
+        )
+        #expect(
+            OpenMusicEventOAuth.appManifest.maximumPermissions
+                .missing(OpenMusicEventOAuth.tangledPullMergeAuthRequirement.permissions)
                 .isEmpty
         )
     }
@@ -92,6 +98,43 @@ struct OpenMusicEventOAuthTests {
                 )
                 .isEmpty
         )
+    }
+
+    @Test
+    func manifestCanRequestKnotScopedTangledMergePermission() throws {
+        let requirement = OAuth.AuthRequirement(
+            permissions: [
+                .rpc("sh.tangled.repo.merge", audience: "did:web:knot1.tangled.sh")
+            ]
+        )
+
+        let requested = try OAuth.requestedPermissions(
+            for: requirement,
+            currentSession: nil,
+            manifest: OpenMusicEventOAuth.appManifest
+        )
+
+        #expect(
+            OpenMusicEventOAuth.appManifest.maximumPermissions
+                .missing(requirement.permissions)
+                .isEmpty
+        )
+        #expect(
+            requested.permissions.contains(
+                .rpc("sh.tangled.repo.merge", audience: "did:web:knot1.tangled.sh")
+            )
+        )
+    }
+
+    @Test
+    func tangledWorkspaceManagementRequirementDoesNotRequestMergeUpFront() {
+        let permissions = Set(
+            OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement
+                .permissions
+                .map(\.rawValue)
+        )
+
+        #expect(!permissions.contains("rpc:sh.tangled.repo.merge"))
     }
 
     @Test

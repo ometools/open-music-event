@@ -78,9 +78,12 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
                 groups: []
             )
         }
-        guard let sourceProvenance = try EventSourceProvenanceRecord
-            .where { $0.id.eq(eventID) }
-            .fetchOne(db)
+        guard let sourceProvenance = try (
+            EventSourceProvenanceRecord
+                .where { $0.id.eq(eventID) }
+                .fetchOne(db)
+        ),
+              let sourceBaselineID = sourceProvenance.sourceBaselineID
         else {
             return EventWorkspaceSummary(
                 eventID: eventID,
@@ -92,7 +95,7 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             try openMusicEventSourceEditSummary(
                 in: db,
                 baselineSchemaName: baselineSchemaName,
-                sourceBaselineID: sourceProvenance.sourceBaselineID,
+                sourceBaselineID: sourceBaselineID,
                 calendarID: OME.Calendar.ID(
                     ownerID: eventID.organizerID,
                     calendarID: OME.Calendar.defaultID

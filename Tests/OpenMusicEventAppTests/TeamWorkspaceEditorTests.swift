@@ -51,12 +51,37 @@ struct TeamWorkspaceEditorTests {
     }
 
     @Test
-    func eventWorkspaceUsesEventSourceScope() throws {
+    func eventWorkspaceUsesSourceWorkspaceScopeWhenSourceBacked() async throws {
         let database = try makePreparedDatabase()
         let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
         let eventID = OMERecord.Event.ID(
             organizerID: organizerID,
             eventID: OMERecord.ID("source-event")
+        )
+        let contributorID = OMERecord.Contributor.ID(
+            organizerID: organizerID,
+            eventID: eventID.eventID,
+            contributorID: OMERecord.ID("woody-melling")
+        )
+        let sourceProvenance = makeSourceProvenance(
+            reference: "tangled.org/woody.fm/source-management"
+        )
+        let sourceBaseline = SourceBaselineRecord(
+            source: sourceProvenance,
+            databaseFileName: "reference.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
+        try await seedSourceWorkspaceSummaryRows(
+            database: database,
+            organizerID: organizerID,
+            calendarID: calendarID,
+            eventID: eventID,
+            contributorID: contributorID,
+            sourceBaseline: sourceBaseline
         )
         let state = withDependencies {
             $0.context = .test
@@ -67,8 +92,43 @@ struct TeamWorkspaceEditorTests {
 
         expectNoDifference(
             state.sourceChangesScope,
-            .event(eventID)
+            .source(sourceBaselineID: sourceBaseline.id, calendarID: calendarID)
         )
+    }
+
+    @Test
+    func eventWorkspaceSummaryPrioritizesFocusedEventChanges() throws {
+        let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
+        let eventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: OMERecord.ID("source-event")
+        )
+        let otherEventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: OMERecord.ID("other-source-event")
+        )
+        let focusedRecord = sourceRecordChange(eventID: eventID)
+        let otherRecord = sourceRecordChange(eventID: otherEventID)
+
+        let summary = SourceWorkspaceSummary(
+            target: .event(eventID),
+            availability: .available,
+            groups: [
+                SourceChangeGroup(
+                    id: OMERecord.Contributor.tableName,
+                    displayName: "Contributor",
+                    added: 0,
+                    modified: 2,
+                    deleted: 0,
+                    records: [otherRecord, focusedRecord]
+                ),
+            ]
+        )
+
+        #expect(summary.totalCount == 2)
+        #expect(summary.focusedCount == 1)
+        #expect(summary.outOfTargetCount == 1)
+        expectNoDifference(summary.groups.first?.records, [focusedRecord, otherRecord])
     }
 
     @Test
@@ -871,6 +931,35 @@ private func seedSourceWorkspaceSummaryRows(
         }
         .execute(db)
     }
+}
+
+private func sourceRecordChange(
+    eventID: OMERecord.Event.ID
+) -> SourceRecordChange {
+    SourceRecordChange(
+        kind: .modified,
+        primaryKeyValues: [
+            SourceColumnValue(
+                columnName: "organizerID",
+                value: String(describing: eventID.organizerID).databaseValue
+            ),
+            SourceColumnValue(
+                columnName: "eventID",
+                value: eventID.eventID.rawValue.rawValue.databaseValue
+            ),
+            SourceColumnValue(
+                columnName: "contributorID",
+                value: "woody-melling".databaseValue
+            ),
+        ],
+        fieldChanges: [
+            SourceFieldChange(
+                columnName: "name",
+                baselineValue: "Old Name".databaseValue,
+                workingValue: "New Name".databaseValue
+            ),
+        ]
+    )
 }
 
 private actor SourceEditPreparationRecorder {

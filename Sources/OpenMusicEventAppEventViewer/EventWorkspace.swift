@@ -25,7 +25,7 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     ) {
         self.target = target
         self.availability = availability
-        self.groups = groups
+        self.groups = groups.prioritizing(target: target)
         self.recordComparisons = recordComparisons
     }
 
@@ -330,7 +330,17 @@ public struct EventWorkspace {
             case let .calendar(calendarID, sourceBaselineID):
                 .source(sourceBaselineID: sourceBaselineID, calendarID: calendarID)
             case let .event(eventID):
-                .event(eventID)
+                if let sourceBaselineID {
+                    .source(
+                        sourceBaselineID: sourceBaselineID,
+                        calendarID: OMERecord.Calendar.ID(
+                            ownerID: eventID.organizerID,
+                            calendarID: OMERecord.Calendar.defaultID
+                        )
+                    )
+                } else {
+                    .event(eventID)
+                }
             }
         }
 
@@ -901,8 +911,11 @@ public struct EventWorkspaceView: View {
             }
 
             if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
+                let count = store.sourceWorkspaceSummary.outOfTargetCount
                 Text(
-                    "\(store.sourceWorkspaceSummary.outOfTargetCount) changes are outside this event."
+                    count == 1
+                    ? "1 change is outside this event."
+                    : "\(count) changes are outside this event."
                 )
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -2201,6 +2214,24 @@ private extension SourceRecordChange {
     }
 }
 
+private extension Array where Element == SourceChangeGroup {
+    func prioritizing(target: SourceProposalTarget) -> Self {
+        switch target {
+        case .calendar:
+            self
+
+        case let .event(eventID):
+            map { group in
+                var group = group
+                let focusedRecords = group.records.filter { $0.matches(eventID: eventID) }
+                let otherRecords = group.records.filter { !$0.matches(eventID: eventID) }
+                group.records = focusedRecords + otherRecords
+                return group
+            }
+        }
+    }
+}
+
 private extension OMERecord.SourceDatabaseInsertion.SourceKind {
     var sourceIndicatorTitle: String {
         switch self {
@@ -2462,23 +2493,49 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
 
 private extension SourceProposalTarget {
     func matches(invalidation: SourcePatchInvalidation) async -> Bool {
+        @Dependency(\.defaultDatabase) var database
         switch self {
         case let .event(eventID):
-            return invalidation.eventID == eventID
+            guard invalidation.eventID.organizerID == eventID.organizerID else {
+                return false
+            }
+            do {
+                return try await database.read { db in
+                    guard let sourceBaselineID = try (
+                        EventSourceProvenanceRecord
+                            .where { $0.id.eq(eventID) }
+                            .fetchOne(db)?
+                            .sourceBaselineID
+                    )
+                    else {
+                        return invalidation.eventID == eventID
+                    }
+
+                    return try EventSourceProvenanceRecord
+                        .where { $0.id.eq(invalidation.eventID) }
+                        .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                        .fetchOne(db) != nil
+                }
+            } catch {
+                reportIssue(error)
+                return false
+            }
 
         case let .calendar(calendarID, sourceBaselineID):
             guard invalidation.eventID.organizerID == calendarID.ownerID else {
                 return false
             }
-            @Dependency(\.defaultDatabase) var database
-            return (
-                try? await database.read { db in
+            do {
+                return try await database.read { db in
                     try EventSourceProvenanceRecord
                         .where { $0.id.eq(invalidation.eventID) }
                         .where { $0.sourceBaselineID.eq(sourceBaselineID) }
                         .fetchOne(db) != nil
                 }
-            ) ?? false
+            } catch {
+                reportIssue(error)
+                return false
+            }
         }
     }
 }

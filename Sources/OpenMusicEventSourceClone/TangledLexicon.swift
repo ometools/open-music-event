@@ -34,6 +34,9 @@ public enum TangledOAuthRequirements {
     public static let pullStatusDeletePermission = OAuth.Permission(
         "repo:sh.tangled.repo.pull.status?action=delete"
     )
+    public static let pullMergePermission = OAuth.Permission.rpc(
+        "sh.tangled.repo.merge"
+    )
 
     public static let publicKeyAuthRequirement = OAuth.AuthRequirement(
         permissions: [publicKeyCreatePermission]
@@ -50,6 +53,12 @@ public enum TangledOAuthRequirements {
     public static let pullDeleteAuthRequirement = OAuth.AuthRequirement(
         permissions: [
             pullDeletePermission
+        ]
+    )
+
+    public static let pullMergeAuthRequirement = OAuth.AuthRequirement(
+        permissions: [
+            pullMergePermission
         ]
     )
 

@@ -16,7 +16,7 @@ private typealias AppDelegate = OpenMusicEventAppDelegate
 
     init() {
         try! prepareDependencies {
-            try OpenMusicEventDependencies.prepare(&$0)
+            try OME.prepareDependencies(&$0)
         }
     }
 

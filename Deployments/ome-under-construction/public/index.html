@@ -378,6 +378,17 @@
       line-height: 1.58;
     }
 
+    .resource-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1rem;
+      margin-top: 1rem;
+      color: var(--cyan);
+      font-size: 0.9rem;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
     .embed-layout {
       display: grid;
       grid-template-columns: minmax(0, 1.1fr) minmax(19rem, 0.9fr);
@@ -883,10 +894,17 @@
 
           <article class="principle-callout">
             <h3>Open Source / Open Data</h3>
-            <p>
-              Your event information should live with you on the open internet.
-              Calendars, schedules, artist profiles, places, and updates can flow into this app or any other.
-            </p>
+            <div>
+              <p>
+                Your event information should live with you on the open internet.
+                Calendars, schedules, artist profiles, places, and updates can flow into this app or any other.
+              </p>
+              <div class="resource-links" aria-label="Open data resources">
+                <a href="https://atproto.com/guides/overview">AT Protocol</a>
+                <a href="https://atproto.com/guides/data-repos">Data repositories</a>
+                <a href="https://atproto.com/guides/identity">Portable identity</a>
+              </div>
+            </div>
           </article>
         </div>
       </section>
@@ -985,6 +1003,7 @@
       <div class="footer-inner">
         <span>Open Music Event is under active development.</span>
         <span class="footer-links">
+          <a href="mailto:info@openmusicevent.app">Contact</a>
           <a href="https://bsky.app/profile/openmusicevent.app">Bluesky</a>
           <a href="https://openmusicevent.app/.well-known/oauth-client-metadata.json">OAuth metadata</a>
         </span>

@@ -84,6 +84,9 @@ public enum OpenMusicEventOAuth {
     public static let tangledPullStatusDeletePermission =
         TangledOAuthRequirements.pullStatusDeletePermission
 
+    public static let tangledPullMergePermission =
+        TangledOAuthRequirements.pullMergePermission
+
     public static let tangledPublicKeyCreatePermission =
         TangledOAuthRequirements.publicKeyCreatePermission
 
@@ -104,6 +107,9 @@ public enum OpenMusicEventOAuth {
 
     public static let tangledPullDeleteAuthRequirement =
         TangledOAuthRequirements.pullDeleteAuthRequirement
+
+    public static let tangledPullMergeAuthRequirement =
+        TangledOAuthRequirements.pullMergeAuthRequirement
 
     public static let tangledPullRequestSurfaceAuthRequirement =
         TangledOAuthRequirements.pullRequestSurfaceAuthRequirement
@@ -173,6 +179,7 @@ public enum OpenMusicEventOAuth {
         registeredRequirements: [
             tangledPublicKeyAuthRequirement,
             tangledPullRequestSurfaceAuthRequirement,
+            tangledPullMergeAuthRequirement,
             legacyPatchBlobAuthRequirement,
         ]
     )
