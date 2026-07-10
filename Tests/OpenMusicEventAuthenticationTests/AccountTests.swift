@@ -63,6 +63,37 @@ struct AccountTests {
     }
 
     @Test
+    func accountButtonClearsSignInFormWhenAddingAnotherAccount() async throws {
+        let session = try accountTestSession(
+            did: "did:plc:alice123",
+            pdsHost: "alice.pds.example"
+        )
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(session)
+        let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    selectedMode: .signUp,
+                    signInLoginHint: "alice.example.com",
+                    sessionStore: Shared(value: sessionStoreValue),
+                    selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
+                )
+            ) {
+                Account()
+            }
+        }
+
+        let task = store.send(.accountButtonTapped)
+        await task?.value
+
+        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.selectedMode == .signIn)
+        #expect(store.signInLoginHint == "")
+    }
+
+    @Test
     func dismissingAuthenticationSheetClearsPresentation() async {
         let store = Store(
             initialState: Account.State.localTestState(isAuthenticationSheetPresented: true)
@@ -162,10 +193,12 @@ struct AccountTests {
             did: "did:plc:alice123",
             pdsHost: "alice.pds.example"
         )
+        let avatarURL = URL(string: "https://cdn.example/alice-avatar.jpg")
         let identity = ActorIdentity(
             did: session.accountID.rawValue,
             handle: Atmosphere.Account.Handle(rawValue: "alice.example.com"),
             displayName: "Alice Example",
+            avatar: avatarURL,
             source: .canonicalResolution
         )
         var sessionStoreValue = OAuth.SessionStore()
@@ -195,6 +228,7 @@ struct AccountTests {
         let row = try #require(store.accountRows.first)
         #expect(row.title == "Alice Example")
         #expect(row.subtitle == "alice.example.com")
+        #expect(row.identity?.avatar == avatarURL)
         #expect(!row.title.contains("did:"))
         #expect(!row.subtitle.contains("did:"))
     }
@@ -270,6 +304,68 @@ struct AccountTests {
             Atmosphere.Account.ID?.self,
             from: try #require(keychainStorage.data(for: selectedSessionIDItem))
         )
+        #expect(savedSelectedSessionID == bob.accountID)
+    }
+
+    @Test
+    func loggingOutSelectedStoredAccountSelectsRemainingAccountAndPersists() async throws {
+        let keychainStorage = InMemoryKeychainStorage()
+        let sessionStoreItem = KeychainStorageItem(
+            service: "fm.woody.openMusicEvent.tests",
+            account: "account.rowLogOut.sessionStore"
+        )
+        let selectedSessionIDItem = KeychainStorageItem(
+            service: "fm.woody.openMusicEvent.tests",
+            account: "account.rowLogOut.selectedSessionID"
+        )
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(alice)
+        sessionStoreValue.upsert(bob, select: false)
+        let sessionStore = Shared(
+            wrappedValue: sessionStoreValue,
+            KeychainSharedKey(item: sessionStoreItem)
+        )
+        let selectedSessionID = Shared(
+            wrappedValue: alice.accountID as Atmosphere.Account.ID?,
+            KeychainSharedKey(item: selectedSessionIDItem)
+        )
+        let store = withDependencies {
+            $0.keychainStorage = .inMemory(keychainStorage)
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    sessionStore: sessionStore,
+                    selectedSessionID: selectedSessionID
+                )
+            ) {
+                Account()
+            }
+        }
+
+        let task = store.send(.accountLogOutButtonTapped(alice.accountID))
+        await task?.value
+
+        #expect(store.sessionStore[alice.accountID] == nil)
+        #expect(store.sessionStore[bob.accountID] == bob)
+        #expect(store.selectedSessionID == bob.accountID)
+        #expect(store.session == bob)
+        #expect(store.surface == .accountManagement)
+        try await waitForCondition {
+            keychainStorage.data(for: sessionStoreItem) != nil &&
+                keychainStorage.data(for: selectedSessionIDItem) != nil
+        }
+        let savedSessionStore = try JSONDecoder().decode(
+            OAuth.SessionStore.self,
+            from: try #require(keychainStorage.data(for: sessionStoreItem))
+        )
+        let savedSelectedSessionID = try JSONDecoder().decode(
+            Atmosphere.Account.ID?.self,
+            from: try #require(keychainStorage.data(for: selectedSessionIDItem))
+        )
+        #expect(savedSessionStore[alice.accountID] == nil)
+        #expect(savedSessionStore[bob.accountID] == bob)
         #expect(savedSelectedSessionID == bob.accountID)
     }
 

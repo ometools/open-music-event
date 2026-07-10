@@ -4,7 +4,6 @@ import ComposableArchitecture2
 import ComposableForms
 import Dependencies
 import IssueReporting
-import OpenMusicEventComponents
 import Sharing
 import SwiftUI
 import Tagged
@@ -99,6 +98,24 @@ public struct Account {
                 "Sign in with your handle, like name.atmo.social or your own domain."
             case .signUp:
                 "Choose a provider to create your Atmosphere account. Your provider hosts your account and data, and you can move later."
+            }
+        }
+
+        var progressTitle: String {
+            switch self {
+            case .signIn:
+                "Signing In..."
+            case .signUp:
+                "Signing Up..."
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .signIn:
+                "person.crop.circle.badge.checkmark"
+            case .signUp:
+                "person.crop.circle.badge.plus"
             }
         }
 
@@ -263,6 +280,7 @@ public struct Account {
     public enum Action {
         case accountButtonTapped
         case accountIdentityResponse(Atmosphere.Account.ID, ActorIdentity?)
+        case accountLogOutButtonTapped(Atmosphere.Account.ID)
         case accountRowTapped(Atmosphere.Account.ID)
         case accountRowsAppeared
         case authenticationSheetDismissed
@@ -301,6 +319,8 @@ public struct Account {
             Update { state, action in
                 switch action {
                 case .accountButtonTapped:
+                    state.selectedMode = .signIn
+                    state.signInForm = SignInFormFeature.State(value: SignInFormValue())
                     state.isAuthenticationSheetPresented = true
 
                 case .accountIdentityResponse(let accountID, let identity):
@@ -308,6 +328,33 @@ public struct Account {
                     state.accountIdentities[accountID] = identity.map {
                         .loaded($0)
                     } ?? .failed
+
+                case .accountLogOutButtonTapped(let accountID):
+                    guard state.sessionStore[accountID] != nil else { return }
+                    state.accountIdentities[accountID] = nil
+                    state.oauth.state.errorMessage = nil
+                    state.oauth.state.isLoginInProgress = false
+                    state.oauth.state.isSignUpInProgress = false
+                    var selectedSessionID: Atmosphere.Account.ID?
+                    state.oauth.state.$sessionStore.withLock {
+                        $0.remove(accountID)
+                        selectedSessionID = $0.selectedAccountID
+                    }
+                    state.$selectedSessionID.withLock {
+                        $0 = selectedSessionID
+                    }
+                    let shouldCancelAuthorization = state.sessionStore.sessions.isEmpty
+                    let sessionStore = state.oauth.state.$sessionStore
+                    let selectedSessionIDStore = state.$selectedSessionID
+                    store.addTask {
+                        await saveOpenMusicEventAuthenticationStorage(
+                            sessionStore: sessionStore,
+                            selectedSessionID: selectedSessionIDStore
+                        )
+                        if shouldCancelAuthorization {
+                            await authorizationRequests.cancel()
+                        }
+                    }
 
                 case .accountRowTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
@@ -567,23 +614,47 @@ struct AccountManagementSection: View {
         Section("Account") {
             ForEach(store.accountRows) { row in
                 Button {
-                    store.send(.accountRowTapped(row.id))
+                    select(row)
                 } label: {
                     AccountRowView(row: row)
                 }
                 .buttonStyle(.plain)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        logOut(row)
+                    } label: {
+                        Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+                .contextMenu {
+                    Button {
+                        select(row)
+                    } label: {
+                        Label(
+                            row.isSelected ? "Current Account" : "Select Account",
+                            systemImage: row.isSelected ? "checkmark" : "checkmark.circle"
+                        )
+                    }
+                    .disabled(row.isSelected)
+
+                    Button(role: .destructive) {
+                        logOut(row)
+                    } label: {
+                        Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
             }
 
             Button {
                 store.send(.accountButtonTapped)
             } label: {
-                Text("Add Another Account")
+                Label("Add Another Account", systemImage: "person.badge.plus")
             }
 
             Button(role: .destructive) {
                 store.send(.signOutAllButtonTapped)
             } label: {
-                Text("Log Out of All Accounts")
+                Label("Log Out of All Accounts", systemImage: "rectangle.portrait.and.arrow.right")
             }
 
             if let errorMessage = store.errorMessage {
@@ -595,6 +666,19 @@ struct AccountManagementSection: View {
             await store.send(.accountRowsAppeared)?.value
         }
     }
+
+    private func logOut(_ row: Account.AccountRow) {
+        withAnimation(SwiftUI.Animation.easeInOut(duration: 0.2)) {
+            _ = store.send(.accountLogOutButtonTapped(row.id))
+        }
+    }
+
+    private func select(_ row: Account.AccountRow) {
+        guard !row.isSelected else { return }
+        withAnimation(SwiftUI.Animation.easeInOut(duration: 0.2)) {
+            _ = store.send(.accountRowTapped(row.id))
+        }
+    }
 }
 
 struct AccountRowView: View {
@@ -602,10 +686,11 @@ struct AccountRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AccountAvatarPlaceholder(initials: row.avatarInitials)
+            AccountAvatar(identity: row.identity, initials: row.avatarInitials)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.title)
+                    .font(.body.weight(row.isSelected ? .semibold : .regular))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
@@ -618,13 +703,44 @@ struct AccountRowView: View {
             Spacer(minLength: 8)
 
             if row.isSelected {
-                Text("Current")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .imageScale(.large)
+                    .foregroundStyle(.tint)
+                    .transition(.scale.combined(with: .opacity))
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
+        .animation(SwiftUI.Animation.easeInOut(duration: 0.2), value: row.isSelected)
         .foregroundStyle(.primary)
+    }
+}
+
+struct AccountAvatar: View {
+    let identity: ActorIdentity?
+    let initials: String
+
+    var body: some View {
+        AsyncImage(url: identity?.avatar) { phase in
+            switch phase {
+            case let .success(image):
+                image
+                    .resizable()
+                    .scaledToFill()
+
+            case .empty, .failure:
+                AccountAvatarPlaceholder(initials: initials)
+
+            @unknown default:
+                AccountAvatarPlaceholder(initials: initials)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .clipShape(Circle())
+        .overlay {
+            Circle()
+                .stroke(.secondary.opacity(0.16))
+        }
     }
 }
 
@@ -764,10 +880,20 @@ struct AccountAuthenticationSubmitSection: View {
     @Bindable var store: StoreOf<Account>
 
     var body: some View {
-        Section {
+        HStack {
+            Spacer(minLength: 0)
+
             AccountAuthenticationSubmitButton(store: store)
+                .frame(minWidth: 220)
+                .buttonStyle(.borderedProminent)
                 .controlSize(.extraLarge)
+
+            Spacer(minLength: 0)
         }
+        .padding(.vertical, 8)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
     }
 }
 
@@ -859,6 +985,7 @@ struct AccountAuthenticationSafeEdgeAction: View {
 
         case .signUp:
             AccountAuthenticationSubmitButton(store: store)
+                .buttonStyle(.borderedProminent)
                 .controlSize(.extraLarge)
         }
     }
@@ -868,12 +995,17 @@ struct AccountAuthenticationSubmitButton: View {
     @Bindable var store: StoreOf<Account>
 
     var body: some View {
-        SubmitButton(
-            isInProgress: store.isWorking,
-            isDisabled: store.isAuthenticationFormSubmitDisabled
-        ) {
+        Button {
             store.send(.submitAuthenticationFormButtonTapped)
+        } label: {
+            if store.isWorking {
+                Label(store.selectedMode.progressTitle, systemImage: "hourglass")
+            } else {
+                Label(store.selectedMode.title, systemImage: store.selectedMode.systemImage)
+            }
         }
+        .labelStyle(.titleAndIcon)
+        .disabled(store.isAuthenticationFormSubmitDisabled)
     }
 }
 
@@ -886,9 +1018,31 @@ struct AccountProminentSignInButton: View {
 
             AccountAuthenticationSubmitButton(store: store)
                 .frame(minWidth: 220)
+                .accountProminentSignInButtonStyle()
 
             Spacer(minLength: 0)
         }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func accountProminentSignInButtonStyle() -> some View {
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
+            self
+                .buttonStyle(.glassProminent)
+                .controlSize(.extraLarge)
+        } else {
+            self
+                .buttonStyle(.borderedProminent)
+                .controlSize(.extraLarge)
+        }
+        #else
+        self
+            .buttonStyle(.borderedProminent)
+            .controlSize(.extraLarge)
+        #endif
     }
 }
 

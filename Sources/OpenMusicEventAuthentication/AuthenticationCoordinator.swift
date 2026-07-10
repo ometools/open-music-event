@@ -1,7 +1,6 @@
 import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
-import OpenMusicEventComponents
 import SwiftUI
 import TCATProtoAuthentication
 
@@ -180,13 +179,22 @@ public struct OpenMusicEventAuthorizationFormView: View {
     }
 
     private var authorizationSubmitButton: some View {
-        SubmitButton(
-            isInProgress: store.isLoading,
-            isDisabled: store.isSubmitDisabled
-        ) {
+        Button {
             store.send(.submit)
+        } label: {
+            if store.isLoading {
+                Label(selectedAccountAction.wrappedValue.progressTitle, systemImage: "hourglass")
+            } else {
+                Label(
+                    selectedAccountAction.wrappedValue.title,
+                    systemImage: selectedAccountAction.wrappedValue.systemImage
+                )
+            }
         }
+        .labelStyle(.titleAndIcon)
+        .buttonStyle(.borderedProminent)
         .controlSize(.extraLarge)
+        .disabled(store.isSubmitDisabled)
     }
 
     private var selectedAccountAction: Binding<AccountAction> {
@@ -228,6 +236,24 @@ private enum AccountAction: String, CaseIterable, Identifiable {
             "Sign in with your handle, like name.atmo.social or your own domain."
         case .signUp:
             "Choose a provider to create your Atmosphere account. Your provider hosts your account and data, and you can move later."
+        }
+    }
+
+    var progressTitle: String {
+        switch self {
+        case .signIn:
+            "Signing In..."
+        case .signUp:
+            "Creating Account..."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .signIn:
+            "person.crop.circle.badge.checkmark"
+        case .signUp:
+            "person.crop.circle.badge.plus"
         }
     }
 
