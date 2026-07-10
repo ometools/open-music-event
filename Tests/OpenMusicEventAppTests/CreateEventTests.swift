@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import Foundation
+import GRDB
 import OpenMusicEventAppEventViewer
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
@@ -490,7 +491,7 @@ struct CreateEventTests {
         let workingDatabasePath = workingDirectoryURL
             .appending(path: "working.sqlite")
             .path()
-        let workingDatabase = try SQLiteData.defaultDatabase(path: workingDatabasePath)
+        let workingDatabase = try DatabasePool(path: workingDatabasePath)
         try database.backup(to: workingDatabase)
         let sourceEditingSession = try SourceEditingSession(
             workingDatabasePath: workingDatabasePath,

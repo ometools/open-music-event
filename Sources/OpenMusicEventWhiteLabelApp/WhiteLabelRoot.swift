@@ -45,7 +45,8 @@ public extension WhiteLabelSourceImportClient {
                 let result = try await tangledSourceImport.importSource(
                     OpenMusicEventSourceValidationRequest(
                         source: source,
-                        organizerID: organizerID
+                        organizerID: organizerID,
+                        ref: descriptor.version ?? "HEAD"
                     )
                 )
                 return result.insertedEventIDs

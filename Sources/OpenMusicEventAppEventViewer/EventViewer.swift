@@ -129,6 +129,21 @@ public struct EventViewer {
         }
 
         private mutating func installFeatureStores(_ features: [EventFeature]) {
+            let existingCommunicationsViewer = self.communicationsViewer
+            let existingContactInfoViewer = self.contactInfoViewer
+            let existingContributorsViewer = self.contributorsViewer
+            let existingDestination = self.destination
+            let existingEventInfoViewer = self.eventInfoViewer
+            let existingEventSearch = self.eventSearch
+            let existingEventSettings = self.eventSettings
+            let existingEventWorkspace = self.eventWorkspace
+            let existingLocationViewer = self.locationViewer
+            let existingNotificationsViewer = self.notificationsViewer
+            let existingPostersViewer = self.postersViewer
+            let existingScheduleViewers = self.scheduleViewers
+            let existingSiteMapViewer = self.siteMapViewer
+            let existingStagesViewer = self.stagesViewer
+
             self.scheduleViewers = []
             self.contributorsViewer = nil
             self.stagesViewer = nil
@@ -140,16 +155,18 @@ public struct EventViewer {
             self.notificationsViewer = nil
             self.eventSettings = nil
             self.eventWorkspace = nil
-            self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
+            self.eventSearch = existingEventSearch
             self.eventInfoViewer = nil
-            self.destination = nil
+            self.destination = existingDestination
 
             withEventDependencies {
                 for feature in features {
                     switch feature {
                     case let .schedule(division):
                         self.scheduleViewers.append(
-                            Spawn(
+                            existingScheduleViewers.first {
+                                $0.state.scheduleDivision == division
+                            } ?? Spawn(
                                 ScheduleViewer.State(
                                     eventID: eventID,
                                     scheduleDivision: division
@@ -157,29 +174,40 @@ public struct EventViewer {
                             )
                         )
                     case .contributors:
-                        self.contributorsViewer = Spawn(ContributorsViewer.State(eventID: eventID))
+                        self.contributorsViewer = existingContributorsViewer
+                            ?? Spawn(ContributorsViewer.State(eventID: eventID))
                     case .stages:
-                        self.stagesViewer = Spawn(StagesViewer.State(eventID: eventID))
+                        self.stagesViewer = existingStagesViewer
+                            ?? Spawn(StagesViewer.State(eventID: eventID))
                     case .communications:
-                        self.communicationsViewer = Spawn(CommunicationsViewer.State(eventID: eventID))
+                        self.communicationsViewer = existingCommunicationsViewer
+                            ?? Spawn(CommunicationsViewer.State(eventID: eventID))
                     case .contactInfo:
-                        self.contactInfoViewer = Spawn(ContactInfoViewer.State(eventID: eventID))
+                        self.contactInfoViewer = existingContactInfoViewer
+                            ?? Spawn(ContactInfoViewer.State(eventID: eventID))
                     case .location:
-                        self.locationViewer = Spawn(LocationViewer.State(eventID: eventID))
+                        self.locationViewer = existingLocationViewer
+                            ?? Spawn(LocationViewer.State(eventID: eventID))
                     case .siteMap:
-                        self.siteMapViewer = Spawn(SiteMapViewer.State(eventID: eventID))
+                        self.siteMapViewer = existingSiteMapViewer
+                            ?? Spawn(SiteMapViewer.State(eventID: eventID))
                     case .posters:
-                        self.postersViewer = Spawn(PostersViewer.State(eventID: eventID))
+                        self.postersViewer = existingPostersViewer
+                            ?? Spawn(PostersViewer.State(eventID: eventID))
                     case .notifications:
-                        self.notificationsViewer = Spawn(NotificationsViewer.State(eventID: eventID))
+                        self.notificationsViewer = existingNotificationsViewer
+                            ?? Spawn(NotificationsViewer.State(eventID: eventID))
                     case .settings:
-                        self.eventSettings = Spawn(EventSettings.State(eventID: eventID))
+                        self.eventSettings = existingEventSettings
+                            ?? Spawn(EventSettings.State(eventID: eventID))
                     case .workspace:
-                        self.eventWorkspace = eventWorkspaceSpawn(eventID: eventID)
+                        self.eventWorkspace = existingEventWorkspace
+                            ?? eventWorkspaceSpawn(eventID: eventID)
                     case .search:
-                        self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
+                        self.eventSearch = existingEventSearch
                     case .about:
-                        self.eventInfoViewer = Spawn(EventInfoViewer.State(eventID: eventID))
+                        self.eventInfoViewer = existingEventInfoViewer
+                            ?? Spawn(EventInfoViewer.State(eventID: eventID))
                     }
                 }
             }
@@ -664,33 +692,7 @@ public struct EventViewer {
         private func eventWorkspaceSpawn(
             eventID: OMERecord.Event.ID
         ) -> Spawn<EventWorkspace> {
-            return withEventWorkspaceDependencies {
-                Spawn(EventWorkspace.State(eventID: eventID))
-            }
-        }
-
-        private func withEventWorkspaceDependencies<Value>(
-            _ operation: () -> Value
-        ) -> Value {
-            let eventID = self.eventID
-            return withEventDependencies {
-                withDependencies {
-                    guard $0.sourceEditingSession == nil else { return }
-                    do {
-                        guard let sourceEditingSession = try $0.sourceWorkspaceDatabase
-                            .event(eventID)?
-                            .sourceEditingSession
-                        else {
-                            return
-                        }
-                        $0.sourceEditingSession = sourceEditingSession
-                    } catch {
-                        reportIssue(error)
-                    }
-                } operation: {
-                    operation()
-                }
-            }
+            Spawn(EventWorkspace.State(eventID: eventID))
         }
 
         private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {

@@ -86,10 +86,12 @@ struct SettingsFeatureTests {
     }
 
     private func waitForLatestError(in errorNotifications: Spawn<ErrorNotifications>) async {
-        for _ in 0..<100 {
-            if errorNotifications.state.latestError != nil { return }
-            await Task.yield()
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(60))
+        while errorNotifications.state.latestError == nil && clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
         }
+        #expect(errorNotifications.state.latestError != nil)
     }
 
     @Test

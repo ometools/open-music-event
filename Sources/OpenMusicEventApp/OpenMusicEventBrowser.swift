@@ -1042,6 +1042,7 @@ public struct TeamWorkspaceDetail {
                         let workspaceDatabase = try sourceWorkspaceDatabase
                             .sourceBaseline(sourceBaselineID)
                         return withDependencies {
+                            $0.defaultDatabase = workspaceDatabase.database
                             $0.sourceEditingSession = workspaceDatabase.sourceEditingSession
                         } operation: {
                             SourceWorkspace.State(

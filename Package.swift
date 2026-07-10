@@ -34,9 +34,13 @@ let package = Package(
         .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
         .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
         .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
-        .package(path: "/Users/woody/Developer/swift-packages/swift-composable-atmosphere", traits: ["TCA26"]),
-        .package(path: "/Users/woody/Developer/ometools/composable-atmosphere-constellation"),
-        .package(path: "/Users/woody/Developer/ometools/composable-atmosphere-tangled"),
+        .package(
+            url: "https://source.woody.fm/swift-composable-atmosphere",
+            branch: "main",
+            traits: ["TCA26"]
+        ),
+        .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
+        .package(url: "https://source.woody.fm/composable-atmosphere-tangled", branch: "main"),
         .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
         .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
         .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
@@ -241,10 +245,12 @@ let package = Package(
                 "OpenMusicEventSourceEditing",
                 "OpenMusicEventWhiteLabel",
                 "SourceEditing",
+                .product(name: "ATProto", package: "swift-composable-atmosphere"),
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ],
             plugins: [.plugin(name: "skipstone", package: "skip")]
         ),
@@ -366,6 +372,7 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),
+                .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
                 .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ]
@@ -461,7 +468,10 @@ let package = Package(
                 .product(name: "ComposableArchitecture2", package: "TCA26"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+                .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "SQLiteData", package: "sqlite-data"),
+                .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ]
         ),
         .testTarget(

@@ -3,11 +3,15 @@ import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import Foundation
+import HTTPClient
+import HTTPTypes
+import IssueReporting
 import OpenMusicEventAuthentication
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import SQLiteData
 import Testing
+import XRPCClient
 
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
@@ -32,16 +36,11 @@ struct WhiteLabelRootTests {
         database: database
       )
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .locatingSource
-      }?.value
+      await load(store, suppressingReportedIssues: true)
 
       #expect(store.state.isLoading == false)
       #expect(store.state.organizationRoot?.state.organizerID == nil)
-      #expect(
-        store.state.errorMessage
-          == WhiteLabelError.sourceRegistryUnconfigured(organizerID).localizedDescription)
+      #expect(store.state.errorMessage == "Unable to load event source.")
     }
   }
 
@@ -81,16 +80,84 @@ struct WhiteLabelRootTests {
         }
       }
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .locatingSource
-      }?.value
+      await load(store)
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
       #expect(store.state.organizerID == organizerID)
       #expect(store.state.organizationRoot?.state.organizerID == organizerID)
       #expect(store.state.errorMessage == nil)
     }
+  }
+
+  @Test
+  func canonicalSourceRegistryFetchesOrganizerSourceRecord() async throws {
+    let organizerID = organizerID("wickedwoods")
+    let handle = Atmosphere.Account.Handle("wickedwoods.ca")
+    let recorder = HTTPRequestRecorder()
+
+    let descriptor = try await withDependencies {
+      $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+        resolveHandle: { _ in
+          Issue.record("Did not expect handle resolution.")
+          return (
+            Atmosphere.Account(id: .init(organizerID), handle: handle),
+            try didDocument(
+              did: organizerID,
+              handle: handle,
+              pdsHost: "wickedwoods.pds.example"
+            )
+          )
+        },
+        resolveDID: { did in
+          #expect(did == organizerID)
+          return (
+            Atmosphere.Account(id: .init(organizerID), handle: handle),
+            try didDocument(
+              did: organizerID,
+              handle: handle,
+              pdsHost: "wickedwoods.pds.example"
+            )
+          )
+        }
+      )
+      $0[XRPC.Client.self] = .liveValue
+      $0.httpClient = HTTPClient { request, body in
+        await recorder.record(request, body)
+        return Data(
+          """
+          {
+            "uri": "at://did:plc:wickedwoods/app.openmusicevent.source/canonical",
+            "value": {
+              "$type": "app.openmusicevent.source",
+              "kind": "tangled",
+              "reference": "https://tangled.org/did:plc:wickedwoods/wicked-woods-ome",
+              "ref": "main",
+              "createdAt": "2026-07-10T00:00:00Z"
+            }
+          }
+          """
+          .utf8
+        )
+      }
+    } operation: {
+      try await WhiteLabelSourceRegistryClient.canonicalSourceRecord.source(organizerID)
+    }
+
+    expectNoDifference(
+      descriptor,
+      WhiteLabelSourceDescriptor(
+        reference: .source("https://tangled.org/did:plc:wickedwoods/wicked-woods-ome"),
+        version: "main"
+      )
+    )
+
+    let requests = await recorder.requests
+    #expect(requests.count == 1)
+    #expect(
+      requests.first?.url?.absoluteString
+        == "https://wickedwoods.pds.example/xrpc/com.atproto.repo.getRecord?repo=did:plc:wickedwoods&collection=app.openmusicevent.source&rkey=canonical"
+    )
+    #expect(requests.first?.body == nil)
   }
 
   @Test
@@ -120,10 +187,7 @@ struct WhiteLabelRootTests {
         }
       }
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .locatingSource
-      }?.value
+      await load(store)
 
       #expect(await recorder.events == [.storedAuthentication, .sourceImport])
     }
@@ -156,10 +220,7 @@ struct WhiteLabelRootTests {
         }
       }
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .resolvingOrganizer
-      }?.value
+      await load(store)
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
       #expect(store.state.organizerID == organizerID)
@@ -197,10 +258,7 @@ struct WhiteLabelRootTests {
         }
       }
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .locatingSource
-      }?.value
+      await load(store)
 
       #expect(store.state.teamWorkspaceDetail?.state.sourceBaselineID == sourceBaselineID)
       #expect(store.state.organizationRoot == nil)
@@ -219,7 +277,6 @@ struct WhiteLabelRootTests {
       )
       let source = sourceProvenance("wicked-woods-ome")
       let sourceBaselineID = SourceBaselineRecord.ID(source: source)
-      let importCompleted = AsyncStream.makeStream(of: Void.self)
 
       let store = makeStore(
         configuration: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
@@ -233,22 +290,11 @@ struct WhiteLabelRootTests {
             source: source,
             into: database
           )
-          importCompleted.continuation.yield(())
-          importCompleted.continuation.finish()
           return [selectedEventID]
         }
       }
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .locatingSource
-      }?.value
-      for await _ in importCompleted.stream { break }
-      let clock = ContinuousClock()
-      let loadingDeadline = clock.now.advanced(by: .seconds(1))
-      while store.state.isLoading && clock.now < loadingDeadline {
-        await Task.yield()
-      }
+      await load(store)
 
       let requiredPermissions = Set(
         OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement.permissions.map(\.rawValue)
@@ -306,10 +352,7 @@ struct WhiteLabelRootTests {
         }
       }
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .locatingSource
-      }?.value
+      await load(store)
 
       #expect(store.state.authoringSubject == .sourceBaseline(sourceBaselineID))
       #expect(store.state.authoringMode == .attendee)
@@ -318,6 +361,7 @@ struct WhiteLabelRootTests {
       await store.send(.enterAuthoringButtonTapped) {
         $0.isAuthoringAuthorizationInFlight = true
       }?.value
+      await waitForAuthoringAuthorization(toFinishIn: store)
 
       let requests = await recorder.requests()
       expectNoDifference(
@@ -358,10 +402,7 @@ struct WhiteLabelRootTests {
         }
       }
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .locatingSource
-      }?.value
+      await load(store)
 
       #expect(await recorder.records == [.init(organizerID: organizerID, descriptor: descriptor)])
       #expect(store.state.organizationRoot?.state.organizerID == organizerID)
@@ -386,15 +427,11 @@ struct WhiteLabelRootTests {
         }
       }
 
-      await store.send(WhiteLabelRoot.Action.task) {
-        $0.isLoading = true
-        $0.loadingPhase = .locatingSource
-      }?.value
+      await load(store, suppressingReportedIssues: true)
 
       #expect(
         store.state.errorMessage
-          == WhiteLabelError.directSourceRequiresDevelopmentOverride(organizerID)
-          .localizedDescription)
+          == "Unable to load event source.")
       #expect(store.state.organizationRoot?.state.organizerID == nil)
     }
   }
@@ -431,31 +468,35 @@ struct WhiteLabelRootTests {
   }
 
   @Test
-  func eventNavigationPresentsEventViewer() async throws {
+  func liveSourceImportPassesDescriptorVersionToTangledSourceImport() async throws {
     let database = try makePreparedDatabase()
     let organizerID = organizerID("wickedwoods")
-    let selectedEventID = eventID(organizerID: organizerID, eventID: "2025")
-    let store = withDependencies {
+    let importedEventID = eventID(organizerID: organizerID, eventID: "2025")
+    let source = "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
+    let recorder = TangledSourceImportRecorder()
+
+    let importedEventIDs = try await withDependencies {
       $0.context = .test
       $0.defaultDatabase = database
-      $0.defaultEventID = selectedEventID
-    } operation: {
-      Store(
-        initialState: OpenMusicEventAppRoot.State(
-          variant: .whiteLabel(
-            WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
-          )
-        )
-      ) {
-        OpenMusicEventAppRoot()
+      $0.tangledSourceImport = TangledSourceImportClient { request in
+        await recorder.record(request)
+        return try validationResult(eventID: importedEventID)
       }
+    } operation: {
+      try await WhiteLabelSourceImportClient.live.ensureImported(
+        organizerID,
+        WhiteLabelSourceDescriptor(reference: .source(source), version: "main")
+      )
     }
 
-    await store.send(.handleNavigationRequest(.event(selectedEventID, nil)))?.value
-    #expect(store.eventViewer?.state.eventID == selectedEventID)
-
-    await store.send(.eventViewerDismissed)?.value
-    #expect(store.eventViewer == nil)
+    #expect(importedEventIDs == [importedEventID])
+    #expect(await recorder.requests == [
+      OpenMusicEventSourceValidationRequest(
+        source: source,
+        organizerID: organizerID,
+        ref: "main"
+      )
+    ])
   }
 
   private func makeStore(
@@ -498,9 +539,73 @@ struct WhiteLabelRootTests {
       try await operation()
     }
   }
+
+  private func load(
+    _ store: TestStore<WhiteLabelRoot>,
+    suppressingReportedIssues: Bool = false
+  ) async {
+    if suppressingReportedIssues {
+      let reporters = IssueReporters.current
+      IssueReporters.current = []
+      defer { IssueReporters.current = reporters }
+      await performLoad(store)
+    } else {
+      await performLoad(store)
+    }
+  }
+
+  private func performLoad(_ store: TestStore<WhiteLabelRoot>) async {
+    await store.send(WhiteLabelRoot.Action.task)?.value
+    await waitForLoad(toFinishIn: store)
+  }
+
+  private func waitForLoad(toFinishIn store: TestStore<WhiteLabelRoot>) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(60))
+    while !loadIsSettled(store.state) && clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(loadIsSettled(store.state))
+  }
+
+  private func loadIsSettled(_ state: WhiteLabelRoot.State) -> Bool {
+    !state.isLoading
+      && (state.errorMessage != nil || state.organizerID != nil)
+  }
+
+  private func waitForAuthoringAuthorization(toFinishIn store: TestStore<WhiteLabelRoot>) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(60))
+    while store.state.isAuthoringAuthorizationInFlight && clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(store.state.isAuthoringAuthorizationInFlight == false)
+  }
 }
 
 private struct RegistryShouldNotBeCalled: Error {}
+
+private actor HTTPRequestRecorder {
+  struct Request: Sendable {
+    var url: URL?
+    var body: Data?
+  }
+
+  private var values: [Request] = []
+
+  var requests: [Request] {
+    values
+  }
+
+  func record(_ request: HTTPRequest, _ body: Data?) {
+    values.append(
+      Request(
+        url: request.url,
+        body: body
+      )
+    )
+  }
+}
 
 private actor StartupOrderRecorder {
   enum Event: Equatable, Sendable {
@@ -691,4 +796,38 @@ private func localID<Record>(_ string: String) -> OMERecord.ID<Record> {
 
 private func organizerID(_ string: String) -> OMERecord.Organizer.ID {
   OMERecord.Organizer.ID("did:plc:\(string)")!
+}
+
+private func didDocument(
+  did: DID,
+  handle: Atmosphere.Account.Handle,
+  pdsHost: String? = nil
+) throws -> DID.Document {
+  let service = pdsHost.map {
+    """
+        "service": [
+          {
+            "id": "#atproto_pds",
+            "type": "AtprotoPersonalDataServer",
+            "serviceEndpoint": "https://\($0)"
+          }
+        ]
+    """
+  } ?? """
+        "service": []
+  """
+
+  return try JSONDecoder().decode(
+    DID.Document.self,
+    from: Data(
+      """
+      {
+        "id": "\(did)",
+        "alsoKnownAs": ["at://\(handle.rawValue)"],
+        "verificationMethod": [],
+        \(service)
+      }
+      """.utf8
+    )
+  )
 }

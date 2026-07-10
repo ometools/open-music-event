@@ -486,9 +486,14 @@ struct TangledSourceDownloadFeatureTests {
             .appending(path: "source-data-refresh-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        let baselineDatabasePath = temporaryURL.appending(path: "baseline.sqlite").path()
+        let baselineDatabase = try DatabasePool(path: baselineDatabasePath)
+        try await baselineDatabase.write { db in
+            try db.execute(sql: "PRAGMA user_version = 0")
+        }
         let sourceEditingSession = try SourceEditingSession(
             workingDatabasePath: temporaryURL.appending(path: "working.sqlite").path(),
-            baselineDatabasePath: temporaryURL.appending(path: "baseline.sqlite").path()
+            baselineDatabasePath: baselineDatabasePath
         )
 
         try await withDependencies {

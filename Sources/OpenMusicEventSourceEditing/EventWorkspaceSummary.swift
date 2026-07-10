@@ -58,11 +58,10 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             )
         }
 
-        let workspaceExists = try EditingWorkspaceRecord
+        let workspace = try EditingWorkspaceRecord
             .where { $0.id.eq(eventWorkspace.workspaceID) }
             .fetchOne(db)
-            .map { _ in true } ?? false
-        guard workspaceExists else {
+        guard let workspace else {
             return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .workspaceNeedsPreparation,
@@ -78,28 +77,37 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
                 groups: []
             )
         }
-        guard let sourceProvenance = try (
-            EventSourceProvenanceRecord
-                .where { $0.id.eq(eventID) }
-                .fetchOne(db)
-        ),
-              let sourceBaselineID = sourceProvenance.sourceBaselineID
-        else {
+
+        let sourceProvenance = try EventSourceProvenanceRecord
+            .where { $0.id.eq(eventID) }
+            .fetchOne(db)
+        let sourceSummary: SourceChangeSummary
+        if let sourceBaselineID = sourceProvenance?.sourceBaselineID {
+            sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
+                try openMusicEventSourceEditSummary(
+                    in: db,
+                    baselineSchemaName: baselineSchemaName,
+                    sourceBaselineID: sourceBaselineID,
+                    calendarID: OME.Calendar.ID(
+                        ownerID: eventID.organizerID,
+                        calendarID: OME.Calendar.defaultID
+                    )
+                )
+            }
+        } else if workspace.kind == .local {
+            sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
+                try SourceEditingComparer().summary(
+                    in: db,
+                    baselineSchemaName: baselineSchemaName,
+                    descriptors: OME.sourceTableDescriptors,
+                    scope: .openMusicEvent(eventID: eventID)
+                )
+            }
+        } else {
             return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .notInWorkspace,
                 groups: []
-            )
-        }
-        let sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-            try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName,
-                sourceBaselineID: sourceBaselineID,
-                calendarID: OME.Calendar.ID(
-                    ownerID: eventID.organizerID,
-                    calendarID: OME.Calendar.defaultID
-                )
             )
         }
 

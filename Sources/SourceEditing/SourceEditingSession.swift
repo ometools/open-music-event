@@ -40,9 +40,7 @@ public struct SourceEditingSession: Sendable {
             in: db
         )
         if let attachedDatabasePath {
-            if attachedDatabasePath == baselineDatabasePath
-                || attachedDatabasePath == baselineDatabaseURI
-            {
+            if databasePath(attachedDatabasePath, matches: baselineDatabasePath) {
                 return try operation(baselineSchemaName)
             }
             try #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
@@ -68,6 +66,19 @@ private func readOnlyDatabaseURI(path: String) -> String {
         URLQueryItem(name: "mode", value: "ro")
     ]
     return components.string ?? "file:\(path)?mode=ro"
+}
+
+private func databasePath(_ lhs: String, matches rhs: String) -> Bool {
+    normalizedDatabasePath(lhs) == normalizedDatabasePath(rhs)
+}
+
+private func normalizedDatabasePath(_ path: String) -> String {
+    if let components = URLComponents(string: path),
+       components.scheme == "file"
+    {
+        return URL(fileURLWithPath: components.path).standardizedFileURL.path
+    }
+    return URL(fileURLWithPath: path).standardizedFileURL.path
 }
 
 private func attachedDatabasePath(

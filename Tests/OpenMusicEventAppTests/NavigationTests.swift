@@ -1408,8 +1408,14 @@ struct NavigationTests {
     func eventViewerInjectsEventInfoEditingFromAboutDescendant() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-info-edit-intent")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event Info Edit Intent")
+        }
+
         let store = withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
@@ -1422,6 +1428,7 @@ struct NavigationTests {
 
         await withDependencies {
             $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
@@ -4289,7 +4296,12 @@ struct NavigationTests {
         }
         $editStore.form.value.name.wrappedValue = "New Name"
         await editStore.send(.saveButtonTapped)?.value
-        try await Task.sleep(for: .milliseconds(300))
+        for _ in 0..<100 {
+            if await viewObservationRecorder.values == ["invalidated"] {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
 
         #expect(await viewObservationRecorder.values == ["invalidated"])
         #expect(detailStore.contributor?.name == "New Name")
@@ -4385,6 +4397,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
         } operation: {
             Store(initialState: EditContributor.State(contributorID: contributorID, eventID: eventID)) {
@@ -4525,6 +4538,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
             $0.actorTypeaheadSearch.search = { query in
                 await typeaheadQueries.record(query.normalizedText)
@@ -4717,6 +4731,7 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
             $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
                 cachedProfile: { _ in nil },

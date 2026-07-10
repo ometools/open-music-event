@@ -60,6 +60,36 @@ public struct OMEColor: Equatable, Codable, Sendable, ExpressibleByIntegerLitera
 public enum OpenMusicEvent {}
 public typealias OME = OpenMusicEvent
 
+// MARK: - Source (app.openmusicevent.source)
+
+extension OpenMusicEvent {
+    public struct SourceRecord: Decodable, Equatable, Sendable {
+        public static let nsid = ATProto.NSID("app.openmusicevent.source")
+        public static let canonicalRecordKey = "canonical"
+
+        public enum Kind: String, Decodable, Equatable, Sendable {
+            case tangled
+        }
+
+        public var kind: Kind
+        public var reference: String
+        public var ref: String?
+        public var createdAt: String?
+
+        public init(
+            kind: Kind,
+            reference: String,
+            ref: String? = nil,
+            createdAt: String? = nil
+        ) {
+            self.kind = kind
+            self.reference = reference
+            self.ref = ref
+            self.createdAt = createdAt
+        }
+    }
+}
+
 // MARK: - Organizer  (app.openmusicevent.organizer)
 
 extension OpenMusicEvent {

@@ -112,7 +112,12 @@ struct AccountTests {
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
         } operation: {
-            Store(initialState: Account.State.localTestState(selectedMode: .signUp)) {
+            Store(
+                initialState: Account.State.localTestState(
+                    selectedMode: .signUp,
+                    signUpServerConfiguration: OpenMusicEventOAuth.signUpServerConfiguration
+                )
+            ) {
                 Account()
             }
         }
@@ -743,6 +748,7 @@ private extension Account.State {
         isAuthenticationSheetPresented: Bool = false,
         selectedMode: Account.Mode = .signIn,
         signInLoginHint: String = "",
+        signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
         authFailureMessage: Shared<ErrorMessage?> = Shared(value: nil),
         sessionStore: Shared<OAuth.SessionStore> = Shared(value: OAuth.SessionStore()),
         selectedSessionID: Shared<Atmosphere.Account.ID?> = Shared(value: nil)
@@ -751,6 +757,7 @@ private extension Account.State {
             isAuthenticationSheetPresented: isAuthenticationSheetPresented,
             selectedMode: selectedMode,
             signInLoginHint: signInLoginHint,
+            signUpServerConfiguration: signUpServerConfiguration,
             authFailureMessage: authFailureMessage,
             sessionStore: sessionStore,
             selectedSessionID: selectedSessionID

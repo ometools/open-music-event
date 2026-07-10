@@ -4,8 +4,42 @@ when:
   - event: ["pull_request"]
     branch: ["main"]
 
-engine: tack
+engine: microvm
+image: nixos
 
-tack:
-  buildkite:
-    pipeline: open-music-event
+virtualisation:
+  docker: true
+
+steps:
+  - name: "Build and test"
+    command: |
+      set -eu
+
+      test -n "${GITHUB_TOKEN:-}" || {
+        echo "GITHUB_TOKEN is empty. Add it in Tangled repository Settings -> Secrets."
+        exit 1
+      }
+
+      docker run --rm \
+        --env GITHUB_TOKEN \
+        --volume "$PWD":/workdir \
+        --workdir /workdir \
+        swift:6.3-noble \
+        bash -lc '
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          export DEBIAN_FRONTEND=noninteractive
+
+          apt-get update
+          apt-get install -y --no-install-recommends libgit2-dev libsqlite3-dev pkg-config
+          rm -rf /var/lib/apt/lists/*
+
+          printf "machine github.com\nlogin x-access-token\npassword %s\n" "$GITHUB_TOKEN" > ~/.netrc
+          chmod 600 ~/.netrc
+
+          git config --global credential.helper store
+          printf "https://x-access-token:%s@github.com\n" "$GITHUB_TOKEN" > ~/.git-credentials
+
+          git ls-remote https://github.com/pointfreeco/TCA26 HEAD >/dev/null
+          swift build && swift test
+        '

@@ -73,11 +73,15 @@ public struct ContributorProfile: Identifiable, Sendable {
     }
 
     var artworkAsset: OMERecord.ImageAsset? {
-        actorAvatarAsset ?? contributor.preferredArtworkAsset
+        if usesActorProfileAsPrimary {
+            return actorAvatarAsset ?? contributor.preferredArtworkAsset
+        }
+
+        return contributor.preferredArtworkAsset ?? actorAvatarAsset
     }
 
     var artworkCacheContext: LocalImageCacheContext? {
-        actorAvatarAsset == nil ? .init(contributorID: contributor.id) : nil
+        usesContributorArtwork ? .init(contributorID: contributor.id) : nil
     }
 
     var artworkDisplayImage: DisplayImageAsset? {
@@ -150,6 +154,14 @@ public struct ContributorProfile: Identifiable, Sendable {
             renderKind: .fullImage,
             materializationPolicy: .lazy
         )
+    }
+
+    private var usesContributorArtwork: Bool {
+        guard contributor.preferredArtworkAsset != nil else {
+            return false
+        }
+
+        return !usesActorProfileAsPrimary || actorAvatarAsset == nil
     }
 
     struct ActorProfileLoadRequest: Equatable, Sendable {

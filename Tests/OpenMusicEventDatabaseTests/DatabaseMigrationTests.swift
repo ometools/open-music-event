@@ -711,6 +711,29 @@ struct DatabaseMigrationTests {
                 )
                 """)
             try db.execute(sql: """
+                CREATE TABLE "eventSourceProvenances" (
+                  "organizerID" TEXT NOT NULL,
+                  "eventID" TEXT NOT NULL,
+                  "sourceKind" TEXT NOT NULL,
+                  "sourceReference" TEXT NOT NULL,
+                  "ref" TEXT,
+                  "eventIDOrigin" TEXT NOT NULL,
+                  "sourceEventDirectory" TEXT NOT NULL,
+                  "sourceBaselineID" TEXT,
+                  PRIMARY KEY ("organizerID", "eventID") ON CONFLICT REPLACE
+                ) STRICT
+                """)
+            try db.execute(sql: """
+                CREATE TABLE "sourceBaselines" (
+                  "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE,
+                  "sourceKind" TEXT NOT NULL,
+                  "sourceReference" TEXT NOT NULL,
+                  "ref" TEXT,
+                  "databaseFileName" TEXT NOT NULL,
+                  "importedAt" TEXT NOT NULL
+                ) STRICT
+                """)
+            try db.execute(sql: """
                 INSERT INTO "participants" ("organizerID", "eventID", "participantID", "name")
                 VALUES ('did:plc:organizer', 'event-1', 'artist-one', 'Artist One')
                 """)
