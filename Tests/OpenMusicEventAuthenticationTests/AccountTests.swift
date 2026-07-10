@@ -582,7 +582,7 @@ struct AccountTests {
         let recorder = AccountAuthorizationRecorder()
         let state = Account.State.localTestState()
         state.oauth.state.$sessionStore.withLock { $0.upsert(.placeholder) }
-        state.oauth.state.$selectedSessionID.withLock {
+        state.$selectedSessionID.withLock {
             $0 = OAuth.Session.placeholder.accountID
         }
         let store = withDependencies {
@@ -606,7 +606,7 @@ struct AccountTests {
         let recorder = AccountAuthorizationRecorder()
         let state = Account.State.localTestState()
         state.oauth.state.$sessionStore.withLock { $0.upsert(.placeholder) }
-        state.oauth.state.$selectedSessionID.withLock {
+        state.$selectedSessionID.withLock {
             $0 = OAuth.Session.placeholder.accountID
         }
         let store = withDependencies {

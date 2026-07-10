@@ -212,6 +212,7 @@ public enum OpenMusicEventOAuth {
     public static let storage = OAuthSessionStorage(
         sessionStore: openMusicEventOAuthSessionStore,
         authFailureMessage: openMusicEventAuthFailureMessage,
+        selectedSessionID: openMusicEventSelectedOAuthSessionID
     )
 
     public static var authFailureMessage: Shared<ErrorMessage?> {
@@ -237,36 +238,35 @@ public enum OpenMusicEventOAuth {
         )
         let sessionStore = OpenMusicEventOAuth.sessionStore
         let selectedSessionID = OpenMusicEventOAuth.selectedSessionID
+        let selectedSession = OpenMusicEventOAuth.session
         let getSelectedOAuthSessionID: @Sendable () -> Atmosphere.Account.ID? = {
             selectedSessionID.wrappedValue
         }
-        let selectedSession: @Sendable () -> OAuth.Session? = {
-            sessionStore.wrappedValue[getSelectedOAuthSessionID()]
-        }
+        syncOpenMusicEventSelectedSessionID(selectedSessionID, into: sessionStore)
         dependencies.openMusicEventAuthorizationRequests = authorizationRequests
         dependencies.oauthAppConfiguration = appConfiguration
         dependencies.oauthAppManifest = appManifest
         dependencies.getSelectedOAuthSessionID = getSelectedOAuthSessionID
         dependencies.oauthAuthorizationBroker = authorizationRequests
             .openMusicEventAutoStartingAuthorizationUpgrades(
-                session: selectedSession,
+                session: { selectedSession.wrappedValue },
                 sessionStore: { sessionStore.wrappedValue },
                 appManifest: appManifest
             )
             .broker()
         dependencies.oauthBrowserStrategy = .webAuthenticationSession
         dependencies.getDefaultSession = {
-            selectedSession() ?? .placeholder
+            selectedSession.wrappedValue ?? .placeholder
         }
         dependencies.getOptionalDefaultSession = {
-            selectedSession()
+            selectedSession.wrappedValue
         }
         dependencies.oauthScopes = appManifest.basePermissions.permissions
             .sorted { $0.rawValue < $1.rawValue }
             .map { OAuth.Scope(rawValue: $0.rawValue) }
         dependencies.errorInterceptors.append(
             .tokenRefresh(
-                session: session,
+                session: selectedSession,
                 authFailureMessage: authFailureMessage
             )
         )

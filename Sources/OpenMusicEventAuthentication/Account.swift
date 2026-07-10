@@ -119,6 +119,7 @@ public struct Account {
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
             signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
+            selectedSessionID: Shared<Atmosphere.Account.ID?> = OpenMusicEventOAuth.selectedSessionID,
             storage: OAuthSessionStorage = OpenMusicEventOAuth.storage
         ) {
             @Dependency(\.openMusicEventSignUpServerConfiguration)
@@ -132,6 +133,7 @@ public struct Account {
 
             self.authRequirement = authRequirement
             self.isAuthenticationSheetPresented = isAuthenticationSheetPresented
+            self._selectedSessionID = selectedSessionID
             self.oauth = Spawn(OAuthAccount.State(storage: storage))
             self.selectedMode = selectedMode
             self.selectedSignUpServerOptionID = selectedSignUpServerOptionID
@@ -164,6 +166,7 @@ public struct Account {
                 selectedMode: selectedMode,
                 signInLoginHint: signInLoginHint,
                 signUpServerConfiguration: signUpServerConfiguration,
+                selectedSessionID: selectedSessionID,
                 storage: OAuthSessionStorage(
                     sessionStore: sessionStore,
                     authFailureMessage: authFailureMessage,
@@ -176,6 +179,7 @@ public struct Account {
         public var isAuthenticationSheetPresented: Bool
         public var accountIdentities: [Atmosphere.Account.ID: AccountIdentityResolution] = [:]
         public var oauth: Spawn<OAuthAccount>
+        @Shared public var selectedSessionID: Atmosphere.Account.ID?
         public var selectedMode: Mode
         public var selectedSignUpServerOptionID: OAuthSignUpServerOption.ID?
         public var signUpServerConfiguration: OAuthSignUpServerConfiguration
@@ -235,10 +239,6 @@ public struct Account {
 
         public var session: OAuth.Session? {
             oauth.state.session
-        }
-
-        public var selectedSessionID: Atmosphere.Account.ID? {
-            oauth.state.selectedSessionID
         }
 
         public var sessionStore: OAuth.SessionStore {
@@ -311,10 +311,13 @@ public struct Account {
 
                 case .accountRowTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
-                    state.oauth.state.$selectedSessionID.withLock {
+                    state.$selectedSessionID.withLock {
                         $0 = accountID
                     }
-                    let selectedSessionID = state.oauth.state.$selectedSessionID
+                    state.oauth.state.$sessionStore.withLock {
+                        $0.selectedAccountID = accountID
+                    }
+                    let selectedSessionID = state.$selectedSessionID
                     store.addTask {
                         await saveOpenMusicEventSelectedSessionID(selectedSessionID)
                     }
@@ -360,12 +363,12 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.upsert(session)
                     }
-                    state.oauth.state.$selectedSessionID.withLock {
+                    state.$selectedSessionID.withLock {
                         $0 = session.accountID
                     }
                     state.isAuthenticationSheetPresented = false
                     let sessionStore = state.oauth.state.$sessionStore
-                    let selectedSessionID = state.oauth.state.$selectedSessionID
+                    let selectedSessionID = state.$selectedSessionID
                     store.addTask {
                         await saveOpenMusicEventAuthenticationStorage(
                             sessionStore: sessionStore,
@@ -439,12 +442,12 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.upsert(session)
                     }
-                    state.oauth.state.$selectedSessionID.withLock {
+                    state.$selectedSessionID.withLock {
                         $0 = session.accountID
                     }
                     state.isAuthenticationSheetPresented = false
                     let sessionStore = state.oauth.state.$sessionStore
-                    let selectedSessionID = state.oauth.state.$selectedSessionID
+                    let selectedSessionID = state.$selectedSessionID
                     store.addTask {
                         await saveOpenMusicEventAuthenticationStorage(
                             sessionStore: sessionStore,
@@ -474,9 +477,9 @@ public struct Account {
                     state.oauth.state.isSignUpInProgress = false
                     state.oauth.state.$authFailureMessage.withLock { $0 = nil }
                     state.oauth.state.$sessionStore.withLock { $0 = OAuth.SessionStore() }
-                    state.oauth.state.$selectedSessionID.withLock { $0 = nil }
+                    state.$selectedSessionID.withLock { $0 = nil }
                     let sessionStore = state.oauth.state.$sessionStore
-                    let selectedSessionID = state.oauth.state.$selectedSessionID
+                    let selectedSessionID = state.$selectedSessionID
                     store.addTask {
                         await saveOpenMusicEventAuthenticationStorage(
                             sessionStore: sessionStore,
