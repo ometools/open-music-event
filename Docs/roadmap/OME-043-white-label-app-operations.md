@@ -37,6 +37,7 @@ The naming also needs to stay clear as the project adds App Clips. `OpenMusicEve
 - Use `OpenMusicEventWhiteLabelApp` for the full white-label app entry point/scheme.
 - Use `OpenMusicEventWhiteLabelAppClip` for the shared white-label App Clip entry point/scheme.
 - Let branded organizer configuration, such as Wicked Woods, supply identity, source, assets, domains, and display copy without renaming the shared OME target family.
+- Keep white-label customization focused and precise. Organizer configuration should supply brand identity, source ownership, domains, release metadata, feature availability, and safe event chrome, not arbitrary screen layouts or page-builder behavior.
 - Add app-store operations for App Clip experiences:
   - bundle ID and entitlement ownership
   - Associated Domains and white-label domains
@@ -54,6 +55,7 @@ The naming also needs to stay clear as the project adds App Clips. `OpenMusicEve
 - Is `OpenMusicEventWhiteLabelAppClip` a single configurable App Clip target, or does each organizer get a thin concrete wrapper target that depends on shared white-label App Clip code?
 - What bundle ID/domain pattern keeps organizer ownership clear while preserving shared OME infrastructure?
 - Which App Clip and full-app CI artifacts should be archived for organizer handoff?
+- Which customization requests belong in white-label configuration, and which should be pushed to public AppView/ATProto rendering outside the first-party app?
 ```
 
 ## Next Step
