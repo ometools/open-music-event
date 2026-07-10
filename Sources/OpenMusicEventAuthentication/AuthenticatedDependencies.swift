@@ -15,7 +15,6 @@ public extension FeatureProtocol {
                 storage: OAuthSessionStorage(
                     sessionStore: sessionStore,
                     authFailureMessage: authFailureMessage,
-                    selectedSessionID: selectedSessionID
                 )
             )
     }

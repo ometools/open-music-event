@@ -312,6 +312,7 @@ let package = Package(
                 .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
                 .product(name: "Tar", package: "swift-tar"),
+                .product(name: "Tagged", package: "swift-tagged"),
                 .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
             ]
         ),

@@ -87,6 +87,21 @@ public enum OpenMusicEventOAuth {
     public static let tangledPullMergePermission =
         TangledOAuthRequirements.pullMergePermission
 
+    public static let tangledRepositoryRecordCreatePermission =
+        TangledOAuthRequirements.repositoryRecordCreatePermission
+
+    public static let tangledRepositoryRecordUpdatePermission =
+        TangledOAuthRequirements.repositoryRecordUpdatePermission
+
+    public static let tangledRepositoryRecordDeletePermission =
+        TangledOAuthRequirements.repositoryRecordDeletePermission
+
+    public static let tangledRepositoryCreatePermission =
+        TangledOAuthRequirements.repositoryCreatePermission
+
+    public static let tangledRepositorySetContributorsPermission =
+        TangledOAuthRequirements.repositorySetContributorsPermission
+
     public static let tangledPublicKeyCreatePermission =
         TangledOAuthRequirements.publicKeyCreatePermission
 
@@ -110,6 +125,15 @@ public enum OpenMusicEventOAuth {
 
     public static let tangledPullMergeAuthRequirement =
         TangledOAuthRequirements.pullMergeAuthRequirement
+
+    public static let tangledRepositoryCreateAuthRequirement =
+        TangledOAuthRequirements.repositoryCreateAuthRequirement
+
+    public static let tangledRepositorySetContributorsAuthRequirement =
+        TangledOAuthRequirements.repositorySetContributorsAuthRequirement
+
+    public static let tangledRepositoryManagementAuthRequirement =
+        TangledOAuthRequirements.repositoryManagementAuthRequirement
 
     public static let tangledPullRequestSurfaceAuthRequirement =
         TangledOAuthRequirements.pullRequestSurfaceAuthRequirement
@@ -180,6 +204,7 @@ public enum OpenMusicEventOAuth {
             tangledPublicKeyAuthRequirement,
             tangledPullRequestSurfaceAuthRequirement,
             tangledPullMergeAuthRequirement,
+            tangledRepositoryManagementAuthRequirement,
             legacyPatchBlobAuthRequirement,
         ]
     )
@@ -187,7 +212,6 @@ public enum OpenMusicEventOAuth {
     public static let storage = OAuthSessionStorage(
         sessionStore: openMusicEventOAuthSessionStore,
         authFailureMessage: openMusicEventAuthFailureMessage,
-        selectedSessionID: openMusicEventSelectedOAuthSessionID
     )
 
     public static var authFailureMessage: Shared<ErrorMessage?> {
