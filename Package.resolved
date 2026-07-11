@@ -1,5 +1,5 @@
 {
-  "originHash" : "a28604b3d56c9756e8f783d2f055af78864510c4483c37e25f6ae7097ba0fc62",
+  "originHash" : "92e8705318b6ab041fe4da3de78180ffbaba44a98f99623c55818d403e8c1547",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -313,7 +313,7 @@
       "location" : "https://source.woody.fm/swift-dependencies-source-control-client",
       "state" : {
         "branch" : "main",
-        "revision" : "0053c750a98e05b59334ce90e14bf688b86f6302"
+        "revision" : "8229cfd1fb36961f92da319028b7d1372c633d0d"
       }
     },
     {
