@@ -1,6 +1,6 @@
+#if os(iOS) || os(macOS)
 import SwiftUI
 
-#if os(iOS) || os(macOS)
 @available(iOS 26, macOS 26, *)
 public extension ContainerValues {
     @Entry var pickerItemColor: Color = .accentColor
