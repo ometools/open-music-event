@@ -63,6 +63,10 @@ public extension UserFacingText {
         "Unable to store the imported source because a file already exists.",
         fallback: "Unable to store the imported source because a file already exists."
     )
+    static let sourceWorkspaceUploadFailed = Self(
+        "Unable to upload source to Tangled.",
+        fallback: "Unable to upload source to Tangled."
+    )
     static let sourceEditPreparationFailed = Self(
         "Unable to prepare source editing.",
         fallback: "Unable to prepare source editing."
@@ -90,6 +94,7 @@ public extension ErrorOperation {
     static let sourceEditPreparation = Self("source.edit.prepare")
     static let sourceImport = Self("source.import")
     static let sourcePatchGeneration = Self("source.patch.generate")
+    static let sourceWorkspaceUpload = Self("source.workspace.upload")
     static let storedAuthenticationLoad = Self("auth.stored.load")
     static let settingsTestError = Self("settings.test-error")
 }

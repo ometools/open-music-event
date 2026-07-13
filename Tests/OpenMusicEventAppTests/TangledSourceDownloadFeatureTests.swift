@@ -424,6 +424,414 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func localSourceImportUsesSelectedSessionOrganizerAndOpensTeamWorkspace() async throws {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-local-import-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try writeMinimalSourceRepository(at: sourceURL)
+        let organizerID = try #require(
+            OMERecord.Organizer.ID(OAuth.Session.placeholder.accountID.rawValue.description)
+        )
+        let result = try await OpenMusicEventSourceValidator(
+            OpenMusicEventSourceValidationRequest(
+                source: sourceURL.path(percentEncoded: false),
+                organizerID: organizerID
+            )
+        )
+        .validate()
+        let expectedSourceProvenance = try #require(
+            result.insertion.eventSourceProvenances.first?.source
+        )
+        let expectedSourceBaselineID = SourceBaselineRecord.ID(source: expectedSourceProvenance)
+        let recorder = ImportRecorder()
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.getOptionalDefaultSession = { .placeholder }
+            $0.tangledSourceImport = TangledSourceImportClient { request in
+                await recorder.record(request)
+                return result
+            }
+        } operation: {
+            var initialState = SourceImportCompletionHost.State()
+            initialState.sourceImport.state.repository = " \(sourceURL.path(percentEncoded: false)) "
+            return TestStore(initialState: initialState) {
+                SourceImportCompletionHost()
+            }
+        }
+
+        await store.send(to: \.sourceImport, .importButtonTapped)?.value
+
+        let request = try #require(await recorder.requests.first)
+        #expect(request.source == sourceURL.path(percentEncoded: false))
+        #expect(request.organizerID == organizerID)
+        #expect(request.ref == "HEAD")
+        #expect(store.state.importedSource?.organizerID == organizerID)
+        #expect(store.state.importedSource?.sourceBaselineID == expectedSourceBaselineID)
+        #expect(store.state.sourceImport.state.isImporting == false)
+        #expect(store.state.sourceImport.state.errorMessage == nil)
+    }
+
+    @Test
+    func localSourceImportRequiresSelectedSession() throws {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-local-import-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.getOptionalDefaultSession = { nil }
+        } operation: {
+            var initialState = TangledSourceDownload.State()
+            initialState.repository = sourceURL.path(percentEncoded: false)
+            return TestStore(initialState: initialState) {
+                TangledSourceDownload()
+            }
+        }
+
+        store.send(.importButtonTapped) {
+            $0.errorMessage = "Sign in before opening a local source."
+        }
+    }
+
+    @Test
+    func localFolderSelectionFillsSourceField() {
+        let store = withDependencies {
+            $0.context = .test
+        } operation: {
+            TestStore(initialState: TangledSourceDownload.State()) {
+                TangledSourceDownload()
+            }
+        }
+
+        store.send(.sourceFolderSelected("/tmp/festival-source")) {
+            $0.repository = "/tmp/festival-source"
+            $0.errorMessage = nil
+        }
+    }
+
+    @Test
+    func teamWorkspaceDetailPresentsUploadForLocalSource() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .local,
+            reference: "/tmp/festival-source"
+        )
+        let sourceBaseline = SourceBaselineRecord(
+            source: sourceProvenance,
+            databaseFileName: "baseline.sqlite",
+            importedAt: Date(timeIntervalSince1970: 0)
+        )
+        try await database.write { db in
+            try SourceBaselineRecord.insert { sourceBaseline }
+                .execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaseline.id)) {
+                TeamWorkspaceDetail()
+            }
+        }
+
+        store.send(.uploadToTangledButtonTapped)
+
+        guard case let .uploadToTangled(upload)? = store.state.destination else {
+            Issue.record("Expected local team workspace to present Tangled upload.")
+            return
+        }
+        #expect(upload.state.sourceBaselineID == sourceBaseline.id)
+        #expect(upload.state.repositoryName == "festival-source")
+    }
+
+    @Test
+    func uploadPostsBootstrapCompletionAfterRequestSucceeds() async throws {
+        let oldSourceBaselineID = SourceBaselineRecord.ID(rawValue: "local-source")
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:placeholder/festival-source",
+            ref: "main"
+        )
+        let result = TangledWorkspaceBootstrapResult(
+            sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
+            sourceProvenance: sourceProvenance,
+            repositoryReference: TangledRepositoryReference(
+                host: "tangled.org",
+                owner: "did:plc:placeholder",
+                repository: "festival-source"
+            ),
+            repoDID: "did:plc:targetrepo"
+        )
+        let recorder = TangledWorkspaceBootstrapRequestRecorder()
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.tangledWorkspaceBootstrap = TangledWorkspaceBootstrapClient { request in
+                await recorder.record(request)
+                return result
+            }
+        } operation: {
+            TestStore(
+                initialState: TangledWorkspaceUploadCompletionHost.State(
+                    sourceBaselineID: oldSourceBaselineID,
+                    repositoryName: " Festival.Source.git "
+                )
+            ) {
+                TangledWorkspaceUploadCompletionHost()
+            }
+        }
+
+        await store.send(to: \.upload, .uploadButtonTapped)?.value
+
+        let requests = await recorder.requests
+        expectNoDifference(
+            requests,
+            [
+                TangledWorkspaceBootstrapRequest(
+                    sourceBaselineID: oldSourceBaselineID,
+                    repositoryName: " Festival.Source.git ",
+                    description: "",
+                    knotHost: "tangled.org",
+                    defaultBranch: "main"
+                )
+            ]
+        )
+        #expect(store.state.result == result)
+        #expect(store.state.upload.state.isUploading == false)
+        #expect(store.state.upload.state.errorMessage == nil)
+    }
+
+    @Test
+    func liveBootstrapUploadsLocalSourceAndPromotesDatabaseToTangledSource() async throws {
+        let database = try makePreparedDatabase()
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-bootstrap-source-\(UUID().uuidString)")
+            .standardizedFileURL
+        let storedRepositoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-bootstrap-stored-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: storedRepositoryURL)
+        }
+        try writeMinimalSourceRepository(at: sourceURL)
+
+        let organizerID = try #require(
+            OMERecord.Organizer.ID(OAuth.Session.placeholder.accountID.rawValue.description)
+        )
+        let imported = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            try await TangledSourceImportClient.live.importSource(
+                OpenMusicEventSourceValidationRequest(
+                    source: sourceURL.path(percentEncoded: false),
+                    organizerID: organizerID
+                )
+            )
+        }
+        let oldSourceProvenance = try #require(
+            imported.insertion.eventSourceProvenances.first?.source
+        )
+        let oldSourceBaselineID = SourceBaselineRecord.ID(source: oldSourceProvenance)
+        let storage = SourceRepositoryStorageMapping(
+            localURL: sourceURL,
+            storedURL: storedRepositoryURL
+        )
+        let sourceControlRequests = SourceControlRequestRecorder()
+        let httpRequests = BootstrapHTTPRequestRecorder()
+        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
+        let credentials = Credentials(
+            ssh: SSHCredentials(
+                publicKey: "ssh-ed25519 public-key Open Music Event",
+                privateKey: "private-key"
+            ),
+            hostKeyPolicy: .acceptForTesting
+        )
+
+        let result = try await withDependencies {
+            $0.context = .test
+            $0.date.now = Date(timeIntervalSince1970: 1_783_500_000)
+            $0.defaultDatabase = database
+            $0.getDefaultSession = { .placeholder }
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                authorizedRequirements.withLock { $0.append(requirement) }
+            }
+            $0.pdsHost = "placeholder.example"
+            $0.uuid = .constant(
+                try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000042"))
+            )
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, body in
+                await httpRequests.record(request, body)
+                switch request.url?.path {
+                case "/xrpc/sh.tangled.repo.create":
+                    return Data(#"{"repoDid":"did:plc:targetrepo"}"#.utf8)
+
+                case "/xrpc/com.atproto.repo.createRecord":
+                    return Data(
+                        """
+                        {
+                          "uri": "at://did:plc:placeholder/sh.tangled.repo/festival-source",
+                          "cid": "bafyreirepo"
+                        }
+                        """
+                        .utf8
+                    )
+
+                default:
+                    throw BootstrapUnexpectedHTTPRequest(path: request.url?.path)
+                }
+            }
+            $0.sourceRepositoryStorage = storage.client
+            $0.sourceControl = SourceControlClient(
+                clone: { request in
+                    await sourceControlRequests.recordClone(request)
+                    try FileManager.default.createDirectory(
+                        at: request.destinationURL,
+                        withIntermediateDirectories: true
+                    )
+                    return Repository(url: request.destinationURL)
+                },
+                open: { url in
+                    await sourceControlRequests.recordOpen(url)
+                    return Repository(url: url)
+                },
+                fetch: { _ in },
+                checkout: { _ in },
+                createBranch: { request in Branch(name: request.name) },
+                status: { _ in [] },
+                stage: { request in
+                    await sourceControlRequests.recordStage(request)
+                },
+                commit: { request in
+                    await sourceControlRequests.recordCommit(request)
+                    return Commit(id: "abc123")
+                },
+                formatPatch: { _ in Data() },
+                push: { request in
+                    await sourceControlRequests.recordPush(request)
+                }
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                credentials
+            }
+        } operation: {
+            try await TangledWorkspaceBootstrapClient.live.bootstrap(
+                TangledWorkspaceBootstrapRequest(
+                    sourceBaselineID: oldSourceBaselineID,
+                    repositoryName: "Festival-Source.git",
+                    description: " Festival source ",
+                    knotHost: "tangled.org",
+                    defaultBranch: "main"
+                )
+            )
+        }
+
+        let expectedSourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:placeholder/festival-source",
+            ref: "main"
+        )
+        let expectedSourceBaselineID = SourceBaselineRecord.ID(source: expectedSourceProvenance)
+        #expect(result.sourceBaselineID == expectedSourceBaselineID)
+        #expect(result.sourceProvenance == expectedSourceProvenance)
+        #expect(result.repoDID == "did:plc:targetrepo")
+
+        let rows = try await database.read { db in
+            (
+                sourceBaselines: try SourceBaselineRecord.fetchAll(db),
+                sourceProvenances: try EventSourceProvenanceRecord.fetchAll(db),
+                workspaces: try EditingWorkspaceRecord.fetchAll(db),
+                eventWorkspaces: try EventEditingWorkspaceRecord.fetchAll(db)
+            )
+        }
+        expectNoDifference(rows.sourceBaselines.map(\.id), [expectedSourceBaselineID])
+        expectNoDifference(rows.sourceProvenances.map(\.sourceProvenance), [expectedSourceProvenance])
+        expectNoDifference(rows.sourceProvenances.map(\.sourceBaselineID), [expectedSourceBaselineID])
+        expectNoDifference(
+            rows.workspaces.map(\.id),
+            [EditingWorkspaceRecord.ID(sourceBaselineID: expectedSourceBaselineID)]
+        )
+        expectNoDifference(
+            rows.eventWorkspaces.map(\.workspaceID),
+            [EditingWorkspaceRecord.ID(sourceBaselineID: expectedSourceBaselineID)]
+        )
+
+        let stageRequests = await sourceControlRequests.stageRequests
+        let pushRequests = await sourceControlRequests.pushRequests
+        let stagedPaths = try #require(stageRequests.first?.paths)
+            .map(\.rawValue)
+        #expect(stagedPaths.contains("events/imported-event/event.yml"))
+        #expect(!stagedPaths.contains(".ome/reference.sqlite"))
+        let pushRequest = try #require(pushRequests.first)
+        #expect(pushRequest.localBranch == "main")
+        #expect(pushRequest.remoteBranch == "main")
+        #expect(pushRequest.credentials == result.repositoryReference.sourceControlCredentials(credentials))
+
+        #expect(
+            FileManager.default.fileExists(
+                atPath: storedRepositoryURL
+                    .appending(path: "events", directoryHint: .isDirectory)
+                    .appending(path: "imported-event", directoryHint: .isDirectory)
+                    .appending(path: "event.yml")
+                    .path(percentEncoded: false)
+            )
+        )
+        #expect(
+            FileManager.default.fileExists(
+                atPath: storedRepositoryURL
+                    .appending(path: ".ome", directoryHint: .isDirectory)
+                    .appending(path: "reference.sqlite")
+                    .path(percentEncoded: false)
+            )
+        )
+
+        let requests = await httpRequests.requests
+        let createRepositoryRequest = try #require(
+            requests.first { $0.url?.path == "/xrpc/sh.tangled.repo.create" }
+        )
+        #expect(createRepositoryRequest.url?.host == "tangled.org")
+        let createRepositoryBody = try #require(createRepositoryRequest.body)
+        let createRepositoryJSON = try #require(
+            JSONSerialization.jsonObject(with: createRepositoryBody) as? [String: Any]
+        )
+        #expect(createRepositoryJSON["rkey"] as? String == "festival-source")
+        #expect(createRepositoryJSON["name"] as? String == "festival-source")
+        #expect(createRepositoryJSON["defaultBranch"] as? String == "main")
+
+        let createRecordRequest = try #require(
+            requests.first { $0.url?.path == "/xrpc/com.atproto.repo.createRecord" }
+        )
+        #expect(createRecordRequest.url?.host == "placeholder.example")
+        let createRecordBody = try #require(createRecordRequest.body)
+        let createRecordJSON = try #require(
+            JSONSerialization.jsonObject(with: createRecordBody) as? [String: Any]
+        )
+        #expect(createRecordJSON["repo"] as? String == "did:plc:placeholder")
+        #expect(createRecordJSON["collection"] as? String == "sh.tangled.repo")
+        #expect(createRecordJSON["rkey"] as? String == "festival-source")
+        let record = try #require(createRecordJSON["record"] as? [String: Any])
+        #expect(record["$type"] as? String == "sh.tangled.repo")
+        #expect(record["name"] as? String == "festival-source")
+        #expect(record["knot"] as? String == "tangled.org")
+        #expect(record["description"] as? String == "Festival source")
+        #expect(record["repoDid"] as? String == "did:plc:targetrepo")
+
+        let authorizedPermissions = authorizedRequirements.withLock {
+            $0.flatMap(\.permissions).map(\.rawValue)
+        }
+        #expect(authorizedPermissions.contains("rpc:sh.tangled.repo.create?aud=did:web:tangled.org"))
+        #expect(authorizedPermissions.contains("repo:sh.tangled.repo?action=create"))
+        #expect(authorizedPermissions.contains("repo:sh.tangled.publicKey?action=create"))
+    }
+
+    @Test
     func preparedDependenciesUseArchiveCheckoutForPublicTangledImports() async throws {
         let archiveData = Data("archive".utf8)
         let outputURL = FileManager.default.temporaryDirectory
@@ -1109,7 +1517,7 @@ struct TangledSourceDownloadFeatureTests {
         }
 
         store.send(.importButtonTapped) {
-            $0.errorMessage = "Enter a Tangled repository."
+            $0.errorMessage = "Enter a source path or Tangled repository."
         }
     }
 
@@ -1373,6 +1781,100 @@ private actor ImportRecorder {
     }
 }
 
+private actor TangledWorkspaceBootstrapRequestRecorder {
+    var requests: [TangledWorkspaceBootstrapRequest] = []
+
+    func record(_ request: TangledWorkspaceBootstrapRequest) {
+        requests.append(request)
+    }
+}
+
+private actor SourceControlRequestRecorder {
+    private(set) var cloneRequests: [CloneRequest] = []
+    private(set) var openRequests: [URL] = []
+    private(set) var stageRequests: [StageRequest] = []
+    private(set) var commitRequests: [CommitRequest] = []
+    private(set) var pushRequests: [PushRequest] = []
+
+    func recordClone(_ request: CloneRequest) {
+        cloneRequests.append(request)
+    }
+
+    func recordOpen(_ url: URL) {
+        openRequests.append(url)
+    }
+
+    func recordStage(_ request: StageRequest) {
+        stageRequests.append(request)
+    }
+
+    func recordCommit(_ request: CommitRequest) {
+        commitRequests.append(request)
+    }
+
+    func recordPush(_ request: PushRequest) {
+        pushRequests.append(request)
+    }
+}
+
+private actor BootstrapHTTPRequestRecorder {
+    struct Request: Sendable {
+        var url: URL?
+        var body: Data?
+    }
+
+    private(set) var requests: [Request] = []
+
+    func record(_ request: HTTPRequest, _ body: Data?) {
+        requests.append(Request(url: request.url, body: body))
+    }
+}
+
+private final class SourceRepositoryStorageMapping: @unchecked Sendable {
+    private let localURL: URL
+    private let lock = NSLock()
+    private let storedURL: URL
+    private var storedProvenance: OMERecord.SourceDatabaseInsertion.SourceProvenance?
+
+    init(localURL: URL, storedURL: URL) {
+        self.localURL = localURL.standardizedFileURL
+        self.storedURL = storedURL.standardizedFileURL
+    }
+
+    var client: SourceRepositoryStorageClient {
+        SourceRepositoryStorageClient(
+            repositoryURL: { [self] provenance in
+                switch provenance.kind {
+                case .local:
+                    return localURL
+
+                case .tangled:
+                    return lock.withLock {
+                        if storedProvenance == provenance {
+                            return storedURL
+                        }
+                        return storedURL
+                    }
+                }
+            },
+            store: { [self] repositoryURL, provenance in
+                if FileManager.default.fileExists(atPath: storedURL.path(percentEncoded: false)) {
+                    try FileManager.default.removeItem(at: storedURL)
+                }
+                try FileManager.default.moveItem(
+                    at: repositoryURL.standardizedFileURL,
+                    to: storedURL
+                )
+                lock.withLock {
+                    storedProvenance = provenance
+                }
+                return storedURL
+            },
+            remove: { _ in }
+        )
+    }
+}
+
 private actor SourceDataRefreshImportRecorder {
     private var recordedRequests: [OpenMusicEventSourceValidationRequest] = []
     private var recordedSourceEditingSessionIsNilValues: [Bool] = []
@@ -1446,6 +1948,14 @@ private struct SourceImportFailure: CustomStringConvertible, Error, Sendable {
 
 private struct PublicTangledCheckoutRequestedSSHCredentials: Error {}
 
+private struct BootstrapUnexpectedHTTPRequest: CustomStringConvertible, Error {
+    var path: String?
+
+    var description: String {
+        "Unexpected bootstrap HTTP request: \(path ?? "nil")"
+    }
+}
+
 @Feature
 private struct SourceImportErrorHost {
     struct State {
@@ -1465,6 +1975,58 @@ private struct SourceImportErrorHost {
             }
             .onEvent(ErrorReported.self) { error, state in
                 state.errorNotifications.state.report(error)
+            }
+    }
+}
+
+@Feature
+private struct SourceImportCompletionHost {
+    struct State {
+        var importedSource: ImportedSource?
+        var sourceImport = Spawn(TangledSourceDownload.State())
+    }
+
+    enum Action {}
+
+    var body: some Feature {
+        Update { _, _ in }
+            .spawn(\.sourceImport) {
+                TangledSourceDownload()
+            }
+            .onEvent(SourceImportCompleted.self) { importedSource, state in
+                state.importedSource = importedSource
+            }
+    }
+}
+
+@Feature
+private struct TangledWorkspaceUploadCompletionHost {
+    struct State {
+        var result: TangledWorkspaceBootstrapResult?
+        var upload: Spawn<TangledWorkspaceUpload>
+
+        init(
+            sourceBaselineID: SourceBaselineRecord.ID,
+            repositoryName: String
+        ) {
+            upload = Spawn(
+                TangledWorkspaceUpload.State(
+                    sourceBaselineID: sourceBaselineID,
+                    repositoryName: repositoryName
+                )
+            )
+        }
+    }
+
+    enum Action {}
+
+    var body: some Feature {
+        Update { _, _ in }
+            .spawn(\.upload) {
+                TangledWorkspaceUpload()
+            }
+            .onEvent(TangledWorkspaceBootstrapCompleted.self) { result, state in
+                state.result = result
             }
     }
 }

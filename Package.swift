@@ -432,6 +432,9 @@ targets.append(contentsOf: [
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
             .product(name: "SourceControlClientGit", package: "swift-dependencies-source-control-client", condition: .when(platforms: [.iOS, .macOS])),
             .product(name: "SQLiteData", package: "sqlite-data"),
+            .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
+            .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
+            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
         ],
         resources: [.process("Resources")],
         plugins: [.plugin(name: "skipstone", package: "skip")]

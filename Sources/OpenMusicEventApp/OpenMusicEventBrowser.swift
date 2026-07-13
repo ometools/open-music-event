@@ -916,6 +916,10 @@ public struct TeamWorkspaceDetail {
             sourceBaseline != nil && editableCalendarID != nil
         }
 
+        var canUploadToTangled: Bool {
+            sourceBaseline?.sourceKind == .local
+        }
+
         var canCreateEvent: Bool {
             sourceBaseline != nil && editableCalendarID != nil
         }
@@ -941,11 +945,13 @@ public struct TeamWorkspaceDetail {
         case manageSourceButtonTapped
         case teamWorkspaceEditor(SourceWorkspace.Action)
         case task
+        case uploadToTangledButtonTapped
     }
 
     @Feature
     public enum Destination {
         case createEvent(Spawn<TeamWorkspaceCreateEvent>)
+        case uploadToTangled(Spawn<TangledWorkspaceUpload>)
     }
 
     @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
@@ -1055,6 +1061,19 @@ public struct TeamWorkspaceDetail {
         )
     }
 
+    static func defaultTangledRepositoryName(
+        for sourceBaseline: SourceBaselineRecord
+    ) -> String {
+        let lastPathComponent = URL(
+            fileURLWithPath: sourceBaseline.sourceReference
+        )
+        .lastPathComponent
+        guard !lastPathComponent.isEmpty else {
+            return "open-music-event"
+        }
+        return lastPathComponent
+    }
+
     public var body: some Feature {
         Update { state, action in
             switch action {
@@ -1161,6 +1180,21 @@ public struct TeamWorkspaceDetail {
 
             case .task:
                 break
+
+            case .uploadToTangledButtonTapped:
+                guard let sourceBaseline = state.sourceBaseline,
+                      sourceBaseline.sourceKind == .local
+                else { return }
+                state.destination = .uploadToTangled(
+                    Spawn(
+                        TangledWorkspaceUpload.State(
+                            sourceBaselineID: sourceBaseline.id,
+                            repositoryName: Self.defaultTangledRepositoryName(
+                                for: sourceBaseline
+                            )
+                        )
+                    )
+                )
             }
         }
         .ifLet(\.destination, action: \.destination) {
@@ -1288,6 +1322,11 @@ public struct TeamWorkspaceDetailView: View {
                 TeamWorkspaceCreateEventView(store: createEventStore)
             }
         }
+        .sheet(item: $store.scope(\.destination, action: \.destination).uploadToTangled) { uploadStore in
+            NavigationStack {
+                TangledWorkspaceUploadView(store: uploadStore)
+            }
+        }
         .sheet(item: $store.scope(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor)) { teamWorkspaceEditorStore in
             NavigationStack {
                 SourceWorkspaceView(store: teamWorkspaceEditorStore)
@@ -1302,6 +1341,11 @@ public struct TeamWorkspaceDetailView: View {
             if showsAuthoringControls, store.canCreateEvent {
                 Button("Add Event", systemImage: "plus") {
                     store.send(.addEventButtonTapped)
+                }
+            }
+            if showsAuthoringControls, store.canUploadToTangled {
+                Button("Upload to Tangled") {
+                    store.send(.uploadToTangledButtonTapped)
                 }
             }
             if showsAuthoringControls, isManageWorkspaceToolbarItemVisible && store.canManageSource {

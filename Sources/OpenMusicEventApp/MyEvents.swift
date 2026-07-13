@@ -224,6 +224,11 @@ public struct MyEvents {
                 }
             }
         }
+        .onEvent(TangledWorkspaceBootstrapCompleted.self) { result, state in
+            store.withDependencies {
+                state.teamWorkspaceDetail = .init(sourceBaselineID: result.sourceBaselineID)
+            }
+        }
     }
 }
 

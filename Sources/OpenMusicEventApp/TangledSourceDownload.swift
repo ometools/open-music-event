@@ -1,3 +1,4 @@
+import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
@@ -6,8 +7,10 @@ import OpenMusicEventAppEventViewer
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SwiftUI
+import UniformTypeIdentifiers
 
 public struct TangledSourceImportClient: Sendable {
     public var importSource: @Sendable (OpenMusicEventSourceValidationRequest) async throws -> OpenMusicEventSourceValidationResult
@@ -34,6 +37,18 @@ public struct ImportedSource: Equatable, Sendable {
     ) {
         self.organizerID = organizerID
         self.sourceBaselineID = sourceBaselineID
+    }
+}
+
+private extension OpenMusicEventSourceValidationResult {
+    func sourceBaselineID(
+        fallbackRequest: OpenMusicEventSourceValidationRequest
+    ) -> SourceBaselineRecord.ID? {
+        if let sourceProvenance = insertion.eventSourceProvenances.first?.source {
+            return SourceBaselineRecord.ID(source: sourceProvenance)
+        }
+        return (try? fallbackRequest.tangledSourceProvenance())
+            .map(SourceBaselineRecord.ID.init(source:))
     }
 }
 
@@ -93,6 +108,7 @@ public extension DependencyValues {
 public struct TangledSourceDownload {
     public init() {}
 
+    @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
     @Dependency(\.tangledSourceImport) var tangledSourceImport
 
     public struct State {
@@ -120,6 +136,8 @@ public struct TangledSourceDownload {
 
     public enum Action {
         case importButtonTapped
+        case sourceFolderSelected(String)
+        case sourceFolderSelectionFailed
     }
 
     public var body: some Feature {
@@ -128,14 +146,25 @@ public struct TangledSourceDownload {
             case .importButtonTapped:
                 guard !state.isImporting else { return }
                 guard !state.trimmedRepository.isEmpty else {
-                    state.errorMessage = "Enter a Tangled repository."
+                    state.errorMessage = "Enter a source path or Tangled repository."
                     return
                 }
 
-                let request = OpenMusicEventSourceValidationRequest(
+                var request = OpenMusicEventSourceValidationRequest(
                     source: state.trimmedRepository,
                     ref: state.resolvedRef
                 )
+                if case .local = try? SourceRepositoryLocation(parsing: state.trimmedRepository) {
+                    guard let session = getOptionalDefaultSession(),
+                          let organizerID = OMERecord.Organizer.ID(
+                            session.accountID.rawValue.description
+                          )
+                    else {
+                        state.errorMessage = "Sign in before opening a local source."
+                        return
+                    }
+                    request.organizerID = organizerID
+                }
                 state.isImporting = true
                 state.importedSummary = nil
                 state.errorMessage = nil
@@ -164,12 +193,18 @@ public struct TangledSourceDownload {
                         key: SourceImportCompleted.self,
                         value: ImportedSource(
                             organizerID: result.organizerID,
-                            sourceBaselineID: (try? request.tangledSourceProvenance())
-                                .map(SourceBaselineRecord.ID.init(source:))
+                            sourceBaselineID: result.sourceBaselineID(fallbackRequest: request)
                         )
                     )
                     _ = try? store.dismiss()
                 }
+
+            case .sourceFolderSelected(let path):
+                state.repository = path
+                state.errorMessage = nil
+
+            case .sourceFolderSelectionFailed:
+                state.errorMessage = "Unable to open local folder."
             }
         }
     }
@@ -178,10 +213,15 @@ public struct TangledSourceDownload {
 struct TangledSourceDownloadView: View {
     @Environment(\.dismiss) var dismiss
     @Bindable var store: StoreOf<TangledSourceDownload>
+    @State var isSourceFolderImporterPresented = false
 
     var body: some View {
         Form {
             Section {
+                Button("Open Local Folder") {
+                    isSourceFolderImporterPresented = true
+                }
+
                 TextField(
                     "Repository",
                     text: $store.repository,
@@ -219,7 +259,22 @@ struct TangledSourceDownloadView: View {
             }
         }
         .disabled(store.isImporting)
-        .navigationTitle("Import Team Workspace")
+        .fileImporter(
+            isPresented: $isSourceFolderImporterPresented,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    store.send(.sourceFolderSelected(url.path(percentEncoded: false)))
+                }
+
+            case .failure:
+                store.send(.sourceFolderSelectionFailed)
+            }
+        }
+        .navigationTitle("Open Team Workspace")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
