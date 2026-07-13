@@ -55,11 +55,28 @@ public struct Account {
         }
     }
 
+    public enum AccountSessionValidationStatus: Equatable, Sendable {
+        case unchecked
+        case checking
+        case accepted
+        case requiresRelog
+        case unverified
+
+        var canStartChecking: Bool {
+            self != .checking
+        }
+
+        var requiresRelog: Bool {
+            self == .requiresRelog
+        }
+    }
+
     public struct AccountRow: Equatable, Identifiable, Sendable {
         public var id: Atmosphere.Account.ID
         public var identity: ActorIdentity?
         public var isSelected: Bool
         public var pdsHost: String
+        public var sessionValidationStatus: AccountSessionValidationStatus
 
         public var title: String {
             identity?.displayName?.accountDisplayValue
@@ -68,11 +85,18 @@ public struct Account {
         }
 
         public var subtitle: String {
+            if sessionValidationStatus.requiresRelog {
+                return "Sign in again"
+            }
             if identity?.displayName?.accountDisplayValue != nil,
                let handle = identity?.handle?.rawValue.accountDisplayValue {
                 return handle
             }
             return "Hosted by \(pdsHost)"
+        }
+
+        var requiresRelog: Bool {
+            sessionValidationStatus.requiresRelog
         }
 
         var avatarInitials: String {
@@ -201,6 +225,7 @@ public struct Account {
         public var authRequirement: OAuth.AuthRequirement
         public var isAuthenticationSheetPresented: Bool
         public var accountIdentities: [Atmosphere.Account.ID: AccountIdentityResolution] = [:]
+        public var accountSessionValidationStatuses: [Atmosphere.Account.ID: AccountSessionValidationStatus] = [:]
         public var oauth: Spawn<OAuthAccount>
         @Shared public var selectedSessionID: Atmosphere.Account.ID?
         @Shared public var recentlyUsedAccountIDs: [Atmosphere.Account.ID]
@@ -222,11 +247,13 @@ public struct Account {
             let recentUseRanks = accountRowRecentUseRanks
             return sessionStore.sessions.values
                 .map { session in
-                    AccountRow(
+                    let validationStatus = accountSessionValidationStatuses[session.accountID] ?? .unchecked
+                    return AccountRow(
                         id: session.accountID,
                         identity: accountIdentities[session.accountID]?.identity,
-                        isSelected: session.accountID == selectedSessionID,
-                        pdsHost: session.pdsHost.rawValue
+                        isSelected: session.accountID == selectedSessionID && !validationStatus.requiresRelog,
+                        pdsHost: session.pdsHost.rawValue,
+                        sessionValidationStatus: validationStatus
                     )
                 }
                 .sorted { lhs, rhs in
@@ -303,6 +330,15 @@ public struct Account {
             }
         }
 
+        func reloginHint(for accountID: Atmosphere.Account.ID) -> String {
+            accountIdentities[accountID]?
+                .identity?
+                .handle?
+                .rawValue
+                .accountDisplayValue
+            ?? accountID.rawValue.description
+        }
+
         mutating func syncRecentlyUsedAccountIDs(selectedAccountID: Atmosphere.Account.ID?) {
             let accountIDs = Set(sessionStore.sessions.values.map(\.accountID))
             let selectedAccountID = selectedAccountID.flatMap { accountID in
@@ -348,6 +384,10 @@ public struct Account {
         case accountLogOutButtonTapped(Atmosphere.Account.ID)
         case accountRowTapped(Atmosphere.Account.ID)
         case accountRowsAppeared
+        case accountSessionValidationResponse(
+            Atmosphere.Account.ID,
+            OpenMusicEventAccountSessionValidationClient.ValidationResult
+        )
         case authenticationSheetDismissed
         case customSignUpServerOptionTapped
         case loginResponse(Result<OAuth.Session, OAuthAccount.LoginFailure>)
@@ -368,6 +408,7 @@ public struct Account {
 
     @Dependency(\.actorIdentityLookup) var actorIdentityLookup
     @Dependency(\.openMusicEventAccountAuthorizationClient) var accountAuthorizationClient
+    @Dependency(\.openMusicEventAccountSessionValidationClient) var accountSessionValidationClient
     @Dependency(\.openMusicEventAuthorizationRequests) var authorizationRequests
     @Dependency(\.openMusicEventSignUpServerConfiguration) var signUpServerConfiguration
     @StoreTaskID var signInActorSearchTask
@@ -403,6 +444,7 @@ public struct Account {
                 case .accountLogOutButtonTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
                     state.accountIdentities[accountID] = nil
+                    state.accountSessionValidationStatuses[accountID] = nil
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = false
                     state.oauth.state.isSignUpInProgress = false
@@ -440,6 +482,14 @@ public struct Account {
 
                 case .accountRowTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
+                    if state.accountSessionValidationStatuses[accountID]?.requiresRelog == true {
+                        state.selectedMode = .signIn
+                        state.signInForm = SignInFormFeature.State(
+                            value: SignInFormValue(handle: state.reloginHint(for: accountID))
+                        )
+                        state.isAuthenticationSheetPresented = true
+                        return
+                    }
                     state.$selectedSessionID.withLock {
                         $0 = accountID
                     }
@@ -456,29 +506,75 @@ public struct Account {
                     state.syncRecentlyUsedAccountIDs(
                         selectedAccountID: state.selectedSessionID ?? state.sessionStore.selectedAccountID
                     )
-                    let accountIDs = Set(state.sessionStore.sessions.values.map(\.accountID))
+                    let sessions = Array(state.sessionStore.sessions.values)
+                    let accountIDs = Set(sessions.map(\.accountID))
                     state.accountIdentities = state.accountIdentities.filter {
+                        accountIDs.contains($0.key)
+                    }
+                    state.accountSessionValidationStatuses = state.accountSessionValidationStatuses.filter {
                         accountIDs.contains($0.key)
                     }
                     let accountIDsToLoad = accountIDs.filter { accountID in
                         state.accountIdentities[accountID]?.needsLoading ?? true
                     }
-                    guard !accountIDsToLoad.isEmpty else { return }
                     for accountID in accountIDsToLoad {
                         state.accountIdentities[accountID] = .loading
                     }
-                    store.addTask {
-                        for accountID in accountIDsToLoad {
-                            let identity: ActorIdentity?
-                            do {
-                                identity = try await actorIdentityLookup.resolve(
-                                    accountID.rawValue.description
-                                )
-                            } catch {
-                                identity = nil
+                    if !accountIDsToLoad.isEmpty {
+                        store.addTask {
+                            for accountID in accountIDsToLoad {
+                                let identity: ActorIdentity?
+                                do {
+                                    identity = try await actorIdentityLookup.resolve(
+                                        accountID.rawValue.description
+                                    )
+                                } catch {
+                                    identity = nil
+                                }
+                                try store.send(.accountIdentityResponse(accountID, identity))
                             }
-                            try store.send(.accountIdentityResponse(accountID, identity))
                         }
+                    }
+                    let sessionsToValidate = sessions.filter { session in
+                        (
+                            state.accountSessionValidationStatuses[session.accountID] ?? .unchecked
+                        )
+                        .canStartChecking
+                    }
+                    for session in sessionsToValidate {
+                        state.accountSessionValidationStatuses[session.accountID] = .checking
+                    }
+                    if !sessionsToValidate.isEmpty {
+                        store.addTask {
+                            for session in sessionsToValidate {
+                                let result = await accountSessionValidationClient.validate(session)
+                                try store.send(.accountSessionValidationResponse(session.accountID, result))
+                            }
+                        }
+                    }
+
+                case .accountSessionValidationResponse(let accountID, let result):
+                    guard state.sessionStore[accountID] != nil else { return }
+                    switch result {
+                    case .accepted(let session):
+                        guard session.accountID == accountID else {
+                            state.accountSessionValidationStatuses[accountID] = .unverified
+                            return
+                        }
+                        state.oauth.state.$sessionStore.withLock {
+                            $0[accountID] = session
+                        }
+                        state.accountSessionValidationStatuses[accountID] = .accepted
+                        let sessionStore = state.oauth.state.$sessionStore
+                        store.addTask {
+                            await saveOpenMusicEventSessionStore(sessionStore)
+                        }
+
+                    case .requiresRelog:
+                        state.accountSessionValidationStatuses[accountID] = .requiresRelog
+
+                    case .unverified:
+                        state.accountSessionValidationStatuses[accountID] = .unverified
                     }
 
                 case .authenticationSheetDismissed:
@@ -497,6 +593,7 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.upsert(session)
                     }
+                    state.accountSessionValidationStatuses[session.accountID] = .accepted
                     state.$selectedSessionID.withLock {
                         $0 = session.accountID
                     }
@@ -609,6 +706,7 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.upsert(session)
                     }
+                    state.accountSessionValidationStatuses[session.accountID] = .accepted
                     state.$selectedSessionID.withLock {
                         $0 = session.accountID
                     }
@@ -640,6 +738,7 @@ public struct Account {
 
                 case .signOutAllButtonTapped:
                     state.accountIdentities = [:]
+                    state.accountSessionValidationStatuses = [:]
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = false
                     state.oauth.state.isSignUpInProgress = false
@@ -789,11 +888,13 @@ struct AccountManagementSection: View {
                         select(row)
                     } label: {
                         Label(
-                            row.isSelected ? "Current Account" : "Select Account",
+                            row.requiresRelog
+                                ? "Sign In Again"
+                                : row.isSelected ? "Current Account" : "Select Account",
                             systemImage: row.isSelected ? "checkmark" : "checkmark.circle"
                         )
                     }
-                    .disabled(row.isSelected)
+                    .disabled(row.isSelected && !row.requiresRelog)
 
                     Button(role: .destructive) {
                         logOut(row)
@@ -845,11 +946,12 @@ struct AccountRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             AccountAvatar(identity: row.identity, initials: row.avatarInitials)
+                .opacity(row.requiresRelog ? 0.48 : 1)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.title)
                     .font(.body.weight(row.isSelected ? .semibold : .regular))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(row.requiresRelog ? .secondary : .primary)
                     .lineLimit(1)
 
                 Text(row.subtitle)
@@ -857,10 +959,11 @@ struct AccountRowView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .opacity(row.requiresRelog ? 0.68 : 1)
 
             Spacer(minLength: 8)
 
-            if row.isSelected {
+            if row.isSelected && !row.requiresRelog {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
                     .imageScale(.large)
@@ -870,6 +973,7 @@ struct AccountRowView: View {
         }
         .padding(.vertical, 8)
         .animation(SwiftUI.Animation.easeInOut(duration: 0.2), value: row.isSelected)
+        .animation(SwiftUI.Animation.easeInOut(duration: 0.2), value: row.requiresRelog)
         .foregroundStyle(.primary)
     }
 }
@@ -1534,6 +1638,16 @@ private func saveOpenMusicEventAuthenticationStorage(
     do {
         try await sessionStore.save()
         try await selectedSessionID.save()
+    } catch {
+        reportIssue(error)
+    }
+}
+
+private func saveOpenMusicEventSessionStore(
+    _ sessionStore: Shared<OAuth.SessionStore>
+) async {
+    do {
+        try await sessionStore.save()
     } catch {
         reportIssue(error)
     }

@@ -405,6 +405,193 @@ struct AccountTests {
     }
 
     @Test
+    func accountRowsMarkTerminalAuthFailuresAsNeedingRelog() async throws {
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(alice)
+        sessionStoreValue.upsert(bob, select: false)
+        let validation = AccountSessionValidationRecorder(
+            results: [
+                alice.accountID: .requiresRelog,
+                bob.accountID: .accepted(bob),
+            ]
+        )
+        let store = withDependencies {
+            $0.actorIdentityLookup.resolve = { input in
+                try accountTestIdentity(for: input)
+            }
+            $0.openMusicEventAccountSessionValidationClient = .recording(validation)
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    sessionStore: Shared(value: sessionStoreValue),
+                    selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
+                )
+            ) {
+                Account()
+            }
+        }
+
+        let task = store.send(.accountRowsAppeared)
+        await task?.value
+        try await waitForCondition {
+            store.accountRows.first { $0.id == alice.accountID }?.requiresRelog == true
+        }
+
+        let validatedAccountIDs = await validation.snapshotValidatedAccountIDs()
+        expectNoDifference(
+            Set(validatedAccountIDs),
+            Set([alice.accountID, bob.accountID])
+        )
+        let aliceRow = try #require(store.accountRows.first { $0.id == alice.accountID })
+        #expect(aliceRow.requiresRelog)
+        #expect(aliceRow.isSelected == false)
+        #expect(aliceRow.subtitle == "Sign in again")
+        let bobRow = try #require(store.accountRows.first { $0.id == bob.accountID })
+        #expect(bobRow.requiresRelog == false)
+    }
+
+    @Test
+    func accountRowValidationPersistsRefreshedSessionWithoutChangingSelection() async throws {
+        let keychainStorage = InMemoryKeychainStorage()
+        let sessionStoreItem = KeychainStorageItem(
+            service: "fm.woody.openMusicEvent.tests",
+            account: "account.validation.sessionStore"
+        )
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
+        var refreshedBob = bob
+        refreshedBob.accessToken = OAuth.AccessToken(rawValue: "bob-refreshed-access-token")
+        refreshedBob.refreshToken = OAuth.RefreshToken(rawValue: "bob-refreshed-refresh-token")
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(alice)
+        sessionStoreValue.upsert(bob, select: false)
+        let sessionStore = Shared(
+            wrappedValue: sessionStoreValue,
+            KeychainSharedKey(item: sessionStoreItem)
+        )
+        let validation = AccountSessionValidationRecorder(
+            results: [
+                alice.accountID: .accepted(alice),
+                bob.accountID: .accepted(refreshedBob),
+            ]
+        )
+        let store = withDependencies {
+            $0.actorIdentityLookup.resolve = { input in
+                try accountTestIdentity(for: input)
+            }
+            $0.keychainStorage = .inMemory(keychainStorage)
+            $0.openMusicEventAccountSessionValidationClient = .recording(validation)
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    sessionStore: sessionStore,
+                    selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
+                )
+            ) {
+                Account()
+            }
+        }
+
+        let task = store.send(.accountRowsAppeared)
+        await task?.value
+        try await waitForCondition {
+            store.sessionStore[bob.accountID]?.accessToken == refreshedBob.accessToken
+        }
+
+        #expect(store.selectedSessionID == alice.accountID)
+        #expect(store.session == alice)
+        #expect(store.sessionStore[bob.accountID] == refreshedBob)
+        try await waitForCondition {
+            keychainStorage.data(for: sessionStoreItem) != nil
+        }
+        let savedSessionStore = try JSONDecoder().decode(
+            OAuth.SessionStore.self,
+            from: try #require(keychainStorage.data(for: sessionStoreItem))
+        )
+        #expect(savedSessionStore[bob.accountID] == refreshedBob)
+    }
+
+    @Test
+    func accountRowValidationLeavesNonAuthFailuresSelectable() async throws {
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(alice)
+        let validation = AccountSessionValidationRecorder(
+            results: [alice.accountID: .unverified]
+        )
+        let store = withDependencies {
+            $0.actorIdentityLookup.resolve = { input in
+                try accountTestIdentity(for: input)
+            }
+            $0.openMusicEventAccountSessionValidationClient = .recording(validation)
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    sessionStore: Shared(value: sessionStoreValue),
+                    selectedSessionID: Shared(value: nil)
+                )
+            ) {
+                Account()
+            }
+        }
+
+        let validationTask = store.send(.accountRowsAppeared)
+        await validationTask?.value
+        try await waitForCondition {
+            store.accountRows.first?.sessionValidationStatus == .unverified
+        }
+        let row = try #require(store.accountRows.first)
+        #expect(row.requiresRelog == false)
+        #expect(row.subtitle == "Hosted by alice.pds.example")
+
+        let selectionTask = store.send(.accountRowTapped(alice.accountID))
+        await selectionTask?.value
+
+        #expect(store.selectedSessionID == alice.accountID)
+        #expect(store.session == alice)
+    }
+
+    @Test
+    func tappingRelogAccountRowPresentsSignInWithoutSelectingStaleSession() async throws {
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(bob)
+        sessionStoreValue.upsert(alice, select: false)
+        var state = Account.State.localTestState(
+            sessionStore: Shared(value: sessionStoreValue),
+            selectedSessionID: Shared(value: bob.accountID as Atmosphere.Account.ID?)
+        )
+        state.accountIdentities[alice.accountID] = .loaded(
+            ActorIdentity(
+                did: alice.accountID.rawValue,
+                handle: Atmosphere.Account.Handle(rawValue: "alice.example.com"),
+                displayName: "Alice Example",
+                source: .canonicalResolution
+            )
+        )
+        state.accountSessionValidationStatuses[alice.accountID] = .requiresRelog
+        let store = withDependencies {
+            $0.continuousClock = ImmediateClock()
+        } operation: {
+            Store(initialState: state) {
+                Account()
+            }
+        }
+
+        let task = store.send(.accountRowTapped(alice.accountID))
+        await task?.value
+
+        #expect(store.selectedSessionID == bob.accountID)
+        #expect(store.session == bob)
+        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.selectedMode == .signIn)
+        #expect(store.signInLoginHint == "alice.example.com")
+    }
+
+    @Test
     func selectingStoredAccountUpdatesSelectedSessionID() async throws {
         let keychainStorage = InMemoryKeychainStorage()
         let selectedSessionIDItem = KeychainStorageItem(
@@ -929,6 +1116,13 @@ private func accountTestSession(
     )
 }
 
+private func accountTestIdentity(for input: String) throws -> ActorIdentity {
+    ActorIdentity(
+        did: try #require(DID(input)),
+        source: .canonicalResolution
+    )
+}
+
 private let accountTestSignUpServerConfiguration = OAuthSignUpServerConfiguration(
     defaultServerHost: "account.example",
     options: [
@@ -1129,6 +1323,28 @@ private actor AccountDirectAuthorizationRecorder {
     }
 }
 
+private actor AccountSessionValidationRecorder {
+    private let results: [Atmosphere.Account.ID: OpenMusicEventAccountSessionValidationClient.ValidationResult]
+    private var validatedAccountIDs: [Atmosphere.Account.ID] = []
+
+    init(
+        results: [Atmosphere.Account.ID: OpenMusicEventAccountSessionValidationClient.ValidationResult]
+    ) {
+        self.results = results
+    }
+
+    func validate(
+        _ session: OAuth.Session
+    ) -> OpenMusicEventAccountSessionValidationClient.ValidationResult {
+        validatedAccountIDs.append(session.accountID)
+        return results[session.accountID] ?? .accepted(session)
+    }
+
+    func snapshotValidatedAccountIDs() -> [Atmosphere.Account.ID] {
+        validatedAccountIDs
+    }
+}
+
 private extension OpenMusicEventAuthorizationRequests {
     static func recording(_ recorder: AccountAuthorizationRecorder) -> Self {
         Self(
@@ -1165,6 +1381,14 @@ private extension OpenMusicEventAuthorizationRequests {
                 await recorder.recordCancel()
             }
         )
+    }
+}
+
+private extension OpenMusicEventAccountSessionValidationClient {
+    static func recording(_ recorder: AccountSessionValidationRecorder) -> Self {
+        Self { session in
+            await recorder.validate(session)
+        }
     }
 }
 
