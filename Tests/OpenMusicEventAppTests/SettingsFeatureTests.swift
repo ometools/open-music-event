@@ -119,6 +119,112 @@ struct SettingsFeatureTests {
     }
 
     @Test
+    func eventSettingsRequestsLocalEventDeletionAfterConfirmation() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID()
+        try await insertEvent(eventID, into: database)
+        let store: TestStore<EventSettings> = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: EventSettings.State(eventID: eventID)) {
+                EventSettings()
+            }
+        }
+
+        store.send(.deleteEventButtonTapped) {
+            $0.isDeleteEventConfirmationPresented = true
+        }
+        let deleteTask = store.send(.deleteEventConfirmationDeleteButtonTapped) {
+            $0.isDeleteEventConfirmationPresented = false
+        }
+        await store.receive(
+            key: LocalEventDeletionRequested.self,
+            value: .equals(eventID),
+            timeout: .seconds(1)
+        )
+        await deleteTask?.value
+    }
+
+    @Test
+    func appRootDeletesRequestedLocalEventAndDismissesViewer() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID()
+        try await insertEvent(eventID, into: database)
+        try await database.write { db in
+            try AppState.update {
+                $0.organizerID = #bind(eventID.organizerID)
+                $0.eventID = #bind(eventID.eventID)
+            }
+            .execute(db)
+        }
+        let store: TestStore<OpenMusicEventAppRoot> = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var initialState = OpenMusicEventAppRoot.State()
+            initialState.hasRestoredSelectedEventAtLaunch = true
+            initialState.eventViewer = Spawn(
+                EventViewer.State(
+                    eventID: eventID,
+                    authoringMode: .authoring(.all),
+                    features: [.settings]
+                )
+            )
+            return TestStore(initialState: initialState) {
+                OpenMusicEventAppRoot()
+            }
+        }
+
+        await store.send(.localEventDeletionRequested(eventID))?.value
+
+        let event = try await database.read { db in
+            try OMERecord.Event.where { $0.id.eq(eventID) }.fetchOne(db)
+        }
+        let appState = try await database.read { db in
+            try AppState.fetchOne(db)
+        }
+
+        #expect(event == nil)
+        #expect(appState?.selectedEventID == nil)
+        #expect(store.state.eventViewer == nil)
+    }
+
+    @Test
+    func organizerDetailDeletesLocalEventFromListAfterConfirmation() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID()
+        try await insertEvent(eventID, into: database)
+        try await insertDefaultCalendarEntry(eventID: eventID, into: database)
+        let store: TestStore<OrganizerDetail> = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: OrganizerDetail.State(organizerID: eventID.organizerID)) {
+                OrganizerDetail()
+            }
+        }
+
+        store.send(.deleteEventsButtonTapped([eventID])) {
+            $0.deleteEventIDs = [eventID]
+            $0.isDeleteEventsConfirmationPresented = true
+        }
+        await store.send(.deleteEventsConfirmationDeleteButtonTapped)?.value
+
+        let events = try await database.read { db in
+            try OMERecord.Event.fetchAll(db)
+        }
+        let calendarEntries = try await database.read { db in
+            try OMERecord.CalendarEntry.fetchAll(db)
+        }
+
+        expectNoDifference(events.map(\.id), [])
+        expectNoDifference(calendarEntries.map(\.event.localEventID), [])
+        #expect(store.state.errorMessage == nil)
+        #expect(!store.state.isDeleteEventsConfirmationPresented)
+    }
+
+    @Test
     func eventPolicyEditorLoadsExistingPolicies() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID()
@@ -552,6 +658,38 @@ private func insertEvent(
                 categoryConfigs: nil,
                 policies: policies,
                 reportingLink: reportingLink
+            )
+        }
+        .execute(db)
+    }
+}
+
+private func insertDefaultCalendarEntry(
+    eventID: OMERecord.Event.ID,
+    into database: any DatabaseWriter
+) async throws {
+    let calendarID = OMERecord.Calendar.ID(
+        ownerID: eventID.organizerID,
+        calendarID: OMERecord.Calendar.defaultID
+    )
+    try await database.write { db in
+        try OMERecord.Calendar.insert {
+            OMERecord.Calendar.Draft(
+                id: calendarID,
+                name: "Default"
+            )
+        }
+        .execute(db)
+        try OMERecord.CalendarEntry.insert {
+            OMERecord.CalendarEntry.Draft(
+                id: OMERecord.CalendarEntry.ID(
+                    calendarOwnerID: calendarID.ownerID,
+                    calendarID: calendarID.calendarID,
+                    entryID: OMERecord.ID<OMERecord.CalendarEntry>("entry-1")
+                ),
+                event: OMERecord.Event.reference(id: eventID),
+                createdAt: Date(timeIntervalSince1970: 0),
+                pinned: false
             )
         }
         .execute(db)
