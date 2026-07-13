@@ -37,11 +37,11 @@ struct OpenMusicEventOAuthTests {
         #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=create"))
         #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=update"))
         #expect(permissions.contains("repo:sh.tangled.repo.pull.status?action=delete"))
-        #expect(permissions.contains("rpc:sh.tangled.repo.merge"))
+        #expect(permissions.contains("rpc:sh.tangled.repo.merge?aud=*"))
         #expect(permissions.contains("repo:sh.tangled.repo?action=create"))
         #expect(permissions.contains("repo:sh.tangled.repo?action=update"))
         #expect(permissions.contains("repo:sh.tangled.repo?action=delete"))
-        #expect(permissions.contains("rpc:sh.tangled.repo.create"))
+        #expect(permissions.contains("rpc:sh.tangled.repo.create?aud=*"))
         #expect(permissions.contains("rpc:sh.tangled.repo.setContributors"))
         #expect(permissions.contains("repo:app.openmusicevent.source?action=create"))
         #expect(permissions.contains("repo:app.openmusicevent.source?action=update"))
@@ -118,10 +118,11 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
-    func manifestCanRequestKnotScopedTangledMergePermission() throws {
+    func manifestRequestsWildcardTangledKnotRPCPermissions() throws {
         let requirement = OAuth.AuthRequirement(
             permissions: [
-                .rpc("sh.tangled.repo.merge", audience: "did:web:knot1.tangled.sh")
+                OpenMusicEventOAuth.tangledPullMergePermission,
+                OpenMusicEventOAuth.tangledRepositoryCreatePermission,
             ]
         )
 
@@ -138,7 +139,12 @@ struct OpenMusicEventOAuthTests {
         )
         #expect(
             requested.permissions.contains(
-                .rpc("sh.tangled.repo.merge", audience: "did:web:knot1.tangled.sh")
+                .rpc("sh.tangled.repo.merge", audience: "*")
+            )
+        )
+        #expect(
+            requested.permissions.contains(
+                .rpc("sh.tangled.repo.create", audience: "*")
             )
         )
     }
@@ -151,8 +157,8 @@ struct OpenMusicEventOAuthTests {
                 .map(\.rawValue)
         )
 
-        #expect(!permissions.contains("rpc:sh.tangled.repo.merge"))
-        #expect(!permissions.contains("rpc:sh.tangled.repo.create"))
+        #expect(!permissions.contains("rpc:sh.tangled.repo.merge?aud=*"))
+        #expect(!permissions.contains("rpc:sh.tangled.repo.create?aud=*"))
         #expect(!permissions.contains("rpc:sh.tangled.repo.setContributors"))
     }
 

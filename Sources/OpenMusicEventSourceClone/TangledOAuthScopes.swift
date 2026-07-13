@@ -57,9 +57,9 @@ extension Tangled {
                 public static let mergeNSID: NSID = "sh.tangled.repo.merge"
                 public static let mergeCheckNSID: NSID = "sh.tangled.repo.mergeCheck"
 
-                public static let createRepository = Scope("rpc:\(createRepositoryNSID)")
+                public static let createRepository = Scope.rpc(createRepositoryNSID, audience: "*")
                 public static let setContributors = Scope("rpc:\(setContributorsNSID)")
-                public static let merge = Scope("rpc:\(mergeNSID)")
+                public static let merge = Scope.rpc(mergeNSID, audience: "*")
                 public static let mergeCheck = Scope("rpc:\(mergeCheckNSID)")
             }
 

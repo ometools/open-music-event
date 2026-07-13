@@ -855,7 +855,7 @@ struct TangledSourceDownloadFeatureTests {
         let authorizedPermissions = authorizedRequirements.withLock {
             $0.flatMap(\.permissions).map(\.rawValue)
         }
-        #expect(authorizedPermissions.contains("rpc:sh.tangled.repo.create?aud=did:web:tangled.org"))
+        #expect(authorizedPermissions.contains("rpc:sh.tangled.repo.create?aud=*"))
         #expect(authorizedPermissions.contains("repo:sh.tangled.repo?action=create"))
         #expect(authorizedPermissions.contains("repo:sh.tangled.publicKey?action=create"))
         #expect(authorizedPermissions.contains("repo:app.openmusicevent.source?action=create"))

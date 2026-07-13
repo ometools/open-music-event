@@ -347,7 +347,10 @@ public extension TangledPullReviewClient {
                         commitBody: pullRecord.value.body,
                         commitMessage: pullRecord.value.title
                     ),
-                    knotHost: mergeRepository.knotHost
+                    knotHost: mergeRepository.knotHost,
+                    authorizationPolicy: .required(
+                        TangledOAuthRequirements.pullMergeAuthRequirement
+                    )
                 )
 
                 let record = TangledPullStatusRecord(

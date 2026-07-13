@@ -22,8 +22,8 @@ struct TangledOAuthScopesTests {
                 "repo:sh.tangled.repo?action=create",
                 "repo:sh.tangled.repo?action=delete",
                 "repo:sh.tangled.repo?action=update",
-                "rpc:sh.tangled.repo.create",
-                "rpc:sh.tangled.repo.merge",
+                "rpc:sh.tangled.repo.create?aud=*",
+                "rpc:sh.tangled.repo.merge?aud=*",
                 "rpc:sh.tangled.repo.setContributors",
             ]
         )
@@ -69,7 +69,7 @@ struct TangledOAuthScopesTests {
         )
         expectNoDifference(
             Scopes.RPC.createRepository,
-            ATProto.OAuth.Permission.rpc(createRepositoryNSID)
+            ATProto.OAuth.Permission.rpc(createRepositoryNSID, audience: "*")
         )
         expectNoDifference(
             Scopes.RPC.setContributors,
@@ -77,7 +77,7 @@ struct TangledOAuthScopesTests {
         )
         expectNoDifference(
             Scopes.RPC.merge,
-            ATProto.OAuth.Permission.rpc(mergeNSID)
+            ATProto.OAuth.Permission.rpc(mergeNSID, audience: "*")
         )
     }
 

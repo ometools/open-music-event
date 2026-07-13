@@ -173,13 +173,10 @@ public enum TangledWorkspaceBootstrapError: Equatable, Error, Sendable {
 }
 
 public extension TangledOAuthRequirements {
-    static func repositoryBootstrapAuthRequirement(knotHost: String) -> OAuth.AuthRequirement {
+    static func repositoryBootstrapAuthRequirement(knotHost _: String) -> OAuth.AuthRequirement {
         OAuth.AuthRequirement(
             permissions: [
-                OAuth.Permission.rpc(
-                    Tangled.OAuth.Scopes.RPC.createRepositoryNSID,
-                    audience: tangledKnotAudience(knotHost)
-                ),
+                repositoryCreatePermission,
                 repositoryRecordCreatePermission,
                 OpenMusicEventOAuth.sourceRecordCreatePermission,
                 OpenMusicEventOAuth.sourceRecordUpdatePermission,
@@ -590,9 +587,6 @@ private func iso8601String(_ date: Date) -> String {
     ISO8601DateFormatter().string(from: date)
 }
 
-private func tangledKnotAudience(_ knotHost: String) -> String {
-    "did:web:" + knotHost.replacingOccurrences(of: ":", with: "%3A")
-}
 
 private extension String {
     var droppingGitSuffix: String {
