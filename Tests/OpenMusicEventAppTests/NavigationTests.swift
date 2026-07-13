@@ -3077,6 +3077,67 @@ struct NavigationTests {
     }
 
     @Test
+    func manyStagesTimelineCardsUseVisibleStageOrderAsLanes() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "late", name: "Late", sortIndex: 2)
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "late-set",
+                stageID: "late",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "Late Set"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "main-set",
+                stageID: "main",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 20, in: timeZone)),
+                endTime: try #require(date.at(hour: 21, in: timeZone)),
+                title: "Main Set"
+            )
+        }
+
+        let stages = try await database.read { db in
+            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        }
+        let performanceRows = try await database.read { db in
+            try PerformanceRow.all(
+                eventID: eventID,
+                scheduleID: scheduleLocalID("friday")
+            )
+            .fetchAll(db)
+        }
+        let cards = ScheduleManyStagesAtOnceView.timelineCards(
+            performanceRows: performanceRows,
+            stages: stages
+        )
+        let laneByPerformanceID = Dictionary(
+            uniqueKeysWithValues: cards.map { ($0.id, $0.groupWidth.lowerBound) }
+        )
+
+        #expect(stages.map(\.id.stageID) == [
+            stageLocalID("main"),
+            stageLocalID("late"),
+        ])
+        #expect(laneByPerformanceID[performanceLocalID("main-set")] == 0)
+        #expect(laneByPerformanceID[performanceLocalID("late-set")] == 1)
+        #expect(Set(cards.map(\.groupWidth.upperBound)) == Set([0, 1]))
+    }
+
+    @Test
     func scheduleViewerDefaultsToSingleStageMode() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -3105,9 +3166,15 @@ struct NavigationTests {
             }
         }
 
+        store.send(.scheduleModeButtonTapped(.manyStagesAtOnce))
+
+        #expect(store.state.scheduleMode == .manyStagesAtOnce)
+        #expect(store.state.scheduleViewerState.scheduleKind == .allStagesAtOnce)
+
         store.send(.scheduleModeButtonTapped(.list))
 
         #expect(store.state.scheduleMode == .list)
+        #expect(store.state.scheduleViewerState.scheduleKind == .list)
     }
 
     @Test
@@ -3174,7 +3241,7 @@ struct NavigationTests {
         }
 
         state.$scheduleViewerState.withLock {
-            $0.scheduleMode = .list
+            $0.scheduleMode = .manyStagesAtOnce
             $0.selectedStageID = stageLocalID("main")
             $0.showStageNameLabels = true
         }
@@ -3207,10 +3274,12 @@ struct NavigationTests {
             )
         }
 
-        #expect(storedState.scheduleMode == .list)
+        #expect(storedState.scheduleMode == .manyStagesAtOnce)
+        #expect(storedState.scheduleKind == .allStagesAtOnce)
         #expect(storedState.selectedStageID == stageLocalID("main"))
         #expect(storedState.showStageNameLabels)
-        #expect(restoredState.scheduleMode == .list)
+        #expect(restoredState.scheduleMode == .manyStagesAtOnce)
+        #expect(restoredState.scheduleViewerState.scheduleKind == .allStagesAtOnce)
         #expect(restoredState.selectedStageID == stageLocalID("main"))
         #expect(restoredState.showStageNameLabels)
         #expect(workshopState.scheduleMode == .singleStageAtOnce)
@@ -3386,9 +3455,15 @@ struct NavigationTests {
             scheduleID: scheduleLocalID("friday"),
             stages: visibleStages
         )
+        let timelineCards = ScheduleManyStagesAtOnceView.timelineCards(
+            performanceRows: visiblePerformances,
+            stages: visibleStages
+        )
 
         #expect(visibleStages.map(\.id.stageID) == [stageLocalID("workshop")])
         #expect(visiblePerformances.map(\.title) == ["Workshop"])
+        #expect(timelineCards.map(\.performance.title) == ["Workshop"])
+        #expect(timelineCards.map(\.stage.id.stageID) == [stageLocalID("workshop")])
     }
 
     @Test
@@ -3541,23 +3616,24 @@ struct NavigationTests {
     }
 
     @Test
-    func scheduleViewerPerformanceTapPresentsDetail() throws {
+    func scheduleViewerPerformanceTapPresentsDetail() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let performanceID = performanceLocalID("opening")
-        let store = withDependencies {
+        await withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+            let store = Store(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
             }
+            let scheduleStore: StoreOf<ScheduleSingleStageAtOnce> = store.spawn(\.singleStageAtOnce)
+
+            await scheduleStore.send(.performanceButtonTapped(performanceID))?.value
+
+            #expect(store.destination?.performanceDetail?.performanceID == performanceID)
         }
-
-        store.send(.performanceButtonTapped(performanceID))
-
-        #expect(store.state.destination?.performanceDetail?.performanceID == performanceID)
     }
 
     @Test

@@ -21,21 +21,26 @@ public struct ScheduleViewer {
 
     public enum ScheduleMode: String, CaseIterable, Hashable, Sendable {
         case singleStageAtOnce
+        case manyStagesAtOnce
         case list
 
-        var title: String {
+        public var title: String {
             switch self {
             case .singleStageAtOnce:
-                return "Single Stage At Once"
+                return "Single Stage"
+            case .manyStagesAtOnce:
+                return "Many Stages"
             case .list:
                 return "List"
             }
         }
 
-        var systemImage: String {
+        public var systemImage: String? {
             switch self {
             case .singleStageAtOnce:
                 return "calendar.day.timeline.leading"
+            case .manyStagesAtOnce:
+                return "rectangle.split.3x1"
             case .list:
                 return "list.bullet"
             }
@@ -54,6 +59,24 @@ public struct ScheduleViewer {
             self.scheduleDivision = scheduleDivision
             self._scheduleViewerState = Shared(
                 .scheduleViewerState(
+                    eventID: eventID,
+                    scheduleDivision: scheduleDivision
+                )
+            )
+            self.singleStageAtOnce = Spawn(
+                ScheduleSingleStageAtOnce.State(
+                    eventID: eventID,
+                    scheduleDivision: scheduleDivision
+                )
+            )
+            self.manyStagesAtOnce = Spawn(
+                ScheduleManyStagesAtOnce.State(
+                    eventID: eventID,
+                    scheduleDivision: scheduleDivision
+                )
+            )
+            self.performanceList = Spawn(
+                SchedulePerformanceList.State(
                     eventID: eventID,
                     scheduleDivision: scheduleDivision
                 )
@@ -77,6 +100,9 @@ public struct ScheduleViewer {
         public var timeZone: TimeZone
         public let scheduleDivision: ScheduleDivision
         public var destination: Destination.State? = nil
+        public var singleStageAtOnce: Spawn<ScheduleSingleStageAtOnce>
+        public var manyStagesAtOnce: Spawn<ScheduleManyStagesAtOnce>
+        public var performanceList: Spawn<SchedulePerformanceList>
         @Shared public var scheduleViewerState: ScheduleViewerState
 
         @FetchOne public var event: OMERecord.Event?
@@ -198,10 +224,7 @@ public struct ScheduleViewer {
     public enum Action {
         case addPerformanceButtonTapped(OMERecord.ID<OMERecord.Schedule>?)
         case addScheduleButtonTapped
-        case deletePerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case destination(Destination.Action)
-        case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
-        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case scheduleModeButtonTapped(ScheduleMode)
     }
 
@@ -286,7 +309,7 @@ public struct ScheduleViewer {
         """
     }
 
-     static func performanceRowTimeRange(
+    static func performanceRowTimeRange(
         for performance: OMERecord.Performance,
         timeZone: TimeZone
     ) -> String {
@@ -321,7 +344,7 @@ public struct ScheduleViewer {
             .lowercased()
     }
 
-     static func daySegment(
+    static func daySegment(
         for date: Date,
         timeZone: TimeZone,
         policy: DateTimeRangeResolutionPolicy = .default
@@ -461,11 +484,6 @@ public struct ScheduleViewer {
                     await task?.value
                 }
 
-            case let .deletePerformanceButtonTapped(performanceID):
-                state.destination = .deletePerformanceConfirmation(
-                    DeletePerformanceConfirmation.State(performanceID: performanceID)
-                )
-
             case let .destination(.deletePerformanceConfirmation(.deleteButtonTapped(performanceID))):
                 let eventID = state.eventID
                 store.addTask {
@@ -483,34 +501,6 @@ public struct ScheduleViewer {
             case .destination:
                 break
 
-            case let .editPerformanceButtonTapped(performanceID):
-                guard state.performanceRows.contains(where: { $0.performanceID == performanceID }) else {
-                    return
-                }
-                let eventID = state.eventID
-                store.addTask {
-                    let task = try store.post(
-                        key: EventEditingRequested.self,
-                        value: .editPerformance(
-                            eventID: eventID,
-                            performanceID: performanceID
-                        )
-                    )
-                    await task?.value
-                }
-
-            case let .performanceButtonTapped(performanceID):
-                store.withDependencies {
-                    state.destination = .performanceDetail(
-                        Spawn(
-                            PerformanceDetail.State(
-                                performanceID: performanceID,
-                                eventID: state.eventID
-                            )
-                        )
-                    )
-                }
-
             case let .scheduleModeButtonTapped(scheduleMode):
                 state.scheduleMode = scheduleMode
             }
@@ -518,7 +508,50 @@ public struct ScheduleViewer {
         .ifLet(\.destination, action: \.destination) {
             Destination.body
         }
+        .spawn(\.singleStageAtOnce) {
+            ScheduleSingleStageAtOnce()
+        }
+        .spawn(\.manyStagesAtOnce) {
+            ScheduleManyStagesAtOnce()
+        }
+        .spawn(\.performanceList) {
+            SchedulePerformanceList()
+        }
+        .onEvent(SchedulePerformanceDeleteRequested.self) { performanceID, state in
+            state.destination = .deletePerformanceConfirmation(
+                DeletePerformanceConfirmation.State(performanceID: performanceID)
+            )
+        }
+        .onEvent(SchedulePerformanceDetailRequested.self) { performanceID, state in
+            store.withDependencies {
+                state.destination = .performanceDetail(
+                    Spawn(
+                        PerformanceDetail.State(
+                            performanceID: performanceID,
+                            eventID: state.eventID
+                        )
+                    )
+                )
+            }
+        }
+        .onEvent(SchedulePerformanceEditRequested.self) { performanceID, state in
+            guard state.performanceRows.contains(where: { $0.performanceID == performanceID }) else {
+                return
+            }
+            let eventID = state.eventID
+            store.addTask {
+                let task = try store.post(
+                    key: EventEditingRequested.self,
+                    value: .editPerformance(
+                        eventID: eventID,
+                        performanceID: performanceID
+                    )
+                )
+                await task?.value
+            }
+        }
     }
+
 
     private static func deletePerformance(
         performanceID: OMERecord.ID<OMERecord.Performance>,
@@ -543,1140 +576,6 @@ public struct ScheduleViewer {
 }
 
 private struct DeletePerformanceError: Error {}
-
-public struct ScheduleViewerView: View {
-    @Bindable var store: StoreOf<ScheduleViewer>
-    @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-    let showsAuthoringControls: Bool
-
-    public init(
-        store: StoreOf<ScheduleViewer>,
-        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>,
-        showsAuthoringControls: Bool = true
-    ) {
-        self.store = store
-        self._selectedScheduleID = selectedScheduleID
-        self.showsAuthoringControls = showsAuthoringControls
-    }
-
-    public var body: some View {
-        Group {
-            if store.schedules.isEmpty {
-                ViewerPlaceholderView(
-                    title: "Schedule",
-                    systemImage: "calendar",
-                    description: "No schedule has been added to this event yet."
-                )
-            } else {
-                switch store.scheduleMode {
-                case .singleStageAtOnce:
-                    ScheduleSingleStageAtOnceView(
-                        scheduleDivisionTitle: store.scheduleDivision.title,
-                        selectedStage: store.selectedStage,
-                        stages: store.visibleStages,
-                        performances: store.state.visiblePerformances(
-                            selectedScheduleID: selectedScheduleID
-                        ),
-                        selectedStageID: $store.selectedStageID,
-                        showsAuthoringControls: showsAuthoringControls,
-                        onEditPerformanceTapped: { performanceID in
-                            store.send(.editPerformanceButtonTapped(performanceID))
-                        },
-                        onDeletePerformanceTapped: { performanceID in
-                            store.send(.deletePerformanceButtonTapped(performanceID))
-                        },
-                        onPerformanceTapped: { performanceID in
-                            store.send(.performanceButtonTapped(performanceID))
-                        }
-                    )
-
-                case .list:
-                    SchedulePerformanceListView(
-                        store: store,
-                        selectedScheduleID: selectedScheduleID,
-                        showsAuthoringControls: showsAuthoringControls
-                    )
-                }
-            }
-        }
-        .navigationTitle(
-            store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID)
-        )
-        .toolbar {
-            if showsAuthoringControls {
-                ToolbarItem(placement: .primaryAction) {
-                    ScheduleAddMenu(
-                        store: store,
-                        selectedScheduleID: selectedScheduleID
-                    )
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                ScheduleModeMenu(store: store)
-            }
-        }
-        .toolbarTitleMenu {
-            if !store.state.usesSingletonSchedule {
-                ForEach(store.schedules) { schedule in
-                    Button(ScheduleViewer.scheduleTitle(schedule)) {
-                        $selectedScheduleID.withLock {
-                            $0 = schedule.id.scheduleID
-                        }
-                    }
-                }
-            }
-        }
-        #if !os(macOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .confirmationDialog(
-            "Delete Performance?",
-            isPresented: $store.scope(\.destination, action: \.destination).deletePerformanceConfirmation.isPresented,
-            titleVisibility: .visible
-        ) {
-            Button("Delete Performance", role: .destructive) {
-                if let performanceID = store.destination?.deletePerformanceConfirmation?.performanceID {
-                    store.send(
-                        .destination(
-                            .deletePerformanceConfirmation(
-                                .deleteButtonTapped(performanceID)
-                            )
-                        )
-                    )
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes the performance from this schedule.")
-        }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
-            PerformanceDetailView(
-                store: detailStore,
-                showsAuthoringControls: showsAuthoringControls
-            )
-        }
-        .environment(\.showStageNameLabels, store.showStageNameLabels)
-    }
-}
-
-struct ScheduleAddMenu: View {
-    @Bindable var store: StoreOf<ScheduleViewer>
-    let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-
-    var body: some View {
-        Menu {
-            Button {
-                store.send(.addScheduleButtonTapped)
-            } label: {
-                Label("Add Schedule", systemImage: "calendar.badge.plus")
-            }
-
-            Button {
-                store.send(.addPerformanceButtonTapped(selectedScheduleID))
-            } label: {
-                Label("Add Performance", systemImage: "music.mic")
-            }
-            .disabled(
-                !ScheduleViewer.canAddPerformance(
-                    selectedScheduleID: selectedScheduleID,
-                    schedules: store.schedules,
-                    stages: store.stages,
-                    event: store.event
-                )
-            )
-        } label: {
-            Label("Add", systemImage: "plus")
-        }
-    }
-}
-
-struct ScheduleModeMenu: View {
-    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
-    @Bindable var store: StoreOf<ScheduleViewer>
-
-    var body: some View {
-        Menu {
-            Section("Mode") {
-                ForEach(ScheduleViewer.ScheduleMode.allCases, id: \.self) { mode in
-                    Button {
-                        store.send(.scheduleModeButtonTapped(mode))
-                    } label: {
-                        Label {
-                            Text(mode.title)
-                        } icon: {
-                            Image(systemName: store.scheduleMode == mode ? "checkmark" : mode.systemImage)
-                        }
-                    }
-                }
-            }
-
-            if needsStageDisambiguation {
-                Section("Display") {
-                    Toggle(isOn: $store.showStageNameLabels.animation()) {
-                        Label("Show Stage Labels", systemImage: "tag")
-                    }
-                }
-            }
-        } label: {
-            Label(store.scheduleMode.title, systemImage: store.scheduleMode.systemImage)
-        }
-    }
-}
-
-struct SchedulePerformanceListView: View {
-    @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
-    @Bindable var store: StoreOf<ScheduleViewer>
-    let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
-    let showsAuthoringControls: Bool
-
-    var body: some View {
-        let rows = store.state.visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
-        if rows.isEmpty {
-            ViewerPlaceholderView(
-                title: store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID),
-                systemImage: "calendar",
-                description: "No performances have been added to this schedule division yet."
-            )
-        } else {
-            List(rows) { row in
-                Button {
-                    store.send(.performanceButtonTapped(row.performanceID))
-                } label: {
-                    SchedulePerformanceRow(
-                        row: row,
-                        subtitle: ScheduleViewer.performanceRowSubtitle(
-                            for: row.performance,
-                            timeZone: store.timeZone,
-                            policy: dateTimeRangeResolutionPolicy
-                        )
-                    )
-                }
-                .navigationLinkListRowStyle()
-            }
-            .listStyle(.plain)
-        }
-    }
-}
-
-@Feature
-public struct PerformanceDetail {
-    public init() {}
-
-    public struct State: Identifiable {
-        public init(
-            performanceID: OMERecord.ID<OMERecord.Performance>,
-            eventID: OMERecord.Event.ID? = nil
-        ) {
-            @Dependency(\.defaultEventID) var defaultEventID
-            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
-
-            self.eventID = eventID ?? defaultEventID
-            self.performanceID = performanceID
-            self.timeZone = defaultEventTimeZone
-            _contributors = FetchAll(
-                PerformanceDetail.contributorsQuery(
-                    performanceID: performanceID,
-                    eventID: self.eventID,
-                    hydration: .bskyActorProfile
-                )
-            )
-            _performance = FetchOne(
-                PerformanceDetail.performanceQuery(
-                    performanceID: performanceID,
-                    eventID: self.eventID
-                )
-            )
-            _performanceContributors = FetchAll(
-                EditPerformance.performanceContributorsQuery(
-                    performanceID: performanceID,
-                    eventID: self.eventID
-                )
-            )
-            _schedules = FetchAll(
-                ScheduleViewer.schedulesQuery(eventID: self.eventID)
-            )
-            _stages = FetchAll(
-                ScheduleViewer.stagesQuery(eventID: self.eventID)
-            )
-        }
-
-        public let eventID: OMERecord.Event.ID
-        public let performanceID: OMERecord.ID<OMERecord.Performance>
-        @DebugSnapshotIgnored
-        public let timeZone: TimeZone
-
-        @FetchAll var contributors: [ContributorProfile]
-        public var destination: Destination.State?
-        @FetchOne public var performance: OMERecord.Performance?
-        @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
-        @FetchAll public var schedules: [OMERecord.Schedule]
-        @FetchAll public var stages: [OMERecord.Stage]
-
-        public var id: OMERecord.ID<OMERecord.Performance> { performanceID }
-
-        public var canEditPerformance: Bool {
-            performance != nil && schedule != nil
-        }
-
-        public var schedule: OMERecord.Schedule? {
-            guard let scheduleID = performance?.scheduleID else { return nil }
-            return schedules.first { $0.id.scheduleID == scheduleID }
-        }
-
-        public var stage: OMERecord.Stage? {
-            guard let performance else { return nil }
-            return stages.first { $0.id.stageID == performance.stageID }
-        }
-
-        var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
-            contributors.actorProfileLoadRequests
-        }
-
-        var displayedContributors: [ContributorProfile] {
-            displayedContributorCredits.map(\.profile)
-        }
-
-        var displayedContributorCredits: [ContributorCredit] {
-            orderedContributorCredits(for: .primary)
-                + orderedContributorCredits(for: .supporting)
-                + unorderedContributorCredits
-        }
-
-        var headlineContributors: [ContributorProfile] {
-            let primaryContributors = orderedContributorCredits(for: .primary).map(\.profile)
-            return primaryContributors.isEmpty
-                ? displayedContributors
-                : primaryContributors
-        }
-
-        private var unorderedContributorCredits: [ContributorCredit] {
-            let orderedIDs = Set(
-                performanceContributors.compactMap(\.contributorID)
-            )
-            return contributors
-                .filter { !orderedIDs.contains($0.contributorID) }
-                .map { ContributorCredit(profile: $0, performanceContributor: nil) }
-        }
-
-        private func orderedContributorCredits(
-            for billing: OMERecord.Performance.Contributors.Billing
-        ) -> [ContributorCredit] {
-            let contributorsByID = Dictionary(
-                uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
-            )
-            return performanceContributors
-                .filter { $0.billing == billing }
-                .compactMap { performanceContributor in
-                    performanceContributor.contributorID
-                        .flatMap { contributorsByID[$0] }
-                        .map {
-                            ContributorCredit(
-                                profile: $0,
-                                performanceContributor: performanceContributor
-                            )
-                        }
-                }
-        }
-
-        struct ContributorCredit: Identifiable {
-            var profile: ContributorProfile
-            var performanceContributor: OMERecord.Performance.Contributors?
-
-            var id: OMERecord.Contributor.ID {
-                profile.id
-            }
-
-            var contributorID: OMERecord.ID<OMERecord.Contributor> {
-                profile.contributorID
-            }
-
-            var roleTitle: String? {
-                guard let performanceContributor else { return nil }
-                return performanceContributor.role?.displayTitle ?? "Performer"
-            }
-        }
-    }
-
-    public enum Action {
-        case contributorButtonTapped(OMERecord.ID<OMERecord.Contributor>)
-        case destination(Destination.Action)
-        case editButtonTapped
-    }
-
-    @Feature
-    public enum Destination {
-        case contributorDetail(Spawn<ContributorDetail>)
-    }
-
-    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
-
-    static func contributorsQuery(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID,
-        hydration: ContributorProfile.Hydration = .none
-    ) -> some Statement<ContributorProfile> {
-        ContributorProfile.forPerformance(
-            performanceID: performanceID,
-            eventID: eventID,
-            hydration: hydration
-        )
-    }
-
-    static func performanceQuery(
-        performanceID: OMERecord.ID<OMERecord.Performance>,
-        eventID: OMERecord.Event.ID
-    ) -> some SelectStatementOf<OMERecord.Performance> {
-        OMERecord.Performance
-            .where { $0.id.organizerID.eq(eventID.organizerID) }
-            .where { $0.id.eventID.eq(eventID.eventID) }
-            .where { $0.id.performanceID.eq(performanceID) }
-    }
-
-    public var body: some Feature {
-        Update { state, action in
-            switch action {
-            case let .contributorButtonTapped(contributorID):
-                guard state.displayedContributors.contains(where: { $0.contributorID == contributorID }) else {
-                    return
-                }
-                store.withDependencies {
-                    state.destination = .contributorDetail(
-                        Spawn(
-                            ContributorDetail.State(
-                                contributorID: contributorID,
-                                eventID: state.eventID
-                            )
-                        )
-                    )
-                }
-
-            case .destination:
-                break
-
-            case .editButtonTapped:
-                guard state.performance != nil,
-                      state.schedule != nil
-                else { return }
-                let eventID = state.eventID
-                let performanceID = state.performanceID
-                store.addTask {
-                    let task = try store.post(
-                        key: EventEditingRequested.self,
-                        value: .editPerformance(
-                            eventID: eventID,
-                            performanceID: performanceID
-                        )
-                    )
-                    await task?.value
-                }
-            }
-        }
-        .ifLet(\.destination, action: \.destination) {
-            Destination.body
-        }
-        .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
-            guard !requests.isEmpty else { return }
-
-            store.addTask {
-                for request in requests {
-                    do {
-                        _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
-                            request.actor.description,
-                            24 * 60 * 60,
-                            15 * 60
-                        )
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                    }
-                }
-            }
-        }
-    }
-}
-
-public struct PerformanceDetailView: View {
-    @Bindable var store: StoreOf<PerformanceDetail>
-    let showsAuthoringControls: Bool
-
-    public init(
-        store: StoreOf<PerformanceDetail>,
-        showsAuthoringControls: Bool = true
-    ) {
-        self.store = store
-        self.showsAuthoringControls = showsAuthoringControls
-    }
-
-    public var body: some View {
-        Group {
-            if let performance = store.performance {
-                HeroImageList(title: Text(performance.title)) {
-                    PerformanceHeroView(
-                        performance: performance,
-                        stage: store.stage,
-                        contributors: store.headlineContributors
-                    )
-                } content: {
-                    PerformanceSummaryRow(
-                        performance: performance,
-                        stage: store.stage,
-                        contributors: store.headlineContributors,
-                        timeZone: store.timeZone
-                    )
-                    
-
-                    if let description = performance.displayDescription {
-                        Section("About") {
-                            Text(description)
-                        }
-
-                    }
-
-                    if !performance.recordings.isEmpty {
-                        Section("Recordings") {
-                            ForEach(Array(performance.recordings.enumerated()), id: \.offset) { _, recording in
-                                PerformanceRecordingRow(recording: recording)
-                            }
-                        }
-                    }
-
-                    if !store.displayedContributors.isEmpty {
-                        Section("Contributors") {
-                            ForEach(store.displayedContributorCredits) { credit in
-                                Button {
-                                    store.send(.contributorButtonTapped(credit.contributorID))
-                                } label: {
-                                    ContributorsRowView(
-                                        profile: credit.profile,
-                                        subtitle: credit.roleTitle
-                                    )
-                                }
-                                .navigationLinkListRowStyle()
-                            }
-                        }
-                    }
-
-                }
-                .toolbar {
-                    if showsAuthoringControls {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                store.send(.editButtonTapped)
-                            } label: {
-                                Label("Edit Performance", systemImage: "pencil")
-                            }
-                            .disabled(!store.canEditPerformance)
-                        }
-                    }
-                }
-            } else {
-                ContentUnavailableView(
-                    "Performance",
-                    systemImage: "music.mic",
-                    description: Text(verbatim: store.performanceID.rawValue.rawValue)
-                )
-                .navigationTitle("Performance")
-            }
-        }
-        .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
-            ContributorDetailView(
-                store: detailStore,
-                showsAuthoringControls: showsAuthoringControls
-            )
-        }
-    }
-}
-
-struct PerformanceHeroView: View {
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage?
-    let contributors: [ContributorProfile]
-
-    var body: some View {
-        let summary = PerformanceDetailSummary(
-            stage: stage,
-            contributors: contributors
-        )
-
-        HeroImage(
-            title: Text(performance.title),
-            sources: stage?.heroImageSources ?? [],
-            titleSources: [.title],
-            tint: summary.tint
-        ) {
-            PerformanceHeroPlaceholder(
-                performance: performance,
-                stage: stage
-            )
-        }
-    }
-}
-
-struct PerformanceSummaryRow: View {
-    @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
-    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage?
-    let contributors: [ContributorProfile]
-    let timeZone: TimeZone
-
-    var body: some View {
-        let summary = PerformanceDetailSummary(
-            stage: stage,
-            contributors: contributors
-        )
-
-        VStack(alignment: .center, spacing: 10) {
-            HStack(alignment: .center, spacing: 4) {
-                PerformanceContextIdentity(
-                    title: summary.artistSummary,
-                    content: .contributor(
-                        summary.featuredContributor,
-                        fallbackTitle: summary.featuredContributor?.name ?? summary.artistSummary
-                    ),
-                    tint: summary.tint,
-                    placement: .leading
-                )
-                .frame(alignment: .leading)
-
-                VStack(spacing: 2) {
-                    Text(
-                        ScheduleViewer.performanceRowTimeRange(for: performance, timeZone: timeZone)
-                    )
-                    .font(.headline)
-                    .fontWeight(.bold)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                    #if os(iOS)
-                    .minimumScaleFactor(0.55)
-                    #endif
-
-                    Text(
-                        ScheduleViewer.daySegment(
-                            for: performance.startTime,
-                            timeZone: timeZone,
-                            policy: dateTimeRangeResolutionPolicy
-                        )
-                    )
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                }
-                .layoutPriority(1)
-                .frame(maxWidth: .infinity, alignment: .center)
-
-                if needsStageDisambiguation {
-                    PerformanceContextIdentity(
-                        title: summary.stageTitle,
-                        content: .stage(stage),
-                        tint: summary.tint,
-                        placement: .trailing
-                    )
-                    .frame(alignment: .trailing)
-                }
-            }
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .center)
-    }
-}
-
-struct PerformanceDetailSummary {
-    let stage: OMERecord.Stage?
-    let contributors: [ContributorProfile]
-
-    var tint: Color {
-        stage?.color.swiftUIColor ?? .accentColor
-    }
-
-    var featuredContributor: ContributorProfile? {
-        contributors.first { $0.logoAsset != nil }
-            ?? contributors.first { $0.artworkAsset != nil }
-            ?? contributors.first
-    }
-
-    var stageTitle: String {
-        stage?.name ?? "Stage TBA"
-    }
-
-    var artistSummary: String {
-        switch contributors.count {
-        case 0:
-            return "Lineup TBA"
-        case 1:
-            return contributors[0].name
-        case 2:
-            return "\(contributors[0].name) / \(contributors[1].name)"
-        default:
-            return "\(contributors[0].name) + \(contributors.count - 1) more"
-        }
-    }
-}
-
-private extension OMERecord.Performance.Contributors.Role {
-    var displayTitle: String {
-        let role = OMERecord.Relationship.Role(rawValue)
-        let selection = EditPerformance.State.RelationshipRoleSelection(role: role)
-        return selection == .custom
-            ? rawValue.identifierDisplayTitle
-            : selection.title
-    }
-}
-
-private extension String {
-    var identifierDisplayTitle: String {
-        let spaced = replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(
-                of: "([a-z0-9])([A-Z])",
-                with: "$1 $2",
-                options: .regularExpression
-            )
-        return spaced
-            .split(separator: " ")
-            .map { word in
-                word.uppercased() == "DJ"
-                    ? "DJ"
-                    : word.prefix(1).uppercased() + String(word.dropFirst())
-            }
-            .joined(separator: " ")
-    }
-}
-
-struct PerformanceContextIdentity: View {
-    static let bubbleSize: CGFloat = 70
-    static let itemWidth: CGFloat = 96
-    static let labelHeight: CGFloat = 36
-
-    enum Content {
-        case contributor(ContributorProfile?, fallbackTitle: String)
-        case stage(OMERecord.Stage?)
-    }
-
-    enum Placement {
-        case leading
-        case trailing
-    }
-
-    let title: String
-    let content: Content
-    let tint: Color
-    let placement: Placement
-
-    var body: some View {
-        VStack(spacing: 4) {
-            bubbleSlot
-            titleLabel
-        }
-        .frame(width: Self.itemWidth)
-        .frame(alignment: frameAlignment)
-        .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    var bubbleSlot: some View {
-        switch content {
-        case let .contributor(contributor, fallbackTitle):
-            PerformanceArtistBubbleView(
-                contributor: contributor,
-                fallbackTitle: fallbackTitle,
-                tint: tint
-            )
-            .frame(width: Self.bubbleSize, height: Self.bubbleSize)
-            .accessibilityHidden(true)
-
-        case let .stage(stage):
-            PerformanceStageBubbleView(stage: stage, tint: tint)
-                .frame(width: Self.bubbleSize, height: Self.bubbleSize)
-                .accessibilityHidden(true)
-        }
-    }
-
-    var titleLabel: some View {
-        Text(title)
-            .font(.caption)
-            .lineLimit(2)
-            #if os(iOS)
-            .minimumScaleFactor(0.78)
-            #endif
-            .multilineTextAlignment(.center)
-            .frame(width: Self.itemWidth, height: Self.labelHeight, alignment: .top)
-    }
-
-    var frameAlignment: Alignment {
-        switch placement {
-        case .leading:
-            return .leading
-        case .trailing:
-            return .trailing
-        }
-    }
-}
-
-struct PerformanceStageBubbleView: View {
-    let stage: OMERecord.Stage?
-    let tint: Color
-
-    var body: some View {
-        PerformanceScheduleBubbleChrome(tint: tint) {
-            stageIcon
-        }
-    }
-
-    @ViewBuilder
-    var stageIcon: some View {
-        if let stage {
-            ScheduleStageIcon(stage: stage)
-        } else {
-            Text("TBA")
-                .font(.system(size: 18, weight: .heavy))
-                .lineLimit(1)
-                #if os(iOS)
-                .minimumScaleFactor(0.5)
-                #endif
-        }
-    }
-}
-
-struct PerformanceScheduleBubbleChrome<Content: View>: View {
-    let tint: Color
-    let content: Content
-
-    init(
-        tint: Color,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.tint = tint
-        self.content = content()
-    }
-
-    var body: some View {
-        #if os(iOS) || os(macOS)
-        if #available(iOS 26, macOS 26, *) {
-            glassBubble
-        } else {
-            unselectedBubble
-        }
-        #else
-        unselectedBubble
-        #endif
-    }
-
-    @available(iOS 26, macOS 26, *)
-    var glassBubble: some View {
-        GlassEffectContainer(spacing: 8) {
-            bubbleContent
-                .glassEffect(.clear.interactive(), in: .circle)
-            
-        }
-        .frame(
-            width: PerformanceContextIdentity.bubbleSize,
-            height: PerformanceContextIdentity.bubbleSize
-        )
-    }
-
-    var unselectedBubble: some View {
-        ZStack {
-            Circle()
-                .fill(Color.secondary.opacity(0.12))
-
-            tintedContent
-        }
-        .frame(
-            width: PerformanceContextIdentity.bubbleSize,
-            height: PerformanceContextIdentity.bubbleSize
-        )
-    }
-
-    var bubbleContent: some View {
-        ZStack {
-            Circle()
-                .fill(Color.clear)
-
-            tintedContent
-        }
-        .frame(
-            width: PerformanceContextIdentity.bubbleSize,
-            height: PerformanceContextIdentity.bubbleSize
-        )
-    }
-
-    var tintedContent: some View {
-        content
-            .frame(width: 46, height: 46)
-            .padding(12)
-            .foregroundStyle(tint)
-    }
-}
-
-struct PerformanceArtistBubbleView: View {
-    let contributor: ContributorProfile?
-    let fallbackTitle: String
-    let tint: Color
-
-    var body: some View {
-        if let logoAsset = contributor?.logoAsset {
-            PerformanceScheduleBubbleChrome(tint: tint) {
-                ImageAssetAsyncImage(
-                    asset: logoAsset,
-                    cacheContext: contributor?.logoCacheContext,
-                    contentMode: .fit
-                ) {
-                    PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
-                }
-            }
-        } else if !photoCandidates.isEmpty {
-            PerformanceArtistPhotoBubbleView(
-                candidates: photoCandidates,
-                fallbackTitle: fallbackTitle,
-                tint: tint
-            )
-        } else {
-            PerformanceScheduleBubbleChrome(tint: tint) {
-                PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
-            }
-        }
-    }
-
-    var photoCandidates: [PerformanceArtistImageCandidate] {
-        guard let contributor else { return [] }
-
-        var candidates: [PerformanceArtistImageCandidate] = []
-        if let artworkAsset = contributor.artworkAsset {
-            candidates.append(
-                PerformanceArtistImageCandidate(
-                    asset: artworkAsset,
-                    cacheContext: contributor.artworkCacheContext
-                )
-            )
-        }
-        if let preferredArtworkAsset = contributor.contributor.preferredArtworkAsset,
-           !candidates.contains(where: { $0.asset == preferredArtworkAsset }) {
-            candidates.append(
-                PerformanceArtistImageCandidate(
-                    asset: preferredArtworkAsset,
-                    cacheContext: LocalImageCacheContext(contributorID: contributor.id)
-                )
-            )
-        }
-        return candidates
-    }
-}
-
-struct PerformanceArtistImageCandidate {
-    let asset: OMERecord.ImageAsset
-    let cacheContext: LocalImageCacheContext?
-}
-
-struct PerformanceArtistPhotoBubbleView: View {
-    let candidates: [PerformanceArtistImageCandidate]
-    let fallbackTitle: String
-    let tint: Color
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.secondary.opacity(0.12))
-
-            imageContent
-                .opacity(0.88)
-                .mask {
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                stops: [
-                                    .init(color: .white, location: 0.0),
-                                    .init(color: .white, location: 0.54),
-                                    .init(color: .white.opacity(0.58), location: 0.82),
-                                    .init(color: .clear, location: 1.0),
-                                ],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: PerformanceContextIdentity.bubbleSize / 2
-                            )
-                        )
-                }
-        }
-        .frame(
-            width: PerformanceContextIdentity.bubbleSize,
-            height: PerformanceContextIdentity.bubbleSize
-        )
-    }
-
-    var imageContent: some View {
-        PerformanceArtistPhotoImageView(
-            candidates: candidates,
-            fallbackTitle: fallbackTitle,
-            tint: tint
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            LinearGradient(
-                colors: [
-                    tint.opacity(0.38),
-                    tint.opacity(0.18),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-        .clipShape(Circle())
-    }
-}
-
-struct PerformanceArtistPhotoImageView: View {
-    let candidates: [PerformanceArtistImageCandidate]
-    let fallbackTitle: String
-    let tint: Color
-
-    var body: some View {
-        if let candidate = candidates.first {
-            ImageAssetAsyncImage(
-                asset: candidate.asset,
-                cacheContext: candidate.cacheContext,
-                contentMode: .fill
-            ) { reason in
-                switch reason {
-                case .failure, .unavailable:
-                    PerformanceArtistPhotoImageView(
-                        candidates: Array(candidates.dropFirst()),
-                        fallbackTitle: fallbackTitle,
-                        tint: tint
-                    )
-
-                case .loading:
-                    PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
-                }
-            }
-        } else {
-            PerformanceArtistBubbleFallback(title: fallbackTitle, tint: tint)
-        }
-    }
-}
-
-struct PerformanceArtistBubbleFallback: View {
-    let title: String
-    let tint: Color
-
-    var body: some View {
-        Text(initials)
-            .font(.system(size: 38, weight: .heavy))
-            .lineLimit(1)
-            #if os(iOS)
-            .minimumScaleFactor(0.35)
-            #endif
-            .foregroundStyle(tint)
-    }
-
-    var initials: String {
-        let words = title
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap(\.first)
-            .map(String.init)
-            .joined()
-            .uppercased()
-        return words.isEmpty ? "SET" : words
-    }
-}
-
-struct PerformanceHeroPlaceholder: View {
-    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
-    let performance: OMERecord.Performance
-    let stage: OMERecord.Stage?
-
-    var body: some View {
-        if needsStageDisambiguation, let stage {
-            StageIconFallback(stage: stage, size: 150)
-        } else {
-            Text(initials)
-                .font(.system(size: 46, weight: .heavy))
-                .lineLimit(1)
-                #if os(iOS)
-                .minimumScaleFactor(0.35)
-                #endif
-        }
-    }
-
-    var initials: String {
-        let words = performance.title
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap(\.first)
-            .map(String.init)
-            .joined()
-            .uppercased()
-        return words.isEmpty ? "SET" : words
-    }
-}
-
-struct PerformanceRecordingRow: View {
-    let recording: ExternalPlatform.Asset
-
-    var body: some View {
-        if let url = recording.url {
-            Link(destination: url) {
-                Label(recording.platform.name, systemImage: "link")
-            }
-        } else if let record = recording.record {
-            Label(record.uri.description, systemImage: "record.circle")
-        } else {
-            Label("Recording", systemImage: "play.circle")
-        }
-    }
-}
-
-struct SchedulePerformanceRow: View {
-    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
-    let row: PerformanceRow
-    let subtitle: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            if needsStageDisambiguation {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(row.stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
-                    .frame(width: 5)
-
-                stageIcon
-                    .frame(width: 60, height: 60)
-                    .foregroundStyle(.primary)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(row.title)
-                    .lineLimit(2)
-
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-        }
-        .frame(height: 60)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 4)
-        .foregroundStyle(.primary)
-    }
-
-    @ViewBuilder
-    private var stageIcon: some View {
-        if let stage = row.stage {
-            ScheduleStageIcon(stage: stage)
-        } else {
-            Image(systemName: "music.note")
-                .resizable()
-                .scaledToFit()
-                .padding(14)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
 
 extension OMERecord.Performance {
     var displayDescription: String? {

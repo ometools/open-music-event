@@ -1,23 +1,175 @@
+import ComposableArchitecture2
+import Dependencies
 import Foundation
 import ScheduleComponents
+import Sharing
+import SQLiteData
 import SwiftUI
 
-struct ScheduleSingleStageAtOnceView: View {
-    let scheduleDivisionTitle: String
-    let selectedStage: OMERecord.Stage?
-    let stages: [OMERecord.Stage]
-    let performances: [OMERecord.Performance]
-    @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+@Feature
+public struct ScheduleSingleStageAtOnce {
+    public init() {}
+
+    public struct State {
+        public init(
+            eventID: OMERecord.Event.ID,
+            scheduleDivision: ScheduleViewer.ScheduleDivision
+        ) {
+            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
+
+            self.eventID = eventID
+            self.timeZone = defaultEventTimeZone
+            self.scheduleDivision = scheduleDivision
+            self._scheduleViewerState = Shared(
+                .scheduleViewerState(
+                    eventID: eventID,
+                    scheduleDivision: scheduleDivision
+                )
+            )
+            _performanceRows = FetchAll(
+                PerformanceRow.all(eventID: eventID)
+            )
+            _schedules = FetchAll(
+                ScheduleViewer.schedulesQuery(eventID: eventID)
+            )
+            _stages = FetchAll(
+                ScheduleViewer.stagesQuery(eventID: eventID)
+            )
+        }
+
+        public let eventID: OMERecord.Event.ID
+        @DebugSnapshotIgnored
+        public var timeZone: TimeZone
+        public let scheduleDivision: ScheduleViewer.ScheduleDivision
+        @Shared public var scheduleViewerState: ScheduleViewerState
+
+        @FetchAll public var performanceRows: [PerformanceRow]
+        @FetchAll public var schedules: [OMERecord.Schedule]
+        @FetchAll public var stages: [OMERecord.Stage]
+
+        public var selectedStageID: OMERecord.ID<OMERecord.Stage>? {
+            get { scheduleViewerState.selectedStageID }
+            set {
+                $scheduleViewerState.withLock {
+                    $0.selectedStageID = newValue
+                }
+            }
+        }
+
+        public func visiblePerformances(
+            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+        ) -> [OMERecord.Performance] {
+            visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
+                .map(\.performance)
+        }
+
+        public func visiblePerformanceRows(
+            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+        ) -> [PerformanceRow] {
+            ScheduleViewer.visiblePerformances(
+                performanceRows: performanceRows,
+                scheduleID: resolvedSelectedScheduleID(selectedScheduleID),
+                stages: visibleStages
+            )
+        }
+
+        public func visiblePerformancesForSelectedStage(
+            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+        ) -> [OMERecord.Performance] {
+            guard let resolvedSelectedStageID else { return [] }
+            return visiblePerformances(selectedScheduleID: selectedScheduleID)
+                .filter { $0.stageID == resolvedSelectedStageID }
+        }
+
+        public func resolvedSelectedScheduleID(
+            _ selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+        ) -> OMERecord.ID<OMERecord.Schedule>? {
+            ScheduleViewer.resolvedSelectedScheduleID(
+                selectedScheduleID,
+                schedules: schedules
+            )
+        }
+
+        public var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
+            ScheduleViewer.resolvedSelectedStageID(
+                selectedStageID: selectedStageID,
+                stages: visibleStages
+            )
+        }
+
+        public var selectedStage: OMERecord.Stage? {
+            guard let resolvedSelectedStageID else { return nil }
+            return visibleStages.first { $0.id.stageID == resolvedSelectedStageID }
+        }
+
+        public var visibleStages: [OMERecord.Stage] {
+            ScheduleViewer.visibleStages(
+                stages: stages,
+                division: scheduleDivision
+            )
+        }
+    }
+
+    public enum Action {
+        case deletePerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+    }
+
+    public var body: some Feature {
+        Update { _, action in
+            switch action {
+            case let .deletePerformanceButtonTapped(performanceID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceDeleteRequested.self,
+                        value: performanceID
+                    )
+                    await task?.value
+                }
+
+            case let .editPerformanceButtonTapped(performanceID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceEditRequested.self,
+                        value: performanceID
+                    )
+                    await task?.value
+                }
+
+            case let .performanceButtonTapped(performanceID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceDetailRequested.self,
+                        value: performanceID
+                    )
+                    await task?.value
+                }
+            }
+        }
+    }
+}
+
+public struct ScheduleSingleStageAtOnceView: View {
+    @Bindable var store: StoreOf<ScheduleSingleStageAtOnce>
+    @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     let showsAuthoringControls: Bool
-    let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
-    let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
-    let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
 
-    var body: some View {
+    public init(
+        store: StoreOf<ScheduleSingleStageAtOnce>,
+        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>,
+        showsAuthoringControls: Bool
+    ) {
+        self.store = store
+        self._selectedScheduleID = selectedScheduleID
+        self.showsAuthoringControls = showsAuthoringControls
+    }
+
+    public var body: some View {
         content
             .onAppear {
                 resolveSelectedStage()
@@ -55,8 +207,8 @@ struct ScheduleSingleStageAtOnceView: View {
     var stageSelector: some View {
         if shouldShowStageSelector {
             OMEScheduleStageSelector(
-                stages: stages,
-                selectedStageID: $selectedStageID
+                stages: store.visibleStages,
+                selectedStageID: $store.selectedStageID
             )
         }
     }
@@ -71,28 +223,30 @@ struct ScheduleSingleStageAtOnceView: View {
 
     @ViewBuilder
     var timeline: some View {
-        if stages.isEmpty {
+        if store.visibleStages.isEmpty {
             ContentUnavailableView(
-                scheduleDivisionTitle,
+                store.scheduleDivision.title,
                 systemImage: "music.note.list",
                 description: Text("No stages have been added to this schedule division yet.")
             )
         } else if let timeRange {
             ScheduleStageTimelinePager(
-                selectedStageID: $selectedStageID,
-                stages: stages,
-                performances: performances,
+                selectedStageID: $store.selectedStageID,
+                stages: store.visibleStages,
+                performances: store.state.visiblePerformances(
+                    selectedScheduleID: selectedScheduleID
+                ),
                 timeRange: timeRange,
                 pageHeight: scheduleHeight(for: timeRange),
                 showsAuthoringControls: showsAuthoringControls,
                 onEditPerformanceTapped: { performanceID in
-                    onEditPerformanceTapped(performanceID)
+                    store.send(.editPerformanceButtonTapped(performanceID))
                 },
                 onDeletePerformanceTapped: { performanceID in
-                    onDeletePerformanceTapped(performanceID)
+                    store.send(.deletePerformanceButtonTapped(performanceID))
                 },
                 onPerformanceTapped: { performanceID in
-                    onPerformanceTapped(performanceID)
+                    store.send(.performanceButtonTapped(performanceID))
                 }
             )
         } else {
@@ -106,7 +260,7 @@ struct ScheduleSingleStageAtOnceView: View {
 
     var timeRange: DateInterval? {
         ScheduleStageTimelinePage.timeRange(
-            for: performances,
+            for: store.state.visiblePerformances(selectedScheduleID: selectedScheduleID),
             buffer: scheduleTimeBuffer
         )
     }
@@ -119,26 +273,22 @@ struct ScheduleSingleStageAtOnceView: View {
     }
 
     var shouldShowStageSelector: Bool {
-        needsStageDisambiguation && !stages.isEmpty
+        needsStageDisambiguation && !store.visibleStages.isEmpty
     }
 
     var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
-        if let selectedStageID,
-           stages.contains(where: { $0.id.stageID == selectedStageID }) {
-            return selectedStageID
-        }
-        return stages.first?.id.stageID
+        store.resolvedSelectedStageID
     }
 
     func resolveSelectedStage() {
-        guard selectedStageID != resolvedSelectedStageID else { return }
-        selectedStageID = resolvedSelectedStageID
+        guard store.selectedStageID != resolvedSelectedStageID else { return }
+        $store.selectedStageID.wrappedValue = resolvedSelectedStageID
     }
 
     var emptyStageTitle: String {
         needsStageDisambiguation
-            ? selectedStage?.name ?? scheduleDivisionTitle
-            : scheduleDivisionTitle
+            ? store.selectedStage?.name ?? store.scheduleDivision.title
+            : store.scheduleDivision.title
     }
 
     var emptyStageDescription: String {

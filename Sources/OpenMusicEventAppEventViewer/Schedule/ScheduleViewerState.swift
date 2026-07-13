@@ -64,8 +64,10 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     public var scheduleMode: ScheduleViewer.ScheduleMode {
         get {
             switch scheduleKind {
-            case .singleStageAtOnce, .allStagesAtOnce:
+            case .singleStageAtOnce:
                 return .singleStageAtOnce
+            case .allStagesAtOnce:
+                return .manyStagesAtOnce
             case .list:
                 return .list
             }
@@ -74,6 +76,8 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
             switch newValue {
             case .singleStageAtOnce:
                 scheduleKind = .singleStageAtOnce
+            case .manyStagesAtOnce:
+                scheduleKind = .allStagesAtOnce
             case .list:
                 scheduleKind = .list
             }

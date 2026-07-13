@@ -1395,26 +1395,33 @@ struct ScheduleAuthoringTests {
             fixture: fixture,
             timeZone: timeZone
         )
-        let store = makeScheduleViewerStore(
-            database: database,
-            eventID: fixture.eventID,
-            timeZone: timeZone
-        )
+        await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            let store = Store(initialState: ScheduleViewer.State(eventID: fixture.eventID)) {
+                ScheduleViewer()
+            }
+            let scheduleStore: StoreOf<ScheduleSingleStageAtOnce> = store.spawn(\.singleStageAtOnce)
 
-        store.send(.deletePerformanceButtonTapped(performance.id.performanceID))
+            await scheduleStore.send(
+                .deletePerformanceButtonTapped(performance.id.performanceID)
+            )?.value
 
-        #expect(
-            store.state.destination?.deletePerformanceConfirmation?.performanceID
-                == performance.id.performanceID
-        )
-
-        await store.send(
-            .destination(
-                .deletePerformanceConfirmation(
-                    .deleteButtonTapped(performance.id.performanceID)
-                )
+            #expect(
+                store.destination?.deletePerformanceConfirmation?.performanceID
+                    == performance.id.performanceID
             )
-        )?.value
+
+            await store.send(
+                .destination(
+                    .deletePerformanceConfirmation(
+                        .deleteButtonTapped(performance.id.performanceID)
+                    )
+                )
+            )?.value
+        }
 
         let rows = try await database.read { db in
             (
