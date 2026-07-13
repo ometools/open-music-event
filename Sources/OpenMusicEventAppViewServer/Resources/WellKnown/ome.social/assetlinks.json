@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.openmusicevent",
+      "sha256_cert_fingerprints": [
+        "REPLACE:WITH:ANDROID:SIGNING:CERT:FINGERPRINT"
+      ]
+    }
+  }
+]

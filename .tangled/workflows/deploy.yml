@@ -1,0 +1,78 @@
+when:
+  - event: ["push"]
+    branch: ["main"]
+
+engine: microvm
+image: nixos
+
+virtualisation:
+  docker: true
+
+steps:
+  - name: "Package Lambda"
+    command: |
+      docker run --rm \
+        --volume "$PWD":/workdir \
+        --workdir /workdir \
+        swift:amazonlinux2 \
+        bash -lc '
+          set -euo pipefail
+          yum install -y zip file
+          release_bin_path="$(swift build --build-path .build/lambda-build -c release --show-bin-path)"
+          swift build --build-path .build/lambda-build -c release --product OpenMusicEventAppViewLambda --static-swift-stdlib
+
+          rm -rf .build/lambda-package
+          mkdir -p .build/lambda-package/OpenMusicEventAppViewLambda
+          cp "$release_bin_path/OpenMusicEventAppViewLambda" .build/lambda-package/OpenMusicEventAppViewLambda/bootstrap
+          file .build/lambda-package/OpenMusicEventAppViewLambda/bootstrap
+          file .build/lambda-package/OpenMusicEventAppViewLambda/bootstrap | grep -q "x86-64"
+
+          resource_bundle="$(find "$release_bin_path" -maxdepth 1 -type d -name "*OpenMusicEventAppViewServer.resources" -print -quit)"
+          if [ -z "$resource_bundle" ]; then
+            echo "Missing OpenMusicEventAppViewServer resources"
+            exit 1
+          fi
+          resource_bundle_name="$(basename "$resource_bundle")"
+          cp -R "$resource_bundle" .build/lambda-package/OpenMusicEventAppViewLambda/
+
+          cp -R Deployments/ome-under-construction/public .build/lambda-package/OpenMusicEventAppViewLambda/Site
+
+          cd .build/lambda-package/OpenMusicEventAppViewLambda
+          zip --recurse-paths --symlinks OpenMusicEventAppViewLambda.zip bootstrap Site "$resource_bundle_name"
+        '
+
+  - name: "Deploy Lambda"
+    command: |
+      set -euo pipefail
+      test -n "$AWS_ACCESS_KEY_ID"
+      test -n "$AWS_SECRET_ACCESS_KEY"
+
+      docker run --rm \
+        --volume "$PWD":/workdir \
+        --workdir /workdir \
+        --env AWS_ACCESS_KEY_ID \
+        --env AWS_SECRET_ACCESS_KEY \
+        --env AWS_SESSION_TOKEN \
+        --env AWS_DEFAULT_REGION=us-west-2 \
+        amazon/aws-cli \
+        lambda update-function-code \
+          --function-name open-music-event-appview \
+          --architectures x86_64 \
+          --zip-file fileb://.build/lambda-package/OpenMusicEventAppViewLambda/OpenMusicEventAppViewLambda.zip
+
+      docker run --rm \
+        --env AWS_ACCESS_KEY_ID \
+        --env AWS_SECRET_ACCESS_KEY \
+        --env AWS_SESSION_TOKEN \
+        --env AWS_DEFAULT_REGION=us-west-2 \
+        amazon/aws-cli \
+        lambda wait function-updated \
+          --function-name open-music-event-appview
+
+  - name: "Smoke check"
+    command: |
+      set -euo pipefail
+      smoke_url="${OME_APPVIEW_SMOKE_URL:-https://openmusicevent.app}"
+      smoke_url="${smoke_url%/}"
+      curl -fsSI "$smoke_url/"
+      curl -fsSI "$smoke_url/healthz"

@@ -1,0 +1,32 @@
+import Foundation
+import OpenMusicEventAppViewServer
+import Testing
+
+struct StaticSiteFilesTests {
+    @Test
+    func mapsSupportedStaticSitePaths() {
+        #expect(StaticSiteFiles.relativePath(for: "/") == "index.html")
+        #expect(StaticSiteFiles.relativePath(for: "/index.html") == "index.html")
+        #expect(StaticSiteFiles.relativePath(for: "/styles.css") == "styles.css")
+        #expect(StaticSiteFiles.relativePath(for: "/.well-known/oauth-client-metadata.json") == ".well-known/oauth-client-metadata.json")
+        #expect(StaticSiteFiles.relativePath(for: "/assets/ome-mark.jpg") == "assets/ome-mark.jpg")
+    }
+
+    @Test
+    func rejectsUnsupportedStaticSitePaths() {
+        #expect(StaticSiteFiles.relativePath(for: "/.well-known/atproto-did") == nil)
+        #expect(StaticSiteFiles.relativePath(for: "/assets/../private.txt") == nil)
+        #expect(StaticSiteFiles.relativePath(for: "/assets/icons/ome.png") == nil)
+    }
+
+    @Test
+    func readsRepoBackedStaticSiteFile() throws {
+        let root = Bundle.module.resourceURL!.appendingPathComponent("Site")
+        let files = StaticSiteFiles(rootDirectory: root)
+        let file = try #require(try files.file(requestPath: "/"))
+
+        #expect(file.path == "index.html")
+        #expect(file.contentType == "text/html; charset=utf-8")
+        #expect(String(decoding: file.data, as: UTF8.self).contains("OpenMusicEvent"))
+    }
+}

@@ -18,15 +18,19 @@ var products: [Product] = [
     .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
     .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
     .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
+    .library(name: "OpenMusicEventAppViewServer", targets: ["OpenMusicEventAppViewServer"]),
     .library(name: "OpenMusicEventComponents", targets: ["OpenMusicEventComponents"]),
     .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
     .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+    .library(name: "OpenMusicEventRouting", targets: ["OpenMusicEventRouting"]),
     .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
     .library(name: "OpenMusicEventSourceEditing", targets: ["OpenMusicEventSourceEditing"]),
     .library(name: "OpenMusicEventTimeZones", targets: ["OpenMusicEventTimeZones"]),
     .library(name: "OpenMusicEventWhiteLabel", targets: ["OpenMusicEventWhiteLabel"]),
     .library(name: "ErrorHandling", targets: ["ErrorHandling"]),
     .library(name: "SourceEditing", targets: ["SourceEditing"]),
+    .executable(name: "OpenMusicEventAppView", targets: ["OpenMusicEventAppView"]),
+    .executable(name: "OpenMusicEventAppViewLambda", targets: ["OpenMusicEventAppViewLambda"]),
 ]
 
 #if os(macOS)
@@ -59,6 +63,9 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
     .package(url: "https://source.woody.fm/swift-dependencies-source-control-client", branch: "main"),
+    .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
+    .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
+    .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
     .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
@@ -194,6 +201,37 @@ var targets: [Target] = [
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "StructuredQueriesSQLite", package: "swift-structured-queries"),
             .product(name: "Tagged", package: "swift-tagged"),
+        ]
+    ),
+    .target(
+        name: "OpenMusicEventRouting",
+        dependencies: [
+            .product(name: "Tagged", package: "swift-tagged"),
+        ]
+    ),
+    .target(
+        name: "OpenMusicEventAppViewServer",
+        dependencies: [
+            "OpenMusicEventRouting",
+            .product(name: "Hummingbird", package: "hummingbird"),
+        ],
+        resources: [
+            .copy("Resources/Site"),
+            .copy("Resources/WellKnown"),
+        ]
+    ),
+    .executableTarget(
+        name: "OpenMusicEventAppView",
+        dependencies: [
+            "OpenMusicEventAppViewServer",
+        ]
+    ),
+    .executableTarget(
+        name: "OpenMusicEventAppViewLambda",
+        dependencies: [
+            "OpenMusicEventAppViewServer",
+            .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
+            .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
         ]
     ),
     .target(
@@ -342,6 +380,27 @@ var targets: [Target] = [
         dependencies: [
             "OpenMusicEventTimeZones",
             .product(name: "SQLiteData", package: "sqlite-data"),
+        ]
+    ),
+    .testTarget(
+        name: "OpenMusicEventRoutingTests",
+        dependencies: [
+            "OpenMusicEventRouting",
+            .product(name: "CustomDump", package: "swift-custom-dump"),
+        ]
+    ),
+    .testTarget(
+        name: "OpenMusicEventAppViewServerTests",
+        dependencies: [
+            "OpenMusicEventAppViewServer",
+            .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
+            .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
+            .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
+            .product(name: "HummingbirdTesting", package: "hummingbird"),
+        ],
+        resources: [
+            .copy("Resources/Site"),
+            .copy("Resources/WellKnown"),
         ]
     ),
 ]
