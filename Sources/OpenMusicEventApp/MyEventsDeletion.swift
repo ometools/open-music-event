@@ -35,20 +35,7 @@ enum MyEventsDeletion {
         _ eventIDs: [OMERecord.Event.ID],
         in db: Database
     ) throws {
-        var deletableEventIDs: [OMERecord.Event.ID] = []
-
-        for eventID in eventIDs.uniqued() {
-            let eventExists = try OMERecord.Event
-                .where { $0.id.eq(eventID) }
-                .fetchOne(db) != nil
-            let hasSourceProvenance = try EventSourceProvenanceRecord
-                .where { $0.id.eq(eventID) }
-                .fetchOne(db) != nil
-
-            if eventExists && !hasSourceProvenance {
-                deletableEventIDs.append(eventID)
-            }
-        }
+        let deletableEventIDs = try deletableCreatedLocalEventIDs(eventIDs, in: db)
 
         guard !deletableEventIDs.isEmpty else {
             throw DeleteCreatedEventsError()
@@ -66,6 +53,28 @@ enum MyEventsDeletion {
 
         try deleteEventOwnedRecords(deletableEventIDs, in: db)
         try deleteUnreferencedOrganizers(deletableEventIDs.map(\.organizerID), in: db)
+    }
+
+    static func deletableCreatedLocalEventIDs(
+        _ eventIDs: [OMERecord.Event.ID],
+        in db: Database
+    ) throws -> [OMERecord.Event.ID] {
+        var deletableEventIDs: [OMERecord.Event.ID] = []
+
+        for eventID in eventIDs.uniqued() {
+            let eventExists = try OMERecord.Event
+                .where { $0.id.eq(eventID) }
+                .fetchOne(db) != nil
+            let hasSourceProvenance = try EventSourceProvenanceRecord
+                .where { $0.id.eq(eventID) }
+                .fetchOne(db) != nil
+
+            if eventExists && !hasSourceProvenance {
+                deletableEventIDs.append(eventID)
+            }
+        }
+
+        return deletableEventIDs
     }
 
     private static func deleteEventOwnedRecords(

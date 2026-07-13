@@ -18,13 +18,25 @@ public struct EventSettings {
             _event = FetchOne(
                 OMERecord.Event.where { $0.id.eq(eventID) }
             )
+            _sourceProvenance = FetchOne(
+                EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
+            )
         }
 
         @FetchOne public var event: OMERecord.Event?
+        @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
         public var eventID: OMERecord.Event.ID
+        public var isDeleteEventConfirmationPresented = false
+
+        public var canDeleteEvent: Bool {
+            event != nil && sourceProvenance == nil
+        }
     }
 
     public enum Action {
+        case deleteEventButtonTapped
+        case deleteEventConfirmationDeleteButtonTapped
+        case deleteEventConfirmationPresentedChanged(Bool)
         case eventPoliciesButtonTapped
         case reportingLinkButtonTapped
         case testErrorButtonTapped
@@ -33,6 +45,24 @@ public struct EventSettings {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .deleteEventButtonTapped:
+                guard state.canDeleteEvent else { return }
+                state.isDeleteEventConfirmationPresented = true
+
+            case .deleteEventConfirmationDeleteButtonTapped:
+                let eventID = state.eventID
+                state.isDeleteEventConfirmationPresented = false
+                store.addTask {
+                    let task = try store.post(
+                        key: LocalEventDeletionRequested.self,
+                        value: eventID
+                    )
+                    await task?.value
+                }
+
+            case let .deleteEventConfirmationPresentedChanged(isPresented):
+                state.isDeleteEventConfirmationPresented = isPresented
+
             case .eventPoliciesButtonTapped:
                 let eventID = state.eventID
                 store.addTask {
@@ -105,8 +135,39 @@ public struct EventSettingsView: View {
                     Label("Send Test Error", systemImage: "exclamationmark.triangle")
                 }
             }
+
+            if store.canDeleteEvent {
+                Section("Danger Zone") {
+                    Button(role: .destructive) {
+                        store.send(.deleteEventButtonTapped)
+                    } label: {
+                        Label("Delete Event", systemImage: "trash")
+                    }
+                } footer: {
+                    Text("This permanently deletes the event data from this device. Created events are not cached off device.")
+                }
+            }
         }
         .navigationTitle("Event Settings")
+        .confirmationDialog(
+            "Delete Event?",
+            isPresented: deleteEventConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Event", role: .destructive) {
+                store.send(.deleteEventConfirmationDeleteButtonTapped)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the event data from this device. Created events are not cached off device.")
+        }
+    }
+
+    private var deleteEventConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { store.isDeleteEventConfirmationPresented },
+            set: { store.send(.deleteEventConfirmationPresentedChanged($0)) }
+        )
     }
 }
 

@@ -79,9 +79,14 @@ public extension UserFacingText {
         "Test error.",
         fallback: "Test error."
     )
+    static let eventDeletionFailed = Self(
+        "Unable to delete event.",
+        fallback: "Unable to delete event."
+    )
 }
 
 public extension ErrorOperation {
+    static let eventDeletion = Self("event.delete")
     static let sourceEditPreparation = Self("source.edit.prepare")
     static let sourceImport = Self("source.import")
     static let sourcePatchGeneration = Self("source.patch.generate")

@@ -55,6 +55,7 @@ public struct OpenMusicEventAppRoot {
         case authentication(AuthenticationCoordinator.Action)
         case authoringNavigationAuthorized(OMERecord.Event.ID, EventTarget?, Authoring.Scope)
         case handleNavigationRequest(NavigationRequest)
+        case localEventDeletionRequested(OMERecord.Event.ID)
         case openRoute(AppRoute)
         case openURL(URL)
         case task
@@ -189,6 +190,24 @@ public struct OpenMusicEventAppRoot {
                         state.openExternalURL(url)
                     }
 
+                case let .localEventDeletionRequested(eventID):
+                    store.addTask {
+                        let didDelete: Void? = await store.withErrorHandling(
+                            fallbackMessage: .eventDeletionFailed,
+                            operation: .eventDeletion
+                        ) {
+                            try database.write { db in
+                                try MyEventsDeletion.deleteCreatedLocalEvents([eventID], in: db)
+                            }
+                        }
+                        guard didDelete != nil else { return }
+                        try store.modify {
+                            if $0.eventViewer?.state.eventID == eventID {
+                                $0.eventViewer = nil
+                            }
+                        }
+                    }
+
                 case .openRoute(let route):
                     if case let .event(eventID, target) = route.navigationRequest {
                         openEventViewerAfterAuthorization(eventID, target, &state)
@@ -244,6 +263,11 @@ public struct OpenMusicEventAppRoot {
         .onEvent(NavigationRequested.self) { request, _ in
             store.addTask {
                 try store.send(.handleNavigationRequest(request))
+            }
+        }
+        .onEvent(LocalEventDeletionRequested.self) { eventID, _ in
+            store.addTask {
+                try store.send(.localEventDeletionRequested(eventID))
             }
         }
         .presentReportedErrors()

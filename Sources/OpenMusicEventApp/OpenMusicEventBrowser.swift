@@ -360,6 +360,9 @@ public struct OrganizerDetail {
 
         var calendarDetail: CalendarDetail.State?
         var destination: Destination.State?
+        var deleteEventIDs: [OMERecord.Event.ID] = []
+        var errorMessage: String?
+        var isDeleteEventsConfirmationPresented = false
 
         @DebugSnapshotIgnored
         @FetchAll
@@ -386,6 +389,9 @@ public struct OrganizerDetail {
         case addEventButtonTapped
         case calendarButtonTapped(OMERecord.Calendar.ID)
         case calendarDetail(CalendarDetail.Action)
+        case deleteEventsButtonTapped([OMERecord.Event.ID])
+        case deleteEventsConfirmationDeleteButtonTapped
+        case deleteEventsConfirmationPresentedChanged(Bool)
         case destination(Destination.Action)
         case eventButtonTapped(OMERecord.Event.ID)
         case task
@@ -395,6 +401,8 @@ public struct OrganizerDetail {
     public enum Destination {
         case createEvent(Spawn<CreateEvent>)
     }
+
+    @Dependency(\.defaultDatabase) var database
 
     static func organizerQuery(
         organizerID: OMERecord.Organizer.ID
@@ -574,6 +582,37 @@ public struct OrganizerDetail {
             case .calendarDetail:
                 return
 
+            case let .deleteEventsButtonTapped(eventIDs):
+                guard !eventIDs.isEmpty else { return }
+                state.deleteEventIDs = eventIDs.uniqued()
+                state.isDeleteEventsConfirmationPresented = true
+
+            case .deleteEventsConfirmationDeleteButtonTapped:
+                let eventIDs = state.deleteEventIDs
+                store.addTask {
+                    do {
+                        try database.write { db in
+                            try MyEventsDeletion.deleteCreatedLocalEvents(eventIDs, in: db)
+                        }
+                        try store.modify {
+                            $0.deleteEventIDs = []
+                            $0.errorMessage = nil
+                            $0.isDeleteEventsConfirmationPresented = false
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.isDeleteEventsConfirmationPresented = false
+                            $0.errorMessage = "Unable to delete event."
+                        }
+                    }
+                }
+
+            case let .deleteEventsConfirmationPresentedChanged(isPresented):
+                state.isDeleteEventsConfirmationPresented = isPresented
+                if !isPresented {
+                    state.deleteEventIDs = []
+                }
+
             case .destination:
                 return
 
@@ -628,6 +667,14 @@ public struct OrganizerDetailView: View {
                 }
             }
 
+            if let errorMessage = store.errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+
             if !sections.currentRows.isEmpty {
                 Section("Happening Now") {
                     calendarEntryRows(sections.currentRows)
@@ -671,6 +718,18 @@ public struct OrganizerDetailView: View {
                 whiteLabelRootStore: whiteLabelRootStore
             )
         }
+        .confirmationDialog(
+            "Delete Event?",
+            isPresented: deleteEventsConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Event", role: .destructive) {
+                store.send(.deleteEventsConfirmationDeleteButtonTapped)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the selected event data from this device. Created events are not cached off device.")
+        }
         .toolbar {
             Button("Add Event", systemImage: "plus") {
                 store.send(.addEventButtonTapped)
@@ -697,6 +756,17 @@ public struct OrganizerDetailView: View {
         (store.organizer?.id ?? store.organizerID).description
     }
 
+    private var deleteEventsConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { store.isDeleteEventsConfirmationPresented },
+            set: { store.send(.deleteEventsConfirmationPresentedChanged($0)) }
+        )
+    }
+
+    private var showsAuthoringControls: Bool {
+        whiteLabelRootStore?.showsAuthoringControls ?? false
+    }
+
     @ViewBuilder
     private func calendarRows(_ calendars: [OMERecord.Calendar]) -> some View {
         ForEach(calendars) { calendar in
@@ -721,6 +791,16 @@ public struct OrganizerDetailView: View {
                 CalendarEntryRowView(row: row)
             }
         }
+        .onDelete { offsets in
+            guard showsAuthoringControls else { return }
+            let eventIDs = offsets.compactMap { offset in
+                rows.indices.contains(offset)
+                    ? rows[offset].eventID
+                    : nil
+            }
+            store.send(.deleteEventsButtonTapped(eventIDs))
+        }
+        .deleteDisabled(!showsAuthoringControls)
     }
 }
 
