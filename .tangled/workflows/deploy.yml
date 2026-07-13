@@ -91,7 +91,5 @@ steps:
   - name: "Smoke check"
     command: |
       set -euo pipefail
-      smoke_url="${OME_APPVIEW_SMOKE_URL:-https://openmusicevent.app}"
-      smoke_url="${smoke_url%/}"
-      curl -fsSI "$smoke_url/"
-      curl -fsSI "$smoke_url/healthz"
+      curl -fsSI https://openmusicevent.app/
+      curl -fsSI https://openmusicevent.app/healthz
