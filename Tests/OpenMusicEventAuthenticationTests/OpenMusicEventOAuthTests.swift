@@ -43,6 +43,8 @@ struct OpenMusicEventOAuthTests {
         #expect(permissions.contains("repo:sh.tangled.repo?action=delete"))
         #expect(permissions.contains("rpc:sh.tangled.repo.create"))
         #expect(permissions.contains("rpc:sh.tangled.repo.setContributors"))
+        #expect(permissions.contains("repo:app.openmusicevent.source?action=create"))
+        #expect(permissions.contains("repo:app.openmusicevent.source?action=update"))
         #expect(permissions.contains("blob:application/gzip"))
         #expect(permissions.contains("blob:text/x-patch"))
         #expect(
@@ -73,6 +75,11 @@ struct OpenMusicEventOAuthTests {
         #expect(
             OpenMusicEventOAuth.appManifest.maximumPermissions
                 .missing(OpenMusicEventOAuth.tangledRepositoryManagementAuthRequirement.permissions)
+                .isEmpty
+        )
+        #expect(
+            OpenMusicEventOAuth.appManifest.maximumPermissions
+                .missing(OpenMusicEventOAuth.sourceRecordAuthRequirement.permissions)
                 .isEmpty
         )
     }

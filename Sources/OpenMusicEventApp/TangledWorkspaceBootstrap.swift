@@ -2,6 +2,7 @@ import ATProto
 import ATProtoOAuth
 import Dependencies
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
@@ -180,6 +181,8 @@ public extension TangledOAuthRequirements {
                     audience: tangledKnotAudience(knotHost)
                 ),
                 repositoryRecordCreatePermission,
+                OpenMusicEventOAuth.sourceRecordCreatePermission,
+                OpenMusicEventOAuth.sourceRecordUpdatePermission,
                 publicKeyCreatePermission,
             ]
         )
@@ -219,6 +222,9 @@ public extension TangledWorkspaceBootstrapClient {
                 throw TangledWorkspaceBootstrapError
                     .sourceBaselineNotLocal(request.sourceBaselineID)
             }
+            let organizerID = try await canonicalOrganizerID(
+                forSourceBaselineID: oldSourceBaseline.id
+            )
 
             let localSourceProvenance = oldSourceBaseline.sourceProvenance
             let localRepositoryURL = try sourceRepositoryStorage.repositoryURL(
@@ -311,6 +317,20 @@ public extension TangledWorkspaceBootstrapClient {
                             .sourceControlCredentials(credentials)
                     )
                 )
+                _ = try await xrpcClient.putRecord(
+                    repo: organizerID.description,
+                    collection: OpenMusicEvent.SourceRecord.nsid,
+                    rkey: ATProto.Record.Key(
+                        rawValue: OpenMusicEvent.SourceRecord.canonicalRecordKey
+                    ),
+                    record: OpenMusicEvent.SourceRecord(
+                        kind: .tangled,
+                        reference: repositoryReference.normalizedReference,
+                        ref: defaultBranch,
+                        createdAt: iso8601String(now)
+                    ),
+                    authorizationPolicy: .required(requirement)
+                )
                 let storedRepositoryURL = try sourceRepositoryStorage.store(
                     checkoutURL,
                     sourceProvenance
@@ -335,6 +355,24 @@ public extension TangledWorkspaceBootstrapClient {
             }
         }
     }
+}
+
+private func canonicalOrganizerID(
+    forSourceBaselineID sourceBaselineID: SourceBaselineRecord.ID
+) async throws -> OME.Organizer.ID {
+    @Dependency(\.defaultDatabase) var database
+
+    let organizerID = try await database.read { db in
+        try EventSourceProvenanceRecord
+            .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+            .fetchOne(db)?
+            .id
+            .organizerID
+    }
+    guard let organizerID else {
+        throw TangledWorkspaceBootstrapError.sourceBaselineHasNoEvents(sourceBaselineID)
+    }
+    return organizerID
 }
 
 private struct SourceRepositoryTreeCopier {

@@ -3138,6 +3138,54 @@ struct NavigationTests {
     }
 
     @Test
+    func manyStagesContentWidthAddsCompactOverflowCueWhenLanesWouldFit() {
+        let width = ScheduleManyStagesAtOnceView.contentWidth(
+            availableWidth: 393,
+            stageCount: 2,
+            minimumStageLaneWidth: 132,
+            hourLabelsWidth: 43
+        )
+
+        #expect(width == 425)
+    }
+
+    @Test
+    func manyStagesContentWidthDoesNotAddOverflowCueForSingleStage() {
+        let width = ScheduleManyStagesAtOnceView.contentWidth(
+            availableWidth: 393,
+            stageCount: 1,
+            minimumStageLaneWidth: 132,
+            hourLabelsWidth: 43
+        )
+
+        #expect(width == 393)
+    }
+
+    @Test
+    func manyStagesContentWidthKeepsNaturalWidthWhenStagesAlreadyOverflow() {
+        let width = ScheduleManyStagesAtOnceView.contentWidth(
+            availableWidth: 393,
+            stageCount: 4,
+            minimumStageLaneWidth: 132,
+            hourLabelsWidth: 43
+        )
+
+        #expect(width == 571)
+    }
+
+    @Test
+    func manyStagesContentWidthDoesNotAddCompactOverflowCueToWideLayouts() {
+        let width = ScheduleManyStagesAtOnceView.contentWidth(
+            availableWidth: 700,
+            stageCount: 2,
+            minimumStageLaneWidth: 132,
+            hourLabelsWidth: 43
+        )
+
+        #expect(width == 700)
+    }
+
+    @Test
     func scheduleViewerDefaultsToSingleStageMode() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

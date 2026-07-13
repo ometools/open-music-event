@@ -67,6 +67,19 @@ private extension SharedKey where Self == AppStorageKey<[Atmosphere.Account.ID]>
 }
 
 public enum OpenMusicEventOAuth {
+    public static let sourceRecordCreatePermission =
+        OAuth.Permission("repo:app.openmusicevent.source?action=create")
+
+    public static let sourceRecordUpdatePermission =
+        OAuth.Permission("repo:app.openmusicevent.source?action=update")
+
+    public static let sourceRecordAuthRequirement = OAuth.AuthRequirement(
+        permissions: [
+            sourceRecordCreatePermission,
+            sourceRecordUpdatePermission,
+        ]
+    )
+
     static let sessionStoreKeychainItem = KeychainStorageItem(
         service: "fm.woody.openMusicEvent",
         account: "oauth.sessionStore"
@@ -223,6 +236,7 @@ public enum OpenMusicEventOAuth {
             tangledPullRequestSurfaceAuthRequirement,
             tangledPullMergeAuthRequirement,
             tangledRepositoryManagementAuthRequirement,
+            sourceRecordAuthRequirement,
             legacyPatchBlobAuthRequirement,
         ]
     )

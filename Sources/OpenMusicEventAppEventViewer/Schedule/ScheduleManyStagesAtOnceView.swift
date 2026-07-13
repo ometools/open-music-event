@@ -114,6 +114,9 @@ public struct ScheduleManyStagesAtOnceView: View {
     let showsAuthoringControls: Bool
 
     let minimumStageLaneWidth: CGFloat = 132
+    let stageLaneHeaderHeight: CGFloat = 68
+    let compactHorizontalOverflowCueWidth: CGFloat = 32
+    let compactHorizontalOverflowCueMaxAvailableWidth: CGFloat = 500
 
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
@@ -139,6 +142,7 @@ public struct ScheduleManyStagesAtOnceView: View {
             GeometryReader { geometry in
                 scheduleBody(
                     availableWidth: geometry.size.width,
+                    availableHeight: geometry.size.height,
                     timeRange: timeRange
                 )
             }
@@ -150,44 +154,39 @@ public struct ScheduleManyStagesAtOnceView: View {
     @ViewBuilder
     func scheduleBody(
         availableWidth: CGFloat,
+        availableHeight: CGFloat,
         timeRange: DateInterval
     ) -> some View {
-        #if os(iOS)
-        if #available(iOS 26.0, *), needsStageDisambiguation {
+        ScrollView(.horizontal) {
+            verticalScheduleScroll(
+                availableWidth: availableWidth,
+                timeRange: timeRange
+            )
+            .frame(
+                width: contentWidth(for: availableWidth),
+                height: availableHeight
+            )
+        }
+    }
+
+    @ViewBuilder
+    func verticalScheduleScroll(
+        availableWidth: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
+        if needsStageDisambiguation {
             scheduleScroll(
                 availableWidth: availableWidth,
                 timeRange: timeRange
             )
-            .safeAreaBar(edge: .top) {
+            .safeAreaInset(edge: .top, spacing: 0) {
                 laneHeader(availableWidth: availableWidth)
             }
-            .scrollEdgeEffectStyle(.soft, for: .top)
         } else {
-            overlaidScheduleScroll(
+            scheduleScroll(
                 availableWidth: availableWidth,
                 timeRange: timeRange
             )
-        }
-        #else
-        overlaidScheduleScroll(
-            availableWidth: availableWidth,
-            timeRange: timeRange
-        )
-        #endif
-    }
-
-    func overlaidScheduleScroll(
-        availableWidth: CGFloat,
-        timeRange: DateInterval
-    ) -> some View {
-        scheduleScroll(
-            availableWidth: availableWidth,
-            timeRange: timeRange
-        )
-        .overlay(alignment: .top) {
-            if needsStageDisambiguation {
-                laneHeader(availableWidth: availableWidth)
-            }
         }
     }
 
@@ -195,7 +194,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         availableWidth: CGFloat,
         timeRange: DateInterval
     ) -> some View {
-        ScrollView([.horizontal, .vertical]) {
+        ScrollView(.vertical) {
             SchedulePageView(timelineCards) { card in
                 ScheduleTimelineCardView(
                     performance: card.performance,
@@ -227,6 +226,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         ScheduleManyStagesLaneHeader(
             stages: store.visibleStages,
             contentWidth: contentWidth(for: availableWidth),
+            height: stageLaneHeaderHeight,
             minimumStageLaneWidth: minimumStageLaneWidth
         )
         .allowsHitTesting(false)
@@ -270,11 +270,48 @@ public struct ScheduleManyStagesAtOnceView: View {
     }
 
     func contentWidth(for availableWidth: CGFloat) -> CGFloat {
-        max(
-            availableWidth,
-            HourLabelsWidthPreferenceKey.defaultValue
-                + CGFloat(store.visibleStages.count) * minimumStageLaneWidth
+        Self.contentWidth(
+            availableWidth: availableWidth,
+            stageCount: store.visibleStages.count,
+            minimumStageLaneWidth: minimumStageLaneWidth,
+            compactHorizontalOverflowCueWidth: compactHorizontalOverflowCueWidth,
+            compactHorizontalOverflowCueMaxAvailableWidth: compactHorizontalOverflowCueMaxAvailableWidth
         )
+    }
+
+    static func contentWidth(
+        availableWidth: CGFloat,
+        stageCount: Int,
+        minimumStageLaneWidth: CGFloat,
+        hourLabelsWidth: CGFloat = HourLabelsWidthPreferenceKey.defaultValue,
+        compactHorizontalOverflowCueWidth: CGFloat = 32,
+        compactHorizontalOverflowCueMaxAvailableWidth: CGFloat = 500
+    ) -> CGFloat {
+        let naturalContentWidth = hourLabelsWidth
+            + CGFloat(stageCount) * minimumStageLaneWidth
+        let viewportWidth = availableWidth
+            + compactOverflowCueWidth(
+                availableWidth: availableWidth,
+                stageCount: stageCount,
+                compactHorizontalOverflowCueWidth: compactHorizontalOverflowCueWidth,
+                compactHorizontalOverflowCueMaxAvailableWidth: compactHorizontalOverflowCueMaxAvailableWidth
+            )
+
+        return max(viewportWidth, naturalContentWidth)
+    }
+
+    static func compactOverflowCueWidth(
+        availableWidth: CGFloat,
+        stageCount: Int,
+        compactHorizontalOverflowCueWidth: CGFloat = 32,
+        compactHorizontalOverflowCueMaxAvailableWidth: CGFloat = 500
+    ) -> CGFloat {
+        guard availableWidth > 0,
+              stageCount > 1,
+              availableWidth <= compactHorizontalOverflowCueMaxAvailableWidth
+        else { return 0 }
+
+        return compactHorizontalOverflowCueWidth
     }
 
     func scheduleHeight(for timeRange: DateInterval) -> CGFloat {
@@ -334,6 +371,7 @@ struct ScheduleManyStagesTimelineCard: TimelineCard {
 struct ScheduleManyStagesLaneHeader: View {
     let stages: [OMERecord.Stage]
     let contentWidth: CGFloat
+    let height: CGFloat
     let minimumStageLaneWidth: CGFloat
 
     @Environment(\.showStageNameLabels) var showStageNameLabels
@@ -350,7 +388,7 @@ struct ScheduleManyStagesLaneHeader: View {
             }
         }
         .padding(.vertical, 8)
-        .frame(width: contentWidth, alignment: .leading)
+        .frame(width: contentWidth, height: height, alignment: .topLeading)
         .background(Color.secondary.opacity(0.06))
     }
 

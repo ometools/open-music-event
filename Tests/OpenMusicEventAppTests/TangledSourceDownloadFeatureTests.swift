@@ -684,6 +684,17 @@ struct TangledSourceDownloadFeatureTests {
                         .utf8
                     )
 
+                case "/xrpc/com.atproto.repo.putRecord":
+                    return Data(
+                        """
+                        {
+                          "uri": "at://did:plc:placeholder/app.openmusicevent.source/canonical",
+                          "cid": "bafyreisource"
+                        }
+                        """
+                        .utf8
+                    )
+
                 default:
                     throw BootstrapUnexpectedHTTPRequest(path: request.url?.path)
                 }
@@ -823,12 +834,32 @@ struct TangledSourceDownloadFeatureTests {
         #expect(record["description"] as? String == "Festival source")
         #expect(record["repoDid"] as? String == "did:plc:targetrepo")
 
+        let putRecordRequest = try #require(
+            requests.first { $0.url?.path == "/xrpc/com.atproto.repo.putRecord" }
+        )
+        #expect(putRecordRequest.url?.host == "placeholder.example")
+        let putRecordBody = try #require(putRecordRequest.body)
+        let putRecordJSON = try #require(
+            JSONSerialization.jsonObject(with: putRecordBody) as? [String: Any]
+        )
+        #expect(putRecordJSON["repo"] as? String == "did:plc:placeholder")
+        #expect(putRecordJSON["collection"] as? String == "app.openmusicevent.source")
+        #expect(putRecordJSON["rkey"] as? String == "canonical")
+        let sourceRecord = try #require(putRecordJSON["record"] as? [String: Any])
+        #expect(sourceRecord["$type"] as? String == "app.openmusicevent.source")
+        #expect(sourceRecord["kind"] as? String == "tangled")
+        #expect(sourceRecord["reference"] as? String == "tangled.org/did:plc:placeholder/festival-source")
+        #expect(sourceRecord["ref"] as? String == "main")
+        #expect(sourceRecord["createdAt"] as? String == "2026-07-08T08:40:00Z")
+
         let authorizedPermissions = authorizedRequirements.withLock {
             $0.flatMap(\.permissions).map(\.rawValue)
         }
         #expect(authorizedPermissions.contains("rpc:sh.tangled.repo.create?aud=did:web:tangled.org"))
         #expect(authorizedPermissions.contains("repo:sh.tangled.repo?action=create"))
         #expect(authorizedPermissions.contains("repo:sh.tangled.publicKey?action=create"))
+        #expect(authorizedPermissions.contains("repo:app.openmusicevent.source?action=create"))
+        #expect(authorizedPermissions.contains("repo:app.openmusicevent.source?action=update"))
     }
 
     @Test

@@ -63,11 +63,11 @@ public typealias OME = OpenMusicEvent
 // MARK: - Source (app.openmusicevent.source)
 
 extension OpenMusicEvent {
-    public struct SourceRecord: Decodable, Equatable, Sendable {
+    public struct SourceRecord: Codable, Equatable, Sendable {
         public static let nsid = ATProto.NSID("app.openmusicevent.source")
         public static let canonicalRecordKey = "canonical"
 
-        public enum Kind: String, Decodable, Equatable, Sendable {
+        public enum Kind: String, Codable, Equatable, Sendable {
             case tangled
         }
 
@@ -86,6 +86,31 @@ extension OpenMusicEvent {
             self.reference = reference
             self.ref = ref
             self.createdAt = createdAt
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case type = "$type"
+            case kind
+            case reference
+            case ref
+            case createdAt
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.kind = try container.decode(Kind.self, forKey: .kind)
+            self.reference = try container.decode(String.self, forKey: .reference)
+            self.ref = try container.decodeIfPresent(String.self, forKey: .ref)
+            self.createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(Self.nsid.rawValue, forKey: .type)
+            try container.encode(kind.rawValue, forKey: .kind)
+            try container.encode(reference, forKey: .reference)
+            try container.encodeIfPresent(ref, forKey: .ref)
+            try container.encodeIfPresent(createdAt, forKey: .createdAt)
         }
     }
 }
