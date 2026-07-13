@@ -1,7 +1,16 @@
 import SwiftUI
 
+public enum ScheduleTimelineOrientation: Hashable, Sendable {
+    case verticalTime
+    case horizontalTime
+}
+
 private enum ScheduleHeightEnvironmentKey: EnvironmentKey {
     static let defaultValue: CGFloat = 1500
+}
+
+private enum ScheduleTimelineOrientationEnvironmentKey: EnvironmentKey {
+    static let defaultValue = ScheduleTimelineOrientation.verticalTime
 }
 
 private enum SchedulePointsPerHourKey: EnvironmentKey {
@@ -33,6 +42,11 @@ public extension EnvironmentValues {
     var scheduleHeight: CGFloat {
         get { self[ScheduleHeightEnvironmentKey.self] }
         set { self[ScheduleHeightEnvironmentKey.self] = newValue }
+    }
+
+    var scheduleTimelineOrientation: ScheduleTimelineOrientation {
+        get { self[ScheduleTimelineOrientationEnvironmentKey.self] }
+        set { self[ScheduleTimelineOrientationEnvironmentKey.self] = newValue }
     }
 
     var schedulePointsPerHour: CGFloat {

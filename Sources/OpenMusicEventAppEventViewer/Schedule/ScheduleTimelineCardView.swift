@@ -61,9 +61,6 @@ struct ScheduleTimelineCardView: View {
 
             HStack(spacing: 6) {
                 Text(performance.timeRangeText)
-
-                Text(stage.name)
-                    .lineLimit(1)
             }
             .font(.caption)
             .fontWeight(.medium)

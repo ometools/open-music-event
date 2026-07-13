@@ -23,6 +23,11 @@ public extension Date {
         let progress = timeIntervalSince(range.start) / range.duration
         return containerHeight * CGFloat(progress)
     }
+
+    func toX(containerWidth: CGFloat, in range: DateInterval) -> CGFloat {
+        let progress = timeIntervalSince(range.start) / range.duration
+        return containerWidth * CGFloat(progress)
+    }
 }
 
 public extension Int {

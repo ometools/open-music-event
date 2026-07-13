@@ -7,7 +7,7 @@ public struct SchedulePageView<
     EmptyContent: View
 >: View {
     @Environment(\.calendar) var calendar
-    @Environment(\.scheduleHeight) var scheduleHeight
+    @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
 
     let cardContent: (Element) -> CardContent
@@ -18,6 +18,7 @@ public struct SchedulePageView<
 
     public init(
         _ cards: [Element],
+        groups: [Int]? = nil,
         @ViewBuilder cardContent: @escaping (Element) -> CardContent,
         @ViewBuilder emptyContent: () -> EmptyContent
     ) {
@@ -25,8 +26,8 @@ public struct SchedulePageView<
         self.cardContent = cardContent
         self.emptyContent = emptyContent()
 
-        let groups = Set(cards.map(\.groupWidth.lowerBound))
-        self.groups = Array(groups).sorted()
+        let groups = groups ?? Array(Set(cards.map(\.groupWidth.lowerBound))).sorted()
+        self.groups = Array(Set(groups)).sorted()
         self.groupMapping = Dictionary(uniqueKeysWithValues: self.groups.enumerated().map { index, group in
             (group, index)
         })
@@ -41,7 +42,7 @@ public struct SchedulePageView<
                     ForEach(cards) { scheduleItem in
                         let frame = frame(
                             for: scheduleItem,
-                            in: CGSize(width: geometry.size.width, height: scheduleHeight)
+                            in: geometry.size
                         )
                         cardContent(scheduleItem)
                             .id(scheduleItem.id)
@@ -61,20 +62,43 @@ public struct SchedulePageView<
             timelineCard.frame(
                 in: size,
                 groupMapping: groupMapping,
-                range: range
+                range: range,
+                orientation: scheduleTimelineOrientation
             )
         }
     }
 }
 
 public extension TimelineCard {
-    func xOrigin(containerWidth: CGFloat, groupMapping: [Int: Int]) -> CGFloat {
+    func timeOrigin(containerLength: CGFloat, in range: DateInterval) -> CGFloat {
+        containerLength * CGFloat(dateInterval.start.timeIntervalSince(range.start) / range.duration)
+    }
+
+    func timeLength(in containerLength: CGFloat, range: DateInterval) -> CGFloat {
+        containerLength * CGFloat(dateInterval.duration / range.duration)
+    }
+
+    func groupOrigin(containerLength: CGFloat, groupMapping: [Int: Int]) -> CGFloat {
         guard groupMapping.count > 1 else { return 0 }
-        return containerWidth / CGFloat(groupMapping.count) * CGFloat(groupMapping[groupWidth.lowerBound] ?? 0)
+        return containerLength / CGFloat(groupMapping.count) * CGFloat(groupMapping[groupWidth.lowerBound] ?? 0)
+    }
+
+    func groupLength(in containerLength: CGFloat, groupMapping: [Int: Int]) -> CGFloat {
+        guard !groupMapping.isEmpty else { return containerLength }
+        guard groupMapping.count > 1 else { return containerLength }
+
+        let groupSpanCount = (groupMapping[groupWidth.upperBound] ?? 0)
+            - (groupMapping[groupWidth.lowerBound] ?? 0)
+            + 1
+        return (containerLength / CGFloat(groupMapping.count)) * CGFloat(groupSpanCount)
+    }
+
+    func xOrigin(containerWidth: CGFloat, groupMapping: [Int: Int]) -> CGFloat {
+        groupOrigin(containerLength: containerWidth, groupMapping: groupMapping)
     }
 
     func yOrigin(containerHeight: CGFloat, in range: DateInterval) -> CGFloat {
-        dateInterval.start.toY(containerHeight: containerHeight, in: range)
+        timeOrigin(containerLength: containerHeight, in: range)
     }
 
     func size(in containerSize: CGSize, groupMapping: [Int: Int], range: DateInterval) -> CGSize {
@@ -85,27 +109,53 @@ public extension TimelineCard {
     }
 
     func height(in containerSize: CGSize, range: DateInterval) -> CGFloat {
-        containerSize.height * CGFloat(dateInterval.duration / range.duration)
+        timeLength(in: containerSize.height, range: range)
     }
 
     func width(in containerSize: CGSize, groupMapping: [Int: Int]) -> CGFloat {
-        guard !groupMapping.isEmpty else { return containerSize.width }
-        guard groupMapping.count > 1 else { return containerSize.width }
-
-        let groupSpanCount = (groupMapping[groupWidth.upperBound] ?? 0)
-            - (groupMapping[groupWidth.lowerBound] ?? 0)
-            + 1
-        return (containerSize.width / CGFloat(groupMapping.count)) * CGFloat(groupSpanCount)
+        groupLength(in: containerSize.width, groupMapping: groupMapping)
     }
 
     func frame(in containerSize: CGSize, groupMapping: [Int: Int], range: DateInterval) -> CGRect {
-        CGRect(
-            origin: CGPoint(
-                x: xOrigin(containerWidth: containerSize.width, groupMapping: groupMapping),
-                y: yOrigin(containerHeight: containerSize.height, in: range)
-            ),
-            size: size(in: containerSize, groupMapping: groupMapping, range: range)
+        frame(
+            in: containerSize,
+            groupMapping: groupMapping,
+            range: range,
+            orientation: .verticalTime
         )
+    }
+
+    func frame(
+        in containerSize: CGSize,
+        groupMapping: [Int: Int],
+        range: DateInterval,
+        orientation: ScheduleTimelineOrientation
+    ) -> CGRect {
+        switch orientation {
+        case .verticalTime:
+            return CGRect(
+                origin: CGPoint(
+                    x: groupOrigin(containerLength: containerSize.width, groupMapping: groupMapping),
+                    y: timeOrigin(containerLength: containerSize.height, in: range)
+                ),
+                size: CGSize(
+                    width: groupLength(in: containerSize.width, groupMapping: groupMapping),
+                    height: timeLength(in: containerSize.height, range: range)
+                )
+            )
+
+        case .horizontalTime:
+            return CGRect(
+                origin: CGPoint(
+                    x: timeOrigin(containerLength: containerSize.width, in: range),
+                    y: groupOrigin(containerLength: containerSize.height, groupMapping: groupMapping)
+                ),
+                size: CGSize(
+                    width: timeLength(in: containerSize.width, range: range),
+                    height: groupLength(in: containerSize.height, groupMapping: groupMapping)
+                )
+            )
+        }
     }
 }
 

@@ -61,10 +61,27 @@ public struct ScheduleModeMenu: View {
                 }
             }
 
-            if needsStageDisambiguation {
+            if needsStageDisambiguation || store.scheduleMode == .manyStagesAtOnce {
                 Section("Display") {
-                    Toggle(isOn: $store.showStageNameLabels.animation()) {
-                        Label("Show Stage Labels", systemImage: "tag")
+                    if store.scheduleMode == .manyStagesAtOnce {
+                        Picker(
+                            "Many Stages",
+                            selection: $store.manyStagesOrientation.animation()
+                        ) {
+                            ForEach(
+                                ScheduleViewerState.ManyStagesOrientation.allCases,
+                                id: \.self
+                            ) { orientation in
+                                Text(orientation.title)
+                                    .tag(orientation)
+                            }
+                        }
+                    }
+
+                    if needsStageDisambiguation {
+                        Toggle(isOn: $store.showStageNameLabels.animation()) {
+                            Label("Show Stage Labels", systemImage: "tag")
+                        }
                     }
                 }
             }

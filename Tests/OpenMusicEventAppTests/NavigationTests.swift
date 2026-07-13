@@ -3138,15 +3138,20 @@ struct NavigationTests {
     }
 
     @Test
-    func manyStagesContentWidthAddsCompactOverflowCueWhenLanesWouldFit() {
+    func manyStagesTimelineGroupsKeepEmptyStageLanes() {
+        #expect(ScheduleManyStagesAtOnceView.timelineGroups(stageCount: 4) == [0, 1, 2, 3])
+    }
+
+    @Test
+    func manyStagesContentWidthShowsPartialLastStageOnCompactLayouts() {
         let width = ScheduleManyStagesAtOnceView.contentWidth(
             availableWidth: 393,
-            stageCount: 2,
+            stageCount: 3,
             minimumStageLaneWidth: 132,
             hourLabelsWidth: 43
         )
 
-        #expect(width == 425)
+        #expect(width == 463)
     }
 
     @Test
@@ -3162,9 +3167,21 @@ struct NavigationTests {
     }
 
     @Test
-    func manyStagesContentWidthKeepsNaturalWidthWhenStagesAlreadyOverflow() {
+    func manyStagesContentWidthDoesNotAddOverflowCueForTwoStages() {
         let width = ScheduleManyStagesAtOnceView.contentWidth(
             availableWidth: 393,
+            stageCount: 2,
+            minimumStageLaneWidth: 132,
+            hourLabelsWidth: 43
+        )
+
+        #expect(width == 393)
+    }
+
+    @Test
+    func manyStagesContentWidthKeepsMinimumLaneWidthWhenCompactTargetWouldShrinkLanes() {
+        let width = ScheduleManyStagesAtOnceView.contentWidth(
+            availableWidth: 320,
             stageCount: 4,
             minimumStageLaneWidth: 132,
             hourLabelsWidth: 43
@@ -3174,10 +3191,10 @@ struct NavigationTests {
     }
 
     @Test
-    func manyStagesContentWidthDoesNotAddCompactOverflowCueToWideLayouts() {
+    func manyStagesContentWidthDoesNotAddCompactStageRevealToWideLayouts() {
         let width = ScheduleManyStagesAtOnceView.contentWidth(
             availableWidth: 700,
-            stageCount: 2,
+            stageCount: 3,
             minimumStageLaneWidth: 132,
             hourLabelsWidth: 43
         )
@@ -3290,6 +3307,7 @@ struct NavigationTests {
 
         state.$scheduleViewerState.withLock {
             $0.scheduleMode = .manyStagesAtOnce
+            $0.manyStagesOrientation = .horizontal
             $0.selectedStageID = stageLocalID("main")
             $0.showStageNameLabels = true
         }
@@ -3324,13 +3342,16 @@ struct NavigationTests {
 
         #expect(storedState.scheduleMode == .manyStagesAtOnce)
         #expect(storedState.scheduleKind == .allStagesAtOnce)
+        #expect(storedState.manyStagesOrientation == .horizontal)
         #expect(storedState.selectedStageID == stageLocalID("main"))
         #expect(storedState.showStageNameLabels)
         #expect(restoredState.scheduleMode == .manyStagesAtOnce)
         #expect(restoredState.scheduleViewerState.scheduleKind == .allStagesAtOnce)
+        #expect(restoredState.manyStagesOrientation == .horizontal)
         #expect(restoredState.selectedStageID == stageLocalID("main"))
         #expect(restoredState.showStageNameLabels)
         #expect(workshopState.scheduleMode == .singleStageAtOnce)
+        #expect(workshopState.manyStagesOrientation == .vertical)
         #expect(workshopState.selectedStageID == nil)
         #expect(!workshopState.showStageNameLabels)
     }

@@ -12,7 +12,8 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         showStageNameLabels: Bool = false,
         filteringFavorites: Bool = false,
         filteringInterested: Bool = false,
-        scheduleKind: ScheduleKind = .singleStageAtOnce
+        scheduleKind: ScheduleKind = .singleStageAtOnce,
+        manyStagesOrientation: ManyStagesOrientation = .vertical
     ) {
         self.id = id
         self.selectedStageID = selectedStageID
@@ -20,6 +21,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         self.filteringFavorites = filteringFavorites
         self.filteringInterested = filteringInterested
         self.scheduleKind = scheduleKind
+        self.manyStagesOrientation = manyStagesOrientation
     }
 
     public init(
@@ -54,12 +56,27 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         case list
     }
 
+    public enum ManyStagesOrientation: String, Codable, Sendable, CaseIterable, SQLiteType {
+        case vertical
+        case horizontal
+
+        public var title: String {
+            switch self {
+            case .vertical:
+                return "Vertical"
+            case .horizontal:
+                return "Horizontal"
+            }
+        }
+    }
+
     public var id: ID
     public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
     public var showStageNameLabels = false
     public var filteringFavorites = false
     public var filteringInterested = false
     @Column("scheduleKind") public var scheduleKind: ScheduleKind = .singleStageAtOnce
+    @Column("manyStagesOrientation") public var manyStagesOrientation: ManyStagesOrientation = .vertical
 
     public var scheduleMode: ScheduleViewer.ScheduleMode {
         get {

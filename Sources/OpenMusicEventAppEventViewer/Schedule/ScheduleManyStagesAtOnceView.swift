@@ -47,6 +47,15 @@ public struct ScheduleManyStagesAtOnce {
         @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
 
+        public var manyStagesOrientation: ScheduleViewerState.ManyStagesOrientation {
+            get { scheduleViewerState.manyStagesOrientation }
+            set {
+                $scheduleViewerState.withLock {
+                    $0.manyStagesOrientation = newValue
+                }
+            }
+        }
+
         public func visiblePerformanceRows(
             selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
         ) -> [PerformanceRow] {
@@ -114,13 +123,15 @@ public struct ScheduleManyStagesAtOnceView: View {
     let showsAuthoringControls: Bool
 
     let minimumStageLaneWidth: CGFloat = 132
-    let stageLaneHeaderHeight: CGFloat = 68
-    let compactHorizontalOverflowCueWidth: CGFloat = 32
-    let compactHorizontalOverflowCueMaxAvailableWidth: CGFloat = 500
+    let compactVisibleStageLaneCount: CGFloat = 2.5
+    let compactStageRevealMaxAvailableWidth: CGFloat = 500
+    let minimumHorizontalStageLaneHeight: CGFloat = 84
+    let minimumHorizontalPointsPerHour: CGFloat = 160
 
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
+    @Environment(\.showStageNameLabels) var showStageNameLabels
 
     public init(
         store: StoreOf<ScheduleManyStagesAtOnce>,
@@ -157,6 +168,29 @@ public struct ScheduleManyStagesAtOnceView: View {
         availableHeight: CGFloat,
         timeRange: DateInterval
     ) -> some View {
+        switch store.manyStagesOrientation {
+        case .vertical:
+            verticalScheduleBody(
+                availableWidth: availableWidth,
+                availableHeight: availableHeight,
+                timeRange: timeRange
+            )
+
+        case .horizontal:
+            horizontalScheduleBody(
+                availableWidth: availableWidth,
+                availableHeight: availableHeight,
+                timeRange: timeRange
+            )
+        }
+    }
+
+    @ViewBuilder
+    func verticalScheduleBody(
+        availableWidth: CGFloat,
+        availableHeight: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
         ScrollView(.horizontal) {
             verticalScheduleScroll(
                 availableWidth: availableWidth,
@@ -169,11 +203,74 @@ public struct ScheduleManyStagesAtOnceView: View {
         }
     }
 
+    func horizontalScheduleBody(
+        availableWidth: CGFloat,
+        availableHeight: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
+        let stageRailWidth = horizontalStageRailWidth
+        let availableTimelineWidth = max(availableWidth - stageRailWidth, 0)
+        let timelineWidth = horizontalTimelineWidth(
+            for: timeRange,
+            availableWidth: availableTimelineWidth
+        )
+        let timelineHeight = horizontalTimelineHeight
+        let totalHeight = timelineHeight + hourLabelsHeight
+
+        return ScrollView(.vertical) {
+            HStack(alignment: .top, spacing: 0) {
+                ScheduleManyStagesStageRail(
+                    stages: store.visibleStages,
+                    width: stageRailWidth,
+                    laneHeight: horizontalStageLaneHeight
+                )
+
+                ScrollView(.horizontal) {
+                    timelinePage
+                        .frame(width: timelineWidth, height: totalHeight)
+                        .environment(\.scheduleTimelineOrientation, .horizontalTime)
+                        .environment(\.scheduleHeight, timelineHeight)
+                        .environment(\.scheduleTimeRange, timeRange)
+                }
+            }
+            .frame(
+                minWidth: availableWidth,
+                minHeight: max(availableHeight, totalHeight),
+                alignment: .topLeading
+            )
+        }
+    }
+
     @ViewBuilder
     func verticalScheduleScroll(
         availableWidth: CGFloat,
         timeRange: DateInterval
     ) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *), needsStageDisambiguation {
+            scheduleScroll(
+                availableWidth: availableWidth,
+                timeRange: timeRange
+            )
+            .safeAreaBar(edge: .top) {
+                laneHeader(availableWidth: availableWidth)
+            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+        } else if needsStageDisambiguation {
+            scheduleScroll(
+                availableWidth: availableWidth,
+                timeRange: timeRange
+            )
+            .safeAreaInset(edge: .top, spacing: 0) {
+                laneHeader(availableWidth: availableWidth)
+            }
+        } else {
+            scheduleScroll(
+                availableWidth: availableWidth,
+                timeRange: timeRange
+            )
+        }
+        #else
         if needsStageDisambiguation {
             scheduleScroll(
                 availableWidth: availableWidth,
@@ -188,6 +285,7 @@ public struct ScheduleManyStagesAtOnceView: View {
                 timeRange: timeRange
             )
         }
+        #endif
     }
 
     func scheduleScroll(
@@ -195,24 +293,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         timeRange: DateInterval
     ) -> some View {
         ScrollView(.vertical) {
-            SchedulePageView(timelineCards) { card in
-                ScheduleTimelineCardView(
-                    performance: card.performance,
-                    stage: card.stage,
-                    showsAuthoringControls: showsAuthoringControls,
-                    editAction: {
-                        store.send(.editPerformanceButtonTapped(card.id))
-                    },
-                    deleteAction: {
-                        store.send(.deletePerformanceButtonTapped(card.id))
-                    },
-                    action: {
-                        store.send(.performanceButtonTapped(card.id))
-                    }
-                )
-            } emptyContent: {
-                emptyPerformancesView
-            }
+            timelinePage
             .frame(
                 width: contentWidth(for: availableWidth),
                 height: scheduleHeight(for: timeRange)
@@ -230,6 +311,69 @@ public struct ScheduleManyStagesAtOnceView: View {
             minimumStageLaneWidth: minimumStageLaneWidth
         )
         .allowsHitTesting(false)
+    }
+
+    var timelinePage: some View {
+        SchedulePageView(timelineCards, groups: timelineGroups) { card in
+            ScheduleTimelineCardView(
+                performance: card.performance,
+                stage: card.stage,
+                showsAuthoringControls: showsAuthoringControls,
+                editAction: {
+                    store.send(.editPerformanceButtonTapped(card.id))
+                },
+                deleteAction: {
+                    store.send(.deletePerformanceButtonTapped(card.id))
+                },
+                action: {
+                    store.send(.performanceButtonTapped(card.id))
+                }
+            )
+        } emptyContent: {
+            emptyPerformancesView
+        }
+    }
+
+    var timelineGroups: [Int] {
+        Self.timelineGroups(stageCount: store.visibleStages.count)
+    }
+
+    static func timelineGroups(stageCount: Int) -> [Int] {
+        Array(0..<stageCount)
+    }
+
+    var stageLaneHeaderHeight: CGFloat {
+        showStageNameLabels ? 116 : 84
+    }
+
+    var hourLabelsHeight: CGFloat {
+        HourLabelsHeightPreferenceKey.defaultValue
+    }
+
+    var horizontalStageRailWidth: CGFloat {
+        showStageNameLabels ? 116 : 84
+    }
+
+    var horizontalStageLaneHeight: CGFloat {
+        showStageNameLabels ? 104 : minimumHorizontalStageLaneHeight
+    }
+
+    var horizontalTimelineHeight: CGFloat {
+        CGFloat(store.visibleStages.count) * horizontalStageLaneHeight
+    }
+
+    var horizontalPointsPerHour: CGFloat {
+        max(schedulePointsPerHour * 2, minimumHorizontalPointsPerHour)
+    }
+
+    func horizontalTimelineWidth(
+        for timeRange: DateInterval,
+        availableWidth: CGFloat
+    ) -> CGFloat {
+        max(
+            availableWidth,
+            CGFloat(timeRange.duration / 3600) * horizontalPointsPerHour
+        )
     }
 
     var emptyPerformancesView: some View {
@@ -274,8 +418,8 @@ public struct ScheduleManyStagesAtOnceView: View {
             availableWidth: availableWidth,
             stageCount: store.visibleStages.count,
             minimumStageLaneWidth: minimumStageLaneWidth,
-            compactHorizontalOverflowCueWidth: compactHorizontalOverflowCueWidth,
-            compactHorizontalOverflowCueMaxAvailableWidth: compactHorizontalOverflowCueMaxAvailableWidth
+            compactVisibleStageLaneCount: compactVisibleStageLaneCount,
+            compactStageRevealMaxAvailableWidth: compactStageRevealMaxAvailableWidth
         )
     }
 
@@ -284,34 +428,47 @@ public struct ScheduleManyStagesAtOnceView: View {
         stageCount: Int,
         minimumStageLaneWidth: CGFloat,
         hourLabelsWidth: CGFloat = HourLabelsWidthPreferenceKey.defaultValue,
-        compactHorizontalOverflowCueWidth: CGFloat = 32,
-        compactHorizontalOverflowCueMaxAvailableWidth: CGFloat = 500
+        compactVisibleStageLaneCount: CGFloat = 2.5,
+        compactStageRevealMaxAvailableWidth: CGFloat = 500
     ) -> CGFloat {
         let naturalContentWidth = hourLabelsWidth
             + CGFloat(stageCount) * minimumStageLaneWidth
-        let viewportWidth = availableWidth
-            + compactOverflowCueWidth(
-                availableWidth: availableWidth,
-                stageCount: stageCount,
-                compactHorizontalOverflowCueWidth: compactHorizontalOverflowCueWidth,
-                compactHorizontalOverflowCueMaxAvailableWidth: compactHorizontalOverflowCueMaxAvailableWidth
-            )
+        let compactRevealContentWidth = compactStageRevealContentWidth(
+            availableWidth: availableWidth,
+            stageCount: stageCount,
+            minimumStageLaneWidth: minimumStageLaneWidth,
+            hourLabelsWidth: hourLabelsWidth,
+            compactVisibleStageLaneCount: compactVisibleStageLaneCount,
+            compactStageRevealMaxAvailableWidth: compactStageRevealMaxAvailableWidth
+        )
 
-        return max(viewportWidth, naturalContentWidth)
+        return max(
+            max(availableWidth, naturalContentWidth),
+            compactRevealContentWidth
+        )
     }
 
-    static func compactOverflowCueWidth(
+    static func compactStageRevealContentWidth(
         availableWidth: CGFloat,
         stageCount: Int,
-        compactHorizontalOverflowCueWidth: CGFloat = 32,
-        compactHorizontalOverflowCueMaxAvailableWidth: CGFloat = 500
+        minimumStageLaneWidth: CGFloat,
+        hourLabelsWidth: CGFloat = HourLabelsWidthPreferenceKey.defaultValue,
+        compactVisibleStageLaneCount: CGFloat = 2.5,
+        compactStageRevealMaxAvailableWidth: CGFloat = 500
     ) -> CGFloat {
         guard availableWidth > 0,
-              stageCount > 1,
-              availableWidth <= compactHorizontalOverflowCueMaxAvailableWidth
+              CGFloat(stageCount) > compactVisibleStageLaneCount,
+              compactVisibleStageLaneCount > 0,
+              availableWidth <= compactStageRevealMaxAvailableWidth
         else { return 0 }
 
-        return compactHorizontalOverflowCueWidth
+        let visibleStageArea = max(availableWidth - hourLabelsWidth, 0)
+        let stageLaneWidth = max(
+            minimumStageLaneWidth,
+            visibleStageArea / compactVisibleStageLaneCount
+        )
+
+        return hourLabelsWidth + CGFloat(stageCount) * stageLaneWidth
     }
 
     func scheduleHeight(for timeRange: DateInterval) -> CGFloat {
@@ -393,14 +550,21 @@ struct ScheduleManyStagesLaneHeader: View {
     }
 
     func stageHeaderCell(for stage: OMERecord.Stage) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             ScheduleStageIcon(stage: stage)
-                .frame(width: 34, height: 34)
-                .padding(9)
-                .foregroundStyle(stage.color.swiftUIColor)
+                .frame(width: stageIconSize, height: stageIconSize)
+                .padding(stageIconPadding)
+                .foregroundStyle(.white)
                 .background {
                     Circle()
-                        .fill(Color.secondary.opacity(0.12))
+                        .fill(stage.color.swiftUIColor.opacity(0.22))
+                        .overlay {
+                            Circle()
+                                .stroke(
+                                    stage.color.swiftUIColor.opacity(0.38),
+                                    lineWidth: 1
+                                )
+                        }
                 }
 
             if showStageNameLabels {
@@ -412,6 +576,14 @@ struct ScheduleManyStagesLaneHeader: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    var stageIconSize: CGFloat {
+        44
+    }
+
+    var stageIconPadding: CGFloat {
+        12
     }
 
     var hourLabelsWidth: CGFloat {
@@ -428,5 +600,54 @@ struct ScheduleManyStagesLaneHeader: View {
             minimumStageLaneWidth,
             (contentWidth - hourLabelsWidth) / CGFloat(stages.count)
         )
+    }
+}
+
+struct ScheduleManyStagesStageRail: View {
+    let stages: [OMERecord.Stage]
+    let width: CGFloat
+    let laneHeight: CGFloat
+
+    @Environment(\.showStageNameLabels) var showStageNameLabels
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: hourLabelsHeight)
+
+            ForEach(stages) { stage in
+                stageRailCell(for: stage)
+                    .frame(width: width, height: laneHeight)
+            }
+        }
+        .frame(width: width, alignment: .top)
+        .background(Color.secondary.opacity(0.06))
+    }
+
+    func stageRailCell(for stage: OMERecord.Stage) -> some View {
+        VStack(spacing: 4) {
+            ScheduleStageIcon(stage: stage)
+                .frame(width: 30, height: 30)
+                .padding(7)
+                .foregroundStyle(stage.color.swiftUIColor)
+                .background {
+                    Circle()
+                        .fill(Color.secondary.opacity(0.12))
+                }
+
+            if showStageNameLabels {
+                Text(stage.name)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 6)
+    }
+
+    var hourLabelsHeight: CGFloat {
+        HourLabelsHeightPreferenceKey.defaultValue
     }
 }

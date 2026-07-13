@@ -124,6 +124,15 @@ public struct ScheduleViewer {
             }
         }
 
+        public var manyStagesOrientation: ScheduleViewerState.ManyStagesOrientation {
+            get { scheduleViewerState.manyStagesOrientation }
+            set {
+                $scheduleViewerState.withLock {
+                    $0.manyStagesOrientation = newValue
+                }
+            }
+        }
+
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>? {
             get { scheduleViewerState.selectedStageID }
             set {

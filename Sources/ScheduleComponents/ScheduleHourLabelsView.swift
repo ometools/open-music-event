@@ -16,9 +16,19 @@ public struct HourLabelsWidthPreferenceKey: PreferenceKey {
     }
 }
 
+public struct HourLabelsHeightPreferenceKey: PreferenceKey {
+    public static let defaultValue: CGFloat = 32
+
+    public static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 public struct ScheduleHourLabelsView: View {
     @Environment(\.scheduleHeight) var scheduleHeight
+    @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
+    @ScaledMetric var hourLabelsHeight = HourLabelsHeightPreferenceKey.defaultValue
     @ScaledMetric var hourLabelsWidth = HourLabelsWidthPreferenceKey.defaultValue
 
     public init() {}
@@ -34,7 +44,18 @@ public struct ScheduleHourLabelsView: View {
         return result
     }
 
+    @ViewBuilder
     public var body: some View {
+        switch scheduleTimelineOrientation {
+        case .verticalTime:
+            verticalTimeLabels
+
+        case .horizontalTime:
+            horizontalTimeLabels
+        }
+    }
+
+    var verticalTimeLabels: some View {
         GeometryReader { _ in
             ForEach(hourDates, id: \.self) { date in
                 if let range = scheduleTimeRange {
@@ -54,6 +75,28 @@ public struct ScheduleHourLabelsView: View {
             }
         }
         .frame(width: hourLabelsWidth)
+    }
+
+    var horizontalTimeLabels: some View {
+        GeometryReader { geometry in
+            ForEach(hourDates, id: \.self) { date in
+                if let range = scheduleTimeRange {
+                    Text(timeString(for: date))
+                        .id(ScheduleHourTag(hour: Calendar.current.component(.hour, from: date)))
+                        .lineLimit(1)
+                        .font(.caption)
+                        #if os(iOS)
+                        .monospacedDigit()
+                        #endif
+                        .foregroundStyle(.secondary)
+                        .position(
+                            x: date.toX(containerWidth: geometry.size.width, in: range),
+                            y: hourLabelsHeight / 2
+                        )
+                }
+            }
+        }
+        .frame(height: hourLabelsHeight)
     }
 
     func timeString(for date: Date) -> String {

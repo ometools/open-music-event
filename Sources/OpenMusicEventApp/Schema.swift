@@ -213,7 +213,15 @@ public enum OpenMusicEventAppDatabaseMigrations {
             ) STRICT
             """)
             .execute(db)
-        }
+    }
+
+    migrator.registerMigration("Add many-stage schedule orientation") { db in
+        try #sql("""
+            ALTER TABLE "scheduleViewerState"
+            ADD COLUMN "manyStagesOrientation" TEXT NOT NULL DEFAULT 'vertical'
+            """)
+            .execute(db)
+    }
     }
 }
 
