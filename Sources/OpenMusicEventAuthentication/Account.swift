@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
@@ -1271,3 +1272,4 @@ public extension OAuthAccount.State {
         )
     }
 }
+#endif

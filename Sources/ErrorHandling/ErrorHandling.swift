@@ -3,9 +3,14 @@ import Dependencies
 import Foundation
 
 public struct UserFacingText: Sendable {
+    #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     public var resource: LocalizedStringResource
+    #else
+    public var resource: String
+    #endif
     public var fallback: String
 
+    #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     public init(
         _ resource: LocalizedStringResource,
         fallback: String
@@ -13,9 +18,22 @@ public struct UserFacingText: Sendable {
         self.resource = resource
         self.fallback = fallback
     }
+    #else
+    public init(
+        _ resource: String,
+        fallback: String
+    ) {
+        self.resource = resource
+        self.fallback = fallback
+    }
+    #endif
 
     public var localizedString: String {
+        #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         String(localized: resource)
+        #else
+        fallback
+        #endif
     }
 }
 

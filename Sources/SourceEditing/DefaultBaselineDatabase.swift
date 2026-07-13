@@ -51,7 +51,7 @@ public func defaultBaselineDatabase(
                 .path
 
         case .preview, .test:
-            return URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+            return FileManager.default.temporaryDirectory
                 .appendingPathComponent("SourceEditingBaseline-\(UUID().uuidString)")
                 .appendingPathExtension("sqlite")
                 .path

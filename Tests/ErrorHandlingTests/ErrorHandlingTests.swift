@@ -102,6 +102,11 @@ struct ErrorHandlingTests {
         #expect(latestError?.kind == .unhandled)
         #expect(latestError?.message.fallback == "Fallback")
         #expect(latestError?.operation == .test)
+
+        await clock.advance(by: ErrorNotifications.automaticDismissDelay)
+        store.expect {
+            $0.errorNotifications.latestError = nil
+        }
     }
 
     @Test
@@ -173,7 +178,12 @@ struct ErrorHandlingTests {
         }
 
         await clock.advance(by: ErrorNotifications.automaticDismissDelay)
-        store.expect {
+        await store.receive(
+            from: \.errorNotifications,
+            \.latestErrorAutomaticallyDismissed,
+            .equals(error.id),
+            timeout: .seconds(1)
+        ) {
             $0.errorNotifications.latestError = nil
         }
     }
@@ -242,8 +252,6 @@ private struct ErrorNotificationSelectionHost {
 
 @Feature
 private struct ErrorNotificationForwardingHost {
-    @Dependency(\.continuousClock) var clock
-
     struct State {
         var errorNotifications = Spawn(ErrorNotifications.State())
     }
@@ -257,12 +265,6 @@ private struct ErrorNotificationForwardingHost {
             switch action {
             case .errorReported(let error):
                 state.errorNotifications.state.report(error)
-                store.addTask {
-                    try await clock.sleep(for: ErrorNotifications.automaticDismissDelay)
-                    try store.modify {
-                        $0.errorNotifications.state.dismiss(id: error.id)
-                    }
-                }
             }
         }
         .spawn(\.errorNotifications) {

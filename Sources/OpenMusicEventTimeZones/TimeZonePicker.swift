@@ -1,4 +1,5 @@
 import Foundation
+#if canImport(SwiftUI)
 import SwiftUI
 
 public struct TimeZonePicker: View {
@@ -124,6 +125,7 @@ struct TimeZoneRow: View {
         .contentShape(Rectangle())
     }
 }
+#endif
 
 public extension TimeZone {
     var pickerTitle: String {

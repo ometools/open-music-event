@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 import SwiftUI
 
 public struct SubmitButton: View {
@@ -56,3 +57,4 @@ private extension SubmitButton.Kind {
         }
     }
 }
+#endif

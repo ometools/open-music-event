@@ -3,7 +3,11 @@ import ATProtoOAuth
 import Dependencies
 import Foundation
 import OpenMusicEventSourceClone
+#if os(Android)
+import SkipSharing
+#else
 import Sharing
+#endif
 import TCATProtoAuthentication
 import WebMetadataClient
 import XRPCClient
@@ -42,9 +46,13 @@ private let openMusicEventOAuthSessionStore = Shared(
     KeychainSharedKey(item: OpenMusicEventOAuth.sessionStoreKeychainItem)
 )
 
+#if os(Linux)
+private let openMusicEventSelectedOAuthSessionID = Shared<Atmosphere.Account.ID?>(value: nil)
+#else
 private let openMusicEventSelectedOAuthSessionID = Shared<Atmosphere.Account.ID?>(
     .appStorage("openMusicEventSelectedOAuthSessionID")
 )
+#endif
 
 private let openMusicEventAuthFailureMessage = Shared<ErrorMessage?>(value: nil)
 

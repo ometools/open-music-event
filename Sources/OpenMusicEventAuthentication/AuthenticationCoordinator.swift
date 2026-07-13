@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
@@ -294,3 +295,4 @@ public extension OpenMusicEventOAuth {
         )
     }
 }
+#endif

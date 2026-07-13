@@ -7,14 +7,22 @@ import Crypto
 #endif
 import Dependencies
 import Foundation
+#if os(Android)
+import SkipSharing
+#else
 import Sharing
+#endif
 import SourceControlClient
 import XRPCClient
 
+#if os(Linux)
+private let tangledSSHCredentialsStorage = Shared<TangledStoredSSHCredentials?>(value: nil)
+#else
 private let tangledSSHCredentialsStorage = Shared<TangledStoredSSHCredentials?>(
     wrappedValue: nil,
     .appStorage("fm_woody_openMusicEvent_tangled_ssh_credentials")
 )
+#endif
 
 public struct TangledSSHCredentialsClient: Sendable {
     public var credentials: @Sendable () async throws -> Credentials
