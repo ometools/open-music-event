@@ -65,7 +65,7 @@ public struct OpenMusicEventAppRoot {
     @Dependency(\.authoringPolicy) var authoringPolicy
     @Dependency(\.eventImagePrefetch) var eventImagePrefetch
     public var body: some Feature {
-        let _ = Self._logChanges()
+//        let _ = Self._logChanges()
 
         let clearSelectedEvent: () -> Void = {
             try? database.write { db in

@@ -361,6 +361,7 @@ public struct EventWorkspace {
         case deleteTangledPullReviewForeverButtonTapped(TangledPullReview)
         case generateSourcePatchButtonTapped
         case mergeTangledPullReviewButtonTapped(TangledPullReview)
+        case onAppear
         case proposeChangeButtonTapped
         case reviewSemanticDiffButtonTapped(TangledPullReview)
         case refreshTangledPullReviewsButtonTapped
@@ -675,6 +676,10 @@ public struct EventWorkspace {
             case let .mergeTangledPullReviewButtonTapped(review):
                 mergeTangledPullReview(review, state: &state)
 
+            case .onAppear:
+                guard state.tangledPullReviewStatus == .notLoaded else { return }
+                refreshTangledPullReviews(target: state.target, state: &state)
+
             case .refreshSourceButtonTapped:
                 switch state.target {
                 case let .calendar(_, sourceBaselineID):
@@ -826,7 +831,6 @@ public struct EventWorkspace {
         }
         .onMount { state in
             let target = state.target
-            refreshTangledPullReviews(target: target, state: &state)
             store.addTask {
                 for await invalidation in sourcePatchInvalidations.stream() {
                     guard await target.matches(invalidation: invalidation) else { continue }
@@ -873,6 +877,9 @@ public struct EventWorkspaceView: View {
                     store.send(.createEventButtonTapped)
                 }
             }
+        }
+        .onAppear {
+            store.send(.onAppear)
         }
     }
 

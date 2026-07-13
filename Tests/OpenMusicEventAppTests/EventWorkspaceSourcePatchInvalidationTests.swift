@@ -402,14 +402,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        await store.receive(
-            \.tangledPullReviewsResponse,
-            .equals(.success([review])),
-            timeout: .seconds(1)
-        ) {
-            $0.tangledPullReviewStatus = .loaded([review])
-        }
-
         store.send(.sourceProposal(.delegate(.created(publication)))) {
             $0.sourceProposalStatus = .created(publication)
             $0.tangledPullReviewStatus = .loading
@@ -426,7 +418,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         expectNoDifference(
             requests.withLock { $0 },
             [
-                OpenMusicEventTangledPullReviewRequest(eventID: eventID),
                 OpenMusicEventTangledPullReviewRequest(eventID: eventID),
             ]
         )
@@ -885,7 +876,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func mountLoadsTangledPullReviewsForTangledSource() async throws {
+    func workspaceAppearanceLoadsTangledPullReviewsForTangledSource() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
@@ -973,7 +964,12 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        #expect(store.state.tangledPullReviewStatus == .loading)
+        #expect(store.state.tangledPullReviewStatus == .notLoaded)
+        #expect(requests.withLock { $0 }.isEmpty)
+
+        store.send(.onAppear) {
+            $0.tangledPullReviewStatus = .loading
+        }
         await store.receive(
             \.tangledPullReviewsResponse,
             .equals(.success([review])),
@@ -1007,20 +1003,13 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             )
         } operation: {
             var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.tangledPullReviewStatus = .loaded([review])
             initialState.tangledPullReviewSemanticDiffs[review.id] = .failed(
                 EventWorkspace.TangledPullReviewSemanticDiffFailure(TestCloseFailure.closeFailed)
             )
             return TestStore(initialState: initialState) {
                 EventWorkspace()
             }
-        }
-
-        await store.receive(
-            \.tangledPullReviewsResponse,
-            .equals(.success([review])),
-            timeout: .seconds(1)
-        ) {
-            $0.tangledPullReviewStatus = .loaded([review])
         }
 
         let task = store.send(.closeTangledPullReviewButtonTapped(review)) {
@@ -1070,6 +1059,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             )
         } operation: {
             var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.tangledPullReviewStatus = .loaded([review])
             initialState.tangledPullReviewMergeFailures[review.id] =
                 EventWorkspace.TangledPullReviewMergeFailure(TestCloseFailure.mergeFailed)
             initialState.tangledPullReviewSemanticDiffs[review.id] = .failed(
@@ -1078,14 +1068,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             return TestStore(initialState: initialState) {
                 EventWorkspace()
             }
-        }
-
-        await store.receive(
-            \.tangledPullReviewsResponse,
-            .equals(.success([review])),
-            timeout: .seconds(1)
-        ) {
-            $0.tangledPullReviewStatus = .loaded([review])
         }
 
         let task = store.send(.mergeTangledPullReviewButtonTapped(review)) {
@@ -1197,7 +1179,11 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        #expect(store.state.tangledPullReviewStatus == .loading)
+        #expect(store.state.tangledPullReviewStatus == .notLoaded)
+
+        store.send(.onAppear) {
+            $0.tangledPullReviewStatus = .loading
+        }
         await store.receive(
             \.tangledPullReviewsResponse,
             .equals(.success([review])),
@@ -1226,6 +1212,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             )
         } operation: {
             var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.tangledPullReviewStatus = .loaded([review])
             initialState.tangledPullReviewCloseFailures[review.id] =
                 EventWorkspace.TangledPullReviewCloseFailure(TestCloseFailure.closeFailed)
             initialState.tangledPullReviewSemanticDiffs[review.id] = .failed(
@@ -1234,14 +1221,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             return TestStore(initialState: initialState) {
                 EventWorkspace()
             }
-        }
-
-        await store.receive(
-            \.tangledPullReviewsResponse,
-            .equals(.success([review])),
-            timeout: .seconds(1)
-        ) {
-            $0.tangledPullReviewStatus = .loaded([review])
         }
 
         let task = store.send(.deleteTangledPullReviewForeverButtonTapped(review)) {
@@ -1303,17 +1282,11 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 }
             )
         } operation: {
-            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+            var initialState = EventWorkspace.State(eventID: eventID)
+            initialState.tangledPullReviewStatus = .loaded(reviews)
+            return TestStore(initialState: initialState) {
                 EventWorkspace()
             }
-        }
-
-        await store.receive(
-            \.tangledPullReviewsResponse,
-            .equals(.success(reviews)),
-            timeout: .seconds(1)
-        ) {
-            $0.tangledPullReviewStatus = .loaded(reviews)
         }
 
         let task = store.send(.deleteTangledPullReviewForeverButtonTapped(review)) {
@@ -1517,15 +1490,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
                 EventWorkspace()
             }
-        }
-
-        #expect(store.state.tangledPullReviewStatus == .loading)
-        await store.receive(
-            \.tangledPullReviewsResponse,
-            .equals(.success([])),
-            timeout: .seconds(1)
-        ) {
-            $0.tangledPullReviewStatus = .loaded([])
         }
 
         let task = store.send(.reviewSemanticDiffButtonTapped(review)) {
