@@ -97,14 +97,17 @@ struct ContributorScheduleSection: View {
                     Button {
                         performanceButtonTapped(row.performanceID)
                     } label: {
-                        ContributorSchedulePerformanceRow(
-                            row: row,
-                            subtitle: ScheduleViewer.performanceRowSubtitle(
-                                for: row.performance,
-                                timeZone: timeZone,
-                                policy: dateTimeRangeResolutionPolicy
+                        TimelineView(.periodic(from: Date.now, by: 1)) { context in
+                            ContributorSchedulePerformanceRow(
+                                row: row,
+                                subtitle: ScheduleViewer.performanceRowSubtitle(
+                                    for: row.performance,
+                                    timeZone: timeZone,
+                                    policy: dateTimeRangeResolutionPolicy
+                                ),
+                                now: context.date
                             )
-                        )
+                        }
                     }
                     .navigationLinkListRowStyle()
                 }
@@ -117,6 +120,7 @@ struct ContributorSchedulePerformanceRow: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let row: PerformanceRow
     let subtitle: String
+    var now: Date?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -134,10 +138,17 @@ struct ContributorSchedulePerformanceRow: View {
                 Text(row.title)
                     .lineLimit(2)
 
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let timingStatus {
+                        PerformanceTimingChip(status: timingStatus)
+                            .layoutPriority(1)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -156,6 +167,15 @@ struct ContributorSchedulePerformanceRow: View {
                 .padding(10)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    var timingStatus: PerformanceTimingStatus? {
+        guard let now else { return nil }
+        return PerformanceTimingStatus(
+            startTime: row.performance.startTime,
+            endTime: row.performance.endTime,
+            now: now
+        )
     }
 }
 

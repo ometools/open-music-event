@@ -1,10 +1,7 @@
-import Dependencies
+import Foundation
 import SwiftUI
 
 struct TimeIndicatorView: View {
-    @Dependency(\.date) var date
-
-    @Environment(\.calendar) var calendar
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scheduleHeight) var scheduleHeight
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
@@ -12,7 +9,7 @@ struct TimeIndicatorView: View {
     @Environment(\.shouldShowTimeIndicator) var shouldShowTimeIndicator
 
     let gradientHeight: CGFloat = 30
-    let textWidth: CGFloat = 43
+    let textWidth: CGFloat = 62
     let horizontalLabelHeight = HourLabelsHeightPreferenceKey.defaultValue
 
     var backgroundColor: Color {
@@ -27,41 +24,44 @@ struct TimeIndicatorView: View {
     }
 
     var body: some View {
-        CrossPlatformTimelineView(.periodic(by: 1)) { currentDate in
+        TimelineView(.periodic(from: Date.now, by: 1)) { context in
             GeometryReader { geometry in
-                if shouldShowTimeIndicator {
+                if shouldShowTimeIndicator,
+                   let scheduleTimeRange,
+                   scheduleTimeRange.contains(context.date)
+                {
                     switch scheduleTimelineOrientation {
                     case .verticalTime:
-                        verticalTimeIndicator(at: currentDate)
+                        verticalTimeIndicator()
                             .position(
                                 x: geometry.size.width / 2,
-                                y: scheduleTimeRange.map {
-                                    currentDate.toY(containerHeight: scheduleHeight, in: $0)
-                                } ?? -100
+                                y: context.date.toY(
+                                    containerHeight: scheduleHeight,
+                                    in: scheduleTimeRange
+                                )
                             )
 
                     case .horizontalTime:
-                        horizontalTimeIndicator(
-                            at: currentDate,
-                            height: geometry.size.height
-                        )
-                        .position(
-                            x: scheduleTimeRange.map {
-                                currentDate.toX(containerWidth: geometry.size.width, in: $0)
-                            } ?? -100,
-                            y: geometry.size.height / 2
-                        )
+                        horizontalTimeIndicator(height: geometry.size.height)
+                            .position(
+                                x: context.date.toX(
+                                    containerWidth: geometry.size.width,
+                                    in: scheduleTimeRange
+                                ),
+                                y: geometry.size.height / 2
+                            )
                     }
                 }
             }
         }
     }
 
-    private func verticalTimeIndicator(at currentDate: Date) -> some View {
+    func verticalTimeIndicator() -> some View {
         ZStack(alignment: .leading) {
-            Text(currentDate.formatted(timeFormat).lowercased().replacingOccurrences(of: " ", with: ""))
+            Text("Right Now")
                 .foregroundStyle(Color.accentColor)
                 .font(.caption)
+                .fontWeight(.semibold)
                 .background {
                     Rectangle()
                         .fill(
@@ -86,7 +86,7 @@ struct TimeIndicatorView: View {
         }
     }
 
-    private func horizontalTimeIndicator(at currentDate: Date, height: CGFloat) -> some View {
+    func horizontalTimeIndicator(height: CGFloat) -> some View {
         ZStack(alignment: .top) {
             Rectangle()
                 .fill(Color.accentColor)
@@ -98,9 +98,10 @@ struct TimeIndicatorView: View {
                 .frame(width: 5, height: 5)
                 .offset(y: horizontalLabelHeight - 2)
 
-            Text(currentDate.formatted(timeFormat).lowercased().replacingOccurrences(of: " ", with: ""))
+            Text("Right Now")
                 .foregroundStyle(Color.accentColor)
                 .font(.caption)
+                .fontWeight(.semibold)
                 .background {
                     Rectangle()
                         .fill(
@@ -114,43 +115,5 @@ struct TimeIndicatorView: View {
                 }
         }
         .frame(width: textWidth + 16, height: height, alignment: .top)
-    }
-
-    var timeFormat: Date.FormatStyle {
-        var format = Date.FormatStyle.dateTime.hour(.defaultDigits(amPM: .narrow)).minute()
-        format.calendar = calendar
-        format.timeZone = calendar.timeZone
-        return format
-    }
-}
-
-struct CrossPlatformTimelineView<Content: View>: View {
-    struct PeriodicTimelineSchedule {
-        var interval: TimeInterval
-
-        static func periodic(by interval: TimeInterval) -> PeriodicTimelineSchedule {
-            PeriodicTimelineSchedule(interval: interval)
-        }
-    }
-
-    @Dependency(\.date) var date
-    @State var currentDate = Date.now
-
-    let content: (Date) -> Content
-    let schedule: PeriodicTimelineSchedule
-
-    init(_ schedule: PeriodicTimelineSchedule, @ViewBuilder content: @escaping (Date) -> Content) {
-        self.content = content
-        self.schedule = schedule
-    }
-
-    var body: some View {
-        content(currentDate)
-            .task {
-                while !Task.isCancelled {
-                    currentDate = date()
-                    try? await Task.sleep(for: .seconds(schedule.interval))
-                }
-            }
     }
 }

@@ -413,6 +413,15 @@ struct PerformanceSummaryRow: View {
                     .minimumScaleFactor(0.55)
                     #endif
 
+                    TimelineView(.periodic(from: Date.now, by: 1)) { context in
+                        PerformanceTimingChip(
+                            startTime: performance.startTime,
+                            endTime: performance.endTime,
+                            now: context.date
+                        )
+                        .layoutPriority(1)
+                    }
+
                     Text(
                         ScheduleViewer.daySegment(
                             for: performance.startTime,

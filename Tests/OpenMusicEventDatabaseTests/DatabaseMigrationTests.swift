@@ -431,6 +431,118 @@ struct DatabaseMigrationTests {
     }
 
     @Test
+    func eventSearchDashboardIncludesNowPlayingAndComingNextRowsForRequestedTime() async throws {
+        let database = try migratedDatabase()
+        let eventID = try await seedSearchEvent(in: database)
+        let otherEventID = try await seedSearchEvent(
+            in: database,
+            organizerKey: "did:plc:searchother",
+            eventKey: "other-event"
+        )
+        let now = Date(timeIntervalSince1970: 1_800_038_700)
+
+        try await database.write { db in
+            try insertStage(
+                eventID: eventID,
+                stageID: "meadow",
+                name: "Meadow Stage",
+                in: db
+            )
+            try insertStage(
+                eventID: eventID,
+                stageID: "forest",
+                name: "Forest Stage",
+                in: db
+            )
+            try insertStage(
+                eventID: otherEventID,
+                stageID: "other",
+                name: "Other Stage",
+                in: db
+            )
+
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "ended",
+                title: "Already Done",
+                stageID: "meadow",
+                startTime: now.addingTimeInterval(-90 * 60),
+                endTime: now,
+                in: db
+            )
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "active-early",
+                title: "Active Early",
+                stageID: "meadow",
+                startTime: now.addingTimeInterval(-30 * 60),
+                endTime: now.addingTimeInterval(15 * 60),
+                in: db
+            )
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "active-late",
+                title: "Active Late",
+                stageID: "forest",
+                startTime: now.addingTimeInterval(-15 * 60),
+                endTime: now.addingTimeInterval(30 * 60),
+                in: db
+            )
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "next-b",
+                title: "Next B",
+                stageID: "forest",
+                startTime: now.addingTimeInterval(45 * 60),
+                endTime: now.addingTimeInterval(75 * 60),
+                in: db
+            )
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "next-a",
+                title: "Next A",
+                stageID: "meadow",
+                startTime: now.addingTimeInterval(45 * 60),
+                endTime: now.addingTimeInterval(75 * 60),
+                in: db
+            )
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "later",
+                title: "Later",
+                stageID: "meadow",
+                startTime: now.addingTimeInterval(2 * 60 * 60),
+                endTime: now.addingTimeInterval(3 * 60 * 60),
+                in: db
+            )
+            try insertPerformance(
+                eventID: otherEventID,
+                performanceID: "other-active",
+                title: "Other Active",
+                stageID: "other",
+                startTime: now.addingTimeInterval(-10 * 60),
+                endTime: now.addingTimeInterval(10 * 60),
+                in: db
+            )
+
+            let dashboard = try EventSearchDashboard.fetch(eventID: eventID, now: now, db: db)
+
+            expectNoDifference(dashboard.nowPlayingRows.map(\.performanceID), [
+                localID("active-early"),
+                localID("active-late"),
+            ])
+            expectNoDifference(dashboard.comingNextRows.map(\.performanceID), [
+                localID("next-a"),
+                localID("next-b"),
+            ])
+            expectNoDifference(dashboard.nowPlayingRows.compactMap(\.stage?.id.stageID), [
+                localID("meadow"),
+                localID("forest"),
+            ])
+        }
+    }
+
+    @Test
     func eventSearchDashboardKeepsUnsortedStageNamesStable() async throws {
         let database = try migratedDatabase()
         let eventID = try await seedSearchEvent(in: database)
@@ -897,6 +1009,30 @@ private func insertChannel(
     .execute(db)
 }
 
+private func insertPerformance(
+    eventID: OME.Event.ID,
+    performanceID: String,
+    title: String,
+    stageID: String,
+    startTime: Date,
+    endTime: Date,
+    in db: Database
+) throws {
+    try OME.Performance.insert {
+        OME.Performance.Draft(
+            id: makePerformanceID(performanceID, eventID: eventID),
+            stageID: localID(stageID),
+            scheduleID: nil,
+            startTime: startTime,
+            endTime: endTime,
+            title: title,
+            description: nil,
+            recordings: []
+        )
+    }
+    .execute(db)
+}
+
 private func expectStageSearchDocument(
     _ documents: [EventSearchDocument],
     eventID: OME.Event.ID,
@@ -959,6 +1095,17 @@ private func makeChannelID(
         organizerID: eventID.organizerID,
         eventID: eventID.eventID,
         channelID: localID(channelID)
+    )
+}
+
+private func makePerformanceID(
+    _ performanceID: String,
+    eventID: OME.Event.ID
+) -> OME.Performance.ID {
+    OME.Performance.ID(
+        organizerID: eventID.organizerID,
+        eventID: eventID.eventID,
+        performanceID: localID(performanceID)
     )
 }
 

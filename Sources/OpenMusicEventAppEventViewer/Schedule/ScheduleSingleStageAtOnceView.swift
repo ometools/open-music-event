@@ -348,6 +348,7 @@ struct ScheduleStageTimelinePager: View {
                 .frame(height: pageHeight)
                 .environment(\.scheduleHeight, pageHeight)
                 .environment(\.scheduleTimeRange, timeRange)
+                .environment(\.shouldShowTimeIndicator, true)
             }
         }
     }

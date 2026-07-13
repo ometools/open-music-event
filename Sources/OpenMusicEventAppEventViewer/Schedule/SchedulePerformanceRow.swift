@@ -1,16 +1,20 @@
+import Foundation
 import SwiftUI
 
 public struct SchedulePerformanceRow: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let row: PerformanceRow
     let subtitle: String
+    var now: Date?
 
     public init(
         row: PerformanceRow,
-        subtitle: String
+        subtitle: String,
+        now: Date? = nil
     ) {
         self.row = row
         self.subtitle = subtitle
+        self.now = now
     }
 
     public var body: some View {
@@ -29,11 +33,19 @@ public struct SchedulePerformanceRow: View {
                 Text(row.title)
                     .lineLimit(2)
 
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let timingStatus {
+                        PerformanceTimingChip(status: timingStatus)
+                            .layoutPriority(1)
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
         }
@@ -44,7 +56,7 @@ public struct SchedulePerformanceRow: View {
     }
 
     @ViewBuilder
-    private var stageIcon: some View {
+    var stageIcon: some View {
         if let stage = row.stage {
             ScheduleStageIcon(stage: stage)
         } else {
@@ -54,5 +66,14 @@ public struct SchedulePerformanceRow: View {
                 .padding(14)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    var timingStatus: PerformanceTimingStatus? {
+        guard let now else { return nil }
+        return PerformanceTimingStatus(
+            startTime: row.performance.startTime,
+            endTime: row.performance.endTime,
+            now: now
+        )
     }
 }

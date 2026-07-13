@@ -68,10 +68,11 @@ public struct EventSearch {
         static func content(
             eventID: OMERecord.Event.ID,
             query: String,
+            now: Date,
             db: Database
         ) throws -> EventSearchContent {
             guard let term = EventSearchTerm(rawValue: query) else {
-                return .dashboard(try EventSearchDashboard.fetch(eventID: eventID, db: db))
+                return .dashboard(try EventSearchDashboard.fetch(eventID: eventID, now: now, db: db))
             }
 
             let results = try EventSearchIndex.results(matching: term, in: eventID, db: db)
@@ -82,6 +83,7 @@ public struct EventSearch {
     public enum Action {
         case destination(Destination.Action)
         case openTarget(EventSearchDocument.Target)
+        case timelineTick(Date)
     }
 
     @Feature
@@ -92,6 +94,7 @@ public struct EventSearch {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
     @StoreTaskID var searchTask
 
     public var body: some Feature {
@@ -149,13 +152,28 @@ public struct EventSearch {
                         )
                     }
                 }
+
+            case let .timelineTick(now):
+                guard EventSearchTerm(rawValue: state.query) == nil else { return }
+                let eventID = state.eventID
+                let query = state.query
+                store.addTask(id: searchTask) {
+                    let content = try database.read { db in
+                        try State.content(eventID: eventID, query: query, now: now, db: db)
+                    }
+                    try store.modify {
+                        guard $0.eventID == eventID, $0.query == query else { return }
+                        $0.content = content
+                    }
+                }
             }
         }
         .onChange(of: store.query, initial: true) { _, query, state in
             let eventID = state.eventID
+            let currentDate = now
             store.addTask(id: searchTask) {
                 let content = try database.read { db in
-                    try State.content(eventID: eventID, query: query, db: db)
+                    try State.content(eventID: eventID, query: query, now: currentDate, db: db)
                 }
                 try store.modify {
                     guard $0.eventID == eventID, $0.query == query else { return }
@@ -180,10 +198,16 @@ public struct EventSearchView: View {
 
     public var body: some View {
         NavigationStack {
-            EventSearchContentView(
-                content: store.content,
-                openTarget: { store.send(.openTarget($0)) }
-            )
+            TimelineView(.periodic(from: Date.now, by: 1)) { context in
+                EventSearchContentView(
+                    content: store.content,
+                    now: context.date,
+                    openTarget: { store.send(.openTarget($0)) }
+                )
+                .task(id: context.date) {
+                    store.send(.timelineTick(context.date))
+                }
+            }
             .navigationTitle("Search")
             .navigationDestination(item: $store.scope(\.destination, action: \.destination).contributorDetail) { detailStore in
                 ContributorDetailView(store: detailStore)
@@ -201,12 +225,13 @@ public struct EventSearchView: View {
 
 struct EventSearchContentView: View {
     let content: EventSearchContent
+    let now: Date
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
         switch content {
         case let .dashboard(dashboard):
-            EventSearchDashboardView(dashboard: dashboard, openTarget: openTarget)
+            EventSearchDashboardView(dashboard: dashboard, now: now, openTarget: openTarget)
 
         case .noResults:
             ContentUnavailableView(
@@ -231,10 +256,37 @@ struct EventSearchContentView: View {
 struct EventSearchDashboardView: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let dashboard: EventSearchDashboard
+    let now: Date
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
         List {
+            if !dashboard.nowPlayingRows.isEmpty {
+                Section("Now Playing") {
+                    ForEach(dashboard.nowPlayingRows) { row in
+                        Button {
+                            openTarget(.performance(row.performanceID))
+                        } label: {
+                            EventSearchPerformanceRow(row: row, now: now)
+                        }
+                        .navigationLinkListRowStyle()
+                    }
+                }
+            }
+
+            if !dashboard.comingNextRows.isEmpty {
+                Section("Coming Next") {
+                    ForEach(dashboard.comingNextRows) { row in
+                        Button {
+                            openTarget(.performance(row.performanceID))
+                        } label: {
+                            EventSearchPerformanceRow(row: row, now: now)
+                        }
+                        .navigationLinkListRowStyle()
+                    }
+                }
+            }
+
             if needsStageDisambiguation, !dashboard.stageRows.isEmpty {
                 Section("Stages") {
                     ForEach(dashboard.stageRows) { row in
@@ -290,6 +342,24 @@ struct EventSearchDashboardView: View {
     }
 }
 
+struct EventSearchPerformanceRow: View {
+    let row: PerformanceDashboardRow
+    let now: Date
+
+    var body: some View {
+        EventSearchRow(
+            title: row.title,
+            subtitle: row.stage?.name ?? "Performance",
+            systemImage: "music.mic",
+            status: PerformanceTimingStatus(
+                startTime: row.performance.startTime,
+                endTime: row.performance.endTime,
+                now: now
+            )
+        )
+    }
+}
+
 struct EventSearchResultRow: View {
     let result: EventSearchResult
 
@@ -306,6 +376,7 @@ struct EventSearchRow: View {
     let title: String
     let subtitle: String
     let systemImage: String
+    var status: PerformanceTimingStatus?
 
     var body: some View {
         Label {
@@ -313,9 +384,17 @@ struct EventSearchRow: View {
                 Text(title)
                     .font(.body)
                     .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let status {
+                        PerformanceTimingChip(status: status)
+                            .layoutPriority(1)
+                    }
+                }
             }
         } icon: {
             Image(systemName: systemImage)

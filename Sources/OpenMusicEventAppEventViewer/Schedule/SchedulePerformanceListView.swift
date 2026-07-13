@@ -126,22 +126,25 @@ public struct SchedulePerformanceListView: View {
                 description: "No performances have been added to this schedule division yet."
             )
         } else {
-            List(rows) { row in
-                Button {
-                    store.send(.performanceButtonTapped(row.performanceID))
-                } label: {
-                    SchedulePerformanceRow(
-                        row: row,
-                        subtitle: ScheduleViewer.performanceRowSubtitle(
-                            for: row.performance,
-                            timeZone: store.timeZone,
-                            policy: dateTimeRangeResolutionPolicy
+            TimelineView(.periodic(from: Date.now, by: 1)) { context in
+                List(rows) { row in
+                    Button {
+                        store.send(.performanceButtonTapped(row.performanceID))
+                    } label: {
+                        SchedulePerformanceRow(
+                            row: row,
+                            subtitle: ScheduleViewer.performanceRowSubtitle(
+                                for: row.performance,
+                                timeZone: store.timeZone,
+                                policy: dateTimeRangeResolutionPolicy
+                            ),
+                            now: context.date
                         )
-                    )
+                    }
+                    .navigationLinkListRowStyle()
                 }
-                .navigationLinkListRowStyle()
+                .listStyle(.plain)
             }
-            .listStyle(.plain)
         }
     }
 }

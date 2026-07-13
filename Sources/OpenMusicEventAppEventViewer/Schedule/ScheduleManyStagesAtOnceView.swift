@@ -302,6 +302,7 @@ public struct ScheduleManyStagesAtOnceView: View {
                 .environment(\.scheduleTimelineOrientation, .horizontalTime)
                 .environment(\.scheduleHeight, timelineHeight)
                 .environment(\.scheduleTimeRange, timeRange)
+                .environment(\.shouldShowTimeIndicator, true)
         }
     }
 
@@ -376,6 +377,7 @@ public struct ScheduleManyStagesAtOnceView: View {
             )
             .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
             .environment(\.scheduleTimeRange, timeRange)
+            .environment(\.shouldShowTimeIndicator, true)
         }
     }
 
