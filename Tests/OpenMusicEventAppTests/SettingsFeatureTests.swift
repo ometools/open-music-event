@@ -161,6 +161,7 @@ struct SettingsFeatureTests {
         let store: TestStore<OpenMusicEventAppRoot> = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.defaultEventID = eventID
         } operation: {
             var initialState = OpenMusicEventAppRoot.State()
             initialState.hasRestoredSelectedEventAtLaunch = true

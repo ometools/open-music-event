@@ -48,13 +48,23 @@ private let openMusicEventOAuthSessionStore = Shared(
 
 #if os(Linux)
 private let openMusicEventSelectedOAuthSessionID = Shared<Atmosphere.Account.ID?>(value: nil)
+private let openMusicEventRecentlyUsedAccountIDs = Shared<[Atmosphere.Account.ID]>(value: [])
 #else
 private let openMusicEventSelectedOAuthSessionID = Shared<Atmosphere.Account.ID?>(
     .appStorage("openMusicEventSelectedOAuthSessionID")
 )
+private let openMusicEventRecentlyUsedAccountIDs = Shared<[Atmosphere.Account.ID]>(
+    .openMusicEventRecentlyUsedAccountIDs
+)
 #endif
 
 private let openMusicEventAuthFailureMessage = Shared<ErrorMessage?>(value: nil)
+
+private extension SharedKey where Self == AppStorageKey<[Atmosphere.Account.ID]>.Default {
+    static var openMusicEventRecentlyUsedAccountIDs: Self {
+        Self[.appStorage("openMusicEventRecentlyUsedAccountIDs"), default: []]
+    }
+}
 
 public enum OpenMusicEventOAuth {
     static let sessionStoreKeychainItem = KeychainStorageItem(
@@ -239,6 +249,10 @@ public enum OpenMusicEventOAuth {
         openMusicEventSelectedOAuthSessionID
     }
 
+    public static var recentlyUsedAccountIDs: Shared<[Atmosphere.Account.ID]> {
+        openMusicEventRecentlyUsedAccountIDs
+    }
+
     public static func prepareDependencies(_ dependencies: inout DependencyValues) {
         let authorizationRequests = dependencies.openMusicEventAuthorizationRequests
             .openMusicEventDefaultingSignUpServerConfiguration(
@@ -294,16 +308,6 @@ public enum OpenMusicEventOAuth {
         try appManifest.metadataData(encoder: encoder)
     }
 
-    public static func bundledMetadataData() throws -> Data {
-        guard let url = Bundle.module.url(
-            forResource: "oauth-client-metadata",
-            withExtension: "json"
-        ) else {
-            throw MissingBundledMetadata()
-        }
-        return try Data(contentsOf: url)
-    }
-
     public static func resetStoredSession() {
         storage.reset()
         selectedSessionID.withLock { $0 = nil }
@@ -312,8 +316,4 @@ public enum OpenMusicEventOAuth {
     public static func enforceStoredAuthenticationFreshness() async throws {
         try await storage.enforceFreshness()
     }
-}
-
-public struct MissingBundledMetadata: Error, Equatable, Sendable {
-    public init() {}
 }

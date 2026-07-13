@@ -2,6 +2,7 @@ import ATProto
 import ATProtoOAuth
 import Clocks
 import ComposableArchitecture2
+import CustomDump
 import Dependencies
 import Foundation
 import Sharing
@@ -266,6 +267,43 @@ struct AccountTests {
         #expect(row.subtitle == "Hosted by fallback.pds.example")
         #expect(!row.title.contains("did:"))
         #expect(!row.subtitle.contains("did:"))
+    }
+
+    @Test
+    func accountRowsAreOrderedByMostRecentlyUsedAccount() async throws {
+        let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
+        let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
+        let carla = try accountTestSession(did: "did:plc:carla123", pdsHost: "carla.pds.example")
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(alice)
+        sessionStoreValue.upsert(bob, select: false)
+        sessionStoreValue.upsert(carla, select: false)
+        let store = Store(
+            initialState: Account.State.localTestState(
+                sessionStore: Shared(value: sessionStoreValue),
+                selectedSessionID: Shared(value: bob.accountID as Atmosphere.Account.ID?),
+                recentlyUsedAccountIDs: Shared(value: [bob.accountID, alice.accountID])
+            )
+        ) {
+            Account()
+        }
+
+        expectNoDifference(
+            store.accountRows.map(\.id),
+            [bob.accountID, alice.accountID, carla.accountID]
+        )
+
+        let task = store.send(.accountRowTapped(carla.accountID))
+        await task?.value
+
+        expectNoDifference(
+            store.recentlyUsedAccountIDs,
+            [carla.accountID, bob.accountID, alice.accountID]
+        )
+        expectNoDifference(
+            store.accountRows.map(\.id),
+            [carla.accountID, bob.accountID, alice.accountID]
+        )
     }
 
     @Test
@@ -751,7 +789,8 @@ private extension Account.State {
         signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
         authFailureMessage: Shared<ErrorMessage?> = Shared(value: nil),
         sessionStore: Shared<OAuth.SessionStore> = Shared(value: OAuth.SessionStore()),
-        selectedSessionID: Shared<Atmosphere.Account.ID?> = Shared(value: nil)
+        selectedSessionID: Shared<Atmosphere.Account.ID?> = Shared(value: nil),
+        recentlyUsedAccountIDs: Shared<[Atmosphere.Account.ID]> = Shared(value: [])
     ) -> Self {
         Self(
             isAuthenticationSheetPresented: isAuthenticationSheetPresented,
@@ -760,7 +799,8 @@ private extension Account.State {
             signUpServerConfiguration: signUpServerConfiguration,
             authFailureMessage: authFailureMessage,
             sessionStore: sessionStore,
-            selectedSessionID: selectedSessionID
+            selectedSessionID: selectedSessionID,
+            recentlyUsedAccountIDs: recentlyUsedAccountIDs
         )
     }
 }

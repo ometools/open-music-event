@@ -138,6 +138,7 @@ public struct Account {
             signInLoginHint: String = "",
             signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
             selectedSessionID: Shared<Atmosphere.Account.ID?> = OpenMusicEventOAuth.selectedSessionID,
+            recentlyUsedAccountIDs: Shared<[Atmosphere.Account.ID]> = OpenMusicEventOAuth.recentlyUsedAccountIDs,
             storage: OAuthSessionStorage = OpenMusicEventOAuth.storage
         ) {
             @Dependency(\.openMusicEventSignUpServerConfiguration)
@@ -152,6 +153,7 @@ public struct Account {
             self.authRequirement = authRequirement
             self.isAuthenticationSheetPresented = isAuthenticationSheetPresented
             self._selectedSessionID = selectedSessionID
+            self._recentlyUsedAccountIDs = recentlyUsedAccountIDs
             self.oauth = Spawn(OAuthAccount.State(storage: storage))
             self.selectedMode = selectedMode
             self.selectedSignUpServerOptionID = selectedSignUpServerOptionID
@@ -176,7 +178,8 @@ public struct Account {
             signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
             authFailureMessage: Shared<TCATProtoAuthentication.ErrorMessage?>,
             sessionStore: Shared<OAuth.SessionStore>,
-            selectedSessionID: Shared<Atmosphere.Account.ID?> = Shared(value: nil)
+            selectedSessionID: Shared<Atmosphere.Account.ID?> = Shared(value: nil),
+            recentlyUsedAccountIDs: Shared<[Atmosphere.Account.ID]> = Shared(value: [])
         ) {
             self.init(
                 isAuthenticationSheetPresented: isAuthenticationSheetPresented,
@@ -185,6 +188,7 @@ public struct Account {
                 signInLoginHint: signInLoginHint,
                 signUpServerConfiguration: signUpServerConfiguration,
                 selectedSessionID: selectedSessionID,
+                recentlyUsedAccountIDs: recentlyUsedAccountIDs,
                 storage: OAuthSessionStorage(
                     sessionStore: sessionStore,
                     authFailureMessage: authFailureMessage,
@@ -198,6 +202,7 @@ public struct Account {
         public var accountIdentities: [Atmosphere.Account.ID: AccountIdentityResolution] = [:]
         public var oauth: Spawn<OAuthAccount>
         @Shared public var selectedSessionID: Atmosphere.Account.ID?
+        @Shared public var recentlyUsedAccountIDs: [Atmosphere.Account.ID]
         public var selectedMode: Mode
         public var selectedSignUpServerOptionID: OAuthSignUpServerOption.ID?
         public var signUpServerConfiguration: OAuthSignUpServerConfiguration
@@ -210,7 +215,8 @@ public struct Account {
         }
 
         public var accountRows: [AccountRow] {
-            sessionStore.sessions.values
+            let recentUseRanks = accountRowRecentUseRanks
+            return sessionStore.sessions.values
                 .map { session in
                     AccountRow(
                         id: session.accountID,
@@ -220,8 +226,10 @@ public struct Account {
                     )
                 }
                 .sorted { lhs, rhs in
-                    if lhs.isSelected != rhs.isSelected {
-                        return lhs.isSelected
+                    let lhsRecentUseRank = recentUseRanks[lhs.id] ?? Int.max
+                    let rhsRecentUseRank = recentUseRanks[rhs.id] ?? Int.max
+                    if lhsRecentUseRank != rhsRecentUseRank {
+                        return lhsRecentUseRank < rhsRecentUseRank
                     }
                     return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
                 }
@@ -261,6 +269,52 @@ public struct Account {
 
         public var sessionStore: OAuth.SessionStore {
             oauth.state.sessionStore
+        }
+
+        var accountIDsSortedByRecentUse: [Atmosphere.Account.ID] {
+            var accountIDs: [Atmosphere.Account.ID] = []
+            if let selectedSessionID {
+                accountIDs.append(selectedSessionID)
+            } else if let selectedAccountID = sessionStore.selectedAccountID {
+                accountIDs.append(selectedAccountID)
+            }
+            for accountID in recentlyUsedAccountIDs where !accountIDs.contains(accountID) {
+                accountIDs.append(accountID)
+            }
+            return accountIDs
+        }
+
+        var accountRowRecentUseRanks: [Atmosphere.Account.ID: Int] {
+            Dictionary(
+                uniqueKeysWithValues: accountIDsSortedByRecentUse.enumerated().map { offset, accountID in
+                    (accountID, offset)
+                }
+            )
+        }
+
+        func mostRecentlyUsedAccountID(excluding excludedAccountID: Atmosphere.Account.ID) -> Atmosphere.Account.ID? {
+            let accountIDs = Set(sessionStore.sessions.values.map(\.accountID))
+            return accountIDsSortedByRecentUse.first { accountID in
+                accountID != excludedAccountID && accountIDs.contains(accountID)
+            }
+        }
+
+        mutating func syncRecentlyUsedAccountIDs(selectedAccountID: Atmosphere.Account.ID?) {
+            let accountIDs = Set(sessionStore.sessions.values.map(\.accountID))
+            let selectedAccountID = selectedAccountID.flatMap { accountID in
+                accountIDs.contains(accountID) ? accountID : nil
+            }
+            $recentlyUsedAccountIDs.withLock { recentlyUsedAccountIDs in
+                var sortedAccountIDs: [Atmosphere.Account.ID] = []
+                if let selectedAccountID {
+                    sortedAccountIDs.append(selectedAccountID)
+                }
+                for accountID in recentlyUsedAccountIDs
+                where accountIDs.contains(accountID) && !sortedAccountIDs.contains(accountID) {
+                    sortedAccountIDs.append(accountID)
+                }
+                recentlyUsedAccountIDs = sortedAccountIDs
+            }
         }
 
         public var signInLoginHint: String {
@@ -336,14 +390,25 @@ public struct Account {
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = false
                     state.oauth.state.isSignUpInProgress = false
-                    var selectedSessionID: Atmosphere.Account.ID?
+                    let selectedAccountWasRemoved =
+                        state.selectedSessionID == accountID ||
+                        state.sessionStore.selectedAccountID == accountID
                     state.oauth.state.$sessionStore.withLock {
                         $0.remove(accountID)
-                        selectedSessionID = $0.selectedAccountID
+                    }
+                    var selectedSessionID = state.selectedSessionID
+                    if selectedAccountWasRemoved || state.sessionStore[selectedSessionID] == nil {
+                        selectedSessionID =
+                            state.mostRecentlyUsedAccountID(excluding: accountID) ??
+                            state.sessionStore.selectedAccountID
+                    }
+                    state.oauth.state.$sessionStore.withLock {
+                        $0.selectedAccountID = selectedSessionID
                     }
                     state.$selectedSessionID.withLock {
                         $0 = selectedSessionID
                     }
+                    state.syncRecentlyUsedAccountIDs(selectedAccountID: selectedSessionID)
                     let shouldCancelAuthorization = state.sessionStore.sessions.isEmpty
                     let sessionStore = state.oauth.state.$sessionStore
                     let selectedSessionIDStore = state.$selectedSessionID
@@ -365,12 +430,16 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.selectedAccountID = accountID
                     }
+                    state.syncRecentlyUsedAccountIDs(selectedAccountID: accountID)
                     let selectedSessionID = state.$selectedSessionID
                     store.addTask {
                         await saveOpenMusicEventSelectedSessionID(selectedSessionID)
                     }
 
                 case .accountRowsAppeared:
+                    state.syncRecentlyUsedAccountIDs(
+                        selectedAccountID: state.selectedSessionID ?? state.sessionStore.selectedAccountID
+                    )
                     let accountIDs = Set(state.sessionStore.sessions.values.map(\.accountID))
                     state.accountIdentities = state.accountIdentities.filter {
                         accountIDs.contains($0.key)
@@ -414,6 +483,7 @@ public struct Account {
                     state.$selectedSessionID.withLock {
                         $0 = session.accountID
                     }
+                    state.syncRecentlyUsedAccountIDs(selectedAccountID: session.accountID)
                     state.isAuthenticationSheetPresented = false
                     let sessionStore = state.oauth.state.$sessionStore
                     let selectedSessionID = state.$selectedSessionID
@@ -493,6 +563,7 @@ public struct Account {
                     state.$selectedSessionID.withLock {
                         $0 = session.accountID
                     }
+                    state.syncRecentlyUsedAccountIDs(selectedAccountID: session.accountID)
                     state.isAuthenticationSheetPresented = false
                     let sessionStore = state.oauth.state.$sessionStore
                     let selectedSessionID = state.$selectedSessionID
@@ -526,6 +597,7 @@ public struct Account {
                     state.oauth.state.$authFailureMessage.withLock { $0 = nil }
                     state.oauth.state.$sessionStore.withLock { $0 = OAuth.SessionStore() }
                     state.$selectedSessionID.withLock { $0 = nil }
+                    state.syncRecentlyUsedAccountIDs(selectedAccountID: nil)
                     let sessionStore = state.oauth.state.$sessionStore
                     let selectedSessionID = state.$selectedSessionID
                     store.addTask {
@@ -920,13 +992,30 @@ struct SafeEdgeExpansionModifier<ExpansionContent: View>: ViewModifier {
     }
 
     func body(content: Content) -> some View {
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
+            content.safeAreaBar(edge: edge, spacing: spacing) {
+                styledExpansionContent
+            }
+        } else {
+            content.safeAreaInset(edge: edge, spacing: spacing) {
+                styledExpansionContent
+            }
+            .safeEdgeExpansionScrollEdgeEffect(edge)
+        }
+        #else
         content.safeAreaInset(edge: edge, spacing: spacing) {
-            expansionContent
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, horizontalPadding)
-                .padding(.vertical, verticalPadding)
+            styledExpansionContent
         }
         .safeEdgeExpansionScrollEdgeEffect(edge)
+        #endif
+    }
+
+    var styledExpansionContent: some View {
+        expansionContent
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
     }
 }
 

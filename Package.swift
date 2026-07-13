@@ -138,8 +138,7 @@ openMusicEventSourceCloneDependencies.append(
 var targets: [Target] = [
     .target(
         name: "OpenMusicEventAuthentication",
-        dependencies: openMusicEventAuthenticationDependencies,
-        resources: [.process("Resources")]
+        dependencies: openMusicEventAuthenticationDependencies
     ),
     .target(
         name: "OpenMusicEventComponents"
@@ -539,6 +538,7 @@ targets.append(contentsOf: [
             "OpenMusicEventAuthentication",
             .product(name: "Clocks", package: "swift-clocks"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
+            .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
             .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),

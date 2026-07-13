@@ -137,12 +137,14 @@ public struct EventSettingsView: View {
             }
 
             if store.canDeleteEvent {
-                Section("Danger Zone") {
+                Section {
                     Button(role: .destructive) {
                         store.send(.deleteEventButtonTapped)
                     } label: {
                         Label("Delete Event", systemImage: "trash")
                     }
+                } header: {
+                    Text("Danger Zone")
                 } footer: {
                     Text("This permanently deletes the event data from this device. Created events are not cached off device.")
                 }

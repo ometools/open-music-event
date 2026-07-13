@@ -347,22 +347,22 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
-    func bundledMetadataMatchesManifest() throws {
-        let bundled = try JSONDecoder().decode(
+    func siteMetadataMatchesManifest() throws {
+        let site = try JSONDecoder().decode(
             OAuth.App.Metadata.self,
-            from: OpenMusicEventOAuth.bundledMetadataData()
+            from: siteMetadataData()
         )
         let generated = OpenMusicEventOAuth.appManifest.metadata()
 
-        #expect(bundled.appID == generated.appID)
-        #expect(bundled.appName == generated.appName)
-        #expect(bundled.applicationType == generated.applicationType)
-        #expect(bundled.scope.rawValue == generated.scope.rawValue)
-        #expect(bundled.responseTypes == generated.responseTypes)
-        #expect(bundled.grantTypes == generated.grantTypes)
-        #expect(bundled.redirectURIS == generated.redirectURIS)
-        #expect(bundled.tokenEndpointAuthMethod == generated.tokenEndpointAuthMethod)
-        #expect(bundled.dpopBoundAccessToken == generated.dpopBoundAccessToken)
+        #expect(site.appID == generated.appID)
+        #expect(site.appName == generated.appName)
+        #expect(site.applicationType == generated.applicationType)
+        #expect(site.scope.rawValue == generated.scope.rawValue)
+        #expect(site.responseTypes == generated.responseTypes)
+        #expect(site.grantTypes == generated.grantTypes)
+        #expect(site.redirectURIS == generated.redirectURIS)
+        #expect(site.tokenEndpointAuthMethod == generated.tokenEndpointAuthMethod)
+        #expect(site.dpopBoundAccessToken == generated.dpopBoundAccessToken)
     }
 
     @Test
@@ -412,6 +412,22 @@ struct OpenMusicEventOAuthTests {
             #expect(OpenMusicEventOAuth.sessionStore.wrappedValue == sessionStore)
         }
     }
+}
+
+private func siteMetadataData(filePath: String = #filePath) throws -> Data {
+    let testFile = URL(fileURLWithPath: filePath)
+    let packageRoot = testFile
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    return try Data(
+        contentsOf: packageRoot
+            .appendingPathComponent("Deployments", isDirectory: true)
+            .appendingPathComponent("ome-under-construction", isDirectory: true)
+            .appendingPathComponent("public", isDirectory: true)
+            .appendingPathComponent(".well-known", isDirectory: true)
+            .appendingPathComponent("oauth-client-metadata.json", isDirectory: false)
+    )
 }
 
 private let testSignUpServerConfiguration = OAuthSignUpServerConfiguration(
