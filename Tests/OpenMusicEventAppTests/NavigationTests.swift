@@ -12,6 +12,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventAuthentication
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
+import OpenMusicEventWhiteLabel
 import Sharing
 import SQLiteData
 import Synchronization
@@ -283,6 +284,25 @@ struct NavigationTests {
         }
         #expect(appState?.selectedEventID == eventID)
         #expect(store.state.root.eventViewer?.state.eventID == eventID)
+    }
+
+    @Test
+    func navigationRequestReplacesMountedEventViewer() async throws {
+        let database = try makePreparedDatabase()
+        let firstEventID = eventID("event-1")
+        let secondEventID = eventID("event-2")
+        let store = makeRootHarnessStore(database: database, eventID: firstEventID)
+
+        store.send(.root(.handleNavigationRequest(.event(firstEventID, nil))))
+        #expect(store.state.root.eventViewer?.state.eventID == firstEventID)
+
+        store.send(.root(.handleNavigationRequest(.event(secondEventID, nil))))
+
+        let appState = try await database.read { db in
+            try AppState.fetchOne(db)
+        }
+        #expect(appState?.selectedEventID == secondEventID)
+        #expect(store.state.root.eventViewer?.state.eventID == secondEventID)
     }
 
     @Test
@@ -5316,7 +5336,7 @@ struct NavigationTests {
     }
 
     @Test
-    func launchRestoreMountsLaunchEventViewer() async throws {
+    func launchRestoreMountsEventViewer() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         try await database.write { db in
@@ -5328,12 +5348,11 @@ struct NavigationTests {
         }
 
         let store = makeRootHarnessStore(database: database, eventID: eventID)
-        #expect(store.state.root.launchEventViewer?.state.eventID == eventID)
-        #expect(store.state.root.eventViewer == nil)
+        #expect(store.state.root.eventViewer?.state.eventID == eventID)
     }
 
     @Test
-    func launchEventViewerDismissClearsSelectedEvent() async throws {
+    func eventViewerDismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         try await database.write { db in
@@ -5345,10 +5364,10 @@ struct NavigationTests {
         }
 
         let store = makeRootHarnessStore(database: database, eventID: eventID)
-        #expect(store.state.root.launchEventViewer?.state.eventID == eventID)
+        #expect(store.state.root.eventViewer?.state.eventID == eventID)
 
         await store.modify {
-            $0.root.launchEventViewer = nil
+            $0.root.eventViewer = nil
         }?.value
 
         let appState = try await database.read { db in
@@ -5358,7 +5377,7 @@ struct NavigationTests {
     }
 
     @Test
-    func launchEventViewerContributorEditDestinationSpawnsEditorAndLoadsDraft() async throws {
+    func launchRestoredEventViewerContributorEditDestinationSpawnsEditorAndLoadsDraft() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("wicked-woods-ome-2025")
         let contributorID = contributorLocalID("[IVY]")
@@ -5383,10 +5402,10 @@ struct NavigationTests {
                 OpenMusicEventAppRoot()
             }
             await waitUntil {
-                store.launchEventViewer != nil
+                store.eventViewer != nil
             }
 
-            @Bindable var eventViewerStore = try #require(store.spawn(\.launchEventViewer))
+            @Bindable var eventViewerStore = try #require(store.spawn(\.eventViewer))
             @Bindable var contributorsStore = try #require(
                 eventViewerStore.spawn(\.contributorsViewer)
             )
@@ -5427,16 +5446,66 @@ struct NavigationTests {
     }
 
     @Test
-    func modalEventViewerDismissClearsSelectedEvent() async throws {
+    func normalEventViewerNavigationPersistsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
         #expect(store.state.root.eventViewer?.state.eventID == eventID)
-        #expect(store.state.root.launchEventViewer == nil)
 
-        store.send(.root(.eventViewerDismissed))
+        let appState = try await database.read { db in
+            try AppState.fetchOne(db)
+        }
+        #expect(appState?.selectedEventID == eventID)
+    }
+
+    @Test
+    func whiteLabelAuthoringContextCarriesIntoEventViewerNavigation() async throws {
+        let eventID = eventID("event-1")
+        let database = try makePreparedDatabase()
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.authoringPolicy = .attendee
+        } operation: {
+            var state = RootHarness.State()
+            state.root = OpenMusicEventAppRoot.State(
+                variant: .whiteLabel(
+                    WhiteLabelAppConfiguration(
+                        brand: WhiteLabelBrand(displayName: "Test Festival"),
+                        organizerID: testOrganizerID
+                    )
+                )
+            )
+            state.root.whiteLabelRoot?.state.authoringMode = .authoring(.all)
+            state.root.whiteLabelRoot?.state.isLoading = true
+
+            return TestStore(initialState: state) {
+                RootHarness()
+            }
+        }
+
+        store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
+
+        #expect(store.state.root.eventViewer?.state.authoringMode == .authoring(.all))
+        #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == true)
+    }
+
+    @Test
+    func normalEventViewerDismissClearsSelectedEvent() async throws {
+        let eventID = eventID("event-1")
+        let database = try makePreparedDatabase()
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+
+        store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
+        #expect(store.state.root.eventViewer?.state.eventID == eventID)
+
+        await store.modify {
+            $0.root.eventViewer = nil
+        }?.value
 
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
