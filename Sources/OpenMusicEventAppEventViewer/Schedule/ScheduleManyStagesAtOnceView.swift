@@ -137,55 +137,99 @@ public struct ScheduleManyStagesAtOnceView: View {
             )
         } else if let timeRange {
             GeometryReader { geometry in
-                ScrollView(.horizontal) {
-                    VStack(spacing: 0) {
-                        if needsStageDisambiguation {
-                            ScheduleManyStagesLaneHeader(
-                                stages: store.visibleStages,
-                                contentWidth: contentWidth(for: geometry.size.width),
-                                minimumStageLaneWidth: minimumStageLaneWidth
-                            )
-
-                            Divider()
-                        }
-
-                        ScrollView(.vertical) {
-                            SchedulePageView(timelineCards) { card in
-                                ScheduleTimelineCardView(
-                                    performance: card.performance,
-                                    stage: card.stage,
-                                    showsAuthoringControls: showsAuthoringControls,
-                                    editAction: {
-                                        store.send(.editPerformanceButtonTapped(card.id))
-                                    },
-                                    deleteAction: {
-                                        store.send(.deletePerformanceButtonTapped(card.id))
-                                    },
-                                    action: {
-                                        store.send(.performanceButtonTapped(card.id))
-                                    }
-                                )
-                            } emptyContent: {
-                                emptyPerformancesView
-                            }
-                            .frame(
-                                width: contentWidth(for: geometry.size.width),
-                                height: scheduleHeight(for: timeRange)
-                            )
-                            .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
-                            .environment(\.scheduleTimeRange, timeRange)
-                        }
-                        .frame(maxHeight: .infinity)
-                    }
-                    .frame(
-                        width: contentWidth(for: geometry.size.width),
-                        height: geometry.size.height
-                    )
-                }
+                scheduleBody(
+                    availableWidth: geometry.size.width,
+                    timeRange: timeRange
+                )
             }
         } else {
             emptyPerformancesView
         }
+    }
+
+    @ViewBuilder
+    func scheduleBody(
+        availableWidth: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *), needsStageDisambiguation {
+            scheduleScroll(
+                availableWidth: availableWidth,
+                timeRange: timeRange
+            )
+            .safeAreaBar(edge: .top) {
+                laneHeader(availableWidth: availableWidth)
+            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            overlaidScheduleScroll(
+                availableWidth: availableWidth,
+                timeRange: timeRange
+            )
+        }
+        #else
+        overlaidScheduleScroll(
+            availableWidth: availableWidth,
+            timeRange: timeRange
+        )
+        #endif
+    }
+
+    func overlaidScheduleScroll(
+        availableWidth: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
+        scheduleScroll(
+            availableWidth: availableWidth,
+            timeRange: timeRange
+        )
+        .overlay(alignment: .top) {
+            if needsStageDisambiguation {
+                laneHeader(availableWidth: availableWidth)
+            }
+        }
+    }
+
+    func scheduleScroll(
+        availableWidth: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
+        ScrollView([.horizontal, .vertical]) {
+            SchedulePageView(timelineCards) { card in
+                ScheduleTimelineCardView(
+                    performance: card.performance,
+                    stage: card.stage,
+                    showsAuthoringControls: showsAuthoringControls,
+                    editAction: {
+                        store.send(.editPerformanceButtonTapped(card.id))
+                    },
+                    deleteAction: {
+                        store.send(.deletePerformanceButtonTapped(card.id))
+                    },
+                    action: {
+                        store.send(.performanceButtonTapped(card.id))
+                    }
+                )
+            } emptyContent: {
+                emptyPerformancesView
+            }
+            .frame(
+                width: contentWidth(for: availableWidth),
+                height: scheduleHeight(for: timeRange)
+            )
+            .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
+            .environment(\.scheduleTimeRange, timeRange)
+        }
+    }
+
+    func laneHeader(availableWidth: CGFloat) -> some View {
+        ScheduleManyStagesLaneHeader(
+            stages: store.visibleStages,
+            contentWidth: contentWidth(for: availableWidth),
+            minimumStageLaneWidth: minimumStageLaneWidth
+        )
+        .allowsHitTesting(false)
     }
 
     var emptyPerformancesView: some View {
