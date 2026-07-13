@@ -444,8 +444,8 @@ targets.append(contentsOf: [
         dependencies: [
             "BlueskyActorCache",
             "ErrorHandling",
-            "LiquidGlassSegmentedPicker",
             "OpenMusicEventComponents",
+            .target(name: "LiquidGlassSegmentedPicker", condition: .when(platforms: [.iOS, .macOS])),
             "OpenMusicEventDatabase",
             "OpenMusicEventEditors",
             "OpenMusicEventImages",

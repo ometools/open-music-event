@@ -1,4 +1,6 @@
+#if os(iOS) || os(macOS)
 import LiquidGlassSegmentedPicker
+#endif
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SwiftUI
@@ -30,19 +32,29 @@ struct OMEScheduleStageSelector: View {
     }
 
     var body: some View {
-        if needsStageDisambiguation {
-            #if os(iOS) || os(macOS)
-            if #available(iOS 26, macOS 26, *) {
-                liquidGlassPicker
-            } else {
+        Group {
+            if needsStageDisambiguation {
+                #if os(iOS) || os(macOS)
+                if #available(iOS 26, macOS 26, *) {
+                    liquidGlassPicker
+                } else {
+                    standardPicker
+                }
+                #else
                 standardPicker
+                #endif
             }
-            #else
-            standardPicker
-            #endif
+        }
+        .onAppear {
+            selectedStageID = resolvedSelectedStageID
+        }
+        .onChange(of: resolvedSelectedStageID) { _, newValue in
+            guard selectedStageID != newValue else { return }
+            selectedStageID = newValue
         }
     }
 
+    #if os(iOS) || os(macOS)
     @available(iOS 26, macOS 26, *)
     var liquidGlassPicker: some View {
         LiquidGlassSegmentedPicker(selection: $selectedStageID) {
@@ -58,14 +70,8 @@ struct OMEScheduleStageSelector: View {
         }
         .labelsVisibility(showStageNameLabels ? .visible : .hidden)
         .padding(.vertical, 8)
-        .onAppear {
-            selectedStageID = resolvedSelectedStageID
-        }
-        .onChange(of: resolvedSelectedStageID) { _, newValue in
-            guard selectedStageID != newValue else { return }
-            selectedStageID = newValue
-        }
     }
+    #endif
 
     var standardPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
