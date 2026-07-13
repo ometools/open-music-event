@@ -39,7 +39,7 @@ public extension AppViewConfiguration {
             host: environment["OME_APPVIEW_HOST"] ?? "127.0.0.1",
             port: environment["OME_APPVIEW_PORT"].flatMap(Int.init) ?? 8080,
             siteRoot: lambdaSiteRoot(environment: environment),
-            wellKnownRoot: environment["OME_APPVIEW_WELL_KNOWN_ROOT"].map(URL.init(fileURLWithPath:))
+            wellKnownRoot: lambdaWellKnownRoot(environment: environment)
         )
     }
 
@@ -54,5 +54,14 @@ public extension AppViewConfiguration {
 
         let taskRoot = environment["LAMBDA_TASK_ROOT"] ?? FileManager.default.currentDirectoryPath
         return URL(fileURLWithPath: taskRoot).appendingPathComponent("Site", isDirectory: true)
+    }
+
+    private static func lambdaWellKnownRoot(environment: [String: String]) -> URL {
+        if let wellKnownRoot = environment["OME_APPVIEW_WELL_KNOWN_ROOT"] {
+            return URL(fileURLWithPath: wellKnownRoot)
+        }
+
+        let taskRoot = environment["LAMBDA_TASK_ROOT"] ?? FileManager.default.currentDirectoryPath
+        return URL(fileURLWithPath: taskRoot).appendingPathComponent("WellKnown", isDirectory: true)
     }
 }

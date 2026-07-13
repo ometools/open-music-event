@@ -11,12 +11,30 @@ virtualisation:
 steps:
   - name: "Package Lambda"
     command: |
+      set -euo pipefail
+
+      test -n "${GITHUB_TOKEN:-}" || {
+        echo "GITHUB_TOKEN is empty. Add it in Tangled repository Settings -> Secrets."
+        exit 1
+      }
+
       docker run --rm \
+        --env GITHUB_TOKEN \
         --volume "$PWD":/workdir \
         --workdir /workdir \
         swift:amazonlinux2 \
         bash -lc '
           set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+
+          printf "machine github.com\nlogin x-access-token\npassword %s\n" "$GITHUB_TOKEN" > ~/.netrc
+          chmod 600 ~/.netrc
+
+          git config --global credential.helper store
+          printf "https://x-access-token:%s@github.com\n" "$GITHUB_TOKEN" > ~/.git-credentials
+
+          git ls-remote https://github.com/pointfreeco/TCA26 HEAD >/dev/null
+
           yum install -y zip file
           release_bin_path="$(swift build --build-path .build/lambda-build -c release --show-bin-path)"
           swift build --build-path .build/lambda-build -c release --product OpenMusicEventAppViewLambda --static-swift-stdlib
@@ -36,9 +54,10 @@ steps:
           cp -R "$resource_bundle" .build/lambda-package/OpenMusicEventAppViewLambda/
 
           cp -R Deployments/ome-under-construction/public .build/lambda-package/OpenMusicEventAppViewLambda/Site
+          cp -R Sources/OpenMusicEventAppViewServer/Resources/WellKnown .build/lambda-package/OpenMusicEventAppViewLambda/WellKnown
 
           cd .build/lambda-package/OpenMusicEventAppViewLambda
-          zip --recurse-paths --symlinks OpenMusicEventAppViewLambda.zip bootstrap Site "$resource_bundle_name"
+          zip --recurse-paths --symlinks OpenMusicEventAppViewLambda.zip bootstrap Site WellKnown "$resource_bundle_name"
         '
 
   - name: "Deploy Lambda"
