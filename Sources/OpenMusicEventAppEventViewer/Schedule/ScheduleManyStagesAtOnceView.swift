@@ -137,7 +137,7 @@ public struct ScheduleManyStagesAtOnceView: View {
             )
         } else if let timeRange {
             GeometryReader { geometry in
-                ScrollView([.horizontal, .vertical]) {
+                ScrollView(.horizontal) {
                     VStack(spacing: 0) {
                         if needsStageDisambiguation {
                             ScheduleManyStagesLaneHeader(
@@ -145,33 +145,42 @@ public struct ScheduleManyStagesAtOnceView: View {
                                 contentWidth: contentWidth(for: geometry.size.width),
                                 minimumStageLaneWidth: minimumStageLaneWidth
                             )
+
+                            Divider()
                         }
 
-                        SchedulePageView(timelineCards) { card in
-                            ScheduleTimelineCardView(
-                                performance: card.performance,
-                                stage: card.stage,
-                                showsAuthoringControls: showsAuthoringControls,
-                                editAction: {
-                                    store.send(.editPerformanceButtonTapped(card.id))
-                                },
-                                deleteAction: {
-                                    store.send(.deletePerformanceButtonTapped(card.id))
-                                },
-                                action: {
-                                    store.send(.performanceButtonTapped(card.id))
-                                }
+                        ScrollView(.vertical) {
+                            SchedulePageView(timelineCards) { card in
+                                ScheduleTimelineCardView(
+                                    performance: card.performance,
+                                    stage: card.stage,
+                                    showsAuthoringControls: showsAuthoringControls,
+                                    editAction: {
+                                        store.send(.editPerformanceButtonTapped(card.id))
+                                    },
+                                    deleteAction: {
+                                        store.send(.deletePerformanceButtonTapped(card.id))
+                                    },
+                                    action: {
+                                        store.send(.performanceButtonTapped(card.id))
+                                    }
+                                )
+                            } emptyContent: {
+                                emptyPerformancesView
+                            }
+                            .frame(
+                                width: contentWidth(for: geometry.size.width),
+                                height: scheduleHeight(for: timeRange)
                             )
-                        } emptyContent: {
-                            emptyPerformancesView
+                            .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
+                            .environment(\.scheduleTimeRange, timeRange)
                         }
-                        .frame(
-                            width: contentWidth(for: geometry.size.width),
-                            height: scheduleHeight(for: timeRange)
-                        )
-                        .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
-                        .environment(\.scheduleTimeRange, timeRange)
+                        .frame(maxHeight: .infinity)
                     }
+                    .frame(
+                        width: contentWidth(for: geometry.size.width),
+                        height: geometry.size.height
+                    )
                 }
             }
         } else {
@@ -291,30 +300,44 @@ struct ScheduleManyStagesLaneHeader: View {
                 .frame(width: hourLabelsWidth)
 
             ForEach(stages) { stage in
-                VStack(spacing: 4) {
-                    ScheduleStageIcon(stage: stage)
-                        .frame(width: 28, height: 28)
-                        .foregroundStyle(stage.color.swiftUIColor)
-
-                    if showStageNameLabels {
-                        Text(stage.name)
-                            .font(.caption2)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.78)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(width: stageLaneWidth)
-                .padding(.vertical, 8)
+                stageHeaderCell(for: stage)
+                    .frame(width: stageSelectorCellWidth)
+                    .frame(width: stageLaneWidth)
             }
         }
+        .padding(.vertical, 8)
         .frame(width: contentWidth, alignment: .leading)
         .background(Color.secondary.opacity(0.06))
     }
 
+    func stageHeaderCell(for stage: OMERecord.Stage) -> some View {
+        VStack(spacing: 4) {
+            ScheduleStageIcon(stage: stage)
+                .frame(width: 34, height: 34)
+                .padding(9)
+                .foregroundStyle(stage.color.swiftUIColor)
+                .background {
+                    Circle()
+                        .fill(Color.secondary.opacity(0.12))
+                }
+
+            if showStageNameLabels {
+                Text(stage.name)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     var hourLabelsWidth: CGFloat {
         HourLabelsWidthPreferenceKey.defaultValue
+    }
+
+    var stageSelectorCellWidth: CGFloat {
+        showStageNameLabels ? 112 : 76
     }
 
     var stageLaneWidth: CGFloat {

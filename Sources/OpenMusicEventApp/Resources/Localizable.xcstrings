@@ -116,6 +116,9 @@
         }
       }
     },
+    "Branch" : {
+
+    },
     "Browse" : {
 
     },
@@ -236,6 +239,9 @@
     "Delete Event?" : {
 
     },
+    "Description" : {
+
+    },
     "Directory" : {
 
     },
@@ -303,6 +309,9 @@
           }
         }
       }
+    },
+    "festival-source" : {
+
     },
     "Following" : {
 
@@ -383,6 +392,9 @@
     "Imported" : {
 
     },
+    "Knot" : {
+
+    },
     "Light" : {
       "comment" : "Menu item indicating that the appearance should be in light mode",
       "localizations" : {
@@ -411,6 +423,9 @@
           }
         }
       }
+    },
+    "main" : {
+
     },
     "Manage Team Workspace" : {
 
@@ -485,6 +500,12 @@
         }
       }
     },
+    "Open Local Folder" : {
+
+    },
+    "Open Team Workspace" : {
+
+    },
     "Powered by [Skip](https://skip.dev)" : {
       "comment" : "Link markdown text for the Powered by… label",
       "localizations" : {
@@ -527,6 +548,9 @@
 
     },
     "Reference" : {
+
+    },
+    "Remote" : {
 
     },
     "Repository" : {
@@ -650,6 +674,9 @@
     "Tangled did not return a source archive." : {
 
     },
+    "tangled.org" : {
+
+    },
     "Team Workspaces" : {
 
     },
@@ -751,6 +778,9 @@
     "Unable to store the imported source because a file already exists." : {
 
     },
+    "Unable to upload source to Tangled." : {
+
+    },
     "Unable to verify Tangled's SSH host key." : {
 
     },
@@ -758,6 +788,9 @@
 
     },
     "Upcoming Events" : {
+
+    },
+    "Upload to Tangled" : {
 
     },
     "Version %@ (%@)" : {
