@@ -1,5 +1,5 @@
 {
-  "originHash" : "8f65b67fbe04168f9acff120919ed13844a29cd3b2a6193c64b2be423de59a69",
+  "originHash" : "d2b64e9c10485cb97bebcb04b1cf1a0764f69e8863418c5ee1657a888d7e5437",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -34,7 +34,7 @@
       "location" : "https://source.woody.fm/composable-atmosphere-tangled",
       "state" : {
         "branch" : "main",
-        "revision" : "d43dcec79e1af0c460dfd146fbde44e2b23cdf17"
+        "revision" : "96e9ab858168ccbd33e8d4cb59004f85f91bc2fc"
       }
     },
     {
@@ -322,7 +322,7 @@
       "location" : "https://source.woody.fm/swift-composable-atmosphere",
       "state" : {
         "branch" : "main",
-        "revision" : "b82a69d54c30638cbae02195c0da6fc21640d1ee"
+        "revision" : "93e6b368c3dd0cd7726276ab469ee7676b4c2d76"
       }
     },
     {
@@ -634,7 +634,7 @@
     {
       "identity" : "swift-tagged",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-tagged",
+      "location" : "https://github.com/pointfreeco/swift-tagged.git",
       "state" : {
         "revision" : "3907a9438f5b57d317001dc99f3f11b46882272b",
         "version" : "0.10.0"

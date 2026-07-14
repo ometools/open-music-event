@@ -5,6 +5,8 @@ import Dependencies
 import Foundation
 import Gzip
 import HTTPClient
+import HTTPTypes
+import OpenMusicEventAuthentication
 import OpenMusicEventLexicon
 import SourceEditing
 import Synchronization
@@ -523,10 +525,33 @@ struct TangledPullReviewClientTests {
             title: "Add Excision",
             uri: "at://did:plc:author/sh.tangled.repo.pull/3pull"
         )
-        let requests = Mutex([(url: URL?, body: Data?)]())
+        let session: OAuth.Session = {
+            var grantedPermissions = Set([OAuth.Permission.atproto])
+            grantedPermissions.formUnion(OpenMusicEventOAuth.tangledPullMergeAuthRequirement.permissions)
+            grantedPermissions.formUnion(OpenMusicEventOAuth.tangledPullStatusAuthRequirement.permissions)
+            var session = OAuth.Session.placeholder
+            session.scope = OAuth.Scope(
+                rawValue: grantedPermissions
+                    .map(\.rawValue)
+                    .sorted()
+                    .joined(separator: " ")
+            )
+            return OAuth.Session(
+                accountID: session.accountID,
+                pdsHost: "publisher.pds.example",
+                tokenEndpoint: session.tokenEndpoint,
+                scope: session.scope,
+                accessToken: session.accessToken,
+                refreshToken: session.refreshToken,
+                dpopKey: session.dpopKey
+            )
+        }()
+        let now = Date(timeIntervalSince1970: 1_783_453_261)
+        let requests = Mutex([(url: URL?, body: Data?, headers: HTTPFields)]())
 
         try await withDependencies {
-            $0.date.now = Date(timeIntervalSince1970: 1_783_453_261)
+            $0.date = .constant(now)
+            $0.defaultPort = 443
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { request in
                 #expect(request.eventID == eventID)
                 return SourcePatchLocation(
@@ -588,19 +613,31 @@ struct TangledPullReviewClientTests {
             )
             $0[XRPC.Client.self] = .liveValue
             $0.pdsHost = "publisher.pds.example"
-            $0.getDefaultSession = { .placeholder }
-            $0.httpClient = HTTPClient { request, body in
+            $0.getDefaultSession = { session }
+            $0.getOptionalDefaultSession = { session }
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            $0.p256Sign = { _, _ in Data(repeating: 0xAB, count: 64) }
+            $0.uuid = .constant(UUID(uuidString: "12345678-1234-1234-1234-123456789abc")!)
+            $0.xrpcAuthorizationGate = .defaultSessionAuthorization
+            $0.httpClient = .liveValue
+            $0.requestInterceptors = []
+            $0.responseInterceptors = []
+            $0.errorInterceptors = []
+            $0.dataForURL = { request, body in
                 requests.withLock {
-                    $0.append((url: request.url, body: body))
+                    $0.append((url: request.url, body: body, headers: request.headerFields))
                 }
                 let host = request.url?.host
                 let path = request.url?.path ?? ""
                 let collection = request.url?.queryValue(named: "collection")
+                func ok(_ data: Data) -> (Data, HTTPResponse) {
+                    (data, HTTPResponse(status: .ok))
+                }
 
                 switch (host, collection) {
                 case ("author.pds.example", "sh.tangled.repo.pull")
                     where path.hasSuffix("/com.atproto.repo.getRecord"):
-                    return Data(
+                    return ok(Data(
                         """
                         {
                           "uri": "at://did:plc:author/sh.tangled.repo.pull/3pull",
@@ -638,11 +675,11 @@ struct TangledPullReviewClientTests {
                         }
                         """
                         .utf8
-                    )
+                    ))
 
                 case ("owner.pds.example", "sh.tangled.repo")
                     where path.hasSuffix("/com.atproto.repo.listRecords"):
-                    return Data(
+                    return ok(Data(
                         """
                         {
                           "records": [
@@ -661,19 +698,19 @@ struct TangledPullReviewClientTests {
                         }
                         """
                         .utf8
-                    )
+                    ))
 
                 case ("author.pds.example", _)
                     where path.hasSuffix("/com.atproto.sync.getBlob"):
-                    return patchBlob
+                    return ok(patchBlob)
 
                 case ("tangled.org", _)
                     where path.hasSuffix("/sh.tangled.repo.merge"):
-                    return Data("{}".utf8)
+                    return ok(Data("{}".utf8))
 
                 case ("publisher.pds.example", _)
                     where path.hasSuffix("/com.atproto.repo.createRecord"):
-                    return Data(
+                    return ok(Data(
                         """
                         {
                           "uri": "at://did:plc:placeholder/sh.tangled.repo.pull.status/3status",
@@ -681,11 +718,11 @@ struct TangledPullReviewClientTests {
                         }
                         """
                         .utf8
-                    )
+                    ))
 
                 default:
                     Issue.record("Unexpected request: \(request.url?.absoluteString ?? "<nil>")")
-                    return Data("{}".utf8)
+                    return ok(Data("{}".utf8))
                 }
             }
         } operation: {
@@ -705,6 +742,8 @@ struct TangledPullReviewClientTests {
                 }
             }
         )
+        #expect(mergeRequest.headers[.authorization] == "DPoP \(session.accessToken.rawValue)")
+        #expect(mergeRequest.headers[HTTPField.Name("DPoP")!] != nil)
         let mergeBody = try #require(mergeRequest.body)
         let mergeJSON = try #require(
             JSONSerialization.jsonObject(with: mergeBody) as? [String: Any]

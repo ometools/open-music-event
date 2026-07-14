@@ -12,7 +12,7 @@
 		499CD43B2AC5B799001AE8D8 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F90C2B2A52156200F06D93 /* Main.swift */; };
 		499CD4402AC5B799001AE8D8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 49F90C2F2A52156300F06D93 /* Assets.xcassets */; };
 		EF029DD22FE2196D00E864D4 /* OpenMusicEventApp in Frameworks */ = {isa = PBXBuildFile; productRef = 491F27812DA55B72004926EE /* OpenMusicEventApp */; };
-		EFA714A02FFDF20200983E7E /* OMEPortal.icon in Resources */ = {isa = PBXBuildFile; fileRef = EFA7149F2FFDF20200983E7E /* OMEPortal.icon */; };
+		EF5805393005FB1F00B50389 /* OMECagePortal.icon in Resources */ = {isa = PBXBuildFile; fileRef = EF5805383005FB1F00B50389 /* OMECagePortal.icon */; };
 		EFA714A12FFDF20200983E7E /* OME.icon in Resources */ = {isa = PBXBuildFile; fileRef = EFA7149E2FFDF20200983E7E /* OME.icon */; };
 /* End PBXBuildFile section */
 
@@ -42,8 +42,8 @@
 		49F90C2B2A52156200F06D93 /* Main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Main.swift; path = Sources/Main.swift; sourceTree = SOURCE_ROOT; };
 		49F90C2F2A52156300F06D93 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		49F90C312A52156300F06D93 /* Entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Entitlements.plist; sourceTree = "<group>"; };
+		EF5805383005FB1F00B50389 /* OMECagePortal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = OMECagePortal.icon; sourceTree = "<group>"; };
 		EFA7149E2FFDF20200983E7E /* OME.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = OME.icon; sourceTree = "<group>"; };
-		EFA7149F2FFDF20200983E7E /* OMEPortal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = OMEPortal.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -92,12 +92,12 @@
 		49F90C2A2A52156200F06D93 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				EF5805383005FB1F00B50389 /* OMECagePortal.icon */,
 				49F90C2B2A52156200F06D93 /* Main.swift */,
 				49F90C2F2A52156300F06D93 /* Assets.xcassets */,
 				49F90C312A52156300F06D93 /* Entitlements.plist */,
 				4900101C2BACEA710000DE33 /* Info.plist */,
 				EFA7149E2FFDF20200983E7E /* OME.icon */,
-				EFA7149F2FFDF20200983E7E /* OMEPortal.icon */,
 			);
 			name = App;
 			sourceTree = "<group>";
@@ -172,9 +172,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EF5805393005FB1F00B50389 /* OMECagePortal.icon in Resources */,
 				499CD4402AC5B799001AE8D8 /* Assets.xcassets in Resources */,
 				496BDBEE2B8A7E9C00C09264 /* Localizable.xcstrings in Resources */,
-				EFA714A02FFDF20200983E7E /* OMEPortal.icon in Resources */,
 				EFA714A12FFDF20200983E7E /* OME.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -219,7 +219,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 496EB72F2A6AE4DE00C1253B /* OpenMusicEvent.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = OME;
+				ASSETCATALOG_COMPILER_APPICON_NAME = OMECagePortal;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				DEVELOPMENT_TEAM = FYZE6539TN;
 				ENABLE_PREVIEWS = YES;
@@ -235,7 +235,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 496EB72F2A6AE4DE00C1253B /* OpenMusicEvent.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = OME;
+				ASSETCATALOG_COMPILER_APPICON_NAME = OMECagePortal;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				DEVELOPMENT_TEAM = FYZE6539TN;
 				ENABLE_PREVIEWS = YES;

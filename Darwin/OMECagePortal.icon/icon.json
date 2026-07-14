@@ -1,0 +1,100 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.12296,0.16720,0.24359,1.00000",
+      "display-p3:0.08584,0.04333,0.07025,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "hidden" : false,
+          "image-name" : "Layer 2.png",
+          "name" : "Layer 2",
+          "position" : {
+            "scale" : 0.79,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "glass" : false,
+          "image-name" : "Flash.png",
+          "name" : "Flash",
+          "opacity" : 0.45,
+          "position" : {
+            "scale" : 0.8,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "blend-mode" : "hard-light",
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Flash Separated.png",
+          "name" : "Flash Separated",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 0.79,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "hidden" : true,
+          "image-name" : "Layer.png",
+          "name" : "Layer",
+          "position" : {
+            "scale" : 4.54,
+            "translation-in-points" : [
+              -26.453125,
+              0
+            ]
+          }
+        },
+        {
+          "hidden" : false,
+          "image-name" : "Layer copy.png",
+          "name" : "Layer copy",
+          "position" : {
+            "scale" : 0.79,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting-specializations" : [
+        {
+          "appearance" : "dark",
+          "value" : "individual"
+        }
+      ],
+      "name" : "Group",
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 1
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.6
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

@@ -3,6 +3,7 @@ import ComposableForms
 import ErrorHandling
 import Foundation
 import GRDB
+import HTTPClient
 import Lexicon
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
@@ -199,11 +200,56 @@ public struct EventWorkspace {
         }
     }
 
-    public struct TangledPullReviewMergeFailure: Equatable, Error, Sendable {
+    public struct TangledPullReviewMergeFailure: Equatable, UserFacingErrorConvertible, Sendable {
         public var message: String
 
         public init(_ error: any Error) {
-            self.message = String(describing: error)
+            self.message = Self.message(for: error)
+        }
+
+        public func userFacingError(in context: ErrorHandlingContext) -> ParsedError {
+            ParsedError(
+                message: context.fallbackMessage,
+                kind: .unhandled,
+                debugDescription: message
+            )
+        }
+
+        private static func message(for error: any Error) -> String {
+            guard case let HTTPError.httpError(status, body, _) = error else {
+                return String(describing: error)
+            }
+
+            guard let bodyMessage = body.flatMap(httpResponseBodyMessage) else {
+                return "HTTP \(status.code)"
+            }
+            return "HTTP \(status.code): \(bodyMessage)"
+        }
+
+        private static func httpResponseBodyMessage(_ data: Data) -> String? {
+            if let object = try? JSONSerialization.jsonObject(with: data),
+               let json = object as? [String: Any] {
+                let error = json["error"] as? String
+                let message = json["message"] as? String
+
+                switch (error?.isEmpty == false ? error : nil, message?.isEmpty == false ? message : nil) {
+                case let (error?, message?):
+                    return "\(error): \(message)"
+                case let (error?, nil):
+                    return error
+                case let (nil, message?):
+                    return message
+                case (nil, nil):
+                    break
+                }
+            }
+
+            if let string = String(data: data, encoding: .utf8),
+               !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return string
+            }
+
+            return nil
         }
     }
 
@@ -600,15 +646,16 @@ public struct EventWorkspace {
                             .tangledPullReviewMergeResponse(review: review, .success(()))
                         )
                     } catch {
+                        let failure = TangledPullReviewMergeFailure(error)
                         await store.reportError(
-                            error,
+                            failure,
                             fallbackMessage: .tangledPullReviewMergeFailed,
                             operation: .tangledPullReviewMerge
                         )
                         try store.send(
                             .tangledPullReviewMergeResponse(
                                 review: review,
-                                .failure(TangledPullReviewMergeFailure(error))
+                                .failure(failure)
                             )
                         )
                     }

@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "OMEIconSample1.jpg",
+      "filename" : "AppIcon1024x1024.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"

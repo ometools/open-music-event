@@ -6,6 +6,8 @@ import DependenciesTestSupport
 import ErrorHandling
 import FileTree
 import Foundation
+import HTTPClient
+import HTTPTypes
 import IssueReporting
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
@@ -1430,6 +1432,23 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
+    func tangledPullReviewMergeFailureIncludesHTTPResponseBody() throws {
+        let body = Data(
+            """
+            {
+              "error": "Auth",
+              "message": "signature verification failed"
+            }
+            """.utf8
+        )
+        let failure = EventWorkspace.TangledPullReviewMergeFailure(
+            HTTPError.httpError(403, body, HTTPFields())
+        )
+
+        #expect(failure.message == "HTTP 403: Auth: signature verification failed")
+    }
+
+    @Test
     func mergeTangledPullReviewButtonReportsFailureThroughRootErrorHandling() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
@@ -1468,6 +1487,51 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         expectNoDifference(
             store.workspace.tangledPullReviewMergeFailures[review.id]?.message,
             String(describing: TestCloseFailure.mergeFailed)
+        )
+    }
+
+    @Test
+    func mergeTangledPullReviewButtonReportsHTTPFailureBodyThroughRootErrorHandling() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let review = testTangledPullReview()
+        let body = Data(
+            """
+            {
+              "error": "Auth",
+              "message": "signature verification failed"
+            }
+            """.utf8
+        )
+        let error = HTTPError.httpError(403, body, HTTPFields())
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient(
+                list: { _ in [] },
+                merge: { _ in throw error }
+            )
+        } operation: {
+            var workspace = EventWorkspace.State(eventID: eventID)
+            workspace.tangledPullReviewStatus = .loaded([review])
+            return Store(
+                initialState: EventWorkspaceErrorReportingHost.State(workspace: workspace)
+            ) {
+                EventWorkspaceErrorReportingHost()
+            }
+        }
+
+        await withIssueReporters([]) {
+            let task = store.send(.workspace(.mergeTangledPullReviewButtonTapped(review)))
+            await task?.value
+        }
+
+        expectNoDifference(
+            store.errorNotifications.state.latestError?.debugDescription,
+            "HTTP 403: Auth: signature verification failed"
+        )
+        expectNoDifference(
+            store.workspace.tangledPullReviewMergeFailures[review.id]?.message,
+            "HTTP 403: Auth: signature verification failed"
         )
     }
 
