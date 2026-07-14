@@ -2,19 +2,19 @@
 
 This note tracks the working logo direction for Open Music Event.
 
-These samples are close-to-final drafts, not canonical final artwork. Do not treat the current JPGs as final source assets, and do not modify the artwork locally. Product and chrome work should consume final designer-provided assets when they are delivered.
+These samples are close-to-final drafts, not canonical final artwork. Do not treat the current raster images as final source assets, and do not modify the artwork locally. Product and chrome work should consume final designer-provided assets when they are delivered.
 
 Designer reference: [xcrunchy](https://www.xcrunchy.com/)
 
-## Final Mark Snapshot
+## Current Flat Logo Snapshot
 
-![OME final mark](assets/ome-logo-final-mark-2026-06.png)
+![OME sphere cage mark](assets/ome-mark-sphere-cage-2026-07-13.png)
 
-- `assets/ome-logo-final-mark-2026-06.png`
-  - Current final mark snapshot for planning.
+- `assets/ome-mark-sphere-cage-2026-07-13.png`
+  - Current flat logo snapshot for planning.
   - Size: 2000 x 2000.
-  - Added from the supplied final mark image on 2026-06-15.
-  - Use as the current visual reference for motion-system planning.
+  - Added from the supplied flat logo image on 2026-07-13.
+  - Use as the current visual reference for static-site, app-icon, and motion-system planning.
   - Still need final layered source files before production asset slicing.
 
 Visual features to preserve:
@@ -26,7 +26,7 @@ Visual features to preserve:
 - Spectral blue, violet, rose, and gold gradients over a black field.
 - Wide-spaced `OPEN MUSIC EVENT` wordmark as a supporting lockup, not required for every app surface.
 
-## Current Samples
+## Earlier Samples
 
 ![OME logo sample mark](assets/ome-logo-sample-mark-2026-05.jpg)
 

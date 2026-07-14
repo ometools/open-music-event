@@ -8,7 +8,16 @@ Designer reference: [xcrunchy](https://www.xcrunchy.com/)
 
 See [[logo|Logo]] for the detailed logo notes, references, constraints, and asset needs.
 
-## Current Sample Assets
+## Current Flat Logo Asset
+
+![OME sphere cage mark](assets/ome-mark-sphere-cage-2026-07-13.png)
+
+- `assets/ome-mark-sphere-cage-2026-07-13.png`
+  - Full OME flat logo supplied on 2026-07-13.
+  - Size: 2000 x 2000
+  - Status: current flat logo asset for static-site and one-piece app-icon surfaces.
+
+## Earlier Sample Assets
 
 ![OME logo sample mark](assets/ome-logo-sample-mark-2026-05.jpg)
 
