@@ -50,25 +50,27 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         public var category: String
     }
 
-    public enum ScheduleKind: String, Codable, Sendable, CaseIterable, SQLiteType {
+    public enum ScheduleKind: Codable, Sendable, SQLiteType {
         case singleStageAtOnce
-        case allStagesAtOnce
+        case allStagesAtOnce(Orientation)
         case list
-    }
 
-    public enum ManyStagesOrientation: String, Codable, Sendable, CaseIterable, SQLiteType {
-        case vertical
-        case horizontal
 
-        public var title: String {
-            switch self {
-            case .vertical:
-                return "Vertical"
-            case .horizontal:
-                return "Horizontal"
+        public enum Orientation: String, Codable, Sendable, CaseIterable, SQLiteType {
+            case vertical
+            case horizontal
+
+            public var title: String {
+                switch self {
+                case .vertical:
+                    return "Vertical"
+                case .horizontal:
+                    return "Horizontal"
+                }
             }
         }
     }
+
 
     public var id: ID
     public var selectedStageID: OMERecord.ID<OMERecord.Stage>?

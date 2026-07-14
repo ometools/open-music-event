@@ -704,6 +704,10 @@ struct TangledPullReviewClientTests {
                     where path.hasSuffix("/com.atproto.sync.getBlob"):
                     return ok(patchBlob)
 
+                case ("publisher.pds.example", _)
+                    where path.hasSuffix("/com.atproto.server.getServiceAuth"):
+                    return ok(Data(#"{"token":"service-auth-token"}"#.utf8))
+
                 case ("tangled.org", _)
                     where path.hasSuffix("/sh.tangled.repo.merge"):
                     return ok(Data("{}".utf8))
@@ -734,6 +738,19 @@ struct TangledPullReviewClientTests {
             )
         }
 
+        let serviceAuthRequest = try #require(
+            requests.withLock { requests in
+                requests.first {
+                    $0.url?.host == "publisher.pds.example"
+                        && $0.url?.path.hasSuffix("/com.atproto.server.getServiceAuth") == true
+                }
+            }
+        )
+        #expect(serviceAuthRequest.url?.queryValue(named: "aud") == "did:web:tangled.org")
+        #expect(serviceAuthRequest.url?.queryValue(named: "lxm") == "sh.tangled.repo.merge")
+        #expect(serviceAuthRequest.headers[.authorization] == "DPoP \(session.accessToken.rawValue)")
+        #expect(serviceAuthRequest.headers[HTTPField.Name("DPoP")!] != nil)
+
         let mergeRequest = try #require(
             requests.withLock { requests in
                 requests.first {
@@ -742,8 +759,8 @@ struct TangledPullReviewClientTests {
                 }
             }
         )
-        #expect(mergeRequest.headers[.authorization] == "DPoP \(session.accessToken.rawValue)")
-        #expect(mergeRequest.headers[HTTPField.Name("DPoP")!] != nil)
+        #expect(mergeRequest.headers[.authorization] == "Bearer service-auth-token")
+        #expect(mergeRequest.headers[HTTPField.Name("DPoP")!] == nil)
         let mergeBody = try #require(mergeRequest.body)
         let mergeJSON = try #require(
             JSONSerialization.jsonObject(with: mergeBody) as? [String: Any]
