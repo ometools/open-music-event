@@ -234,6 +234,7 @@ public struct ScheduleViewer {
         case addPerformanceButtonTapped(OMERecord.ID<OMERecord.Schedule>?)
         case addScheduleButtonTapped
         case destination(Destination.Action)
+        case manyStagesModeButtonTapped(ScheduleViewerState.ManyStagesOrientation)
         case scheduleModeButtonTapped(ScheduleMode)
     }
 
@@ -509,6 +510,10 @@ public struct ScheduleViewer {
 
             case .destination:
                 break
+
+            case let .manyStagesModeButtonTapped(orientation):
+                state.scheduleMode = .manyStagesAtOnce
+                state.manyStagesOrientation = orientation
 
             case let .scheduleModeButtonTapped(scheduleMode):
                 state.scheduleMode = scheduleMode

@@ -245,33 +245,17 @@ public struct ScheduleManyStagesAtOnceView: View {
         timeRange: DateInterval
     ) -> some View {
         #if os(iOS)
-        if #available(iOS 26.0, *) {
-            horizontalTimelinePageScroll(
-                timelineWidth: timelineWidth,
-                timelineHeight: timelineHeight,
-                totalHeight: totalHeight,
-                timeRange: timeRange
+        horizontalTimelinePageScroll(
+            timelineWidth: timelineWidth,
+            timelineHeight: timelineHeight,
+            totalHeight: totalHeight,
+            timeRange: timeRange
+        )
+        .safeAreaInset(edge: .leading, alignment: .top, spacing: 0) {
+            horizontalStageRail(
+                width: stageRailWidth,
+                laneHeight: stageLaneHeight
             )
-            .safeAreaBar(edge: .leading, alignment: .top, spacing: 0) {
-                horizontalStageRail(
-                    width: stageRailWidth,
-                    laneHeight: stageLaneHeight
-                )
-            }
-            .scrollEdgeEffectStyle(.soft, for: .leading)
-        } else {
-            horizontalTimelinePageScroll(
-                timelineWidth: timelineWidth,
-                timelineHeight: timelineHeight,
-                totalHeight: totalHeight,
-                timeRange: timeRange
-            )
-            .safeAreaInset(edge: .leading, alignment: .top, spacing: 0) {
-                horizontalStageRail(
-                    width: stageRailWidth,
-                    laneHeight: stageLaneHeight
-                )
-            }
         }
         #else
         horizontalInlineTimelineScroll(
@@ -664,7 +648,6 @@ struct ScheduleManyStagesLaneHeader: View {
         }
         .padding(.vertical, 8)
         .frame(width: contentWidth, height: height, alignment: .topLeading)
-        .background(Color.secondary.opacity(0.06))
     }
 
     func stageHeaderCell(for stage: OMERecord.Stage) -> some View {
@@ -744,7 +727,7 @@ struct ScheduleManyStagesStageRail: View {
             LinearGradient(
                 colors: [
                     railBackgroundColor,
-                    railBackgroundColor.opacity(0.88),
+                    railBackgroundColor.opacity(0.64),
                     railBackgroundColor.opacity(0.0),
                 ],
                 startPoint: .leading,
@@ -754,14 +737,21 @@ struct ScheduleManyStagesStageRail: View {
     }
 
     func stageRailCell(for stage: OMERecord.Stage) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             ScheduleStageIcon(stage: stage)
-                .frame(width: 30, height: 30)
-                .padding(7)
-                .foregroundStyle(stage.color.swiftUIColor)
+                .frame(width: stageIconSize, height: stageIconSize)
+                .padding(stageIconPadding)
+                .foregroundStyle(.white)
                 .background {
                     Circle()
-                        .fill(Color.secondary.opacity(0.12))
+                        .fill(stage.color.swiftUIColor.opacity(0.22))
+                        .overlay {
+                            Circle()
+                                .stroke(
+                                    stage.color.swiftUIColor.opacity(0.38),
+                                    lineWidth: 1
+                                )
+                        }
                 }
 
             if showStageNameLabels {
@@ -776,11 +766,26 @@ struct ScheduleManyStagesStageRail: View {
         .padding(.horizontal, 6)
     }
 
+    var stageIconSize: CGFloat {
+        44
+    }
+
+    var stageIconPadding: CGFloat {
+        12
+    }
+
     var hourLabelsHeight: CGFloat {
         HourLabelsHeightPreferenceKey.defaultValue
     }
 
     var railBackgroundColor: Color {
-        colorScheme == .dark ? .black : .white
+        switch colorScheme {
+        case .dark:
+            return .black
+        case .light:
+            return .white
+        @unknown default:
+            return .clear
+        }
     }
 }

@@ -52,36 +52,16 @@ public struct ScheduleModeMenu: View {
     public var body: some View {
         Menu {
             Section("Mode") {
-                ForEach(ScheduleViewer.ScheduleMode.allCases, id: \.self) { mode in
-                    Button {
-                        store.send(.scheduleModeButtonTapped(mode))
-                    } label: {
-                        modeLabel(mode)
-                    }
-                }
+                scheduleModeButton(.singleStageAtOnce)
+                manyStagesModeButton(.vertical)
+                manyStagesModeButton(.horizontal)
+                scheduleModeButton(.list)
             }
 
-            if needsStageDisambiguation || store.scheduleMode == .manyStagesAtOnce {
+            if needsStageDisambiguation {
                 Section("Display") {
-                    if store.scheduleMode == .manyStagesAtOnce {
-                        Picker(
-                            "Many Stages",
-                            selection: $store.manyStagesOrientation.animation()
-                        ) {
-                            ForEach(
-                                ScheduleViewerState.ManyStagesOrientation.allCases,
-                                id: \.self
-                            ) { orientation in
-                                Text(orientation.title)
-                                    .tag(orientation)
-                            }
-                        }
-                    }
-
-                    if needsStageDisambiguation {
-                        Toggle(isOn: $store.showStageNameLabels.animation()) {
-                            Label("Show Stage Labels", systemImage: "tag")
-                        }
+                    Toggle(isOn: $store.showStageNameLabels.animation()) {
+                        Label("Show Stage Labels", systemImage: "tag")
                     }
                 }
             }
@@ -89,26 +69,78 @@ public struct ScheduleModeMenu: View {
     }
 
     @ViewBuilder
-    func modeLabel(_ mode: ScheduleViewer.ScheduleMode) -> some View {
-        if store.scheduleMode == mode {
+    func scheduleModeButton(_ mode: ScheduleViewer.ScheduleMode) -> some View {
+        Button {
+            store.send(.scheduleModeButtonTapped(mode))
+        } label: {
+            modeLabel(
+                title: mode.title,
+                systemImage: mode.systemImage,
+                isSelected: store.scheduleMode == mode
+            )
+        }
+    }
+
+    @ViewBuilder
+    func manyStagesModeButton(
+        _ orientation: ScheduleViewerState.ManyStagesOrientation
+    ) -> some View {
+        Button {
+            store.send(.manyStagesModeButtonTapped(orientation))
+        } label: {
+            modeLabel(
+                title: manyStagesTitle(orientation),
+                systemImage: ScheduleViewer.ScheduleMode.manyStagesAtOnce.systemImage,
+                isSelected: store.scheduleMode == .manyStagesAtOnce
+                    && store.manyStagesOrientation == orientation
+            )
+        }
+    }
+
+    @ViewBuilder
+    func modeLabel(
+        title: String,
+        systemImage: String?,
+        isSelected: Bool
+    ) -> some View {
+        if isSelected {
             Label {
-                Text(mode.title)
+                Text(title)
             } icon: {
                 Image(systemName: "checkmark")
             }
-        } else if let systemImage = mode.systemImage {
-            Label(mode.title, systemImage: systemImage)
+        } else if let systemImage {
+            Label(title, systemImage: systemImage)
         } else {
-            Text(mode.title)
+            Text(title)
         }
     }
 
     @ViewBuilder
     var selectedModeLabel: some View {
         if let systemImage = store.scheduleMode.systemImage {
-            Label(store.scheduleMode.title, systemImage: systemImage)
+            Label(selectedModeTitle, systemImage: systemImage)
         } else {
-            Text(store.scheduleMode.title)
+            Text(selectedModeTitle)
+        }
+    }
+
+    var selectedModeTitle: String {
+        if store.scheduleMode == .manyStagesAtOnce {
+            manyStagesTitle(store.manyStagesOrientation)
+        } else {
+            store.scheduleMode.title
+        }
+    }
+
+    func manyStagesTitle(
+        _ orientation: ScheduleViewerState.ManyStagesOrientation
+    ) -> String {
+        switch orientation {
+        case .vertical:
+            return "Many Stages (V)"
+        case .horizontal:
+            return "Many Stages (H)"
         }
     }
 }

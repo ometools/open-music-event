@@ -3267,6 +3267,33 @@ struct NavigationTests {
     }
 
     @Test
+    func scheduleViewerManyStagesModeButtonChangesModeAndOrientation() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+                ScheduleViewer()
+            }
+        }
+
+        store.send(.manyStagesModeButtonTapped(.horizontal))
+
+        #expect(store.state.scheduleMode == .manyStagesAtOnce)
+        #expect(store.state.scheduleViewerState.scheduleKind == .allStagesAtOnce)
+        #expect(store.state.manyStagesOrientation == .horizontal)
+
+        store.send(.manyStagesModeButtonTapped(.vertical))
+
+        #expect(store.state.scheduleMode == .manyStagesAtOnce)
+        #expect(store.state.scheduleViewerState.scheduleKind == .allStagesAtOnce)
+        #expect(store.state.manyStagesOrientation == .vertical)
+    }
+
+    @Test
     func addScheduleDefaultsToEventStartDate() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
