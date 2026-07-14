@@ -216,6 +216,25 @@ public func resolvedHandledError(
 }
 
 public extension FeatureStore {
+    nonisolated(nonsending) func reportError(
+        _ error: any Error,
+        fallbackMessage: UserFacingText,
+        operation errorOperation: ErrorOperation,
+        @ErrorParserBuilder parseError: () -> ErrorParser = { .none }
+    ) async {
+        guard let handledError = resolvedHandledError(
+            from: error,
+            fallbackMessage: fallbackMessage,
+            operation: errorOperation,
+            parseError: parseError
+        ) else {
+            return
+        }
+
+        reportIssue(error)
+        _ = try? await post(key: ErrorReported.self, value: handledError)?.value
+    }
+
     nonisolated(nonsending) func withErrorHandling<Output>(
         fallbackMessage: UserFacingText,
         operation errorOperation: ErrorOperation,
@@ -228,17 +247,12 @@ public extension FeatureStore {
         } catch {
             _ = try? modify(cleanup)
 
-            guard let handledError = resolvedHandledError(
-                from: error,
+            await reportError(
+                error,
                 fallbackMessage: fallbackMessage,
                 operation: errorOperation,
                 parseError: parseError
-            ) else {
-                return nil
-            }
-
-            reportIssue(error)
-            _ = try? post(key: ErrorReported.self, value: handledError)
+            )
             return nil
         }
     }

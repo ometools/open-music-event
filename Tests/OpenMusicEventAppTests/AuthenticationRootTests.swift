@@ -1,7 +1,11 @@
+import ATProtoOAuth
 import ComposableArchitecture2
+import CustomDump
 import Dependencies
 import Foundation
+import IssueReporting
 import SQLiteData
+import TCATProtoAuthentication
 import Testing
 
 @testable import OpenMusicEventApp
@@ -44,6 +48,43 @@ struct AuthenticationRootTests {
     }
 
     @Test
+    func authorizationFlowErrorIsReportedThroughRootErrorHandling() async throws {
+        let database = try makePreparedDatabase()
+        let failure = AuthenticationRootTestError.invalidScope
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0[OAuth.Client.self] = failingOAuthClient(failure)
+            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+        } operation: {
+            var state = OpenMusicEventAppRoot.State()
+            state.authentication.directAuthorization = OpenMusicEventOAuth.authorizationFlowState(
+                for: AuthorizationPresentationRequest(
+                    loginHint: "woody.fm",
+                    startsImmediately: true,
+                    requirement: OpenMusicEventOAuth.baseAuthRequirement
+                )
+            )
+            return Store(initialState: state) {
+                OpenMusicEventAppRoot()
+            }
+        }
+
+        await withIssueReporters([]) {
+            let task = store.send(.authentication(.directAuthorization(.submit)))
+            await task?.value
+        }
+
+        expectNoDifference(
+            store.errorNotifications.state.latestError?.message.fallback,
+            "Unable to authorize account."
+        )
+        expectNoDifference(
+            store.errorNotifications.state.latestError?.operation.rawValue,
+            "auth.authorization"
+        )
+    }
+
+    @Test
     func nonOAuthURLIsNotTreatedAsAuthenticationCallback() {
         #expect(
             !OpenMusicEventOAuth.isCallbackURL(
@@ -61,4 +102,16 @@ struct AuthenticationRootTests {
             return database
         }
     }
+}
+
+private enum AuthenticationRootTestError: Equatable, Error {
+    case invalidScope
+}
+
+private func failingOAuthClient(_ failure: any Error) -> OAuth.Client {
+    var client = OAuth.Client()
+    client.beginAuthorizationWithPermissions = { _, _ in
+        throw failure
+    }
+    return client
 }

@@ -1289,38 +1289,40 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        let task = store.send(.deleteTangledPullReviewForeverButtonTapped(review)) {
-            $0.deletingTangledPullReviewIDs = [review.id]
-            $0.locallyRemovedTangledPullReviewIDs = [review.id]
-            $0.pendingDeletedTangledPullReviews = [
-                review.id: EventWorkspace.PendingDeletedTangledPullReview(
-                    review: review,
-                    index: 1
-                )
-            ]
-            $0.tangledPullReviewStatus = .loaded([earlierReview])
+        await withIssueReporters([]) {
+            let task = store.send(.deleteTangledPullReviewForeverButtonTapped(review)) {
+                $0.deletingTangledPullReviewIDs = [review.id]
+                $0.locallyRemovedTangledPullReviewIDs = [review.id]
+                $0.pendingDeletedTangledPullReviews = [
+                    review.id: EventWorkspace.PendingDeletedTangledPullReview(
+                        review: review,
+                        index: 1
+                    )
+                ]
+                $0.tangledPullReviewStatus = .loaded([earlierReview])
+            }
+            await store.receive(
+                \.tangledPullReviewDeleteResponse,
+                .matching { (
+                    response: (
+                        review: TangledPullReview,
+                        Result<Void, EventWorkspace.TangledPullReviewDeleteFailure>
+                    )
+                ) in
+                    guard response.review == review else { return false }
+                    guard case .failure(failure) = response.1 else { return false }
+                    return true
+                },
+                timeout: .seconds(1)
+            ) {
+                $0.deletingTangledPullReviewIDs = []
+                $0.locallyRemovedTangledPullReviewIDs = []
+                $0.pendingDeletedTangledPullReviews = [:]
+                $0.tangledPullReviewDeleteFailures[review.id] = failure
+                $0.tangledPullReviewStatus = .loaded([earlierReview, review])
+            }
+            await task?.value
         }
-        await store.receive(
-            \.tangledPullReviewDeleteResponse,
-            .matching { (
-                response: (
-                    review: TangledPullReview,
-                    Result<Void, EventWorkspace.TangledPullReviewDeleteFailure>
-                )
-            ) in
-                guard response.review == review else { return false }
-                guard case .failure(failure) = response.1 else { return false }
-                return true
-            },
-            timeout: .seconds(1)
-        ) {
-            $0.deletingTangledPullReviewIDs = []
-            $0.locallyRemovedTangledPullReviewIDs = []
-            $0.pendingDeletedTangledPullReviews = [:]
-            $0.tangledPullReviewDeleteFailures[review.id] = failure
-            $0.tangledPullReviewStatus = .loaded([earlierReview, review])
-        }
-        await task?.value
 
         await store.dismount()
     }
@@ -1349,27 +1351,29 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        let task = store.send(.closeTangledPullReviewButtonTapped(review)) {
-            $0.closingTangledPullReviewIDs = [review.id]
+        await withIssueReporters([]) {
+            let task = store.send(.closeTangledPullReviewButtonTapped(review)) {
+                $0.closingTangledPullReviewIDs = [review.id]
+            }
+            await store.receive(
+                \.tangledPullReviewCloseResponse,
+                .matching { (
+                    response: (
+                        review: TangledPullReview,
+                        Result<Void, EventWorkspace.TangledPullReviewCloseFailure>
+                    )
+                ) in
+                    guard response.review == review else { return false }
+                    guard case .failure(failure) = response.1 else { return false }
+                    return true
+                },
+                timeout: .seconds(1)
+            ) {
+                $0.closingTangledPullReviewIDs = []
+                $0.tangledPullReviewCloseFailures[review.id] = failure
+            }
+            await task?.value
         }
-        await store.receive(
-            \.tangledPullReviewCloseResponse,
-            .matching { (
-                response: (
-                    review: TangledPullReview,
-                    Result<Void, EventWorkspace.TangledPullReviewCloseFailure>
-                )
-            ) in
-                guard response.review == review else { return false }
-                guard case .failure(failure) = response.1 else { return false }
-                return true
-            },
-            timeout: .seconds(1)
-        ) {
-            $0.closingTangledPullReviewIDs = []
-            $0.tangledPullReviewCloseFailures[review.id] = failure
-        }
-        await task?.value
 
         await store.dismount()
     }
@@ -1398,29 +1402,73 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        let task = store.send(.mergeTangledPullReviewButtonTapped(review)) {
-            $0.mergingTangledPullReviewIDs = [review.id]
+        await withIssueReporters([]) {
+            let task = store.send(.mergeTangledPullReviewButtonTapped(review)) {
+                $0.mergingTangledPullReviewIDs = [review.id]
+            }
+            await store.receive(
+                \.tangledPullReviewMergeResponse,
+                .matching { (
+                    response: (
+                        review: TangledPullReview,
+                        Result<Void, EventWorkspace.TangledPullReviewMergeFailure>
+                    )
+                ) in
+                    guard response.review == review else { return false }
+                    guard case .failure(failure) = response.1 else { return false }
+                    return true
+                },
+                timeout: .seconds(1)
+            ) {
+                $0.mergingTangledPullReviewIDs = []
+                $0.tangledPullReviewMergeFailures[review.id] = failure
+            }
+            await task?.value
         }
-        await store.receive(
-            \.tangledPullReviewMergeResponse,
-            .matching { (
-                response: (
-                    review: TangledPullReview,
-                    Result<Void, EventWorkspace.TangledPullReviewMergeFailure>
-                )
-            ) in
-                guard response.review == review else { return false }
-                guard case .failure(failure) = response.1 else { return false }
-                return true
-            },
-            timeout: .seconds(1)
-        ) {
-            $0.mergingTangledPullReviewIDs = []
-            $0.tangledPullReviewMergeFailures[review.id] = failure
-        }
-        await task?.value
 
         await store.dismount()
+    }
+
+    @Test
+    func mergeTangledPullReviewButtonReportsFailureThroughRootErrorHandling() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let review = testTangledPullReview()
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0.tangledPullReviewClient = TangledPullReviewClient(
+                list: { _ in [] },
+                merge: { _ in
+                    throw TestCloseFailure.mergeFailed
+                }
+            )
+        } operation: {
+            var workspace = EventWorkspace.State(eventID: eventID)
+            workspace.tangledPullReviewStatus = .loaded([review])
+            return Store(
+                initialState: EventWorkspaceErrorReportingHost.State(workspace: workspace)
+            ) {
+                EventWorkspaceErrorReportingHost()
+            }
+        }
+
+        await withIssueReporters([]) {
+            let task = store.send(.workspace(.mergeTangledPullReviewButtonTapped(review)))
+            await task?.value
+        }
+
+        expectNoDifference(
+            store.errorNotifications.state.latestError?.message.fallback,
+            "Unable to merge Tangled pull review."
+        )
+        expectNoDifference(
+            store.errorNotifications.state.latestError?.operation.rawValue,
+            "tangled.pull-review.merge"
+        )
+        expectNoDifference(
+            store.workspace.tangledPullReviewMergeFailures[review.id]?.message,
+            String(describing: TestCloseFailure.mergeFailed)
+        )
     }
 
     @Test
@@ -1817,6 +1865,30 @@ private func testTangledPullReview() -> TangledPullReview {
 
 private enum SourceProposalTestError: Equatable, Error {
     case failed
+}
+
+@Feature
+private struct EventWorkspaceErrorReportingHost {
+    struct State {
+        var errorNotifications = Spawn(ErrorNotifications.State())
+        var workspace: EventWorkspace.State
+    }
+
+    enum Action {
+        case workspace(EventWorkspace.Action)
+    }
+
+    var body: some Feature {
+        Scope(\.workspace, action: \.workspace) {
+            EventWorkspace()
+        }
+        .spawn(\.errorNotifications) {
+            ErrorNotifications()
+        }
+        .onEvent(ErrorReported.self) { error, state in
+            state.errorNotifications.state.report(error)
+        }
+    }
 }
 
 @Feature
