@@ -18,34 +18,7 @@ public struct ScheduleViewer {
     public init() {}
 
     public typealias ScheduleDivision = OpenMusicEventViewers.ScheduleDivision
-
-    public enum ScheduleMode: String, CaseIterable, Hashable, Sendable {
-        case singleStageAtOnce
-        case manyStagesAtOnce
-        case list
-
-        public var title: String {
-            switch self {
-            case .singleStageAtOnce:
-                return "Single Stage"
-            case .manyStagesAtOnce:
-                return "Many Stages"
-            case .list:
-                return "List"
-            }
-        }
-
-        public var systemImage: String? {
-            switch self {
-            case .singleStageAtOnce:
-                return "calendar.day.timeline.leading"
-            case .manyStagesAtOnce:
-                return "rectangle.split.3x1"
-            case .list:
-                return "list.bullet"
-            }
-        }
-    }
+    public typealias ScheduleKind = ScheduleViewerState.ScheduleKind
 
     public struct State {
         public init(
@@ -106,11 +79,12 @@ public struct ScheduleViewer {
         @Shared public var scheduleViewerState: ScheduleViewerState
 
         @FetchOne public var event: OMERecord.Event?
-        public var scheduleMode: ScheduleMode {
-            get { scheduleViewerState.scheduleMode }
+        public var scheduleKind: ScheduleKind {
+            get { scheduleViewerState.scheduleKind }
             set {
                 $scheduleViewerState.withLock {
-                    $0.scheduleMode = newValue
+                    $0.scheduleKind = newValue
+                    $0.syncScheduleKindStorage()
                 }
             }
         }
@@ -120,15 +94,6 @@ public struct ScheduleViewer {
             set {
                 $scheduleViewerState.withLock {
                     $0.showStageNameLabels = newValue
-                }
-            }
-        }
-
-        public var manyStagesOrientation: ScheduleViewerState.ManyStagesOrientation {
-            get { scheduleViewerState.manyStagesOrientation }
-            set {
-                $scheduleViewerState.withLock {
-                    $0.manyStagesOrientation = newValue
                 }
             }
         }
@@ -234,8 +199,7 @@ public struct ScheduleViewer {
         case addPerformanceButtonTapped(OMERecord.ID<OMERecord.Schedule>?)
         case addScheduleButtonTapped
         case destination(Destination.Action)
-        case manyStagesModeButtonTapped(ScheduleViewerState.ManyStagesOrientation)
-        case scheduleModeButtonTapped(ScheduleMode)
+        case scheduleKindButtonTapped(ScheduleKind)
     }
 
     @Feature
@@ -511,12 +475,8 @@ public struct ScheduleViewer {
             case .destination:
                 break
 
-            case let .manyStagesModeButtonTapped(orientation):
-                state.scheduleMode = .manyStagesAtOnce
-                state.manyStagesOrientation = orientation
-
-            case let .scheduleModeButtonTapped(scheduleMode):
-                state.scheduleMode = scheduleMode
+            case let .scheduleKindButtonTapped(scheduleKind):
+                state.scheduleKind = scheduleKind
             }
         }
         .ifLet(\.destination, action: \.destination) {

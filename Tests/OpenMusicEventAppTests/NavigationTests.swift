@@ -3227,7 +3227,7 @@ struct NavigationTests {
     }
 
     @Test
-    func scheduleViewerDefaultsToSingleStageMode() throws {
+    func scheduleViewerDefaultsToSingleStageKind() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let state = withDependencies {
@@ -3238,11 +3238,11 @@ struct NavigationTests {
             ScheduleViewer.State(eventID: eventID)
         }
 
-        #expect(state.scheduleMode == .singleStageAtOnce)
+        #expect(state.scheduleKind == .singleStageAtOnce)
     }
 
     @Test
-    func scheduleViewerModeButtonChangesMode() throws {
+    func scheduleViewerKindButtonChangesKind() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let store = withDependencies {
@@ -3255,19 +3255,17 @@ struct NavigationTests {
             }
         }
 
-        store.send(.scheduleModeButtonTapped(.manyStagesAtOnce))
+        store.send(.scheduleKindButtonTapped(.allStagesAtOnce(.vertical)))
 
-        #expect(store.state.scheduleMode == .manyStagesAtOnce)
-        #expect(store.state.scheduleViewerState.scheduleKind == .allStagesAtOnce)
+        #expect(store.state.scheduleKind == .allStagesAtOnce(.vertical))
 
-        store.send(.scheduleModeButtonTapped(.list))
+        store.send(.scheduleKindButtonTapped(.list))
 
-        #expect(store.state.scheduleMode == .list)
-        #expect(store.state.scheduleViewerState.scheduleKind == .list)
+        #expect(store.state.scheduleKind == .list)
     }
 
     @Test
-    func scheduleViewerManyStagesModeButtonChangesModeAndOrientation() throws {
+    func scheduleViewerKindButtonChangesManyStageOrientation() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         let store = withDependencies {
@@ -3280,17 +3278,13 @@ struct NavigationTests {
             }
         }
 
-        store.send(.manyStagesModeButtonTapped(.horizontal))
+        store.send(.scheduleKindButtonTapped(.allStagesAtOnce(.horizontal)))
 
-        #expect(store.state.scheduleMode == .manyStagesAtOnce)
-        #expect(store.state.scheduleViewerState.scheduleKind == .allStagesAtOnce)
-        #expect(store.state.manyStagesOrientation == .horizontal)
+        #expect(store.state.scheduleKind == .allStagesAtOnce(.horizontal))
 
-        store.send(.manyStagesModeButtonTapped(.vertical))
+        store.send(.scheduleKindButtonTapped(.allStagesAtOnce(.vertical)))
 
-        #expect(store.state.scheduleMode == .manyStagesAtOnce)
-        #expect(store.state.scheduleViewerState.scheduleKind == .allStagesAtOnce)
-        #expect(store.state.manyStagesOrientation == .vertical)
+        #expect(store.state.scheduleKind == .allStagesAtOnce(.vertical))
     }
 
     @Test
@@ -3357,8 +3351,7 @@ struct NavigationTests {
         }
 
         state.$scheduleViewerState.withLock {
-            $0.scheduleMode = .manyStagesAtOnce
-            $0.manyStagesOrientation = .horizontal
+            $0.scheduleKind = .allStagesAtOnce(.horizontal)
             $0.selectedStageID = stageLocalID("main")
             $0.showStageNameLabels = true
         }
@@ -3391,20 +3384,54 @@ struct NavigationTests {
             )
         }
 
-        #expect(storedState.scheduleMode == .manyStagesAtOnce)
-        #expect(storedState.scheduleKind == .allStagesAtOnce)
-        #expect(storedState.manyStagesOrientation == .horizontal)
+        #expect(storedState.scheduleKind == .allStagesAtOnce(.horizontal))
         #expect(storedState.selectedStageID == stageLocalID("main"))
         #expect(storedState.showStageNameLabels)
-        #expect(restoredState.scheduleMode == .manyStagesAtOnce)
-        #expect(restoredState.scheduleViewerState.scheduleKind == .allStagesAtOnce)
-        #expect(restoredState.manyStagesOrientation == .horizontal)
+        #expect(restoredState.scheduleKind == .allStagesAtOnce(.horizontal))
         #expect(restoredState.selectedStageID == stageLocalID("main"))
         #expect(restoredState.showStageNameLabels)
-        #expect(workshopState.scheduleMode == .singleStageAtOnce)
-        #expect(workshopState.manyStagesOrientation == .vertical)
+        #expect(workshopState.scheduleKind == .singleStageAtOnce)
         #expect(workshopState.selectedStageID == nil)
         #expect(!workshopState.showStageNameLabels)
+    }
+
+    @Test
+    func scheduleViewerStateMigratesLegacyManyStageOrientation() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+
+        try await database.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO "scheduleViewerState" (
+                  "organizerID",
+                  "eventID",
+                  "category",
+                  "scheduleKind",
+                  "manyStagesOrientation"
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    String(describing: eventID.organizerID),
+                    eventID.eventID.rawValue.rawValue,
+                    ScheduleViewer.ScheduleDivision.schedule.id,
+                    "allStagesAtOnce",
+                    "horizontal",
+                ]
+            )
+        }
+
+        let state = try await database.read { db in
+            try ScheduleViewerStateRequest(
+                eventID: eventID,
+                scheduleDivision: .schedule
+            )
+            .fetch(db)
+        }
+
+        #expect(state.scheduleKind == .allStagesAtOnce(.horizontal))
+        #expect(state.legacyManyStagesOrientation == .horizontal)
     }
 
     @Test

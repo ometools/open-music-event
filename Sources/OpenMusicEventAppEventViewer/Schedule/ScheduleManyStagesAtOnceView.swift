@@ -47,13 +47,11 @@ public struct ScheduleManyStagesAtOnce {
         @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
 
-        public var manyStagesOrientation: ScheduleViewerState.ManyStagesOrientation {
-            get { scheduleViewerState.manyStagesOrientation }
-            set {
-                $scheduleViewerState.withLock {
-                    $0.manyStagesOrientation = newValue
-                }
+        public var scheduleOrientation: ScheduleViewerState.ScheduleKind.Orientation {
+            if case let .allStagesAtOnce(orientation) = scheduleViewerState.scheduleKind {
+                return orientation
             }
+            return .vertical
         }
 
         public func visiblePerformanceRows(
@@ -168,7 +166,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         availableHeight: CGFloat,
         timeRange: DateInterval
     ) -> some View {
-        switch store.manyStagesOrientation {
+        switch store.scheduleOrientation {
         case .vertical:
             verticalScheduleBody(
                 availableWidth: availableWidth,

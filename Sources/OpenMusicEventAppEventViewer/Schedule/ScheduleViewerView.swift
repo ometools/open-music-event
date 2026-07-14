@@ -41,7 +41,7 @@ public struct ScheduleAddMenu: View {
     }
 }
 
-public struct ScheduleModeMenu: View {
+public struct ScheduleKindMenu: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     @Bindable var store: StoreOf<ScheduleViewer>
 
@@ -52,10 +52,9 @@ public struct ScheduleModeMenu: View {
     public var body: some View {
         Menu {
             Section("Mode") {
-                scheduleModeButton(.singleStageAtOnce)
-                manyStagesModeButton(.vertical)
-                manyStagesModeButton(.horizontal)
-                scheduleModeButton(.list)
+                ForEach(ScheduleViewer.ScheduleKind.allCases, id: \.self) { scheduleKind in
+                    scheduleKindButton(scheduleKind)
+                }
             }
 
             if needsStageDisambiguation {
@@ -69,30 +68,14 @@ public struct ScheduleModeMenu: View {
     }
 
     @ViewBuilder
-    func scheduleModeButton(_ mode: ScheduleViewer.ScheduleMode) -> some View {
+    func scheduleKindButton(_ scheduleKind: ScheduleViewer.ScheduleKind) -> some View {
         Button {
-            store.send(.scheduleModeButtonTapped(mode))
+            store.send(.scheduleKindButtonTapped(scheduleKind))
         } label: {
             modeLabel(
-                title: mode.title,
-                systemImage: mode.systemImage,
-                isSelected: store.scheduleMode == mode
-            )
-        }
-    }
-
-    @ViewBuilder
-    func manyStagesModeButton(
-        _ orientation: ScheduleViewerState.ManyStagesOrientation
-    ) -> some View {
-        Button {
-            store.send(.manyStagesModeButtonTapped(orientation))
-        } label: {
-            modeLabel(
-                title: manyStagesTitle(orientation),
-                systemImage: ScheduleViewer.ScheduleMode.manyStagesAtOnce.systemImage,
-                isSelected: store.scheduleMode == .manyStagesAtOnce
-                    && store.manyStagesOrientation == orientation
+                title: scheduleKind.title,
+                systemImage: scheduleKind.systemImage,
+                isSelected: store.scheduleKind == scheduleKind
             )
         }
     }
@@ -118,29 +101,10 @@ public struct ScheduleModeMenu: View {
 
     @ViewBuilder
     var selectedModeLabel: some View {
-        if let systemImage = store.scheduleMode.systemImage {
-            Label(selectedModeTitle, systemImage: systemImage)
+        if let systemImage = store.scheduleKind.systemImage {
+            Label(store.scheduleKind.title, systemImage: systemImage)
         } else {
-            Text(selectedModeTitle)
-        }
-    }
-
-    var selectedModeTitle: String {
-        if store.scheduleMode == .manyStagesAtOnce {
-            manyStagesTitle(store.manyStagesOrientation)
-        } else {
-            store.scheduleMode.title
-        }
-    }
-
-    func manyStagesTitle(
-        _ orientation: ScheduleViewerState.ManyStagesOrientation
-    ) -> String {
-        switch orientation {
-        case .vertical:
-            return "Many Stages (V)"
-        case .horizontal:
-            return "Many Stages (H)"
+            Text(store.scheduleKind.title)
         }
     }
 }
@@ -175,7 +139,7 @@ public struct ScheduleViewerView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    ScheduleModeMenu(store: store)
+                    ScheduleKindMenu(store: store)
                 }
             }
             .toolbarTitleMenu {
@@ -231,7 +195,7 @@ public struct ScheduleViewerView: View {
                     description: "No schedule has been added to this event yet."
                 )
             } else {
-                switch store.scheduleMode {
+                switch store.scheduleKind {
                 case .singleStageAtOnce:
                     ScheduleSingleStageAtOnceView(
                         store: store.spawn(\.singleStageAtOnce),
@@ -239,7 +203,7 @@ public struct ScheduleViewerView: View {
                         showsAuthoringControls: showsAuthoringControls
                     )
 
-                case .manyStagesAtOnce:
+                case .allStagesAtOnce:
                     ScheduleManyStagesAtOnceView(
                         store: store.spawn(\.manyStagesAtOnce),
                         selectedScheduleID: _selectedScheduleID,

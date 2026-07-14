@@ -12,8 +12,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         showStageNameLabels: Bool = false,
         filteringFavorites: Bool = false,
         filteringInterested: Bool = false,
-        scheduleKind: ScheduleKind = .singleStageAtOnce,
-        manyStagesOrientation: ManyStagesOrientation = .vertical
+        scheduleKind: ScheduleKind = .singleStageAtOnce
     ) {
         self.id = id
         self.selectedStageID = selectedStageID
@@ -21,7 +20,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         self.filteringFavorites = filteringFavorites
         self.filteringInterested = filteringInterested
         self.scheduleKind = scheduleKind
-        self.manyStagesOrientation = manyStagesOrientation
+        self.legacyManyStagesOrientation = scheduleKind.legacyManyStagesOrientation
     }
 
     public init(
@@ -50,13 +49,97 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         public var category: String
     }
 
-    public enum ScheduleKind: Codable, Sendable, SQLiteType {
+    public enum ScheduleKind: Codable, Equatable, Hashable, RawRepresentable, Sendable, SQLiteType {
         case singleStageAtOnce
         case allStagesAtOnce(Orientation)
         case list
 
+        public init?(rawValue: String) {
+            switch rawValue {
+            case "singleStageAtOnce":
+                self = .singleStageAtOnce
+            case "allStagesAtOnce",
+                "allStagesAtOnce.vertical":
+                self = .allStagesAtOnce(.vertical)
+            case "allStagesAtOnce.horizontal":
+                self = .allStagesAtOnce(.horizontal)
+            case "list":
+                self = .list
+            default:
+                return nil
+            }
+        }
 
-        public enum Orientation: String, Codable, Sendable, CaseIterable, SQLiteType {
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            self = Self(rawValue: try container.decode(String.self)) ?? .singleStageAtOnce
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
+
+        public var rawValue: String {
+            switch self {
+            case .singleStageAtOnce:
+                return "singleStageAtOnce"
+            case .allStagesAtOnce(.vertical):
+                return "allStagesAtOnce.vertical"
+            case .allStagesAtOnce(.horizontal):
+                return "allStagesAtOnce.horizontal"
+            case .list:
+                return "list"
+            }
+        }
+
+        public var title: String {
+            switch self {
+            case .singleStageAtOnce:
+                return "Single Stage"
+            case .allStagesAtOnce(.vertical):
+                return "Many (V)"
+            case .allStagesAtOnce(.horizontal):
+                return "Many (H)"
+            case .list:
+                return "List"
+            }
+        }
+
+        public var systemImage: String? {
+            switch self {
+            case .singleStageAtOnce:
+                return "calendar.day.timeline.leading"
+            case .allStagesAtOnce(.vertical):
+                return "rectangle.split.3x1"
+            case .allStagesAtOnce(.horizontal):
+                return "rectangle.split.1x2"
+            case .list:
+                return "list.bullet"
+            }
+        }
+
+        public var orientation: Orientation? {
+            guard case let .allStagesAtOnce(orientation) = self else {
+                return nil
+            }
+            return orientation
+        }
+
+        public static var allCases: [Self] {
+            [
+                .singleStageAtOnce,
+                .allStagesAtOnce(.horizontal),
+                .allStagesAtOnce(.vertical),
+                .list,
+            ]
+        }
+
+        var legacyManyStagesOrientation: Orientation {
+            orientation ?? .vertical
+        }
+
+        public enum Orientation: String, Codable, Equatable, Hashable, Sendable, CaseIterable, SQLiteType {
             case vertical
             case horizontal
 
@@ -71,36 +154,25 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         }
     }
 
-
     public var id: ID
     public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
     public var showStageNameLabels = false
     public var filteringFavorites = false
     public var filteringInterested = false
     @Column("scheduleKind") public var scheduleKind: ScheduleKind = .singleStageAtOnce
-    @Column("manyStagesOrientation") public var manyStagesOrientation: ManyStagesOrientation = .vertical
+    @Column("manyStagesOrientation") var legacyManyStagesOrientation: ScheduleKind.Orientation = .vertical
 
-    public var scheduleMode: ScheduleViewer.ScheduleMode {
-        get {
-            switch scheduleKind {
-            case .singleStageAtOnce:
-                return .singleStageAtOnce
-            case .allStagesAtOnce:
-                return .manyStagesAtOnce
-            case .list:
-                return .list
-            }
+    mutating func migrateLegacyScheduleKind() {
+        if case .allStagesAtOnce(.vertical) = scheduleKind,
+            legacyManyStagesOrientation == .horizontal
+        {
+            scheduleKind = .allStagesAtOnce(.horizontal)
         }
-        set {
-            switch newValue {
-            case .singleStageAtOnce:
-                scheduleKind = .singleStageAtOnce
-            case .manyStagesAtOnce:
-                scheduleKind = .allStagesAtOnce
-            case .list:
-                scheduleKind = .list
-            }
-        }
+        syncScheduleKindStorage()
+    }
+
+    mutating func syncScheduleKindStorage() {
+        legacyManyStagesOrientation = scheduleKind.legacyManyStagesOrientation
     }
 
     static func rows(
@@ -166,6 +238,7 @@ struct ScheduleViewerStateKey: SharedKey {
                 eventID: eventID,
                 category: scheduleDivision.id
             )
+            value.syncScheduleKindStorage()
             try database.write { db in
                 try ScheduleViewerState
                     .where { $0.id.eventID.eq(eventID) }
@@ -232,6 +305,8 @@ struct ScheduleViewerStateRequest: FetchKeyRequest {
             .rows(eventID: eventID, scheduleDivision: scheduleDivision)
             .fetchOne(db)
         {
+            var state = state
+            state.migrateLegacyScheduleKind()
             return state
         }
 
