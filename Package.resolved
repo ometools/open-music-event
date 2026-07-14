@@ -29,15 +29,6 @@
       }
     },
     {
-      "identity" : "composable-atmosphere-tangled",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-tangled",
-      "state" : {
-        "branch" : "main",
-        "revision" : "96e9ab858168ccbd33e8d4cb59004f85f91bc2fc"
-      }
-    },
-    {
       "identity" : "daterangepicker",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/14T/DateRangePicker",

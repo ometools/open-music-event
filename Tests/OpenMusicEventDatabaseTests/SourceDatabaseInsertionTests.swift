@@ -731,6 +731,54 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func throwsWhenScheduleReferencesMissingContributorID() throws {
+        let source = try makeSourceRepository(
+            includeDefaultContributor: false,
+            performances: [
+                "meadow": [
+                    .init(
+                        id: id("missing-contributor-set"),
+                        title: "Missing Contributor Set",
+                        startTime: "18:00",
+                        endTime: "19:00",
+                        contributors: [
+                            .init(subject: .id(id("missing-artist")))
+                        ]
+                    )
+                ]
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+
+        do {
+            _ = try OME.SourceDatabaseInsertion(
+                .init(
+                    source: source,
+                    organizerID: organizerID,
+                    sourceProvenance: tangledSourceProvenance("testival-source")
+                )
+            )
+            Issue.record("Expected missing schedule contributor ID to throw.")
+        } catch let error as OME.SourceDatabaseInsertion.Error {
+            expectNoDifference(
+                error,
+                .missingScheduleContributorID(
+                    scheduleID: scheduleID(
+                        "saturday",
+                        eventID: "testival-source-testival-2026",
+                        organizerID: organizerID
+                    ),
+                    stageID: id("meadow"),
+                    performanceIndex: 1,
+                    contributorID: id("missing-artist")
+                )
+            )
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
     func scheduleContributorListingCreatesContributorsFromActors() throws {
         let actor = try #require(OME.Contributor.Actor("ARTIST.BSKY.SOCIAL"))
         let source = try makeSourceRepository(

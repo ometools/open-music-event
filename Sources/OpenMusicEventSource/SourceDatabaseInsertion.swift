@@ -54,6 +54,12 @@ public extension OME {
                 stageID: OME.ID<OME.Stage>,
                 performanceIndex: Int
             )
+            case missingScheduleContributorID(
+                scheduleID: OME.Schedule.ID,
+                stageID: OME.ID<OME.Stage>,
+                performanceIndex: Int,
+                contributorID: OME.ID<OME.Contributor>
+            )
             case missingInlineScheduleDate(OME.Event.ID)
             case duplicateScheduleID(OME.Schedule.ID)
         }
@@ -551,7 +557,13 @@ public extension OME {
                     )
 
                     for (sortIndex, contributor) in (sourcePerformance.contributors ?? []).enumerated() {
-                        let contributorID = Self.contributorID(for: contributor, in: scheduleContributorIndex)
+                        let contributorID = try Self.contributorID(
+                            for: contributor,
+                            in: scheduleContributorIndex,
+                            scheduleID: scopedScheduleID,
+                            stageID: stageID,
+                            performanceIndex: index
+                        )
                         let contributorActor = Self.actor(for: contributor)
                         let projection = OME.Performance.Contributors.Draft(
                             performanceID: scopedPerformanceID,
@@ -578,11 +590,14 @@ public extension OME {
         }
 
         private struct ScheduleContributorIndex {
-            static let disabled = Self()
-
             var generatedContributors: [OME.Contributor.Draft] = []
+            var contributorIDs: Set<OME.ID<OME.Contributor>> = []
             var names: [String: OME.ID<OME.Contributor>] = [:]
             var actors: [OME.Contributor.Actor: OME.ID<OME.Contributor>] = [:]
+
+            func contains(contributorID: OME.ID<OME.Contributor>) -> Bool {
+                contributorIDs.contains(contributorID)
+            }
 
             func contributorID(forName name: String) -> OME.ID<OME.Contributor>? {
                 Self.nameKey(name).flatMap { names[$0] }
@@ -628,6 +643,7 @@ public extension OME {
                             links: nil
                         )
                     )
+                    contributorIDs.insert(contributorID)
 
                 case let .actor(actor):
                     guard actors[actor] == nil else { return }
@@ -653,6 +669,7 @@ public extension OME {
                             links: nil
                         )
                     )
+                    contributorIDs.insert(contributorID)
                 }
             }
 
@@ -688,12 +705,14 @@ public extension OME {
             eventID: OME.ID<OME.Event>,
             explicitContributors: [OME.Contributor.Draft]
         ) -> ScheduleContributorIndex {
+            var index = ScheduleContributorIndex(
+                contributorIDs: Set(explicitContributors.compactMap { $0.id?.contributorID })
+            )
             guard sourceEvent.event.policies?.contributors?.usesScheduleContributorListing == true else {
-                return .disabled
+                return index
             }
 
-            var index = ScheduleContributorIndex()
-            var usedContributorIDs = Set(explicitContributors.compactMap { $0.id?.contributorID })
+            var usedContributorIDs = index.contributorIDs
 
             for contributor in explicitContributors {
                 guard let contributorID = contributor.id?.contributorID,
@@ -727,10 +746,21 @@ public extension OME {
 
         private static func contributorID(
             for contributor: ScheduleDTO.Performance.Contributor,
-            in index: ScheduleContributorIndex
-        ) -> OME.ID<OME.Contributor>? {
+            in index: ScheduleContributorIndex,
+            scheduleID: OME.Schedule.ID,
+            stageID: OME.ID<OME.Stage>,
+            performanceIndex: Int
+        ) throws -> OME.ID<OME.Contributor>? {
             switch contributor.subject {
             case let .id(contributorID):
+                guard index.contains(contributorID: contributorID) else {
+                    throw Error.missingScheduleContributorID(
+                        scheduleID: scheduleID,
+                        stageID: stageID,
+                        performanceIndex: performanceIndex,
+                        contributorID: contributorID
+                    )
+                }
                 return contributorID
             case let .name(name):
                 return index.contributorID(forName: name)
@@ -1027,6 +1057,9 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
 
         case let .missingPerformanceEndTime(scheduleID, stageID, performanceIndex):
             return "Missing end time for performance \(performanceIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'."
+
+        case let .missingScheduleContributorID(scheduleID, stageID, performanceIndex, contributorID):
+            return "Missing contributor '\(contributorID.rawValue.rawValue)' for performance \(performanceIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'. Add a contributor file for this ID or use a name/actor schedule contributor."
 
         case let .missingInlineScheduleDate(eventID):
             return "Inline schedule for event '\(eventID.eventID.rawValue.rawValue)' is missing a date. Add schedule.date or event.startDate."
