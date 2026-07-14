@@ -1,5 +1,5 @@
 {
-  "originHash" : "d2b64e9c10485cb97bebcb04b1cf1a0764f69e8863418c5ee1657a888d7e5437",
+  "originHash" : "60ab2798a4217df8e92c6ae3437b297aed1073ce85adc84a1f1ffccc4d086899",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -313,7 +313,7 @@
       "location" : "https://source.woody.fm/swift-composable-atmosphere",
       "state" : {
         "branch" : "main",
-        "revision" : "93e6b368c3dd0cd7726276ab469ee7676b4c2d76"
+        "revision" : "e98edb10108661fc582acf9b0d1b03127dc81ee9"
       }
     },
     {

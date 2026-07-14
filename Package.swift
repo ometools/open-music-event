@@ -58,7 +58,7 @@ var dependencies: [Package.Dependency] = [
         traits: ["TCA26"]
     ),
     .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
-    .package(url: "https://source.woody.fm/composable-atmosphere-tangled", branch: "main"),
+    .package(path: "../composable-atmosphere-tangled"),
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
