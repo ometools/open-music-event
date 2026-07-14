@@ -60,11 +60,13 @@ private let openMusicEventRecentlyUsedAccountIDs = Shared<[Atmosphere.Account.ID
 
 private let openMusicEventAuthFailureMessage = Shared<ErrorMessage?>(value: nil)
 
+#if !os(Linux)
 private extension SharedKey where Self == AppStorageKey<[Atmosphere.Account.ID]>.Default {
     static var openMusicEventRecentlyUsedAccountIDs: Self {
         Self[.appStorage("openMusicEventRecentlyUsedAccountIDs"), default: []]
     }
 }
+#endif
 
 public enum OpenMusicEventOAuth {
     public static let sourceRecordCreatePermission =
