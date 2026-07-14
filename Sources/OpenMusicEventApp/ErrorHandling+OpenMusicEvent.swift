@@ -87,9 +87,14 @@ public extension UserFacingText {
         "Unable to delete event.",
         fallback: "Unable to delete event."
     )
+    static let authenticationAuthorizationFailed = Self(
+        "Unable to authorize account.",
+        fallback: "Unable to authorize account."
+    )
 }
 
 public extension ErrorOperation {
+    static let authenticationAuthorization = Self("auth.authorization")
     static let eventDeletion = Self("event.delete")
     static let sourceEditPreparation = Self("source.edit.prepare")
     static let sourceImport = Self("source.import")

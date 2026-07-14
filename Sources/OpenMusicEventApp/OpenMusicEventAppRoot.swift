@@ -147,6 +147,17 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
+        let reportAuthenticationError: ((any Error)?) -> Void = { error in
+            guard let error else { return }
+            store.addTask {
+                await store.reportError(
+                    error,
+                    fallbackMessage: .authenticationAuthorizationFailed,
+                    operation: .authenticationAuthorization
+                )
+            }
+        }
+
         let openEventViewerAfterAuthorization:
             (OMERecord.Event.ID, EventTarget?, inout State) -> Void = { eventID, target, state in
             if let authoringMode = state.currentAuthoringMode {
@@ -259,6 +270,12 @@ public struct OpenMusicEventAppRoot {
             if state.persistsSelectedEvent, oldValue != nil, newValue == nil {
                 clearSelectedEvent()
             }
+        }
+        .onChange(of: store.authentication.authorization?.error) { _, error, _ in
+            reportAuthenticationError(error?.originalError)
+        }
+        .onChange(of: store.authentication.directAuthorization?.error) { _, error, _ in
+            reportAuthenticationError(error?.originalError)
         }
         .onEvent(NavigationRequested.self) { request, _ in
             store.addTask {

@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import ComposableForms
+import ErrorHandling
 import Foundation
 import GRDB
 import Lexicon
@@ -423,6 +424,11 @@ public struct EventWorkspace {
                 )
                 try store.send(.tangledPullReviewsResponse(.success(reviews)))
             } catch {
+                await store.reportError(
+                    error,
+                    fallbackMessage: .tangledPullReviewLoadFailed,
+                    operation: .tangledPullReviewLoad
+                )
                 try store.send(
                     .tangledPullReviewsResponse(
                         .failure(TangledPullReviewFailure(error))
@@ -520,6 +526,11 @@ public struct EventWorkspace {
                             .tangledPullReviewCloseResponse(review: review, .success(()))
                         )
                     } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .tangledPullReviewCloseFailed,
+                            operation: .tangledPullReviewClose
+                        )
                         try store.send(
                             .tangledPullReviewCloseResponse(
                                 review: review,
@@ -549,6 +560,11 @@ public struct EventWorkspace {
                             .tangledPullReviewDeleteResponse(review: review, .success(()))
                         )
                     } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .tangledPullReviewDeleteFailed,
+                            operation: .tangledPullReviewDelete
+                        )
                         try store.send(
                             .tangledPullReviewDeleteResponse(
                                 review: review,
@@ -584,6 +600,11 @@ public struct EventWorkspace {
                             .tangledPullReviewMergeResponse(review: review, .success(()))
                         )
                     } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .tangledPullReviewMergeFailed,
+                            operation: .tangledPullReviewMerge
+                        )
                         try store.send(
                             .tangledPullReviewMergeResponse(
                                 review: review,
@@ -846,6 +867,32 @@ public struct EventWorkspace {
             state.sourceProposalStatus = status
         }
     }
+}
+
+private extension UserFacingText {
+    static let tangledPullReviewLoadFailed = Self(
+        "Unable to load Tangled pull reviews.",
+        fallback: "Unable to load Tangled pull reviews."
+    )
+    static let tangledPullReviewCloseFailed = Self(
+        "Unable to close Tangled pull review.",
+        fallback: "Unable to close Tangled pull review."
+    )
+    static let tangledPullReviewDeleteFailed = Self(
+        "Unable to delete Tangled pull review.",
+        fallback: "Unable to delete Tangled pull review."
+    )
+    static let tangledPullReviewMergeFailed = Self(
+        "Unable to merge Tangled pull review.",
+        fallback: "Unable to merge Tangled pull review."
+    )
+}
+
+private extension ErrorOperation {
+    static let tangledPullReviewLoad = Self("tangled.pull-review.load")
+    static let tangledPullReviewClose = Self("tangled.pull-review.close")
+    static let tangledPullReviewDelete = Self("tangled.pull-review.delete")
+    static let tangledPullReviewMerge = Self("tangled.pull-review.merge")
 }
 
 public typealias SourceWorkspace = EventWorkspace
