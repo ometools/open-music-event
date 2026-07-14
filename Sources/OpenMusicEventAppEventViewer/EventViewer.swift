@@ -1009,19 +1009,23 @@ public struct EventViewerView: View {
     private var tabContent: some View {
         #if os(iOS)
         if #available(iOS 18.0, *) {
-            iOS18TabView(store: store)
+            TabFeaturesViewer(store: store)
         } else {
             legacyiOSTabView
+        }
+        #elseif os(macOS)
+        if #available(macOS 15.0, *) {
+            TabFeaturesViewer(store: store)
+        } else {
+            defaultTabView
         }
         #else
         defaultTabView
         #endif
     }
 
-    #if os(iOS)
-
-    @available(iOS 18.0, *)
-    struct iOS18TabView: View {
+    @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
+    struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
         @State var tabLayout = TabFeatureLayout()
 
@@ -1031,7 +1035,7 @@ public struct EventViewerView: View {
                 layout: $tabLayout
             ) {
                 if store.installedFeatures.contains(.search) {
-                    TabFeature(.search, role: .search) {
+                    TabFeature(.search, role: .search, navigation: .stack) {
                         EventSearchView(store: store.spawn(\.eventSearch))
                     }
                 }
@@ -1222,7 +1226,6 @@ public struct EventViewerView: View {
             }
         }
     }
-    #endif
 
     #if os(iOS)
     private var legacyiOSTabView: some View {

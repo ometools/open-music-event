@@ -366,6 +366,23 @@ struct SwiftUITabFeaturesTests {
         #expect(defaultTabFeatureMaxVisibleTabs(for: macOSContext) == .max)
     }
 
+    @Test func `default presentation style uses tabs on compact iPhone`() {
+        #expect(defaultTabFeaturePresentationStyle(for: compactIPhoneContext) == .tabs)
+    }
+
+    @Test func `default presentation style uses sidebar on regular iOS`() {
+        #expect(defaultTabFeaturePresentationStyle(for: regularIOSContext) == .sidebar)
+    }
+
+    @Test func `default presentation style uses sidebar on macOS`() {
+        #expect(defaultTabFeaturePresentationStyle(for: macOSContext) == .sidebar)
+    }
+
+    @Test func `explicit presentation style bypasses automatic defaults`() {
+        #expect(resolvedTabFeaturePresentationStyle(.tabs, for: macOSContext) == .tabs)
+        #expect(resolvedTabFeaturePresentationStyle(.sidebar, for: compactIPhoneContext) == .sidebar)
+    }
+
     @Test func `explicit policy bypasses default inference`() {
         let features = TabFeatures<DemoTab> {
             TabFeature(.schedule, title: "Schedule", systemImage: "calendar") {

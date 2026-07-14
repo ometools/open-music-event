@@ -11,18 +11,27 @@ import OpenMusicEventAuthentication
 import SourceEditing
 import SQLiteData
 import SwiftUI
+import SwiftUITabFeatures
 import Tagged
 
 @Feature
 public struct OpenMusicEventBrowser {
     public init() {}
 
-    public enum Tab: Hashable {
+    public enum Tab: String, TabFeatureValue {
         case browse
         case following
         case myEvents
         case search
         case settings
+
+        public init?(_ description: String) {
+            self.init(rawValue: description)
+        }
+
+        public var description: String {
+            self.rawValue
+        }
     }
 
     public struct State {
@@ -71,53 +80,75 @@ public struct OpenMusicEventBrowserView: View {
     }
 
     @Bindable var store: StoreOf<OpenMusicEventBrowser>
+    @State var tabLayout = TabFeatureLayout()
 
     public var body: some View {
         #if os(iOS)
         if #available(iOS 18.0, *) {
-            iosTabView
+            tabFeaturesView
         } else {
             legacyiOSTabView
+        }
+        #elseif os(macOS)
+        if #available(macOS 15.0, *) {
+            tabFeaturesView
+        } else {
+            defaultTabView
         }
         #else
         defaultTabView
         #endif
     }
 
-    #if os(iOS)
-    @available(iOS 18.0, *)
-    private var iosTabView: some View {
-        TabView(selection: $store.selectedTab) {
-            Tab("Browse", systemImage: "sparkles", value: OpenMusicEventBrowser.Tab.browse) {
-                NavigationStack {
-                    BrowseView(store: store.spawn(\.browse))
-                }
+    @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
+    private var tabFeaturesView: some View {
+        TabFeaturesView(
+            selection: $store.selectedTab,
+            layout: $tabLayout
+        ) {
+            TabFeature(
+                .browse,
+                title: "Browse",
+                systemImage: "sparkles",
+                navigation: .stack
+            ) {
+                BrowseView(store: store.spawn(\.browse))
             }
 
-            Tab("Following", systemImage: "person.2.fill", value: OpenMusicEventBrowser.Tab.following) {
-                NavigationStack {
-                    FollowingView(store: store.spawn(\.following))
-                }
+            TabFeature(
+                .following,
+                title: "Following",
+                systemImage: "person.2.fill",
+                navigation: .stack
+            ) {
+                FollowingView(store: store.spawn(\.following))
             }
 
-            Tab("My Events", systemImage: "star", value: OpenMusicEventBrowser.Tab.myEvents) {
-                NavigationStack {
-                    MyEventsView(store: store.spawn(\.myEvents))
-                }
+            TabFeature(
+                .myEvents,
+                title: "My Events",
+                systemImage: "star",
+                navigation: .stack
+            ) {
+                MyEventsView(store: store.spawn(\.myEvents))
             }
 
-            Tab("Settings", systemImage: "gearshape", value: OpenMusicEventBrowser.Tab.settings) {
-                NavigationStack {
-                    SettingsFeatureView(store: store.spawn(\.settings))
-                }
+            TabFeature(
+                .settings,
+                title: "Settings",
+                systemImage: "gearshape",
+                navigation: .stack
+            ) {
+                SettingsFeatureView(store: store.spawn(\.settings))
             }
 
-            Tab(value: OpenMusicEventBrowser.Tab.search, role: .search) {
+            TabFeature(.search, role: .search, navigation: .stack) {
                 SearchView(store: store.spawn(\.search))
             }
         }
     }
 
+    #if os(iOS)
     private var legacyiOSTabView: some View {
         TabView(selection: $store.selectedTab) {
             NavigationStack {
