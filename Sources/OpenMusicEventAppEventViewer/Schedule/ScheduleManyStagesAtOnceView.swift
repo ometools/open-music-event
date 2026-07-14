@@ -209,36 +209,130 @@ public struct ScheduleManyStagesAtOnceView: View {
         timeRange: DateInterval
     ) -> some View {
         let stageRailWidth = horizontalStageRailWidth
+        let stageLaneHeight = horizontalStageLaneHeight(availableHeight: availableHeight)
         let availableTimelineWidth = max(availableWidth - stageRailWidth, 0)
         let timelineWidth = horizontalTimelineWidth(
             for: timeRange,
             availableWidth: availableTimelineWidth
         )
-        let timelineHeight = horizontalTimelineHeight
+        let timelineHeight = horizontalTimelineHeight(stageLaneHeight: stageLaneHeight)
         let totalHeight = timelineHeight + hourLabelsHeight
 
         return ScrollView(.vertical) {
-            HStack(alignment: .top, spacing: 0) {
-                ScheduleManyStagesStageRail(
-                    stages: store.visibleStages,
-                    width: stageRailWidth,
-                    laneHeight: horizontalStageLaneHeight
-                )
-
-                ScrollView(.horizontal) {
-                    timelinePage
-                        .frame(width: timelineWidth, height: totalHeight)
-                        .environment(\.scheduleTimelineOrientation, .horizontalTime)
-                        .environment(\.scheduleHeight, timelineHeight)
-                        .environment(\.scheduleTimeRange, timeRange)
-                }
-            }
+            horizontalTimelineScroll(
+                stageRailWidth: stageRailWidth,
+                stageLaneHeight: stageLaneHeight,
+                timelineWidth: timelineWidth,
+                timelineHeight: timelineHeight,
+                totalHeight: totalHeight,
+                timeRange: timeRange
+            )
             .frame(
                 minWidth: availableWidth,
                 minHeight: max(availableHeight, totalHeight),
                 alignment: .topLeading
             )
         }
+    }
+
+    @ViewBuilder
+    func horizontalTimelineScroll(
+        stageRailWidth: CGFloat,
+        stageLaneHeight: CGFloat,
+        timelineWidth: CGFloat,
+        timelineHeight: CGFloat,
+        totalHeight: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            horizontalTimelinePageScroll(
+                timelineWidth: timelineWidth,
+                timelineHeight: timelineHeight,
+                totalHeight: totalHeight,
+                timeRange: timeRange
+            )
+            .safeAreaBar(edge: .leading, alignment: .top, spacing: 0) {
+                horizontalStageRail(
+                    width: stageRailWidth,
+                    laneHeight: stageLaneHeight
+                )
+            }
+            .scrollEdgeEffectStyle(.soft, for: .leading)
+        } else {
+            horizontalTimelinePageScroll(
+                timelineWidth: timelineWidth,
+                timelineHeight: timelineHeight,
+                totalHeight: totalHeight,
+                timeRange: timeRange
+            )
+            .safeAreaInset(edge: .leading, alignment: .top, spacing: 0) {
+                horizontalStageRail(
+                    width: stageRailWidth,
+                    laneHeight: stageLaneHeight
+                )
+            }
+        }
+        #else
+        horizontalInlineTimelineScroll(
+            stageRailWidth: stageRailWidth,
+            stageLaneHeight: stageLaneHeight,
+            timelineWidth: timelineWidth,
+            timelineHeight: timelineHeight,
+            totalHeight: totalHeight,
+            timeRange: timeRange
+        )
+        #endif
+    }
+
+    func horizontalInlineTimelineScroll(
+        stageRailWidth: CGFloat,
+        stageLaneHeight: CGFloat,
+        timelineWidth: CGFloat,
+        timelineHeight: CGFloat,
+        totalHeight: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            horizontalStageRail(
+                width: stageRailWidth,
+                laneHeight: stageLaneHeight
+            )
+
+            horizontalTimelinePageScroll(
+                timelineWidth: timelineWidth,
+                timelineHeight: timelineHeight,
+                totalHeight: totalHeight,
+                timeRange: timeRange
+            )
+        }
+    }
+
+    func horizontalTimelinePageScroll(
+        timelineWidth: CGFloat,
+        timelineHeight: CGFloat,
+        totalHeight: CGFloat,
+        timeRange: DateInterval
+    ) -> some View {
+        ScrollView(.horizontal) {
+            timelinePage
+                .frame(width: timelineWidth, height: totalHeight)
+                .environment(\.scheduleTimelineOrientation, .horizontalTime)
+                .environment(\.scheduleHeight, timelineHeight)
+                .environment(\.scheduleTimeRange, timeRange)
+        }
+    }
+
+    func horizontalStageRail(
+        width: CGFloat,
+        laneHeight: CGFloat
+    ) -> some View {
+        ScheduleManyStagesStageRail(
+            stages: store.visibleStages,
+            width: width,
+            laneHeight: laneHeight
+        )
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -354,12 +448,36 @@ public struct ScheduleManyStagesAtOnceView: View {
         showStageNameLabels ? 116 : 84
     }
 
-    var horizontalStageLaneHeight: CGFloat {
+    var minimumResolvedHorizontalStageLaneHeight: CGFloat {
         showStageNameLabels ? 104 : minimumHorizontalStageLaneHeight
     }
 
-    var horizontalTimelineHeight: CGFloat {
-        CGFloat(store.visibleStages.count) * horizontalStageLaneHeight
+    func horizontalStageLaneHeight(availableHeight: CGFloat) -> CGFloat {
+        Self.horizontalStageLaneHeight(
+            availableHeight: availableHeight,
+            stageCount: store.visibleStages.count,
+            hourLabelsHeight: hourLabelsHeight,
+            minimumStageLaneHeight: minimumResolvedHorizontalStageLaneHeight
+        )
+    }
+
+    static func horizontalStageLaneHeight(
+        availableHeight: CGFloat,
+        stageCount: Int,
+        hourLabelsHeight: CGFloat = HourLabelsHeightPreferenceKey.defaultValue,
+        minimumStageLaneHeight: CGFloat
+    ) -> CGFloat {
+        guard stageCount > 0 else { return minimumStageLaneHeight }
+
+        let availableStageHeight = max(availableHeight - hourLabelsHeight, 0)
+        return max(
+            minimumStageLaneHeight,
+            availableStageHeight / CGFloat(stageCount)
+        )
+    }
+
+    func horizontalTimelineHeight(stageLaneHeight: CGFloat) -> CGFloat {
+        CGFloat(store.visibleStages.count) * stageLaneHeight
     }
 
     var horizontalPointsPerHour: CGFloat {
@@ -608,6 +726,7 @@ struct ScheduleManyStagesStageRail: View {
     let width: CGFloat
     let laneHeight: CGFloat
 
+    @Environment(\.colorScheme) var colorScheme
     @Environment(\.showStageNameLabels) var showStageNameLabels
 
     var body: some View {
@@ -621,7 +740,17 @@ struct ScheduleManyStagesStageRail: View {
             }
         }
         .frame(width: width, alignment: .top)
-        .background(Color.secondary.opacity(0.06))
+        .background(alignment: .leading) {
+            LinearGradient(
+                colors: [
+                    railBackgroundColor,
+                    railBackgroundColor.opacity(0.88),
+                    railBackgroundColor.opacity(0.0),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
     }
 
     func stageRailCell(for stage: OMERecord.Stage) -> some View {
@@ -649,5 +778,9 @@ struct ScheduleManyStagesStageRail: View {
 
     var hourLabelsHeight: CGFloat {
         HourLabelsHeightPreferenceKey.defaultValue
+    }
+
+    var railBackgroundColor: Color {
+        colorScheme == .dark ? .black : .white
     }
 }

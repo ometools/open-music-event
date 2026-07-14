@@ -3203,6 +3203,30 @@ struct NavigationTests {
     }
 
     @Test
+    func manyStagesHorizontalLaneHeightUsesAvailableHeight() {
+        let laneHeight = ScheduleManyStagesAtOnceView.horizontalStageLaneHeight(
+            availableHeight: 700,
+            stageCount: 4,
+            hourLabelsHeight: 32,
+            minimumStageLaneHeight: 84
+        )
+
+        #expect(laneHeight == 167)
+    }
+
+    @Test
+    func manyStagesHorizontalLaneHeightKeepsMinimumHeight() {
+        let laneHeight = ScheduleManyStagesAtOnceView.horizontalStageLaneHeight(
+            availableHeight: 300,
+            stageCount: 4,
+            hourLabelsHeight: 32,
+            minimumStageLaneHeight: 84
+        )
+
+        #expect(laneHeight == 84)
+    }
+
+    @Test
     func scheduleViewerDefaultsToSingleStageMode() throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
