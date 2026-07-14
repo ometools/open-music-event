@@ -8,8 +8,7 @@ flow for `ome-under-construction`.
 The uploaded bundle should include:
 
 - `public/index.html`
-- `public/assets/ome-logo-sample-wordmark-2026-05.jpg`
-- `public/assets/ome-logo-final-mark-2026-07-03.png`
+- `public/assets/ome-mark-sphere-cage-2026-07-13.png`
 - `public/assets/ome-schedule.jpeg`
 - `public/assets/ome-artist-detail.jpeg`
 - `public/assets/ome-updates.jpeg`
