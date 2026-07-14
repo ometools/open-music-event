@@ -3,6 +3,46 @@ import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 
+public struct SourceRepositoryStorageRootClient: Sendable {
+    public var rootURL: @Sendable () throws -> URL
+
+    public init(rootURL: @escaping @Sendable () throws -> URL) {
+        self.rootURL = rootURL
+    }
+}
+
+public extension SourceRepositoryStorageRootClient {
+    static var live: Self {
+        Self {
+            let applicationSupportURL = try FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            let rootURL = applicationSupportURL
+                .appendingPathComponent("SourceRepositories", isDirectory: true)
+                .standardizedFileURL
+            try FileManager.default.createDirectory(
+                at: rootURL,
+                withIntermediateDirectories: true
+            )
+            return rootURL
+        }
+    }
+
+    static func rooted(at rootURL: URL) -> Self {
+        Self {
+            let rootURL = rootURL.standardizedFileURL
+            try FileManager.default.createDirectory(
+                at: rootURL,
+                withIntermediateDirectories: true
+            )
+            return rootURL
+        }
+    }
+}
+
 public struct SourceRepositoryStorageClient: Sendable {
     public var repositoryURL: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL
     public var store: @Sendable (URL, OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL
@@ -21,10 +61,21 @@ public struct SourceRepositoryStorageClient: Sendable {
 
 public extension SourceRepositoryStorageClient {
     static var live: Self {
-        Self(
+        @Dependency(\.sourceRepositoryStorageRoot) var sourceRepositoryStorageRoot
+
+        return Self(
+            repositoryURL: { provenance in
+                try Self.repositoryURL(
+                    for: provenance,
+                    rootURL: sourceRepositoryStorageRoot.rootURL()
+                )
+            },
             store: { repositoryURL, provenance in
                 guard provenance.kind == .tangled else { return repositoryURL.standardizedFileURL }
-                let destinationURL = try storedRepositoryURL(for: provenance)
+                let destinationURL = try storedRepositoryURL(
+                    for: provenance,
+                    rootURL: sourceRepositoryStorageRoot.rootURL()
+                )
                 let sourceURL = repositoryURL.standardizedFileURL
                 let standardizedDestinationURL = destinationURL.standardizedFileURL
                 guard sourceURL != standardizedDestinationURL else {
@@ -35,7 +86,10 @@ public extension SourceRepositoryStorageClient {
             },
             remove: { provenance in
                 guard provenance.kind == .tangled else { return }
-                let url = try storedRepositoryURL(for: provenance)
+                let url = try storedRepositoryURL(
+                    for: provenance,
+                    rootURL: sourceRepositoryStorageRoot.rootURL()
+                )
                 do {
                     try FileManager.default.removeItem(at: url)
                 } catch {
@@ -55,11 +109,23 @@ public extension SourceRepositoryStorageClient {
     static func repositoryURL(
         for provenance: OME.SourceDatabaseInsertion.SourceProvenance
     ) throws -> URL {
+        @Dependency(\.sourceRepositoryStorageRoot) var sourceRepositoryStorageRoot
+
+        return try repositoryURL(
+            for: provenance,
+            rootURL: sourceRepositoryStorageRoot.rootURL()
+        )
+    }
+
+    static func repositoryURL(
+        for provenance: OME.SourceDatabaseInsertion.SourceProvenance,
+        rootURL: URL
+    ) throws -> URL {
         switch provenance.kind {
         case .local:
             URL(fileURLWithPath: provenance.reference).standardizedFileURL
         case .tangled:
-            try storedRepositoryURL(for: provenance)
+            storedRepositoryURL(for: provenance, rootURL: rootURL)
         }
     }
 
@@ -70,25 +136,23 @@ public extension SourceRepositoryStorageClient {
     }
 
     static func rootURL() throws -> URL {
-        let applicationSupportURL = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let rootURL = applicationSupportURL
-            .appendingPathComponent("SourceRepositories", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: rootURL,
-            withIntermediateDirectories: true
-        )
-        return rootURL
+        @Dependency(\.sourceRepositoryStorageRoot) var sourceRepositoryStorageRoot
+
+        return try sourceRepositoryStorageRoot.rootURL()
     }
 
     static func storedRepositoryURL(
         for provenance: OME.SourceDatabaseInsertion.SourceProvenance
     ) throws -> URL {
-        try rootURL()
+        storedRepositoryURL(for: provenance, rootURL: try rootURL())
+    }
+
+    static func storedRepositoryURL(
+        for provenance: OME.SourceDatabaseInsertion.SourceProvenance,
+        rootURL: URL
+    ) -> URL {
+        rootURL
+            .standardizedFileURL
             .appendingPathComponent(directoryName(for: provenance), isDirectory: true)
     }
 
@@ -239,6 +303,22 @@ private extension Error {
     }
 }
 
+private enum SourceRepositoryStorageRootClientKey: DependencyKey {
+    static var liveValue: SourceRepositoryStorageRootClient {
+        .live
+    }
+
+    static var testValue: SourceRepositoryStorageRootClient {
+        .rooted(
+            at: FileManager.default.temporaryDirectory
+                .appending(
+                    path: "ome-source-repositories-\(UUID().uuidString)",
+                    directoryHint: .isDirectory
+                )
+        )
+    }
+}
+
 private enum SourceRepositoryStorageClientKey: DependencyKey {
     static var liveValue: SourceRepositoryStorageClient {
         .live
@@ -250,6 +330,11 @@ private enum SourceRepositoryStorageClientKey: DependencyKey {
 }
 
 public extension DependencyValues {
+    var sourceRepositoryStorageRoot: SourceRepositoryStorageRootClient {
+        get { self[SourceRepositoryStorageRootClientKey.self] }
+        set { self[SourceRepositoryStorageRootClientKey.self] = newValue }
+    }
+
     var sourceRepositoryStorage: SourceRepositoryStorageClient {
         get { self[SourceRepositoryStorageClientKey.self] }
         set { self[SourceRepositoryStorageClientKey.self] = newValue }
