@@ -99,10 +99,19 @@ public struct ScheduleViewer {
         }
 
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>? {
-            get { scheduleViewerState.selectedStageID }
+            get {
+                ScheduleViewer.normalizedSelectedStageID(
+                    selectedStageID: scheduleViewerState.selectedStageID,
+                    stages: visibleStages
+                )
+            }
             set {
+                let selectedStageID = ScheduleViewer.normalizedSelectedStageID(
+                    selectedStageID: newValue,
+                    stages: visibleStages
+                )
                 $scheduleViewerState.withLock {
-                    $0.selectedStageID = newValue
+                    $0.selectedStageID = selectedStageID
                 }
             }
         }
@@ -166,7 +175,7 @@ public struct ScheduleViewer {
 
         var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
             ScheduleViewer.resolvedSelectedStageID(
-                selectedStageID: selectedStageID,
+                selectedStageID: scheduleViewerState.selectedStageID,
                 stages: visibleStages
             )
         }
@@ -359,6 +368,17 @@ public struct ScheduleViewer {
             return selectedStageID
         }
         return stages.first?.id.stageID
+    }
+
+    static func normalizedSelectedStageID(
+        selectedStageID: OMERecord.ID<OMERecord.Stage>?,
+        stages: [OMERecord.Stage]
+    ) -> OMERecord.ID<OMERecord.Stage>? {
+        guard !stages.isEmpty else { return selectedStageID }
+        return resolvedSelectedStageID(
+            selectedStageID: selectedStageID,
+            stages: stages
+        )
     }
 
     static func scheduleDivisions(stages: [OMERecord.Stage]) -> [ScheduleDivision] {

@@ -48,10 +48,19 @@ public struct ScheduleSingleStageAtOnce {
         @FetchAll public var stages: [OMERecord.Stage]
 
         public var selectedStageID: OMERecord.ID<OMERecord.Stage>? {
-            get { scheduleViewerState.selectedStageID }
+            get {
+                ScheduleViewer.normalizedSelectedStageID(
+                    selectedStageID: scheduleViewerState.selectedStageID,
+                    stages: visibleStages
+                )
+            }
             set {
+                let selectedStageID = ScheduleViewer.normalizedSelectedStageID(
+                    selectedStageID: newValue,
+                    stages: visibleStages
+                )
                 $scheduleViewerState.withLock {
-                    $0.selectedStageID = newValue
+                    $0.selectedStageID = selectedStageID
                 }
             }
         }
@@ -92,7 +101,7 @@ public struct ScheduleSingleStageAtOnce {
 
         public var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
             ScheduleViewer.resolvedSelectedStageID(
-                selectedStageID: selectedStageID,
+                selectedStageID: scheduleViewerState.selectedStageID,
                 stages: visibleStages
             )
         }
@@ -281,7 +290,8 @@ public struct ScheduleSingleStageAtOnceView: View {
     }
 
     func resolveSelectedStage() {
-        guard store.selectedStageID != resolvedSelectedStageID else { return }
+        guard !store.visibleStages.isEmpty else { return }
+        guard store.state.scheduleViewerState.selectedStageID != resolvedSelectedStageID else { return }
         $store.selectedStageID.wrappedValue = resolvedSelectedStageID
     }
 

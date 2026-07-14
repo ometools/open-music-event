@@ -4162,7 +4162,7 @@ struct NavigationTests {
             )
         }
 
-        let state = withDependencies {
+        var state = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
@@ -4177,6 +4177,57 @@ struct NavigationTests {
 
         #expect(state.visibleStages.map(\.id.stageID) == [stageLocalID("workshop")])
         #expect(state.resolvedSelectedStageID == stageLocalID("workshop"))
+        #expect(state.selectedStageID == stageLocalID("workshop"))
+
+        state.selectedStageID = stageLocalID("main")
+
+        #expect(state.scheduleViewerState.selectedStageID == stageLocalID("workshop"))
+    }
+
+    @Test
+    func singleStageScheduleSelectionBindingNormalizesToVisibleStage() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            category: OMERecord.Stage.Category("workshop")
+        )
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "workshop",
+                name: "Workshop",
+                category: workshopDivision.category,
+                sortIndex: 2
+            )
+        }
+
+        var state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            let state = ScheduleSingleStageAtOnce.State(
+                eventID: eventID,
+                scheduleDivision: workshopDivision
+            )
+            state.$scheduleViewerState.withLock {
+                $0.selectedStageID = stageLocalID("main")
+            }
+            return state
+        }
+
+        #expect(state.visibleStages.map(\.id.stageID) == [stageLocalID("workshop")])
+        #expect(state.selectedStageID == stageLocalID("workshop"))
+        #expect(state.resolvedSelectedStageID == stageLocalID("workshop"))
+        #expect(state.scheduleViewerState.selectedStageID == stageLocalID("main"))
+
+        state.selectedStageID = state.selectedStageID
+
+        #expect(state.scheduleViewerState.selectedStageID == stageLocalID("workshop"))
     }
 
     @Test
