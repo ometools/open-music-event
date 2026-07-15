@@ -132,6 +132,9 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
             }
 
             var sourceRepository = sourceRepository
+            debugSourceImagePreservation(
+                "calendar request calendar=\(request.calendarID.ownerID.description)/\(request.calendarID.calendarID.rawValue.rawValue) baseline=\(request.sourceBaselineID.rawValue) sourceDirectories=\(sourceRepository.events.map(\.directoryName).joined(separator: ",")) provenanceDirectories=\(sourceEvents.map(\.sourceEventDirectory).joined(separator: ","))"
+            )
             let sourceCalendar = sourceRepository.calendar ?? .defaultCalendar
             sourceRepository.calendar = CalendarDTO(calendar)
                 .preservingSourceImageReferences(
@@ -147,7 +150,11 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
                 uniqueKeysWithValues: sourceRepository.events.map { ($0.directoryName, $0) }
             )
             for sourceEvent in sourceEvents {
-                let existingSourceEvent = eventsByDirectory[sourceEvent.sourceEventDirectory]?.components
+                let existingDirectory = eventsByDirectory[sourceEvent.sourceEventDirectory]
+                debugSourceImagePreservation(
+                    "calendar event directory=\(sourceEvent.sourceEventDirectory) event=\(sourceEvent.id.organizerID.description)/\(sourceEvent.id.eventID.rawValue.rawValue) foundExistingSource=\(existingDirectory != nil)"
+                )
+                let existingSourceEvent = existingDirectory?.components
                     ?? .emptyForNewSourcePatch
                 let updatedSourceEvent = try await eventConversion.update(
                     existingSourceEvent,
@@ -433,31 +440,42 @@ private extension OpenMusicEventSourceEvent {
         let contributorsByID = Dictionary(
             uniqueKeysWithValues: contributors.map { ($0.id.contributorID, $0) }
         )
+        debugSourceImagePreservation(
+            "contributors event=\(eventID.organizerID.description)/\(eventID.eventID.rawValue.rawValue) sourceFiles=\(self.contributors?.count ?? 0) databaseContributors=\(contributors.count)"
+        )
         var consumedContributorIDs: Set<OME.ID<OME.Contributor>> = []
         var files: [FileContent<ContributorDTO>] = []
 
         for file in self.contributors ?? [] {
             let contributorID = file.sourceContributorID
             guard let contributor = contributorsByID[contributorID] else {
+                debugSourceImagePreservation(
+                    "contributors skip sourceFile=\(file.fileName).\(file.fileType) sourceContributorID=\(contributorID.rawValue.rawValue) reason=no-database-contributor"
+                )
                 continue
             }
 
             consumedContributorIDs.insert(contributorID)
             files.append(
                 try file.map { sourceContributor in
-                    ContributorDTO(
+                    let context = SourceImageReferenceContext(
+                        organizerID: eventID.organizerID,
+                        eventID: eventID.eventID,
+                        parentKind: .contributor,
+                        parentLocalID: contributorID.rawValue.rawValue
+                    )
+                    let updatedContributor = ContributorDTO(
                         contributor.sourceDraft(
                             preservingSourceID: sourceContributor.id
                         )
                     )
-                    .preservingSourceImageReferences(
+                    debugSourceImagePreservation(
+                        "contributors preserve sourceFile=\(file.fileName).\(file.fileType) contributorID=\(contributorID.rawValue.rawValue) context=\(context.sourceImageDebugDescription) sourceImages=\(sourceContributor.images.sourceImageDebugDescription) updatedImages=\(updatedContributor.images.sourceImageDebugDescription)"
+                    )
+                    return updatedContributor
+                        .preservingSourceImageReferences(
                         from: sourceContributor,
-                        context: SourceImageReferenceContext(
-                            organizerID: eventID.organizerID,
-                            eventID: eventID.eventID,
-                            parentKind: .contributor,
-                            parentLocalID: contributorID.rawValue.rawValue
-                        )
+                        context: context
                     )
                 }
             )
@@ -475,6 +493,9 @@ private extension OpenMusicEventSourceEvent {
             }
 
         for contributor in additions {
+            debugSourceImagePreservation(
+                "contributors add databaseContributorID=\(contributor.id.contributorID.rawValue.rawValue) images=\(contributor.images.sourceImageDebugDescription) reason=no-source-file-match"
+            )
             files.append(
                 try FileContent(
                     fileName: contributor.id.contributorID.rawValue.rawValue,
@@ -497,6 +518,14 @@ private enum SourceImageParentKind: String, Sendable {
     case contributor
     case poster
 }
+
+#if DEBUG
+private func debugSourceImagePreservation(_ message: @autoclosure () -> String) {
+    print("[OME SourceImagePreservation] \(message())")
+}
+#else
+private func debugSourceImagePreservation(_ message: @autoclosure () -> String) {}
+#endif
 
 private struct SourceImageReferenceContext: Sendable {
     var organizerID: OME.Organizer.ID
@@ -522,6 +551,10 @@ private struct SourceImageReferenceContext: Sendable {
         ])
         return components
             .joined(separator: "|")
+    }
+
+    var sourceImageDebugDescription: String {
+        "organizer=\(organizerID.description) event=\(eventID?.rawValue.rawValue ?? "nil") parent=\(parentKind.rawValue) localID=\(parentLocalID)"
     }
 }
 
@@ -610,18 +643,42 @@ private extension Array where Element == SourceImageAsset {
         from source: [SourceImageAsset]?,
         context: SourceImageReferenceContext
     ) -> [SourceImageAsset] {
-        guard var source else { return self }
+        guard var source else {
+            debugSourceImagePreservation(
+                "image-array no-source-images context=\(context.sourceImageDebugDescription) updatedImages=\(self.sourceImageDebugDescription)"
+            )
+            return self
+        }
+        debugSourceImagePreservation(
+            "image-array begin context=\(context.sourceImageDebugDescription) updatedCount=\(count) sourceCount=\(source.count)"
+        )
         return map { image in
-            guard let sourceIndex = source.firstIndex(where: {
-                image.canPreserveSourceImageReference(
-                    from: $0,
+            var selectedIndex: Array<SourceImageAsset>.Index?
+            var candidateReports: [String] = []
+            for sourceIndex in source.indices {
+                let details = image.preservationMatchDetails(
+                    from: source[sourceIndex],
                     context: context
                 )
-            }) else {
+                candidateReports.append(
+                    "#\(sourceIndex) \(details.sourceImageDebugDescription) source={\(source[sourceIndex].sourceImageDebugDescription)}"
+                )
+                if selectedIndex == nil, details.matches {
+                    selectedIndex = sourceIndex
+                }
+            }
+
+            guard let sourceIndex = selectedIndex else {
+                debugSourceImagePreservation(
+                    "image-array no-match context=\(context.sourceImageDebugDescription) updated={\(image.sourceImageDebugDescription)} candidates=[\(candidateReports.joined(separator: "; "))]"
+                )
                 return image
             }
 
             let sourceImage = source.remove(at: sourceIndex)
+            debugSourceImagePreservation(
+                "image-array match context=\(context.sourceImageDebugDescription) updated={\(image.sourceImageDebugDescription)} source={\(sourceImage.sourceImageDebugDescription)} sourceIndex=\(sourceIndex)"
+            )
             return image.preservingSourceImageReference(from: sourceImage)
         }
     }
@@ -629,6 +686,10 @@ private extension Array where Element == SourceImageAsset {
     func removingLocalFileURLImages() -> [SourceImageAsset]? {
         let images = filter { !$0.source.isLocalFileURL }
         return images.isEmpty ? nil : images
+    }
+
+    var sourceImageDebugDescription: String {
+        "[\(map(\.sourceImageDebugDescription).joined(separator: " | "))]"
     }
 }
 
@@ -646,16 +707,115 @@ private extension SourceImageAsset {
         from sourceImage: SourceImageAsset,
         context: SourceImageReferenceContext
     ) -> Bool {
-        guard role == sourceImage.role,
-              appearance == sourceImage.appearance
-        else { return false }
+        preservationMatchDetails(
+            from: sourceImage,
+            context: context
+        )
+        .matches
+    }
 
-        if let assetKey,
-           assetKey == context.assetKey(for: sourceImage) {
-            return true
+    func preservationMatchDetails(
+        from sourceImage: SourceImageAsset,
+        context: SourceImageReferenceContext
+    ) -> SourceImagePreservationMatchDetails {
+        let roleMatches = role == sourceImage.role
+        let appearanceMatches = appearance == sourceImage.appearance
+        let expectedAssetKey = context.assetKey(for: sourceImage)
+        let assetKeyMatches = assetKey == expectedAssetKey
+        let sourceMatches = source.isEquivalentSourceImageReference(to: sourceImage.source)
+        return SourceImagePreservationMatchDetails(
+            matches: roleMatches
+                && appearanceMatches
+                && ((assetKey != nil && assetKeyMatches) || sourceMatches),
+            roleMatches: roleMatches,
+            appearanceMatches: appearanceMatches,
+            expectedAssetKey: expectedAssetKey,
+            assetKeyMatches: assetKeyMatches,
+            sourceMatches: sourceMatches
+        )
+    }
+
+    var sourceImageDebugDescription: String {
+        [
+            "assetKey=\(assetKey ?? "nil")",
+            "role=\(role.rawValue)",
+            "renderKind=\(renderKind.rawValue)",
+            "appearance=\(appearance?.rawValue ?? "nil")",
+            "materializationPolicy=\(materializationPolicy.rawValue)",
+            "source=\(source.sourceImageDebugDescription)",
+        ]
+        .joined(separator: " ")
+    }
+}
+
+private struct SourceImagePreservationMatchDetails: Sendable {
+    var matches: Bool
+    var roleMatches: Bool
+    var appearanceMatches: Bool
+    var expectedAssetKey: String
+    var assetKeyMatches: Bool
+    var sourceMatches: Bool
+
+    var sourceImageDebugDescription: String {
+        [
+            "match=\(matches)",
+            "role=\(roleMatches)",
+            "appearance=\(appearanceMatches)",
+            "expectedAssetKey=\(expectedAssetKey)",
+            "assetKey=\(assetKeyMatches)",
+            "source=\(sourceMatches)",
+        ]
+        .joined(separator: " ")
+    }
+}
+
+private extension Optional where Wrapped == [SourceImageAsset] {
+    var sourceImageDebugDescription: String {
+        guard let self else { return "nil" }
+        return self.sourceImageDebugDescription
+    }
+}
+
+private extension Optional where Wrapped == [OME.ImageAsset] {
+    var sourceImageDebugDescription: String {
+        guard let self else { return "nil" }
+        return "[\(self.map(\.sourceImageDebugDescription).joined(separator: " | "))]"
+    }
+}
+
+private extension OME.ImageAsset {
+    var sourceImageDebugDescription: String {
+        [
+            "assetKey=\(assetKey ?? "nil")",
+            "role=\(role.rawValue)",
+            "renderKind=\(renderKind.rawValue)",
+            "appearance=\(appearance?.rawValue ?? "nil")",
+            "materializationPolicy=\(materializationPolicy.rawValue)",
+            "source=\(source.sourceImageDebugDescription)",
+        ]
+        .joined(separator: " ")
+    }
+}
+
+private extension OME.ImageAsset.Source {
+    var sourceImageDebugDescription: String {
+        switch self {
+        case let .url(url):
+            return "url:\(url.absoluteString)"
+        case let .blob(blob):
+            return "blob:\(blob.ref.rawValue)"
         }
+    }
+}
 
-        return source.isEquivalentSourceImageReference(to: sourceImage.source)
+private extension SourceImageRef {
+    var sourceImageDebugDescription: String {
+        switch self {
+        case let .file(path):
+            return "file:\(path)"
+        case let .url(url):
+            return "url:\(url.absoluteString)"
+        }
     }
 }
 
