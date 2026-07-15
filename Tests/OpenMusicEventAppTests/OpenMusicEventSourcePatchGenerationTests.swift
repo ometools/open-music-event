@@ -1029,6 +1029,110 @@ struct OpenMusicEventSourcePatchGenerationTests {
     }
 
     @Test
+    func liveConversionDeletesContributorMarkdownMissingFromDatabase() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "events/test-event/event.yml",
+            contents: "name: Test Event\ntimeZone: GMT\n"
+        )
+        try fixture.writeFile(
+            "events/test-event/contributors/artist-one.md",
+            contents: """
+            ---
+            name: Artist One
+            ---
+            Removed bio.
+            """
+        )
+        try fixture.writeFile(
+            "events/test-event/contributors/artist-two.md",
+            contents: """
+            ---
+            name: Artist Two
+            ---
+            Kept bio.
+            """
+        )
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("test-event")
+        let remainingContributorID = OME.Contributor.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            contributorID: localID("artist-two")
+        )
+        let repositoryURL = fixture.repositoryURL
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Test Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: TimeZone(identifier: "GMT")!,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try OME.Contributor.insert {
+                OME.Contributor.Draft(
+                    id: remainingContributorID,
+                    name: "Artist Two",
+                    bio: "Kept bio."
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .local,
+                    sourceReference: repositoryURL.path,
+                    ref: nil,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "test-event"
+                )
+            }
+            .execute(db)
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventSourcePatchRequest(eventID: eventID)
+            )
+        }
+
+        let change = try #require(patch.fileChanges.first)
+        #expect(patch.fileChanges.count == 1)
+        #expect(change.path == "events/test-event/contributors/artist-one.md")
+        #expect(change.kind == .deleted)
+        let oldContents = try #require(change.oldContents)
+        let oldText = String(decoding: oldContents, as: UTF8.self)
+        #expect(oldText.contains("name: Artist One"))
+    }
+
+    @Test
     func liveConversionUpdatesEventYamlFromDatabase() async throws {
         let fixture = try OpenMusicEventSourcePatchGenerationFixture()
         defer { fixture.cleanUp() }
