@@ -1,5 +1,6 @@
 import ATProto
 import ComposableArchitecture2
+import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import Foundation
@@ -15,7 +16,6 @@ import Testing
 struct AuthenticationCoordinatorTests {
     @Test
     func authorizationRequestPresentsAuthorizationFlow() {
-        OpenMusicEventOAuth.resetStoredSession()
         let requirement = OAuth.AuthRequirement(
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
         )
@@ -35,7 +35,6 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func signUpAuthorizationRequestPresentsSelectorConfiguration() {
-        OpenMusicEventOAuth.resetStoredSession()
         let store = Store(initialState: AuthenticationCoordinator.State.localTestState()) {
             AuthenticationCoordinator()
         }
@@ -63,7 +62,6 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func routedAuthorizationRequestPresentsAuthorizationFlow() {
-        OpenMusicEventOAuth.resetStoredSession()
         let requirement = OAuth.AuthRequirement(
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
         )
@@ -81,7 +79,6 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func successStoresSelectedSessionAndCompletesRequest() async throws {
-        OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
         let requirement = OAuth.AuthRequirement(
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
@@ -115,7 +112,6 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func routedSuccessStoresSelectedSessionAndCompletesResponder() async throws {
-        OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
         let requirement = OAuth.AuthRequirement(
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
@@ -159,8 +155,150 @@ struct AuthenticationCoordinatorTests {
     }
 
     @Test
+    func mergePermissionUpgradePersistsSelectedSessionForNextLaunch() async throws {
+        let keychainStorage = InMemoryKeychainStorage()
+
+        try await withDependencies {
+            $0.keychainStorage = .inMemory(keychainStorage)
+        } operation: {
+            // The user is already signed in, but the current token is missing merge permission.
+            var baseSession = openMusicEventTestSession(
+                permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+            )
+            baseSession.accessToken = OAuth.AccessToken(rawValue: "base-access-token")
+            baseSession.refreshToken = OAuth.RefreshToken(rawValue: "base-refresh-token")
+            var initialSessionStore = OAuth.SessionStore()
+            initialSessionStore.upsert(baseSession)
+            let sessionStoreItem = KeychainStorageItem(
+                service: "fm.woody.openMusicEvent.tests",
+                account: "mergePermissionUpgrade.sessionStore"
+            )
+            let sessionStore = Shared(
+                wrappedValue: initialSessionStore,
+                KeychainSharedKey(item: sessionStoreItem)
+            )
+            let selectedSessionID = Shared(
+                value: baseSession.accountID as Atmosphere.Account.ID?
+            )
+            let authFailureMessage = Shared<ErrorMessage?>(value: nil)
+            let storage = OAuthSessionStorage(
+                sessionStore: sessionStore,
+                authFailureMessage: authFailureMessage,
+                selectedSessionID: selectedSessionID
+            )
+            try #require(
+                OAuth.authorizationStatus(
+                    for: OpenMusicEventOAuth.tangledPullMergeAuthRequirement,
+                    session: storage.session.wrappedValue,
+                    manifest: OpenMusicEventOAuth.appManifest
+                ) == .upgradeAvailable(
+                    missing: OpenMusicEventOAuth.tangledPullMergeAuthRequirement.permissions,
+                    requirement: OpenMusicEventOAuth.tangledPullMergeAuthRequirement
+                )
+            )
+
+            // The authorization callback returns the same account with the merge token added.
+            var upgradedSession = openMusicEventTestSession(
+                permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+                    .union(OpenMusicEventOAuth.tangledPullMergeAuthRequirement.permissions)
+            )
+            upgradedSession.accessToken = OAuth.AccessToken(rawValue: "merge-access-token")
+            upgradedSession.refreshToken = OAuth.RefreshToken(rawValue: "merge-refresh-token")
+
+            // Merge asks for an authorization upgrade instead of making the user sign in again.
+            let authorizationHarness = MergeAuthorizationUpgradeHarness()
+            let authorizationRequests = OpenMusicEventAuthorizationRequests
+                .mergeUpgradeHarness(authorizationHarness)
+                .openMusicEventAutoStartingAuthorizationUpgrades(
+                    session: { storage.session.wrappedValue },
+                    sessionStore: { storage.sessionStore.wrappedValue },
+                    appManifest: OpenMusicEventOAuth.appManifest
+                )
+            var dependencies = DependencyValues()
+            dependencies.openMusicEventAuthorizationRequests = authorizationRequests
+            dependencies.oauthAppConfiguration = OpenMusicEventOAuth.appConfiguration
+            dependencies.oauthAppManifest = OpenMusicEventOAuth.appManifest
+            dependencies.oauthAuthorizationBroker = authorizationRequests.broker()
+            let store = withDependencies {
+                $0 = dependencies
+                $0[OAuth.Client.self] = successfulOAuthClient(session: upgradedSession)
+                $0.defaultPort = 443
+                $0.oauthBrowserStrategy = .webAuthenticationSession
+                $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
+            } operation: {
+                Store(initialState: AuthenticationCoordinator.State(storage: storage)) {
+                    AuthenticationCoordinator()
+                }
+            }
+            let mergeAuthorization = Task {
+                try await dependencies.oauthAuthorizationBroker.authorize(
+                    OpenMusicEventOAuth.tangledPullMergeAuthRequirement
+                )
+            }
+            defer { mergeAuthorization.cancel() }
+
+            try await waitForAsyncCondition {
+                await authorizationHarness.lastRequest != nil
+            }
+            let request = try #require(await authorizationHarness.lastRequest)
+            #expect(request.requirement == OpenMusicEventOAuth.tangledPullMergeAuthRequirement)
+            #expect(request.loginHint == baseSession.accountID.rawValue.description)
+            #expect(request.startsImmediately)
+
+            try await waitForAsyncCondition {
+                await authorizationHarness.didSucceed
+            }
+            try await mergeAuthorization.value
+            #expect(store.authorization == nil)
+            #expect(store.directAuthorization == nil)
+
+            // The upgraded selected session is saved to the same keychain-backed store the app
+            // reloads on launch.
+            try await waitForCondition {
+                keychainStorage.data(for: sessionStoreItem) != nil
+            }
+            let savedSessionStore = try JSONDecoder().decode(
+                OAuth.SessionStore.self,
+                from: try #require(
+                    keychainStorage.data(for: sessionStoreItem)
+                )
+            )
+            let savedSession = try #require(savedSessionStore[baseSession.accountID])
+            #expect(savedSessionStore.selectedAccountID == baseSession.accountID)
+            #expect(savedSession.accessToken == upgradedSession.accessToken)
+            #expect(savedSession.refreshToken == upgradedSession.refreshToken)
+            expectNoDifference(
+                savedSession.grantedPermissions
+                    .missing(OpenMusicEventOAuth.tangledPullMergeAuthRequirement.permissions),
+                []
+            )
+
+            // A fresh launch binds new shared state to the same keychain item and reloads the
+            // upgraded selected session from disk.
+            let relaunchedStorage = OAuthSessionStorage(
+                sessionStore: Shared(
+                    wrappedValue: OAuth.SessionStore(),
+                    KeychainSharedKey(item: sessionStoreItem)
+                ),
+                authFailureMessage: Shared<ErrorMessage?>(value: nil),
+                selectedSessionID: Shared(value: baseSession.accountID as Atmosphere.Account.ID?)
+            )
+            try await relaunchedStorage.enforceFreshness()
+
+            let relaunchedSession = try #require(relaunchedStorage.session.wrappedValue)
+            #expect(relaunchedSession.accessToken == upgradedSession.accessToken)
+            #expect(
+                OAuth.authorizationStatus(
+                    for: OpenMusicEventOAuth.tangledPullMergeAuthRequirement,
+                    session: relaunchedSession,
+                    manifest: OpenMusicEventOAuth.appManifest
+                ) == .satisfied(upgradedSession)
+            )
+        }
+    }
+
+    @Test
     func cancelClearsAuthorizationAndCancelsRequest() async {
-        OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
         var state = AuthenticationCoordinator.State.localTestState()
         state.authorization = AuthorizationFlow.State(
@@ -185,7 +323,6 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func routedCancelClearsAuthorizationAndCancelsResponder() async {
-        OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
         let request = AuthorizationPresentationRequest(
             requirement: OAuth.AuthRequirement(
@@ -223,7 +360,6 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func failureClearsAuthorizationAndFailsRequest() async {
-        OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
         let requirement = OAuth.AuthRequirement(
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
@@ -253,7 +389,6 @@ struct AuthenticationCoordinatorTests {
 
     @Test
     func routedFailureClearsAuthorizationAndFailsResponder() async {
-        OpenMusicEventOAuth.resetStoredSession()
         let recorder = AuthorizationRequestRecorder()
         let requirement = OAuth.AuthRequirement(
             permissions: [OpenMusicEventOAuth.tangledPullCreatePermission]
@@ -443,6 +578,105 @@ private func testPendingSession() throws -> OAuth.Session.Pending {
     )
 }
 
+private func waitForCondition(
+    _ condition: @escaping @Sendable () -> Bool
+) async throws {
+    for _ in 0..<100 {
+        if condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(condition())
+}
+
+private func waitForAsyncCondition(
+    _ condition: @escaping @Sendable () async -> Bool
+) async throws {
+    for _ in 0..<100 {
+        if await condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    let finalResult = await condition()
+    try #require(finalResult)
+}
+
+private actor MergeAuthorizationUpgradeHarness {
+    private var activeRequest: AuthorizationRequestCenter.Request?
+    private var requestObservers: [UUID: AsyncStream<AuthorizationRequestCenter.Request?>.Continuation] = [:]
+    private var waiter: CheckedContinuation<Void, any Error>?
+
+    private(set) var lastRequest: AuthorizationRequestCenter.Request?
+    private(set) var didSucceed = false
+
+    func authorizeWithLoginHint(
+        _ requirement: OAuth.AuthRequirement,
+        loginHint: String
+    ) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            waiter = continuation
+            let request = AuthorizationRequestCenter.Request(
+                loginHint: loginHint,
+                startsImmediately: true,
+                requirement: requirement
+            )
+            activeRequest = request
+            lastRequest = request
+            yield(request)
+        }
+    }
+
+    func requests() -> AsyncStream<AuthorizationRequestCenter.Request?> {
+        let observerID = UUID()
+        return AsyncStream { continuation in
+            requestObservers[observerID] = continuation
+            continuation.yield(activeRequest)
+            continuation.onTermination = { _ in
+                Task { await self.removeObserver(id: observerID) }
+            }
+        }
+    }
+
+    func succeed() {
+        didSucceed = true
+        finish(.success(()))
+    }
+
+    func fail(_ error: OAuth.AuthorizationRequired) {
+        finish(.failure(error))
+    }
+
+    func cancel() {
+        finish(.failure(CancellationError()))
+    }
+
+    private func removeObserver(id: UUID) {
+        requestObservers[id] = nil
+    }
+
+    private func finish(_ result: Result<Void, any Error>) {
+        let waiter = waiter
+        self.waiter = nil
+        activeRequest = nil
+        yield(nil)
+        for observer in requestObservers.values {
+            observer.finish()
+        }
+        requestObservers = [:]
+
+        switch result {
+        case .success:
+            waiter?.resume()
+        case .failure(let error):
+            waiter?.resume(throwing: error)
+        }
+    }
+
+    private func yield(_ request: AuthorizationRequestCenter.Request?) {
+        for observer in requestObservers.values {
+            observer.yield(request)
+        }
+    }
+}
+
 private extension OAuthAuthenticationCoordinator.State {
     static func localTestState() -> Self {
         Self(
@@ -470,6 +704,34 @@ private actor AuthorizationRequestRecorder {
 }
 
 private extension OpenMusicEventAuthorizationRequests {
+    static func mergeUpgradeHarness(_ harness: MergeAuthorizationUpgradeHarness) -> Self {
+        Self(
+            authorizeWithLoginHint: { requirement, loginHint in
+                try await harness.authorizeWithLoginHint(requirement, loginHint: loginHint)
+            },
+            broker: {
+                OAuth.AuthorizationBroker { requirement in
+                    throw OAuth.AuthorizationRequired.signIn(requirement)
+                }
+            },
+            requests: {
+                await harness.requests()
+            },
+            signUp: { requirement, _ in
+                throw OAuth.AuthorizationRequired.signIn(requirement)
+            },
+            succeed: {
+                await harness.succeed()
+            },
+            fail: { error in
+                await harness.fail(error)
+            },
+            cancel: {
+                await harness.cancel()
+            }
+        )
+    }
+
     static func recording(_ recorder: AuthorizationRequestRecorder) -> Self {
         Self(
             broker: { .init { _ in } },
