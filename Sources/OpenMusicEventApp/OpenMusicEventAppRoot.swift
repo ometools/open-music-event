@@ -219,6 +219,7 @@ public struct OpenMusicEventAppRoot {
                 case .openURL(let url):
                     if OpenMusicEventOAuth.isCallbackURL(url) {
                         store.addTask {
+                            await Task.yield()
                             try store.send(.authentication(.handleOpenURL(.init(url))))
                         }
                         return
@@ -226,6 +227,7 @@ public struct OpenMusicEventAppRoot {
 
                     if let route = AppRoute(url: url) {
                         store.addTask {
+                            await Task.yield()
                             try store.send(.openRoute(route))
                         }
                     } else {
@@ -256,11 +258,13 @@ public struct OpenMusicEventAppRoot {
         }
         .onEvent(NavigationRequested.self) { request, _ in
             store.addTask {
+                await Task.yield()
                 try store.send(.handleNavigationRequest(request))
             }
         }
         .onEvent(LocalEventDeletionRequested.self) { eventID, _ in
             store.addTask {
+                await Task.yield()
                 try store.send(.localEventDeletionRequested(eventID))
             }
         }
