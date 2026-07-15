@@ -147,7 +147,6 @@ public extension SourceRepositoryStorageClient {
             throw error
         }
     }
-
     private static func removeStoredRepositoryBackup(at repositoryURL: URL) throws {
         let referenceDatabaseURL = repositoryURL
             .standardizedFileURL

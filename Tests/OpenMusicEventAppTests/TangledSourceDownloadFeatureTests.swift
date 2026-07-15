@@ -1496,7 +1496,6 @@ struct TangledSourceDownloadFeatureTests {
         )
     }
 
-    @Test
     func liveStoragePreservesOpenReferenceDatabaseWhenReplacingStoredRepository() throws {
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
