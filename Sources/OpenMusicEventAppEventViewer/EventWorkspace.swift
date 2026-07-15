@@ -90,10 +90,33 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     }
 }
 
+private struct SourceWorkspaceSummaryRequestIdentity: Hashable, Sendable {
+    var sourceEditingSession: SourceEditingSessionIdentity?
+
+    init() {
+        @Dependency(\.sourceEditingSession) var sourceEditingSession
+        self.sourceEditingSession = sourceEditingSession.map(SourceEditingSessionIdentity.init)
+    }
+}
+
+private struct SourceEditingSessionIdentity: Hashable, Sendable {
+    var baselineDatabasePath: String
+    var baselineSchemaName: String
+    var workingDatabasePath: String
+
+    init(_ sourceEditingSession: SourceEditingSession) {
+        self.baselineDatabasePath = sourceEditingSession.baselineDatabasePath
+        self.baselineSchemaName = sourceEditingSession.baselineSchemaName
+        self.workingDatabasePath = sourceEditingSession.workingDatabasePath
+    }
+}
+
 public struct SourceWorkspaceSummaryRequest: FetchKeyRequest {
+    private var requestIdentity: SourceWorkspaceSummaryRequestIdentity
     public var target: SourceProposalTarget
 
     public init(target: SourceProposalTarget) {
+        self.requestIdentity = SourceWorkspaceSummaryRequestIdentity()
         self.target = target
     }
 
@@ -288,6 +311,20 @@ public struct EventWorkspace {
         }
     }
 
+    public enum SelectedTangledPullReview: Equatable, Sendable {
+        case loaded(TangledPullReview)
+        case pending(id: String)
+
+        public var id: String {
+            switch self {
+            case let .loaded(review):
+                review.id
+            case let .pending(id):
+                id
+            }
+        }
+    }
+
     public struct ResetEditsSuccess: Equatable, Sendable {
         public init() {}
     }
@@ -329,6 +366,8 @@ public struct EventWorkspace {
         public var sourceProposalStatus: SourceProposalStatus = .idle
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
+        public var selectedTangledPullReview: SelectedTangledPullReview?
+        public var pendingCreatedTangledPullReviewID: String?
         public var tangledPullReviewStatus: TangledPullReviewStatus = .notLoaded
         public var locallyRemovedTangledPullReviewIDs: Set<String> = []
         public var closingTangledPullReviewIDs: Set<String> = []
@@ -418,6 +457,7 @@ public struct EventWorkspace {
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
         case sourceProposal(SourceProposalFlow.Action)
+        case tangledPullReviewTapped(TangledPullReview)
         case tangledPullReviewSemanticDiffResponse(
             reviewID: String,
             Result<TangledPullReviewSemanticDiff, TangledPullReviewSemanticDiffFailure>
@@ -486,7 +526,7 @@ public struct EventWorkspace {
 
     public var body: some Feature {
         let _ = Self._logChanges()
-        Update { state, action in
+        ComposableArchitecture2.Update { state, action in
             func generateSourcePatch(
                 state: inout State
             ) {
@@ -807,8 +847,12 @@ public struct EventWorkspace {
                 state.isResettingEdits = false
                 state.resetEditsFailure = failure
 
-            case .sourceProposal(.delegate(.created)):
+            case let .sourceProposal(.delegate(.created(publication))):
                 state.isPreparingSourceProposal = false
+                state.pendingCreatedTangledPullReviewID = publication.sourceChangeID
+                if let sourceChangeID = publication.sourceChangeID {
+                    state.selectedTangledPullReview = .pending(id: sourceChangeID)
+                }
                 state.dismissSourceProposal()
                 refreshTangledPullReviews(target: state.target, state: &state)
 
@@ -851,8 +895,11 @@ public struct EventWorkspace {
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
 
-            case .sourceProposal:
+            case .sourceProposal(_):
                 break
+
+            case let .tangledPullReviewTapped(review):
+                state.selectedTangledPullReview = .loaded(review)
 
             case let .tangledPullReviewSemanticDiffResponse(reviewID, .success(diff)):
                 state.tangledPullReviewSemanticDiffs[reviewID] = .loaded(diff)
@@ -886,11 +933,20 @@ public struct EventWorkspace {
                 state.tangledPullReviewMergeFailures[review.id] = failure
 
             case let .tangledPullReviewsResponse(.success(reviews)):
-                state.tangledPullReviewStatus = .loaded(
-                    reviews
-                        .filter { !state.locallyRemovedTangledPullReviewIDs.contains($0.id) }
-                        .tangledPullReviewsSortedByDate
-                )
+                let loadedReviews = reviews
+                    .filter { !state.locallyRemovedTangledPullReviewIDs.contains($0.id) }
+                    .tangledPullReviewsSortedByDate
+                state.tangledPullReviewStatus = .loaded(loadedReviews)
+                if let pendingReviewID = state.pendingCreatedTangledPullReviewID,
+                   let review = loadedReviews.first(where: { $0.id == pendingReviewID })
+                {
+                    state.selectedTangledPullReview = .loaded(review)
+                    state.pendingCreatedTangledPullReviewID = nil
+                } else if let selectedReviewID = state.selectedTangledPullReview?.id,
+                          let review = loadedReviews.first(where: { $0.id == selectedReviewID })
+                {
+                    state.selectedTangledPullReview = .loaded(review)
+                }
 
             case let .tangledPullReviewsResponse(.failure(failure)):
                 state.tangledPullReviewStatus = .failed(failure)
@@ -963,6 +1019,11 @@ public struct EventWorkspaceView: View {
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
         .sheet(item: $store.scope(\.sourceProposal, action: \.sourceProposal)) { proposalStore in
             SourceProposalComposerView(store: proposalStore)
+        }
+        .navigationDestination(isPresented: $store.selectedTangledPullReview.isPresented) {
+            if let selectedReview = store.selectedTangledPullReview {
+                tangledPullReviewDestination(selectedReview)
+            }
         }
         .toolbar {
             if store.canCreateEvent {
@@ -1337,6 +1398,63 @@ public struct EventWorkspaceView: View {
                 }
             }
         }
+    }
+ 
+
+    @ViewBuilder
+    private func tangledPullReviewDestination(
+        _ selectedReview: EventWorkspace.SelectedTangledPullReview
+    ) -> some View {
+        switch selectedReview {
+        case let .loaded(review):
+            tangledPullReviewDetail(review)
+
+        case let .pending(id):
+            PendingTangledPullReviewDetailView(reviewID: id)
+        }
+    }
+
+    private func tangledPullReviewDetail(_ review: TangledPullReview) -> some View {
+        let isClosing = store.closingTangledPullReviewIDs.contains(review.id)
+        let isDeleting = store.deletingTangledPullReviewIDs.contains(review.id)
+        let isMerging = store.mergingTangledPullReviewIDs.contains(review.id)
+        let isBusy = isClosing || isDeleting || isMerging
+        let mergeFailure = store.tangledPullReviewMergeFailures[review.id]
+
+        return TangledPullReviewDetailView(
+            review: review,
+            semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
+                ?? .notLoaded,
+            isMerging: isMerging,
+            isBusy: isBusy,
+            mergeFailure: mergeFailure,
+            onLoadSemanticDiff: {
+                store.send(.reviewSemanticDiffButtonTapped(review))
+            },
+            onMerge: {
+                store.send(.mergeTangledPullReviewButtonTapped(review))
+            }
+        )
+    }
+}
+
+struct PendingTangledPullReviewDetailView: View {
+    let reviewID: String
+
+    var body: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            Text("Loading PR")
+                .font(.headline)
+            Text(reviewID)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Pull Request")
     }
 }
 

@@ -354,6 +354,98 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func sourceCommunicationPostsPersistAndDeleteOnReimport() async throws {
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let sourceProvenance = tangledSourceProvenance("post-source")
+        let resolvedEventID = "post-source-postival-2026"
+        let source = try sourceRepositoryWithCommunicationPosts(includePosts: true)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+
+        expectNoDifference(
+            insertion.communicationPosts.map(\.id),
+            [
+                OME.SourceDatabaseInsertion.CommunicationPost.ID(
+                    organizerID: organizerID,
+                    eventID: id(resolvedEventID),
+                    channelID: id("general"),
+                    postID: id("arrival")
+                ),
+                OME.SourceDatabaseInsertion.CommunicationPost.ID(
+                    organizerID: organizerID,
+                    eventID: id(resolvedEventID),
+                    channelID: id("general"),
+                    postID: id("welcome")
+                ),
+            ]
+        )
+        expectNoDifference(
+            insertion.communicationPosts.map(\.sortIndex),
+            [0, 1]
+        )
+
+        let database = try SQLiteData.defaultDatabase()
+        try await insertion.migrateAndInsert(into: database)
+
+        let posts = try await database.read { db in
+            try CommsPost
+                .order { $0.sortIndex }
+                .fetchAll(db)
+        }
+        expectNoDifference(
+            posts,
+            [
+                CommsPost(
+                    id: CommsPost.ID(
+                        organizerID: organizerID,
+                        eventID: id(resolvedEventID),
+                        channelID: id("general"),
+                        postID: CommsPost.PostID("arrival")
+                    ),
+                    title: "Arrival Info",
+                    contents: "Use the north gate.",
+                    timestamp: nil,
+                    isPinned: false,
+                    sortIndex: 0
+                ),
+                CommsPost(
+                    id: CommsPost.ID(
+                        organizerID: organizerID,
+                        eventID: id(resolvedEventID),
+                        channelID: id("general"),
+                        postID: CommsPost.PostID("welcome")
+                    ),
+                    title: "Welcome",
+                    contents: "Welcome to Postival.",
+                    headerImageURL: URL(string: "https://example.com/welcome.png")!,
+                    timestamp: nil,
+                    isPinned: true,
+                    sortIndex: 1
+                ),
+            ]
+        )
+
+        let reimport = try OME.SourceDatabaseInsertion(
+            .init(
+                source: sourceRepositoryWithCommunicationPosts(includePosts: false),
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        try await reimport.migrateAndInsert(into: database)
+
+        let postCount = try await database.read { db in
+            try CommsPost.fetchCount(db)
+        }
+        expectNoDifference(postCount, 0)
+    }
+
+    @Test
     func sourceContributorDIDImportsIntoContributorRecord() throws {
         let did = try #require(DID("did:plc:artist123"))
         let source = try makeSourceRepository(contributorDID: did)
@@ -3594,6 +3686,81 @@ struct SourceDatabaseInsertionTests {
         )
         source.events[0].components.schedules = nil
         return source
+    }
+
+    private func sourceRepositoryWithCommunicationPosts(
+        includePosts: Bool
+    ) throws -> OpenMusicEventSourceRepository {
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let posts: [DirectoryContent<[FileContent<CommunicationPostDTO>]>]? = includePosts
+            ? [
+                DirectoryContent(
+                    directoryName: "general",
+                    components: [
+                        try FileContent(
+                            fileName: "arrival",
+                            fileType: "md",
+                            data: CommunicationPostDTO(
+                                title: "Arrival Info",
+                                contents: "Use the north gate."
+                            )
+                        ),
+                        try FileContent(
+                            fileName: "welcome",
+                            fileType: "md",
+                            data: CommunicationPostDTO(
+                                title: "Welcome",
+                                contents: "Welcome to Postival.",
+                                headerImageURL: URL(string: "https://example.com/welcome.png")!,
+                                isPinned: true
+                            )
+                        ),
+                    ]
+                )
+            ]
+            : nil
+
+        return OpenMusicEventSourceRepository(
+            events: [
+                DirectoryContent(
+                    directoryName: "postival-2026",
+                    components: OpenMusicEventSourceEvent(
+                        event: EventDTO(
+                            id: nil,
+                            name: "Postival 2026",
+                            description: nil,
+                            startDate: nil,
+                            endDate: nil,
+                            status: nil,
+                            mode: nil,
+                            locations: nil,
+                            uris: nil,
+                            timeZone: timeZone,
+                            images: nil,
+                            contactNumbers: nil,
+                            categoryConfigs: nil
+                        ),
+                        channels: [
+                            try FileContent(
+                                fileName: "general",
+                                fileType: "yml",
+                                data: OME.Channel.Draft(
+                                    id: nil,
+                                    name: "General",
+                                    description: "Official updates.",
+                                    iconImageURL: nil,
+                                    headerImageURL: nil,
+                                    sortIndex: nil,
+                                    defaultNotificationState: .subscribed,
+                                    notificationsRequired: false
+                                )
+                            )
+                        ],
+                        communicationPosts: posts
+                    )
+                )
+            ]
+        )
     }
 
     private func eventWorkspaceSummary(

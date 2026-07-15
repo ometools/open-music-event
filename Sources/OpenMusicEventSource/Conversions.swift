@@ -136,6 +136,80 @@ public struct ContributorMarkdownConversion: Conversion {
     }
 }
 
+public struct CommunicationPostMarkdownConversion: Conversion {
+    public typealias Input = FileContent<Data>
+    public typealias Output = FileContent<CommunicationPostDTO>
+
+    public init() {}
+
+    public func apply(_ input: FileContent<Data>) throws -> FileContent<CommunicationPostDTO> {
+        let markdown = try MarkdownWithFrontMatterConversion<CommunicationPostFrontMatter>()
+            .apply(String(decoding: input.data, as: UTF8.self))
+        guard let frontMatter = markdown.frontMatter else {
+            throw MissingFrontMatterError(fileName: input.fileName)
+        }
+
+        return try input.map { _ in
+            CommunicationPostDTO(
+                title: frontMatter.title,
+                contents: (markdown.body ?? "").removingLeadingNewlines,
+                headerImageURL: frontMatter.headerImageURLValue,
+                timestamp: frontMatter.timestamp,
+                isPinned: frontMatter.isPinned ?? false
+            )
+        }
+    }
+
+    public func unapply(_ output: FileContent<CommunicationPostDTO>) throws -> FileContent<Data> {
+        try output.map { post in
+            let markdown = try MarkdownWithFrontMatterConversion<CommunicationPostFrontMatter>()
+                .unapply(
+                    MarkdownWithFrontMatter(
+                        frontMatter: CommunicationPostFrontMatter(post),
+                        body: post.contents
+                    )
+                )
+            return Data(markdown.utf8)
+        }
+    }
+}
+
+private struct CommunicationPostFrontMatter: Codable, Equatable {
+    var title: String
+    var headerImageURL: String?
+    var timestamp: Date?
+    var isPinned: Bool?
+
+    init(
+        title: String,
+        headerImageURL: String? = nil,
+        timestamp: Date? = nil,
+        isPinned: Bool? = nil
+    ) {
+        self.title = title
+        self.headerImageURL = headerImageURL
+        self.timestamp = timestamp
+        self.isPinned = isPinned
+    }
+
+    init(_ post: CommunicationPostDTO) {
+        self.init(
+            title: post.title,
+            headerImageURL: post.headerImageURL?.absoluteString,
+            timestamp: post.timestamp,
+            isPinned: post.isPinned ? true : nil
+        )
+    }
+
+    var headerImageURLValue: URL? {
+        guard let value = headerImageURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty
+        else { return nil }
+
+        return URL(string: value)
+    }
+}
+
 public struct MissingFrontMatterError: Error, Equatable {
     public var fileName: String
 
@@ -147,5 +221,16 @@ public struct MissingFrontMatterError: Error, Equatable {
 private extension String {
     var nonEmptyMarkdownBody: String? {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
+    }
+
+    var removingLeadingNewlines: String {
+        var result = self
+        while result.hasPrefix("\r\n") {
+            result.removeFirst(2)
+        }
+        while result.hasPrefix("\n") || result.hasPrefix("\r") {
+            result.removeFirst()
+        }
+        return result
     }
 }

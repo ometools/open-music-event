@@ -46,12 +46,14 @@ public extension EventWorkspaceResetter {
                 }
 
                 if let sourceEditingSession {
-                    try SourceEditingResetter().reset(
-                        in: db,
-                        baselineSchemaName: sourceEditingSession.baselineSchemaName,
-                        descriptors: OME.sourceTableDescriptors,
-                        scope: .openMusicEvent(eventID: eventID)
-                    )
+                    try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
+                        try SourceEditingResetter().reset(
+                            in: db,
+                            baselineSchemaName: baselineSchemaName,
+                            descriptors: OME.sourceTableDescriptors,
+                            scope: .openMusicEvent(eventID: eventID)
+                        )
+                    }
                 } else {
                     let baselineDatabase: SourceBaselineDatabase?
                     do {

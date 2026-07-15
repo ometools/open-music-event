@@ -637,6 +637,28 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
 
 public typealias ChannelDTO = OMERecord.Channel.Draft
 
+public struct CommunicationPostDTO: Equatable, Sendable {
+    public init(
+        title: String,
+        contents: String,
+        headerImageURL: URL? = nil,
+        timestamp: Date? = nil,
+        isPinned: Bool = false
+    ) {
+        self.title = title
+        self.contents = contents
+        self.headerImageURL = headerImageURL
+        self.timestamp = timestamp
+        self.isPinned = isPinned
+    }
+
+    public var title: String
+    public var contents: String
+    public var headerImageURL: URL?
+    public var timestamp: Date?
+    public var isPinned: Bool
+}
+
 public struct PosterDTO: Codable, Equatable, Sendable {
     public init(
         id: OMERecord.Poster.ID?,

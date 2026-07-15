@@ -186,6 +186,7 @@ private struct PreparedSourceDatabaseInsertion {
     var schedules: [OME.Schedule.Draft]
     var contributors: [OME.Contributor.Draft]
     var channels: [OME.Channel.Draft]
+    var commsPosts: [CommsPost]
     var posters: [OME.Poster.Draft]
     var performances: [OME.Performance.Draft]
     var performanceContributors: [OME.Performance.Contributors.Draft]
@@ -242,6 +243,7 @@ private struct PreparedSourceDatabaseInsertion {
         self.schedules = sourceInsertion.schedules
         self.contributors = sourceInsertion.contributors
         self.channels = sourceInsertion.channels
+        self.commsPosts = sourceInsertion.communicationPosts.map(CommsPost.init)
         self.posters = sourceInsertion.posters
         self.performances = sourceInsertion.performances
         self.performanceContributors = sourceInsertion.performanceContributors
@@ -397,6 +399,18 @@ private struct PreparedSourceDatabaseInsertion {
         if !channels.isEmpty {
             try OME.Channel.insert { channels }.execute(db)
         }
+        for channel in channels {
+            guard let channelID = channel.id else { continue }
+            try CommsPost
+                .where { $0.id.organizerID.eq(channelID.organizerID) }
+                .where { $0.id.eventID.eq(channelID.eventID) }
+                .where { $0.id.channelID.eq(channelID.channelID) }
+                .delete()
+                .execute(db)
+        }
+        if !commsPosts.isEmpty {
+            try CommsPost.insert { commsPosts }.execute(db)
+        }
         if !posters.isEmpty {
             try OME.Poster.insert { posters }.execute(db)
         }
@@ -416,6 +430,25 @@ private struct PreparedSourceDatabaseInsertion {
 
     private static func relationshipCreatedAt(_ date: Date) -> String {
         ISO8601DateFormatter().string(from: date)
+    }
+}
+
+private extension CommsPost {
+    init(_ post: OME.SourceDatabaseInsertion.CommunicationPost) {
+        self.init(
+            id: CommsPost.ID(
+                organizerID: post.id.organizerID,
+                eventID: post.id.eventID,
+                channelID: post.id.channelID,
+                postID: CommsPost.PostID(post.id.postID.rawValue.rawValue)
+            ),
+            title: post.title,
+            contents: post.contents,
+            headerImageURL: post.headerImageURL,
+            timestamp: post.timestamp,
+            isPinned: post.isPinned,
+            sortIndex: post.sortIndex
+        )
     }
 }
 

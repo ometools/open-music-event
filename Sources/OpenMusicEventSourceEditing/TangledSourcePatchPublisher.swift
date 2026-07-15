@@ -4,6 +4,9 @@ import Dependencies
 import Foundation
 import Gzip
 import OpenMusicEventSourceClone
+#if canImport(OSLog)
+import OSLog
+#endif
 import SourceEditing
 import SourceControlClient
 import TangledLexicon
@@ -59,20 +62,42 @@ public struct TangledSourcePatchPublisher: Sendable {
         let createdAtDate = Self.now()
         let createdAt = Self.iso8601String(createdAtDate)
         @Dependency(\.sourceControl) var sourceControl
-        let diffData = try await sourceControl.formatPatch(
-            FormatPatchRequest(
-                repository: Repository(url: publishingPatch.workingTree.workingRepositoryURL),
-                commit: commit.id
+        let formatPatchRequest = FormatPatchRequest(
+            repository: Repository(url: publishingPatch.workingTree.workingRepositoryURL),
+            commit: commit.id
+        )
+        let diffData = try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "sourceControl.formatPatch",
+            details: [
+                "repository: \(formatPatchRequest.repository.url.path)",
+                "commit: \(formatPatchRequest.commit.rawValue)",
+            ]
+        ) {
+            try await sourceControl.formatPatch(formatPatchRequest)
+        }
+        let patchText = try TangledSourcePatchPublisherDiagnostics.runSync(
+            operation: "formatPatchText",
+            details: [
+                "diffBytes: \(diffData.count)",
+                "sourceRevision: \(commit.id.rawValue)",
+            ]
+        ) {
+            try Self.formatPatchText(
+                diffData: diffData,
+                sourceRevision: commit.id.rawValue,
+                title: title,
+                createdAt: createdAtDate
             )
-        )
-        let patchText = try Self.formatPatchText(
-            diffData: diffData,
-            sourceRevision: commit.id.rawValue,
-            title: title,
-            createdAt: createdAtDate
-        )
+        }
         let patchData = Data(patchText.utf8)
-        let patchBlob = try await uploadPatchBlob(patchData)
+        let patchBlob = try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "uploadPatchBlob",
+            details: [
+                "patchBytes: \(patchData.count)",
+            ]
+        ) {
+            try await uploadPatchBlob(patchData)
+        }
         let description = preparedPatch.request.description
         guard let targetRepositoryDID = DID(targetRepository.repoDID) else {
             throw TangledSourcePatchPublisherError
@@ -99,16 +124,27 @@ public struct TangledSourcePatchPublisher: Sendable {
 
         @Dependency(\.getDefaultSession) var getDefaultSession
         @Dependency(XRPC.Client.self) var xrpcClient
-        _ = try await xrpcClient.run(
-            TangledRepositoryRequests.createRecord(
-                repo: getDefaultSession().accountID.rawValue.description,
-                collection: .pull,
-                record: record,
-                authorizationPolicy: .required(TangledOAuthRequirements.proposalAuthRequirement)
-            )
+        let session = getDefaultSession()
+        let createPullRecordRequest = TangledRepositoryRequests.createRecord(
+            repo: session.accountID.rawValue.description,
+            collection: .pull,
+            record: record,
+            authorizationPolicy: .required(TangledOAuthRequirements.proposalAuthRequirement)
         )
+        let createdPullRecord = try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "xrpc.createPullRecord",
+            details: [
+                "repo: \(session.accountID.rawValue.description)",
+                "collection: \(TangledPullRecord.collection.rawValue)",
+                "targetBranch: \(targetBranch)",
+                "sourceBranch: \(sourceBranch.rawValue)",
+            ]
+        ) {
+            try await xrpcClient.run(createPullRecordRequest)
+        }
 
         return SourcePatchPublication(
+            sourceChangeID: createdPullRecord.uri.description,
             sourceChangeURL: repository.pullListURL()
         )
     }
@@ -224,6 +260,14 @@ private extension TangledSourcePatchPublisher {
         repoDID: String
     ) async throws -> GitBackedPreparedPatch {
         guard !Self.isGitRepository(preparedPatch.workingTree.workingRepositoryURL) else {
+            TangledSourcePatchPublisherDiagnostics.log(
+                operation: "sourceControl.clone",
+                status: .skipped,
+                details: [
+                    "reason: working tree already has .git",
+                    "repository: \(preparedPatch.workingTree.workingRepositoryURL.path)",
+                ]
+            )
             return GitBackedPreparedPatch(
                 preparedPatch: preparedPatch,
                 credentials: nil,
@@ -236,21 +280,46 @@ private extension TangledSourcePatchPublisher {
         @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
         @Dependency(\.uuid) var uuid
 
-        let credentials = try await tangledSSHCredentials.credentials()
+        let credentials = try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "tangledSSHCredentials.credentials",
+            details: [
+                "reason: clone temporary git checkout",
+                "repository: \(repository.host)/\(repository.owner)/\(repository.repository)",
+            ]
+        ) {
+            try await tangledSSHCredentials.credentials()
+        }
         let checkoutURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid())
         let ref = preparedPatch.request.location.remote?.ref ?? "HEAD"
-        _ = try await sourceControl.clone(
-            repository.sourceControlCloneRequest(
-                repoDID: repoDID,
-                destinationURL: checkoutURL,
-                ref: ref,
-                credentials: credentials
+        let cloneRequest = repository.sourceControlCloneRequest(
+            repoDID: repoDID,
+            destinationURL: checkoutURL,
+            ref: ref,
+            credentials: credentials
+        )
+        _ = try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "sourceControl.clone",
+            details: [
+                "remote: \(cloneRequest.remote.url.rawValue)",
+                "checkout: \(cloneRequest.checkout?.rawValue ?? "nil")",
+                "destination: \(cloneRequest.destinationURL.path)",
+                "credentials: \(cloneRequest.credentials == nil ? "missing" : "present")",
+            ]
+        ) {
+            try await sourceControl.clone(cloneRequest)
+        }
+        try TangledSourcePatchPublisherDiagnostics.runSync(
+            operation: "sourcePatchApplier.apply",
+            details: [
+                "repository: \(checkoutURL.path)",
+                "fileChanges: \(preparedPatch.request.patch.fileChanges.count)",
+            ]
+        ) {
+            try sourcePatchApplier.apply(
+                preparedPatch.request.patch,
+                checkoutURL
             )
-        )
-        try sourcePatchApplier.apply(
-            preparedPatch.request.patch,
-            checkoutURL
-        )
+        }
 
         return GitBackedPreparedPatch(
             preparedPatch: PreparedSourcePatch(
@@ -291,50 +360,108 @@ private extension TangledSourcePatchPublisher {
         @Dependency(\.sourceControl) var sourceControl
         @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
 
-        let repository = try await sourceControl.open(
-            preparedPatch.workingTree.workingRepositoryURL
-        )
-        try await sourceControl.stage(
-            StageRequest(
-                repository: repository,
-                paths: preparedPatch.request.patch.fileChanges.map {
-                    RepositoryPath(rawValue: $0.path)
-                }
+        let repository = try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "sourceControl.open",
+            details: [
+                "repository: \(preparedPatch.workingTree.workingRepositoryURL.path)",
+            ]
+        ) {
+            try await sourceControl.open(
+                preparedPatch.workingTree.workingRepositoryURL
             )
-        )
-        let commit = try await sourceControl.commit(
-            CommitRequest(
-                repository: repository,
-                message: CommitMessage(rawValue: title),
-                author: Author(
-                    name: PersonName(rawValue: "Open Music Event"),
-                    email: EmailAddress(rawValue: "noreply@openmusicevent.app")
-                )
-            )
-        )
-        let branch = try await sourceControl.createBranch(
-            CreateBranchRequest(
-                repository: repository,
-                name: branchName,
-                startPoint: RefName(rawValue: commit.id.rawValue),
-                checkout: false
-            )
-        )
-        let pushCredentials = if let credentials {
-            credentials
-        } else {
-            try await tangledSSHCredentials.credentials()
         }
-        try await sourceControl.push(
-            PushRequest(
-                repository: repository,
-                localBranch: branch.name,
-                remoteBranch: branch.name,
-                credentials: repositoryReference.sourceControlCredentials(
-                    pushCredentials
-                )
+        let changedPaths = preparedPatch.request.patch.fileChanges.map {
+            RepositoryPath(rawValue: $0.path)
+        }
+        let stageRequest = StageRequest(
+            repository: repository,
+            paths: changedPaths
+        )
+        try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "sourceControl.stage",
+            details: [
+                "repository: \(repository.url.path)",
+                "fileChanges: \(changedPaths.count)",
+                "paths: \(TangledSourcePatchPublisherDiagnostics.pathSummary(changedPaths))",
+            ]
+        ) {
+            try await sourceControl.stage(stageRequest)
+        }
+        let commitRequest = CommitRequest(
+            repository: repository,
+            message: CommitMessage(rawValue: title),
+            author: Author(
+                name: PersonName(rawValue: "Open Music Event"),
+                email: EmailAddress(rawValue: "noreply@openmusicevent.app")
             )
         )
+        let commit = try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "sourceControl.commit",
+            details: [
+                "repository: \(repository.url.path)",
+                "message: \(TangledSourcePatchPublisherDiagnostics.singleLine(title))",
+            ]
+        ) {
+            try await sourceControl.commit(commitRequest)
+        }
+        let createBranchRequest = CreateBranchRequest(
+            repository: repository,
+            name: branchName,
+            startPoint: RefName(rawValue: commit.id.rawValue),
+            checkout: false
+        )
+        let branch = try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "sourceControl.createBranch",
+            details: [
+                "repository: \(repository.url.path)",
+                "branch: \(createBranchRequest.name.rawValue)",
+                "startPoint: \(createBranchRequest.startPoint.rawValue)",
+                "checkout: \(createBranchRequest.checkout)",
+            ]
+        ) {
+            try await sourceControl.createBranch(createBranchRequest)
+        }
+        let pushCredentials: Credentials
+        if let credentials {
+            TangledSourcePatchPublisherDiagnostics.log(
+                operation: "tangledSSHCredentials.credentials",
+                status: .skipped,
+                details: [
+                    "reason: temporary clone credentials already available",
+                ]
+            )
+            pushCredentials = credentials
+        } else {
+            pushCredentials = try await TangledSourcePatchPublisherDiagnostics.run(
+                operation: "tangledSSHCredentials.credentials",
+                details: [
+                    "reason: prepare git push",
+                    "repository: \(repositoryReference.host)/\(repositoryReference.owner)/\(repositoryReference.repository)",
+                ]
+            ) {
+                try await tangledSSHCredentials.credentials()
+            }
+        }
+        let pushRequest = PushRequest(
+            repository: repository,
+            localBranch: branch.name,
+            remoteBranch: branch.name,
+            credentials: repositoryReference.sourceControlCredentials(
+                pushCredentials
+            )
+        )
+        try await TangledSourcePatchPublisherDiagnostics.run(
+            operation: "sourceControl.push",
+            details: [
+                "repository: \(repository.url.path)",
+                "remote: \(pushRequest.remote.rawValue)",
+                "localBranch: \(pushRequest.localBranch.rawValue)",
+                "remoteBranch: \(pushRequest.remoteBranch.rawValue)",
+                "credentials: \(pushRequest.credentials == nil ? "missing" : "present")",
+            ]
+        ) {
+            try await sourceControl.push(pushRequest)
+        }
         return commit
     }
 
@@ -386,6 +513,107 @@ private extension TangledSourcePatchPublisher {
         return formatter.string(from: date)
     }
 
+}
+
+enum TangledSourcePatchPublisherDiagnostics {
+    enum Status: String {
+        case started
+        case finished
+        case failed
+        case skipped
+    }
+
+    #if canImport(OSLog)
+    private static let logger = Logger(
+        subsystem: "fm.woody.openmusicevent",
+        category: "TangledSourcePatchPublisher"
+    )
+    #endif
+
+    static func run<Value>(
+        operation: String,
+        details: [String],
+        _ body: () async throws -> Value
+    ) async throws -> Value {
+        log(operation: operation, status: .started, details: details)
+        do {
+            let value = try await body()
+            log(operation: operation, status: .finished, details: details)
+            return value
+        } catch {
+            log(operation: operation, status: .failed, details: details, error: error)
+            throw error
+        }
+    }
+
+    static func runSync<Value>(
+        operation: String,
+        details: [String],
+        _ body: () throws -> Value
+    ) throws -> Value {
+        log(operation: operation, status: .started, details: details)
+        do {
+            let value = try body()
+            log(operation: operation, status: .finished, details: details)
+            return value
+        } catch {
+            log(operation: operation, status: .failed, details: details, error: error)
+            throw error
+        }
+    }
+
+    static func log(
+        operation: String,
+        status: Status,
+        details: [String],
+        error: Error? = nil
+    ) {
+        log(message(operation: operation, status: status, details: details, error: error))
+    }
+
+    static func message(
+        operation: String,
+        status: Status,
+        details: [String],
+        error: Error? = nil
+    ) -> String {
+        var lines = ["Tangled source patch \(operation) \(status.rawValue)"]
+        lines.append(contentsOf: details)
+        if let error {
+            lines.append("error: \(String(describing: error))")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func pathSummary(_ paths: [RepositoryPath]) -> String {
+        guard !paths.isEmpty else { return "none" }
+
+        let visibleLimit = 12
+        let visiblePaths = paths
+            .prefix(visibleLimit)
+            .map(\.rawValue)
+            .joined(separator: ", ")
+
+        if paths.count > visibleLimit {
+            return "\(visiblePaths), ... (+\(paths.count - visibleLimit) more)"
+        } else {
+            return visiblePaths
+        }
+    }
+
+    static func singleLine(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    private static func log(_ message: String) {
+        #if canImport(OSLog)
+        logger.log("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
 }
 
 private struct GitBackedPreparedPatch: Sendable {

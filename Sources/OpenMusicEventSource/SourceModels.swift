@@ -25,6 +25,7 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
     public var posters: [FileContent<PosterDTO>]?
     public var schedules: [FileContent<ScheduleDTO>]?
     public var channels: [FileContent<ChannelDTO>]?
+    public var communicationPosts: [DirectoryContent<[FileContent<CommunicationPostDTO>]>]?
 
     public init(
         event: EventDTO,
@@ -32,7 +33,8 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
         contributors: [FileContent<ContributorDTO>]? = nil,
         posters: [FileContent<PosterDTO>]? = nil,
         schedules: [FileContent<ScheduleDTO>]? = nil,
-        channels: [FileContent<ChannelDTO>]? = nil
+        channels: [FileContent<ChannelDTO>]? = nil,
+        communicationPosts: [DirectoryContent<[FileContent<CommunicationPostDTO>]>]? = nil
     ) {
         self.event = event
         self.stages = stages
@@ -40,6 +42,7 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
         self.posters = posters
         self.schedules = schedules
         self.channels = channels
+        self.communicationPosts = communicationPosts
     }
 
     public init(
@@ -48,7 +51,8 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
         contributors: [FileContent<ContributorDTO>]? = nil,
         posters: [FileContent<PosterDTO>]? = nil,
         schedules: [FileContent<ScheduleDTO>]? = nil,
-        channels: [FileContent<ChannelDTO>]? = nil
+        channels: [FileContent<ChannelDTO>]? = nil,
+        communicationPosts: [DirectoryContent<[FileContent<CommunicationPostDTO>]>]? = nil
     ) {
         self.init(
             event: EventDTO(event),
@@ -56,7 +60,8 @@ public struct OpenMusicEventSourceEvent: Equatable, Sendable {
             contributors: contributors,
             posters: posters,
             schedules: schedules,
-            channels: channels
+            channels: channels,
+            communicationPosts: communicationPosts
         )
     }
 }

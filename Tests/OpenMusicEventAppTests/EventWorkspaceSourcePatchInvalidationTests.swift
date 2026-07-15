@@ -382,10 +382,11 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 )
             ]
         )
+        let review = testTangledPullReview()
         let publication = SourcePatchPublication(
+            sourceChangeID: review.uri,
             sourceChangeURL: URL(string: "https://tangled.org/woody.fm/wicked-woods/pulls")
         )
-        let review = testTangledPullReview()
         let requests = Mutex([OpenMusicEventTangledPullReviewRequest]())
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
@@ -405,6 +406,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
 
         store.send(.sourceProposal(.delegate(.created(publication)))) {
+            $0.pendingCreatedTangledPullReviewID = review.uri
             $0.sourceProposalStatus = .created(publication)
             $0.tangledPullReviewStatus = .loading
         }
@@ -414,6 +416,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             .equals(.success([review])),
             timeout: .seconds(1)
         ) {
+            $0.pendingCreatedTangledPullReviewID = nil
+            $0.selectedTangledPullReview = review
             $0.tangledPullReviewStatus = .loaded([review])
         }
 
@@ -648,6 +652,67 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         await task?.value
 
         await store.dismount()
+    }
+
+    @Test
+    func resetterAttachesSourceEditingBaselineToDefaultDatabase() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        try await seedSourceBackedEvent(eventID, in: database)
+        try await seedEditingWorkspace(for: eventID, in: database)
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "baseline.sqlite").path()
+        )
+        try database.backup(to: baselineDatabase.database)
+
+        try await database.write { db in
+            try OME.Event
+                .find(eventID)
+                .update { $0.name = "Updated Source Event" }
+                .execute(db)
+        }
+
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "session.sqlite").path(),
+            baselineDatabasePath: baselineDatabase.path
+        )
+        let changedSummary = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await database.read { db in
+                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+            }
+        }
+        expectNoDifference(changedSummary.availability, .available)
+        expectNoDifference(changedSummary.totalCount, 1)
+
+        try withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try EventWorkspaceResetter.openMusicEvent.reset(eventID)
+        }
+
+        let resetSummary = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await database.read { db in
+                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+            }
+        }
+        let restoredEvent = try await database.read { db in
+            try OME.Event.find(eventID).fetchOne(db)
+        }
+        expectNoDifference(restoredEvent?.name, "Source Event")
+        expectNoDifference(resetSummary.availability, .available)
+        expectNoDifference(resetSummary.totalCount, 0)
     }
 
     @Test

@@ -46,6 +46,20 @@ extension DependencyValues {
     }
 }
 
+private func updateEventWorkspaceDependencies(
+    eventID: OMERecord.Event.ID,
+    dependencies: inout DependencyValues
+) {
+    do {
+        dependencies.sourceEditingSession = try dependencies.sourceWorkspaceDatabase
+            .event(eventID)?
+            .sourceEditingSession
+    } catch {
+        dependencies.sourceEditingSession = nil
+        reportIssue(error)
+    }
+}
+
 extension OMERecord.Event {
   static var defaultEvent: some SelectStatementOf<OMERecord.Event> {
     @Dependency(\.defaultEventID) var defaultEventID
@@ -128,7 +142,10 @@ public struct EventViewer {
             self.installFeatureStores(features)
         }
 
-        private mutating func installFeatureStores(_ features: [EventFeature]) {
+        private mutating func installFeatureStores(
+            _ features: [EventFeature],
+            preservingEventWorkspace: Bool = true
+        ) {
             let existingCommunicationsViewer = self.communicationsViewer
             let existingContactInfoViewer = self.contactInfoViewer
             let existingContributorsViewer = self.contributorsViewer
@@ -201,7 +218,9 @@ public struct EventViewer {
                         self.eventSettings = existingEventSettings
                             ?? Spawn(EventSettings.State(eventID: eventID))
                     case .workspace:
-                        self.eventWorkspace = existingEventWorkspace
+                        self.eventWorkspace = (preservingEventWorkspace
+                            ? existingEventWorkspace
+                            : nil)
                             ?? eventWorkspaceSpawn(eventID: eventID)
                     case .search:
                         self.eventSearch = existingEventSearch
@@ -253,7 +272,7 @@ public struct EventViewer {
             self.selectedFeature = features.contains(selectedFeature)
                 ? selectedFeature
                 : features.first ?? .schedule(.schedule)
-            self.installFeatureStores(features)
+            self.installFeatureStores(features, preservingEventWorkspace: false)
         }
 
         public static func route(
@@ -692,7 +711,11 @@ public struct EventViewer {
         private func eventWorkspaceSpawn(
             eventID: OMERecord.Event.ID
         ) -> Spawn<EventWorkspace> {
-            Spawn(EventWorkspace.State(eventID: eventID))
+            withDependencies {
+                updateEventWorkspaceDependencies(eventID: eventID, dependencies: &$0)
+            } operation: {
+                Spawn(EventWorkspace.State(eventID: eventID))
+            }
         }
 
         private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {
@@ -722,6 +745,7 @@ public struct EventViewer {
         case destination(Destination.Action)
         case eventSearch(EventSearch.Action)
         case selectedFeatureChanged(EventFeature)
+        case sourceDataRefreshCompleted(SourceDataRefreshRequest)
     }
 
     public enum EditorEntry: Equatable, Sendable {
@@ -821,6 +845,30 @@ public struct EventViewer {
                     return
                 }
                 enterOrAuthorizeAuthoringEntry(.feature(feature), state: &state)
+
+            case let .sourceDataRefreshCompleted(request):
+                guard request.eventID == state.eventID else { return }
+                var sourceWorkspaceSummary: Fetch<SourceWorkspaceSummary>?
+                withDependencies {
+                    updateEventWorkspaceDependencies(
+                        eventID: request.eventID,
+                        dependencies: &$0
+                    )
+                } operation: {
+                    state.reloadAfterSourceDataRefresh()
+                    sourceWorkspaceSummary = state.eventWorkspace?
+                        .state
+                        .$sourceWorkspaceSummary
+                }
+                guard let sourceWorkspaceSummary else { return }
+                store.addTask {
+                    let _: Void? = await store.withErrorHandling(
+                        fallbackMessage: .sourceDataRefreshFailed,
+                        operation: .sourceDataRefresh
+                    ) {
+                        try await sourceWorkspaceSummary.load()
+                    }
+                }
             }
         }
         .onMount { state in
@@ -857,9 +905,7 @@ public struct EventViewer {
                     try await sourceDataRefresh.refresh(request.sourceBaselineID)
                 }
                 guard result != nil else { return }
-                try store.modify {
-                    $0.reloadAfterSourceDataRefresh()
-                }
+                try store.send(.sourceDataRefreshCompleted(request))
             }
         }
         .forEach(\.scheduleViewers) {
@@ -898,16 +944,10 @@ public struct EventViewer {
         .ifLet(\.eventWorkspace) {
             EventWorkspace()
                 .transformDependency(\.self) { (dependencies: inout DependencyValues) in
-                    guard dependencies.sourceEditingSession == nil else { return }
-                    do {
-                        guard let sourceEditingSession = try dependencies.sourceWorkspaceDatabase
-                            .event(store.eventID)?
-                            .sourceEditingSession
-                        else { return }
-                        dependencies.sourceEditingSession = sourceEditingSession
-                    } catch {
-                        reportIssue(error)
-                    }
+                    updateEventWorkspaceDependencies(
+                        eventID: store.eventID,
+                        dependencies: &dependencies
+                    )
                 }
         }
         .ifLet(\.eventInfoViewer) {

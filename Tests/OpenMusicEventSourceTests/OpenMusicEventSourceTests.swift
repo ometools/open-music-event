@@ -180,10 +180,26 @@ struct OpenMusicEventSourceTests {
             )
         )
 
-        let channel = try #require(testival.channels?.first)
+        let channels = try #require(testival.channels)
+        expectNoDifference(
+            channels.map(\.fileName),
+            [
+                "general",
+                "safety-info",
+            ]
+        )
+
+        let channel = try #require(channels.first)
         #expect(channel.fileName == "general")
         #expect(channel.data.id == nil)
         #expect(channel.data.defaultNotificationState == .subscribed)
+
+        let legacyChannel = try #require(channels.first { $0.fileName == "safety-info" })
+        #expect(legacyChannel.data.id == nil)
+        #expect(legacyChannel.data.name == "Safety Info")
+        #expect(legacyChannel.data.iconImageURL?.absoluteString == "https://example.com/safety.png")
+        #expect(legacyChannel.data.defaultNotificationState == .unsubscribed)
+        #expect(legacyChannel.data.notificationsRequired == false)
 
         let schedule = try #require(testival.schedules?.first)
         #expect(schedule.fileName == "saturday")
@@ -238,6 +254,86 @@ struct OpenMusicEventSourceTests {
         #expect(minimal.posters == nil)
         #expect(minimal.schedules == nil)
         #expect(minimal.channels == nil)
+    }
+
+    @Test
+    func readsLegacyCommunicationMarkdownPosts() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let communicationURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "postival-2026", directoryHint: .isDirectory)
+            .appending(path: "communications", directoryHint: .isDirectory)
+            .appending(path: "general", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: communicationURL,
+            withIntermediateDirectories: true
+        )
+        try """
+        name: Postival
+        timeZone: America/Denver
+        """
+        .write(
+            to: communicationURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appending(path: "event.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        name: General
+        description: Official updates.
+        defaultNotificationState: subscribed
+        """
+        .write(
+            to: communicationURL.appending(path: "channel-info.yaml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        ---
+        title: Welcome to Postival
+        isPinned: true
+        sendPush: true
+        headerImageURL: https://example.com/header.png
+        ---
+
+        Welcome to the event.
+        """
+        .write(
+            to: communicationURL.appending(path: "welcome.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        ---
+        title: Empty Header
+        headerImageURL:
+        ---
+
+        Blank header should become nil.
+        """
+        .write(
+            to: communicationURL.appending(path: "empty-header.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let repository = try OpenMusicEventSourceRepositoryFileTree()
+            .read(from: repositoryURL)
+            .output
+            .requiredValue
+        let event = try #require(repository.events.first?.components)
+        let posts = try #require(event.communicationPosts?.first?.components)
+
+        expectNoDifference(posts.map(\.fileName), ["empty-header", "welcome"])
+        expectNoDifference(posts[0].data.title, "Empty Header")
+        expectNoDifference(posts[0].data.headerImageURL, nil)
+        expectNoDifference(posts[0].data.isPinned, false)
+        expectNoDifference(posts[1].data.title, "Welcome to Postival")
+        expectNoDifference(posts[1].data.headerImageURL, URL(string: "https://example.com/header.png")!)
+        expectNoDifference(posts[1].data.isPinned, true)
+        expectNoDifference(posts[1].data.contents, "Welcome to the event.")
     }
 
     @Test

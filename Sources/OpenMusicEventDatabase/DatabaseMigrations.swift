@@ -254,6 +254,34 @@ public extension OME {
                     .execute(db)
             }
 
+            migrator.registerMigration("Create OpenMusicEvent comms post schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "commsPosts" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "channelID" TEXT NOT NULL,
+                      "postID" TEXT NOT NULL,
+                      "title" TEXT NOT NULL,
+                      "contents" TEXT NOT NULL,
+                      "headerImageURL" TEXT,
+                      "timestamp" TEXT,
+                      "isPinned" INTEGER NOT NULL DEFAULT 0,
+                      "sortIndex" INTEGER NOT NULL,
+                      PRIMARY KEY ("organizerID", "eventID", "channelID", "postID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID", "channelID")
+                        REFERENCES "channels"("organizerID", "eventID", "channelID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE INDEX IF NOT EXISTS "commsPosts_channel_sort"
+                    ON "commsPosts" ("organizerID", "eventID", "channelID", "sortIndex")
+                    """)
+                    .execute(db)
+            }
+
             OME.SourceEditingMigrations.register(into: &migrator)
 
             migrator.registerMigration("Create OpenMusicEvent local image blob schema") { db in

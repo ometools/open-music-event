@@ -51,8 +51,72 @@ public struct OpenMusicEventSourceEventFileTree: FileTreeWriter {
                 File.Many(withExtension: "yml")
                     .map(FileContentConversion(YamlConversion<ChannelDTO>()))
             }
+
+            Directory.Optional("communications") {
+                Directory.Many {
+                    FileTree {
+                        File("channel-info", "yaml")
+                            .convert(YamlConversion<LegacyCommunicationChannelDTO>())
+
+                        File.Many(withExtension: "md")
+                            .map(CommunicationPostMarkdownConversion())
+                    }
+                    .convert(LegacyCommunicationConversion())
+                }
+            }
         }
         .convert(EventConversion())
+    }
+}
+
+struct LegacyCommunicationDTO: Equatable, Sendable {
+    var channel: LegacyCommunicationChannelDTO
+    var posts: [FileContent<CommunicationPostDTO>]
+}
+
+struct LegacyCommunicationChannelDTO: Codable, Equatable, Sendable {
+    var id: OMERecord.Channel.ID?
+    var name: String
+    var description: String
+    var iconImageURL: URL?
+    var headerImageURL: URL?
+    var sortIndex: Int?
+    var defaultNotificationState: OMERecord.Channel.NotificationState?
+    var notificationsRequired: Bool?
+
+    var recordDraft: ChannelDTO {
+        OMERecord.Channel.Draft(
+            id: id,
+            name: name,
+            description: description,
+            iconImageURL: iconImageURL,
+            headerImageURL: headerImageURL,
+            sortIndex: sortIndex,
+            defaultNotificationState: defaultNotificationState ?? .unsubscribed,
+            notificationsRequired: notificationsRequired ?? false
+        )
+    }
+}
+
+private struct LegacyCommunicationConversion: Conversion {
+    typealias Input = (
+        LegacyCommunicationChannelDTO,
+        [FileContent<CommunicationPostDTO>]
+    )
+    typealias Output = LegacyCommunicationDTO
+
+    func apply(_ input: Input) throws -> Output {
+        LegacyCommunicationDTO(
+            channel: input.0,
+            posts: input.1
+        )
+    }
+
+    func unapply(_ output: Output) throws -> Input {
+        (
+            output.channel,
+            output.posts
+        )
     }
 }
 
@@ -85,7 +149,8 @@ private struct EventConversion: Conversion {
         [FileContent<ContributorDTO>]?,
         [FileContent<PosterDTO>]?,
         [FileContent<ScheduleDTO>]?,
-        [FileContent<ChannelDTO>]?
+        [FileContent<ChannelDTO>]?,
+        [DirectoryContent<LegacyCommunicationDTO>]?
     )
     typealias Output = OpenMusicEventSourceEvent
 
@@ -96,7 +161,13 @@ private struct EventConversion: Conversion {
             contributors: input.2,
             posters: input.3,
             schedules: input.4,
-            channels: input.5
+            channels: try Self.mergedChannels(
+                modernChannels: input.5,
+                legacyCommunications: input.6
+            ),
+            communicationPosts: Self.communicationPosts(
+                legacyCommunications: input.6
+            )
         )
     }
 
@@ -107,7 +178,43 @@ private struct EventConversion: Conversion {
             output.contributors,
             output.posters,
             output.schedules,
-            output.channels
+            output.channels,
+            nil
         )
+    }
+
+    private static func mergedChannels(
+        modernChannels: [FileContent<ChannelDTO>]?,
+        legacyCommunications: [DirectoryContent<LegacyCommunicationDTO>]?
+    ) throws -> [FileContent<ChannelDTO>]? {
+        var channels = modernChannels ?? []
+        var channelFileNames = Set(channels.map(\.fileName))
+
+        for communication in legacyCommunications ?? [] where channelFileNames.insert(communication.directoryName).inserted {
+            channels.append(
+                try FileContent(
+                    fileName: communication.directoryName,
+                    fileType: "yml",
+                    data: communication.components.channel.recordDraft
+                )
+            )
+        }
+
+        return channels.isEmpty ? nil : channels
+    }
+
+    private static func communicationPosts(
+        legacyCommunications: [DirectoryContent<LegacyCommunicationDTO>]?
+    ) -> [DirectoryContent<[FileContent<CommunicationPostDTO>]>]? {
+        let posts = (legacyCommunications ?? [])
+            .filter { !$0.components.posts.isEmpty }
+            .map {
+                DirectoryContent(
+                    directoryName: $0.directoryName,
+                    components: $0.components.posts
+                )
+            }
+
+        return posts.isEmpty ? nil : posts
     }
 }

@@ -15,6 +15,7 @@ import OpenMusicEventSourceEditing
 import OpenMusicEventWhiteLabel
 import Sharing
 import SQLiteData
+import SourceEditing
 import Synchronization
 import SwiftUI
 import Testing
@@ -70,6 +71,34 @@ private func scheduleLocalID(_ string: String) -> OMERecord.ID<OMERecord.Schedul
 
 private func stageLocalID(_ string: String) -> OMERecord.ID<OMERecord.Stage> {
     OMERecord.ID<OMERecord.Stage>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private func channelLocalID(_ string: String) -> OMERecord.ID<OMERecord.Channel> {
+    OMERecord.ID<OMERecord.Channel>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private func channelRecordID(
+    _ string: String,
+    eventID: OMERecord.Event.ID
+) -> OMERecord.Channel.ID {
+    OMERecord.Channel.ID(
+        organizerID: eventID.organizerID,
+        eventID: eventID.eventID,
+        channelID: channelLocalID(string)
+    )
+}
+
+private func commsPostID(
+    _ string: String,
+    channelID: String,
+    eventID: OMERecord.Event.ID
+) -> CommsPost.ID {
+    CommsPost.ID(
+        organizerID: eventID.organizerID,
+        eventID: eventID.eventID,
+        channelID: channelLocalID(channelID),
+        postID: CommsPost.PostID(string)
+    )
 }
 
 private actor ObservationRecorder<Value: Sendable> {
@@ -1383,30 +1412,90 @@ struct NavigationTests {
         let eventID = eventID("viewer-source-refresh-event")
         let sourceProvenance = sourceProvenance("viewer-source-refresh-source")
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let sourceBaseline = SourceBaselineRecord(
+            source: sourceProvenance,
+            databaseFileName: "baseline.sqlite",
+            importedAt: Date(timeIntervalSince1970: 0)
+        )
+        let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
         let recorder = SourceRefreshRecorder()
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let oldBaselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "old-baseline.sqlite").path()
+        )
+        let newBaselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "new-baseline.sqlite").path()
+        )
+        let oldSourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "old-session.sqlite").path(),
+            baselineDatabasePath: oldBaselineDatabase.path
+        )
+        let newSourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "new-session.sqlite").path(),
+            baselineDatabasePath: newBaselineDatabase.path
+        )
+        let isSourceRefreshed = Mutex(false)
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Viewer Source Refresh Event")
             try Self.insertEventOrganizer(db, eventID: eventID, organizerID: testOrganizerID)
-            try Self.insertSourceBaseline(
-                db,
-                sourceProvenance: sourceProvenance,
-                importedAt: Date(timeIntervalSince1970: 0)
-            )
+            try SourceBaselineRecord.insert { sourceBaseline }.execute(db)
             try Self.insertEventSourceProvenance(
                 db,
                 eventID: eventID,
                 sourceProvenance: sourceProvenance
             )
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+            try EventEditingWorkspaceRecord.insert {
+                EventEditingWorkspaceRecord(
+                    id: eventID,
+                    workspaceID: workspace.id
+                )
+            }
+            .execute(db)
         }
+        try database.backup(to: oldBaselineDatabase.database)
+        try await database.write { db in
+            try OMERecord.Event
+                .find(eventID)
+                .update { $0.name = "Refreshed Source Event" }
+                .execute(db)
+        }
+        try database.backup(to: newBaselineDatabase.database)
+        let refreshedSummary = try withDependencies {
+            $0.sourceEditingSession = newSourceEditingSession
+        } operation: {
+            try database.read { db in
+                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+            }
+        }
+        expectNoDifference(refreshedSummary.totalCount, 0)
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.sourceEditingSession = oldSourceEditingSession
             $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
                 await recorder.record(sourceBaselineID)
+                isSourceRefreshed.withLock { $0 = true }
             }
+            $0.sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient(
+                event: { requestedEventID in
+                    #expect(requestedEventID == eventID)
+                    let isRefreshed = isSourceRefreshed.withLock { $0 }
+                    return SourceWorkspaceDatabase(
+                        database: database,
+                        sourceEditingSession: isRefreshed
+                            ? newSourceEditingSession
+                            : oldSourceEditingSession
+                    )
+                },
+                sourceBaseline: { _ in
+                    throw EventWorkspaceMountShouldNotBeCalled()
+                }
+            )
         } operation: {
             var initialState = EventViewerHarness.State(eventID: eventID)
             initialState.eventViewer.selectedFeature = .workspace
@@ -1415,13 +1504,175 @@ struct NavigationTests {
             }
         }
 
+        expectNoDifference(
+            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount,
+            1
+        )
         await store.send(
             to: \EventViewerHarness.State.eventWorkspace,
             EventWorkspace.Action.refreshSourceButtonTapped
         )?.value
         let sourceBaselineIDs = await recorder.sourceBaselineIDs
         expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
+        expectNoDifference(
+            store.state.eventViewer.selectedFeature,
+            EventViewer.EventFeature.workspace
+        )
+        await waitUntil {
+            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount == 0
+        }
+        expectNoDifference(
+            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount,
+            0
+        )
+    }
+
+    @Test
+    func eventViewerRefreshesSourceDataAfterPullMerge() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("viewer-merge-refresh-event")
+        let sourceProvenance = sourceProvenance("viewer-merge-refresh-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let sourceBaseline = SourceBaselineRecord(
+            source: sourceProvenance,
+            databaseFileName: "baseline.sqlite",
+            importedAt: Date(timeIntervalSince1970: 0)
+        )
+        let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let oldBaselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "old-baseline.sqlite").path()
+        )
+        let newBaselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "new-baseline.sqlite").path()
+        )
+        let oldSourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "old-session.sqlite").path(),
+            baselineDatabasePath: oldBaselineDatabase.path
+        )
+        let newSourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "new-session.sqlite").path(),
+            baselineDatabasePath: newBaselineDatabase.path
+        )
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Source Event Before Merge")
+            try Self.insertEventOrganizer(db, eventID: eventID, organizerID: testOrganizerID)
+            try SourceBaselineRecord.insert { sourceBaseline }.execute(db)
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+            try EventEditingWorkspaceRecord.insert {
+                EventEditingWorkspaceRecord(
+                    id: eventID,
+                    workspaceID: workspace.id
+                )
+            }
+            .execute(db)
+        }
+        try database.backup(to: oldBaselineDatabase.database)
+        try await database.write { db in
+            try OMERecord.Event
+                .find(eventID)
+                .update { $0.name = "Source Event After Merge" }
+                .execute(db)
+        }
+        try database.backup(to: newBaselineDatabase.database)
+
+        let review = TangledPullReview(
+            author: "did:plc:author123",
+            body: "Update the event name.",
+            commentCount: 0,
+            createdAt: "2026-07-03T12:01:00Z",
+            patchBlobs: [],
+            sourceBranch: "ome/proposal-name",
+            state: "open",
+            targetBranch: "main",
+            targetRepositoryDID: "did:plc:targetrepo",
+            title: "Update source event name",
+            uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
+        )
+        let recorder = SourceRefreshRecorder()
+        let mergeRequests = Mutex([OpenMusicEventTangledPullReviewMergeRequest]())
+        let isSourceRefreshed = Mutex(false)
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.sourceDataRefresh = SourceDataRefreshClient { refreshedSourceBaselineID in
+                await recorder.record(refreshedSourceBaselineID)
+                isSourceRefreshed.withLock { $0 = true }
+            }
+            $0.sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient(
+                event: { requestedEventID in
+                    #expect(requestedEventID == eventID)
+                    return SourceWorkspaceDatabase(
+                        database: database,
+                        sourceEditingSession: isSourceRefreshed.withLock { $0 }
+                            ? newSourceEditingSession
+                            : oldSourceEditingSession
+                    )
+                },
+                sourceBaseline: { _ in
+                    throw EventWorkspaceMountShouldNotBeCalled()
+                }
+            )
+            $0.tangledPullReviewClient = TangledPullReviewClient(
+                list: { _ in [review] },
+                merge: { request in
+                    mergeRequests.withLock { $0.append(request) }
+                }
+            )
+        } operation: {
+            var initialState = EventViewerHarness.State(eventID: eventID)
+            initialState.eventViewer.selectedFeature = .workspace
+            initialState.eventViewer.eventWorkspace?.state.tangledPullReviewStatus = .loaded([
+                review,
+            ])
+            initialState.eventViewer.eventWorkspace?.state.selectedTangledPullReview = review
+            return TestStore(initialState: initialState) {
+                EventViewerHarness()
+            }
+        }
+
+        let initialWorkspaceSummary = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = oldSourceEditingSession
+        } operation: {
+            try await database.read { db in
+                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+            }
+        }
+        expectNoDifference(
+            initialWorkspaceSummary.totalCount,
+            1
+        )
+        await store.send(
+            to: \EventViewerHarness.State.eventWorkspace,
+            EventWorkspace.Action.mergeTangledPullReviewButtonTapped(review)
+        )?.value
+        await waitUntil {
+            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount == 0
+        }
+
+        let sourceBaselineIDs = await recorder.sourceBaselineIDs
+        expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
+        expectNoDifference(
+            mergeRequests.withLock { $0 },
+            [
+                OpenMusicEventTangledPullReviewMergeRequest(
+                    eventID: eventID,
+                    review: review
+                ),
+            ]
+        )
         expectNoDifference(store.state.eventViewer.selectedFeature, .workspace)
+        #expect(store.state.eventViewer.eventWorkspace?.state.selectedTangledPullReview == nil)
     }
 
     @Test
@@ -5467,6 +5718,376 @@ struct NavigationTests {
     }
 
     @Test
+    func communicationsViewerChannelQueryFiltersAndSortsEventChannels() async throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
+        let otherEventID = eventID("event-2")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: selectedEventID, name: "Event One")
+            try Self.insertEvent(db, id: otherEventID, name: "Event Two")
+            try Self.insertChannel(
+                db,
+                eventID: selectedEventID,
+                channelID: "announcements",
+                name: "Announcements",
+                sortIndex: 2
+            )
+            try Self.insertChannel(
+                db,
+                eventID: selectedEventID,
+                channelID: "general",
+                name: "General",
+                sortIndex: 1
+            )
+            try Self.insertChannel(
+                db,
+                eventID: selectedEventID,
+                channelID: "late-news",
+                name: "Late News"
+            )
+            try Self.insertChannel(
+                db,
+                eventID: otherEventID,
+                channelID: "other",
+                name: "Other",
+                sortIndex: 0
+            )
+        }
+
+        let channels = try await database.read { db in
+            try CommunicationsViewer.channelsQuery(eventID: selectedEventID).fetchAll(db)
+        }
+
+        expectNoDifference(
+            channels.map(\.id.channelID),
+            [
+                channelLocalID("general"),
+                channelLocalID("announcements"),
+                channelLocalID("late-news"),
+            ]
+        )
+    }
+
+    @Test
+    func communicationsViewerRowsPreferStoredPreferenceBeforeChannelDefault() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General",
+                defaultNotificationState: .unsubscribed
+            )
+            try ChannelPreferences.insert {
+                ChannelPreferences(
+                    id: channelRecordID("general", eventID: eventID),
+                    notificationState: .subscribed
+                )
+            }
+            .execute(db)
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
+            }
+        }
+
+        expectNoDifference(
+            store.state.channelRows.map(\.effectiveNotificationState),
+            [.subscribed]
+        )
+    }
+
+    @Test
+    func communicationsViewerChannelTapPresentsChannelDetail() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(initialState: CommunicationsViewer.State(eventID: eventID)) {
+                CommunicationsViewer()
+            }
+        }
+
+        store.send(.channelButtonTapped(channelID))
+
+        #expect(store.state.destination?.channelDetail?.state.channelID == channelID)
+        #expect(store.state.destination?.channelDetail?.state.eventID == eventID)
+    }
+
+    @Test
+    func communicationsChannelDetailNotifyMeWritesPreference() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General",
+                defaultNotificationState: .unsubscribed
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: channelID,
+                    eventID: eventID
+                )
+            ) {
+                CommunicationChannelDetail()
+            }
+        }
+
+        let notifyTask = store.send(.notifyMeButtonTapped)
+        await notifyTask?.value
+
+        let preference = try await database.read { db in
+            try ChannelPreferences
+                .where { $0.id.eq(channelRecordID("general", eventID: eventID)) }
+                .fetchOne(db)
+        }
+
+        #expect(preference?.notificationState == .subscribed)
+    }
+
+    @Test
+    func communicationsChannelDetailStopNotifyingMeWritesPreference() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General",
+                defaultNotificationState: .subscribed
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: channelID,
+                    eventID: eventID
+                )
+            ) {
+                CommunicationChannelDetail()
+            }
+        }
+
+        let notifyTask = store.send(.stopNotifyingMeButtonTapped)
+        await notifyTask?.value
+
+        let preference = try await database.read { db in
+            try ChannelPreferences
+                .where { $0.id.eq(channelRecordID("general", eventID: eventID)) }
+                .fetchOne(db)
+        }
+
+        #expect(preference?.notificationState == .unsubscribed)
+    }
+
+    @Test
+    func communicationsChannelDetailRequiredChannelDoesNotWriteUnsubscribePreference() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                name: "General",
+                defaultNotificationState: .subscribed,
+                notificationsRequired: true
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: channelID,
+                    eventID: eventID
+                )
+            ) {
+                CommunicationChannelDetail()
+            }
+        }
+
+        store.send(.stopNotifyingMeButtonTapped)
+
+        let preference = try await database.read { db in
+            try ChannelPreferences
+                .where { $0.id.eq(channelRecordID("general", eventID: eventID)) }
+                .fetchOne(db)
+        }
+
+        #expect(preference == nil)
+    }
+
+    @Test
+    func communicationsChannelDetailFetchesSelectedChannelPosts() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+            try Self.insertChannel(db, eventID: eventID, channelID: "safety", name: "Safety")
+            try Self.insertCommsPost(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                postID: "arrival",
+                title: "Arrival Info",
+                contents: "Use the north gate.",
+                sortIndex: 0
+            )
+            try Self.insertCommsPost(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                postID: "welcome",
+                title: "Welcome",
+                contents: "Welcome to the event.",
+                isPinned: true,
+                sortIndex: 1
+            )
+            try Self.insertCommsPost(
+                db,
+                eventID: eventID,
+                channelID: "safety",
+                postID: "weather",
+                title: "Weather",
+                contents: "Bring layers.",
+                sortIndex: 0
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: channelID,
+                    eventID: eventID
+                )
+            ) {
+                CommunicationChannelDetail()
+            }
+        }
+
+        expectNoDifference(store.state.pinnedPosts.map(\.title), ["Welcome"])
+        expectNoDifference(store.state.recentPosts.map(\.title), ["Arrival Info"])
+        #expect(store.state.shouldShowEmptyPostsFooter == false)
+    }
+
+    @Test
+    func communicationsChannelDetailShowsEmptyPostsFooterWhenNoPosts() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            Store(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: channelID,
+                    eventID: eventID
+                )
+            ) {
+                CommunicationChannelDetail()
+            }
+        }
+
+        #expect(store.state.shouldShowEmptyPostsFooter == true)
+        expectNoDifference(store.state.pinnedPosts, [])
+        expectNoDifference(store.state.recentPosts, [])
+    }
+
+    @Test
+    func communicationsChannelDetailPostTapPresentsPostDetail() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let channelID = channelLocalID("general")
+        let postID = commsPostID("welcome", channelID: "general", eventID: eventID)
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertChannel(db, eventID: eventID, channelID: "general", name: "General")
+            try Self.insertCommsPost(
+                db,
+                eventID: eventID,
+                channelID: "general",
+                postID: "welcome",
+                title: "Welcome",
+                contents: "Welcome to the event.",
+                isPinned: true,
+                sortIndex: 0
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: CommunicationChannelDetail.State(
+                    channelID: channelID,
+                    eventID: eventID
+                )
+            ) {
+                CommunicationChannelDetail()
+            }
+        }
+
+        store.send(.postButtonTapped(postID))
+
+        #expect(store.state.destination?.postDetail?.state.post.id == postID)
+        #expect(store.state.destination?.postDetail?.state.post.title == "Welcome")
+    }
+
+    @Test
     func createStageSavesNewEventStage() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -5797,6 +6418,13 @@ struct NavigationTests {
         return url
     }
 
+    private func temporaryDirectoryURL() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "ome-navigation-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     private func writeMinimalSourceRepository(at repositoryURL: URL) throws {
         let eventURL = repositoryURL
             .appending(path: "events", directoryHint: .isDirectory)
@@ -6098,6 +6726,57 @@ struct NavigationTests {
                 imageURL: imageURL,
                 posterImageURL: posterImageURL,
                 lineup: lineup
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertChannel(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        channelID: String,
+        name: String,
+        description: String? = nil,
+        sortIndex: Int? = nil,
+        defaultNotificationState: OMERecord.Channel.NotificationState = .unsubscribed,
+        notificationsRequired: Bool = false
+    ) throws {
+        try OMERecord.Channel.insert {
+            OMERecord.Channel.Draft(
+                id: channelRecordID(channelID, eventID: eventID),
+                name: name,
+                description: description ?? "Updates from \(name).",
+                iconImageURL: nil,
+                headerImageURL: nil,
+                sortIndex: sortIndex,
+                defaultNotificationState: defaultNotificationState,
+                notificationsRequired: notificationsRequired
+            )
+        }
+        .execute(db)
+    }
+
+    private nonisolated static func insertCommsPost(
+        _ db: Database,
+        eventID: OMERecord.Event.ID,
+        channelID: String,
+        postID: String,
+        title: String,
+        contents: String,
+        headerImageURL: URL? = nil,
+        timestamp: Date? = nil,
+        isPinned: Bool = false,
+        sortIndex: Int
+    ) throws {
+        try CommsPost.insert {
+            CommsPost(
+                id: commsPostID(postID, channelID: channelID, eventID: eventID),
+                title: title,
+                contents: contents,
+                headerImageURL: headerImageURL,
+                timestamp: timestamp,
+                isPinned: isPinned,
+                sortIndex: sortIndex
             )
         }
         .execute(db)

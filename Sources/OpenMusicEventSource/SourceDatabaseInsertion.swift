@@ -83,6 +83,53 @@ public extension OME {
             public var data: Data
         }
 
+        public struct CommunicationPost: Equatable, Sendable {
+            public struct ID: Equatable, Hashable, Sendable {
+                public init(
+                    organizerID: OME.Organizer.ID,
+                    eventID: OME.ID<OME.Event>,
+                    channelID: OME.ID<OME.Channel>,
+                    postID: OME.ID<CommunicationPost>
+                ) {
+                    self.organizerID = organizerID
+                    self.eventID = eventID
+                    self.channelID = channelID
+                    self.postID = postID
+                }
+
+                public var organizerID: OME.Organizer.ID
+                public var eventID: OME.ID<OME.Event>
+                public var channelID: OME.ID<OME.Channel>
+                public var postID: OME.ID<CommunicationPost>
+            }
+
+            public init(
+                id: ID,
+                title: String,
+                contents: String,
+                headerImageURL: URL? = nil,
+                timestamp: Date? = nil,
+                isPinned: Bool = false,
+                sortIndex: Int
+            ) {
+                self.id = id
+                self.title = title
+                self.contents = contents
+                self.headerImageURL = headerImageURL
+                self.timestamp = timestamp
+                self.isPinned = isPinned
+                self.sortIndex = sortIndex
+            }
+
+            public var id: ID
+            public var title: String
+            public var contents: String
+            public var headerImageURL: URL?
+            public var timestamp: Date?
+            public var isPinned: Bool
+            public var sortIndex: Int
+        }
+
         public enum EventIDOrigin: String, Codable, Equatable, Sendable {
             case explicit
             case inferred
@@ -138,6 +185,7 @@ public extension OME {
         public var schedules: [OME.Schedule.Draft]
         public var contributors: [OME.Contributor.Draft]
         public var channels: [OME.Channel.Draft]
+        public var communicationPosts: [CommunicationPost]
         public var posters: [OME.Poster.Draft]
         public var performances: [OME.Performance.Draft]
         public var performanceContributors: [OME.Performance.Contributors.Draft]
@@ -157,6 +205,7 @@ public extension OME {
             self.schedules = []
             self.contributors = []
             self.channels = []
+            self.communicationPosts = []
             self.posters = []
             self.performances = []
             self.performanceContributors = []
@@ -338,15 +387,41 @@ public extension OME {
                 )
             }
 
+            var channelIDsByFileName: [String: OME.ID<OME.Channel>] = [:]
             channels.append(
                 contentsOf: sourceEvent.channels?.map { channel in
                     var draft = channel.data
-                    draft.id = draft.id ?? .init(
+                    let channelID = draft.id ?? .init(
                         organizerID: organizerID,
                         eventID: localEventID,
                         channelID: Self.localID(channel.fileName)
                     )
+                    draft.id = channelID
+                    channelIDsByFileName[channel.fileName] = channelID.channelID
                     return draft
+                } ?? []
+            )
+
+            communicationPosts.append(
+                contentsOf: sourceEvent.communicationPosts?.flatMap { channelPosts in
+                    let channelID = channelIDsByFileName[channelPosts.directoryName]
+                        ?? Self.localID(channelPosts.directoryName)
+                    return channelPosts.components.enumerated().map { index, post in
+                        CommunicationPost(
+                            id: .init(
+                                organizerID: organizerID,
+                                eventID: localEventID,
+                                channelID: channelID,
+                                postID: Self.localID(post.fileName)
+                            ),
+                            title: post.data.title,
+                            contents: post.data.contents,
+                            headerImageURL: post.data.headerImageURL,
+                            timestamp: post.data.timestamp,
+                            isPinned: post.data.isPinned,
+                            sortIndex: index
+                        )
+                    }
                 } ?? []
             )
 

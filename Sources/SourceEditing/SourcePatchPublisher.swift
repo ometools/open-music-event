@@ -34,13 +34,16 @@ public struct PreparedSourcePatch: Equatable, Sendable {
 }
 
 public struct SourcePatchPublication: Equatable, Sendable {
+    public var sourceChangeID: String?
     public var sourceChangeURL: URL?
     public var workingTree: SourceWorkingTree?
 
     public init(
+        sourceChangeID: String? = nil,
         sourceChangeURL: URL? = nil,
         workingTree: SourceWorkingTree? = nil
     ) {
+        self.sourceChangeID = sourceChangeID
         self.sourceChangeURL = sourceChangeURL
         self.workingTree = workingTree
     }

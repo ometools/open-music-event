@@ -264,12 +264,6 @@ struct PerformancePreferences: Equatable, Sendable, Identifiable {
     var seen = false
 }
 
-@Table("channelPreferences")
-struct ChannelPreferences: Equatable, Sendable, Identifiable {
-    var id: OMERecord.Channel.ID
-    var notificationState: OMERecord.Channel.NotificationState
-}
-
 @Table("posterPreferences")
 struct PosterPreferences: Equatable, Sendable, Identifiable {
     var id: OMERecord.Poster.ID
