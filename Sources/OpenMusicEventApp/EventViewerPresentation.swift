@@ -1,5 +1,21 @@
 import SwiftUI
 
+enum EventViewerPresentationLaunchAnimation {
+    case automatic
+    case disabled
+}
+
+private struct EventViewerPresentationLaunchAnimationKey: EnvironmentKey {
+    static let defaultValue: EventViewerPresentationLaunchAnimation = .automatic
+}
+
+extension EnvironmentValues {
+    var eventViewerPresentationLaunchAnimation: EventViewerPresentationLaunchAnimation {
+        get { self[EventViewerPresentationLaunchAnimationKey.self] }
+        set { self[EventViewerPresentationLaunchAnimationKey.self] = newValue }
+    }
+}
+
 public extension View {
     func openMusicEventViewerPresentation<Item: Identifiable, Content: View>(
         item: Binding<Item?>,
@@ -18,9 +34,10 @@ struct OpenMusicEventViewerPresentation<
     Item: Identifiable,
     PresentedContent: View
 >: ViewModifier {
+    @Environment(\.eventViewerPresentationLaunchAnimation) var launchAnimation
     @Binding var item: Item?
     let presentedContent: (Item) -> PresentedContent
-    @State var presentsInitialItemDirectly: Bool
+    @State var hasAppeared = false
 
     init(
         item: Binding<Item?>,
@@ -28,7 +45,6 @@ struct OpenMusicEventViewerPresentation<
     ) {
         self._item = item
         self.presentedContent = content
-        self._presentsInitialItemDirectly = State(initialValue: item.wrappedValue != nil)
     }
 
     func body(content base: Content) -> some View {
@@ -40,20 +56,24 @@ struct OpenMusicEventViewerPresentation<
                 base
             }
             #else
-            if presentsInitialItemDirectly, let item {
-                presentedContent(item)
-            } else {
-                base
-                    .fullScreenCover(item: $item) { item in
-                        presentedContent(item)
-                    }
-            }
+            base
+                .fullScreenCover(item: presentationBinding) { item in
+                    presentedContent(item)
+                }
             #endif
         }
-        .onChange(of: item == nil) { _, isNil in
-            if isNil {
-                presentsInitialItemDirectly = false
-            }
+        .onAppear {
+            hasAppeared = true
         }
+    }
+
+    private var presentationBinding: Binding<Item?> {
+        guard launchAnimation == .disabled, !hasAppeared else {
+            return $item
+        }
+
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        return $item.transaction(transaction)
     }
 }

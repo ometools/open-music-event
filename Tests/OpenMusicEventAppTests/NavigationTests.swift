@@ -5570,7 +5570,11 @@ struct NavigationTests {
             .execute(db)
         }
 
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
+        let store = makeRootHarnessStore(
+            database: database,
+            eventID: eventID,
+            selectedEventIDAtLaunch: eventID
+        )
         #expect(store.state.root.eventViewer?.state.eventID == eventID)
     }
 
@@ -5586,7 +5590,11 @@ struct NavigationTests {
             .execute(db)
         }
 
-        let store = makeRootHarnessStore(database: database, eventID: eventID)
+        let store = makeRootHarnessStore(
+            database: database,
+            eventID: eventID,
+            selectedEventIDAtLaunch: eventID
+        )
         #expect(store.state.root.eventViewer?.state.eventID == eventID)
 
         await store.modify {
@@ -5621,11 +5629,10 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            @Bindable var store = Store(initialState: OpenMusicEventAppRoot.State()) {
+            @Bindable var store = Store(
+                initialState: OpenMusicEventAppRoot.State(selectedEventIDAtLaunch: eventID)
+            ) {
                 OpenMusicEventAppRoot()
-            }
-            await waitUntil {
-                store.eventViewer != nil
             }
 
             @Bindable var eventViewerStore = try #require(store.spawn(\.eventViewer))
@@ -5715,6 +5722,35 @@ struct NavigationTests {
 
         #expect(store.state.root.eventViewer?.state.authoringMode == .authoring(.all))
         #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == true)
+
+        let appState = try await database.read { db in
+            try AppState.fetchOne(db)
+        }
+        #expect(appState?.selectedEventID == eventID)
+    }
+
+    @Test
+    func whiteLabelLaunchRestoreMountsEventViewer() async throws {
+        let eventID = eventID("event-1")
+        let database = try makePreparedDatabase()
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            OpenMusicEventAppRoot.State(
+                variant: .whiteLabel(
+                    WhiteLabelAppConfiguration(
+                        brand: WhiteLabelBrand(displayName: "Test Festival"),
+                        organizerID: testOrganizerID
+                    )
+                ),
+                selectedEventIDAtLaunch: eventID
+            )
+        }
+
+        #expect(state.eventViewer?.state.eventID == eventID)
     }
 
     @Test
@@ -6109,14 +6145,21 @@ struct NavigationTests {
 
     private func makeRootHarnessStore(
         database: any DatabaseWriter,
-        eventID: OMERecord.Event.ID = eventID("event-1")
+        eventID: OMERecord.Event.ID = eventID("event-1"),
+        variant: OpenMusicEventAppVariant = .generic,
+        selectedEventIDAtLaunch: OMERecord.Event.ID? = nil
     ) -> TestStore<RootHarness> {
         withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            TestStore(initialState: RootHarness.State()) {
+            var state = RootHarness.State()
+            state.root = OpenMusicEventAppRoot.State(
+                variant: variant,
+                selectedEventIDAtLaunch: selectedEventIDAtLaunch
+            )
+            return TestStore(initialState: state) {
                 RootHarness()
             }
         }

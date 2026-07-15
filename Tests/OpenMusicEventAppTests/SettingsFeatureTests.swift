@@ -164,7 +164,6 @@ struct SettingsFeatureTests {
             $0.defaultEventID = eventID
         } operation: {
             var initialState = OpenMusicEventAppRoot.State()
-            initialState.hasRestoredSelectedEventAtLaunch = true
             initialState.eventViewer = Spawn(
                 EventViewer.State(
                     eventID: eventID,

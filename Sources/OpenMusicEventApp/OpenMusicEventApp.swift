@@ -24,6 +24,17 @@ public enum OpenMusicEventAppVariant: Equatable, Sendable {
     case whiteLabel(WhiteLabelAppConfiguration)
 }
 
+extension OpenMusicEventAppVariant {
+    var persistsSelectedEvent: Bool {
+        switch self {
+        case .generic:
+            true
+        case .whiteLabel:
+            true
+        }
+    }
+}
+
 public enum OpenMusicEventAppDependencyProfile: Sendable {
     case generic
     case whiteLabel
@@ -79,37 +90,75 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
 /* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
     @MainActor
-    private static let genericStore = StoreOf<OpenMusicEventAppRoot>(
-        initialState: .init(variant: .generic)
-    ) {
-        OpenMusicEventAppRoot()
-    }
+    private static let genericStore = makeStore(variant: .generic)
 
+    private let eventViewerPresentationLaunchAnimation: EventViewerPresentationLaunchAnimation
     let store: StoreOf<OpenMusicEventAppRoot>
 
     /* SKIP @bridge */public init() {
-        self.store = Self.genericStore
+        let store = Self.genericStore
+        self.eventViewerPresentationLaunchAnimation = Self.launchAnimation(for: store)
+        self.store = store
     }
 
     @MainActor
     public init(store: StoreOf<OpenMusicEventAppRoot>) {
+        self.eventViewerPresentationLaunchAnimation = Self.launchAnimation(for: store)
         self.store = store
     }
 
     @MainActor
     public init(variant: OpenMusicEventAppVariant) {
-        self.store = StoreOf<OpenMusicEventAppRoot>(
-            initialState: .init(variant: variant)
+        let store = Self.makeStore(variant: variant)
+        self.eventViewerPresentationLaunchAnimation = Self.launchAnimation(for: store)
+        self.store = store
+    }
+
+    public var body: some View {
+        OpenMusicEventAppRootView(store: store)
+            .environment(
+                \.eventViewerPresentationLaunchAnimation,
+                eventViewerPresentationLaunchAnimation
+            )
+            .task {
+                logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
+            }
+    }
+
+    @MainActor
+    public static func makeStore(
+        variant: OpenMusicEventAppVariant
+    ) -> StoreOf<OpenMusicEventAppRoot> {
+        StoreOf<OpenMusicEventAppRoot>(
+            initialState: .init(
+                variant: variant,
+                selectedEventIDAtLaunch: selectedEventIDAtLaunch(for: variant)
+            )
         ) {
             OpenMusicEventAppRoot()
         }
     }
 
-    public var body: some View {
-        OpenMusicEventAppRootView(store: store)
-            .task {
-                logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
+    private static func selectedEventIDAtLaunch(
+        for variant: OpenMusicEventAppVariant
+    ) -> OMERecord.Event.ID? {
+        guard variant.persistsSelectedEvent else { return nil }
+        @Dependency(\.defaultDatabase) var database
+        do {
+            return try database.read { db in
+                try AppState.find(1).fetchOne(db)?.selectedEventID
             }
+        } catch {
+            logger.error("Failed to restore selected event at launch: \(String(describing: error))")
+            return nil
+        }
+    }
+
+    @MainActor
+    private static func launchAnimation(
+        for store: StoreOf<OpenMusicEventAppRoot>
+    ) -> EventViewerPresentationLaunchAnimation {
+        store.eventViewer == nil ? .automatic : .disabled
     }
 }
 

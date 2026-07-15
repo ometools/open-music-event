@@ -18,8 +18,21 @@ public struct OpenMusicEventAppRoot {
     public init() {}
 
     public struct State {
-        public init(variant: OpenMusicEventAppVariant = .generic) {
+        public init(
+            variant: OpenMusicEventAppVariant = .generic,
+            selectedEventIDAtLaunch: OMERecord.Event.ID? = nil
+        ) {
             self.variant = variant
+            if variant.persistsSelectedEvent, let selectedEventIDAtLaunch {
+                self.eventViewer = OpenMusicEventAppRoot.withEventViewerWorkspaceDependencies(
+                    eventID: selectedEventIDAtLaunch
+                ) {
+                    Spawn(.route(
+                        eventID: selectedEventIDAtLaunch,
+                        target: nil
+                    ))
+                }
+            }
             if case let .whiteLabel(configuration) = variant {
                 self.whiteLabelRoot = Spawn(
                     WhiteLabelRoot.State(configuration: configuration)
@@ -31,7 +44,6 @@ public struct OpenMusicEventAppRoot {
         public var browser = Spawn(OpenMusicEventBrowser.State())
         public var errorNotifications = Spawn(ErrorNotifications.State())
         public var eventViewer: Spawn<EventViewer>?
-        public var hasRestoredSelectedEventAtLaunch = false
         var inAppBrowserPresentation: InAppBrowserPresentation?
         public var variant: OpenMusicEventAppVariant
         public var whiteLabelRoot: Spawn<WhiteLabelRoot>? = nil
@@ -86,29 +98,9 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
-        let withEventViewerWorkspaceDependencies:
-            (OMERecord.Event.ID, () -> Void) -> Void = { eventID, operation in
-            withDependencies {
-                guard $0.sourceEditingSession == nil else { return }
-                do {
-                    guard let sourceEditingSession = try $0.sourceWorkspaceDatabase
-                        .event(eventID)?
-                        .sourceEditingSession
-                    else {
-                        return
-                    }
-                    $0.sourceEditingSession = sourceEditingSession
-                } catch {
-                    reportIssue(error)
-                }
-            } operation: {
-                operation()
-            }
-        }
-
         let openEventViewer:
             (OMERecord.Event.ID, EventTarget?, Authoring.Mode?, inout State) -> Void = { eventID, target, authoringMode, state in
-            withEventViewerWorkspaceDependencies(eventID) {
+            Self.withEventViewerWorkspaceDependencies(eventID: eventID) {
                 state.eventViewer = Spawn(.route(
                     eventID: eventID,
                     target: target,
@@ -241,30 +233,15 @@ public struct OpenMusicEventAppRoot {
                     }
 
                 case .task:
-                    break
+                    if let eventID = state.eventViewer?.state.eventID {
+                        prefetchAssetsOnOpen(eventID)
+                    }
                 }
             }
 
             Scope(\.authentication, action: \.authentication) {
                 AuthenticationCoordinator()
             }
-        }
-        .onChange(of: store.selectedEventID, initial: true) { _, newValue, state in
-            guard state.persistsSelectedEvent else { return }
-            guard !state.hasRestoredSelectedEventAtLaunch else {
-                if newValue == nil {
-                    state.eventViewer = nil
-                }
-                return
-            }
-
-            state.hasRestoredSelectedEventAtLaunch = true
-            guard let newValue else { return }
-
-            withEventViewerWorkspaceDependencies(newValue) {
-                state.eventViewer = Spawn(.route(eventID: newValue, target: nil))
-            }
-            prefetchAssetsOnOpen(newValue)
         }
         .onChange(of: store.eventViewer?.state.eventID) { oldValue, newValue, state in
             if state.persistsSelectedEvent, oldValue != nil, newValue == nil {
@@ -399,6 +376,28 @@ struct OpenMusicEventAppSurfaceView: View {
     }
 }
 
+private extension OpenMusicEventAppRoot {
+    static func withEventViewerWorkspaceDependencies<Value>(
+        eventID: OMERecord.Event.ID,
+        operation: () -> Value
+    ) -> Value {
+        withDependencies {
+            guard $0.sourceEditingSession == nil else { return }
+            do {
+                guard let sourceEditingSession = try $0.sourceWorkspaceDatabase
+                    .event(eventID)?
+                    .sourceEditingSession
+                else { return }
+                $0.sourceEditingSession = sourceEditingSession
+            } catch {
+                reportIssue(error)
+            }
+        } operation: {
+            operation()
+        }
+    }
+}
+
 private extension OpenMusicEventAppRoot.State {
     mutating func openExternalURL(_ url: URL) {
         #if os(iOS)
@@ -408,12 +407,7 @@ private extension OpenMusicEventAppRoot.State {
     }
 
     var persistsSelectedEvent: Bool {
-        switch variant {
-        case .generic:
-            true
-        case .whiteLabel:
-            false
-        }
+        variant.persistsSelectedEvent
     }
 }
 
