@@ -3,7 +3,7 @@ import Foundation
 import FrontmatterParsing
 import Yams
 
-struct YamlConversion<Value: Codable>: Conversion {
+struct YamlConversion<Value: Codable & Equatable>: Conversion {
     typealias Input = Data
     typealias Output = Value
 
@@ -13,6 +13,32 @@ struct YamlConversion<Value: Codable>: Conversion {
 
     func unapply(_ output: Value) throws -> Data {
         try Data(YAMLEncoder().encode(output).utf8)
+    }
+
+    func unapply(
+        _ output: Value,
+        in context: FileTreeWriteContext
+    ) -> Conversions.Result<Data> {
+        if let existing = try? context.rootData(),
+           (try? YAMLDecoder().decode(Value.self, from: existing)) == output {
+            return .value(existing)
+        }
+
+        do {
+            return .value(try unapply(output))
+        } catch {
+            return .invalid(
+                diagnostics: .init(
+                    diagnostics: [
+                        Diagnostic(
+                            severity: .error,
+                            code: "open-music-event.yaml.print.failed",
+                            message: String(describing: error)
+                        )
+                    ]
+                )
+            )
+        }
     }
 }
 
