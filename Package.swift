@@ -54,10 +54,10 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
     .package(
         name: "swift-composable-atmosphere",
-        path: "../worktrees/swift-composable-atmosphere-audience",
+        path: "../../swift-packages/swift-composable-atmosphere",
         traits: ["TCA26"]
     ),
-    .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
+    .package(path: "../composable-atmosphere-constellation"),
     .package(path: "../composable-atmosphere-tangled"),
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),

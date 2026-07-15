@@ -1,5 +1,5 @@
 {
-  "originHash" : "0c1e499d3d4c3b87a07571fc86627cd8491cc365a77cb70e1061ebd7eb80ab36",
+  "originHash" : "358fc6c6126e415cb551da2124be4b54a2ad300c528cc882febf5480b449c90c",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -17,15 +17,6 @@
       "state" : {
         "revision" : "dcccb979a2183b8df3334237e3dc1ae2b4116a86",
         "version" : "1.2.0"
-      }
-    },
-    {
-      "identity" : "composable-atmosphere-constellation",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/composable-atmosphere-constellation",
-      "state" : {
-        "branch" : "main",
-        "revision" : "4da8ad0f9fcdbce3dd8b153857b58e4c612ce189"
       }
     },
     {
@@ -305,15 +296,6 @@
       "state" : {
         "revision" : "fea17c02d767f46b23070fdfdacc28a03a39232a",
         "version" : "1.5.1"
-      }
-    },
-    {
-      "identity" : "swift-composable-atmosphere",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-composable-atmosphere",
-      "state" : {
-        "branch" : "main",
-        "revision" : "e98edb10108661fc582acf9b0d1b03127dc81ee9"
       }
     },
     {
