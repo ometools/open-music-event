@@ -154,7 +154,7 @@ private struct SourceSemanticFieldNormalizer {
     }
 }
 
-private struct SourceComparableImageAsset: Equatable, Sendable {
+private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, Sendable {
     var assetKey: String?
     var source: SourceComparableImageSource
     var role: OME.ImageAsset.Role
@@ -191,6 +191,19 @@ private struct SourceComparableImageAsset: Equatable, Sendable {
             && lhs.materializationPolicy == rhs.materializationPolicy
             && lhs.thumbhash == rhs.thumbhash
             && lhs.focalPoint == rhs.focalPoint
+    }
+
+    var customDumpValue: Any {
+        (
+            assetKey: assetKey,
+            source: source.stableDescription,
+            role: role.rawValue,
+            renderKind: renderKind.rawValue,
+            appearance: appearance?.rawValue,
+            materializationPolicy: materializationPolicy.rawValue,
+            thumbhash: thumbhash,
+            focalPoint: focalPoint.map { (x: $0.x, y: $0.y) }
+        )
     }
 }
 
@@ -231,6 +244,19 @@ private enum SourceComparableImageSource: Equatable, Sendable {
             return false
         }
     }
+
+    var stableDescription: String {
+        switch self {
+        case let .fileIdentity(identity):
+            return "fileIdentity(\(identity))"
+
+        case let .source(.blob(blob)):
+            return "blob(\(blob))"
+
+        case let .source(.url(url)):
+            return "url(\(url.absoluteString))"
+        }
+    }
 }
 
 private extension OME.ImageAsset {
@@ -245,16 +271,14 @@ private func sourceComparableImages(
     images?.map(\.sourceComparable)
 }
 
-private struct SourceComparableImageColumn<Value: Sendable>: Sendable, CustomDumpReflectable {
+private struct SourceComparableImageColumn<Value: Sendable>: CustomDumpRepresentable, Sendable {
     var columnName: String
     var value: Value
 
-    var customDumpMirror: Mirror {
-        Mirror(
-            self,
-            children: [
-                Mirror.Child(label: columnName, value: value)
-            ]
+    var customDumpValue: Any {
+        (
+            columnName: columnName,
+            value: value
         )
     }
 }

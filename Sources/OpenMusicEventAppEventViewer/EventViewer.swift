@@ -374,6 +374,28 @@ public struct EventViewer {
                     )
                 }
                 self.stagesViewer?.state.destination = destination
+            case let .performance(performanceID):
+                let eventID = self.eventID
+                self.eventSearch.state = EventSearch.State(eventID: eventID)
+                self.contributorsViewer?.state.destination = nil
+                self.stagesViewer?.state.destination = nil
+                for index in self.scheduleViewers.indices {
+                    self.scheduleViewers[index].state.destination = nil
+                }
+                guard let scheduleViewerIndex = self.scheduleViewers.firstIndex(where: {
+                    $0.state.scheduleDivision == .schedule
+                }) else { return }
+                self.selectedFeature = .schedule(.schedule)
+                self.scheduleViewers[scheduleViewerIndex].state.destination = withEventDependencies {
+                    .performanceDetail(
+                        Spawn(
+                            PerformanceDetail.State(
+                                performanceID: performanceID,
+                                eventID: eventID
+                            )
+                        )
+                    )
+                }
             case .stages:
                 self.eventSearch.state = EventSearch.State(eventID: eventID)
                 self.contributorsViewer?.state.destination = nil

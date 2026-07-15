@@ -1,0 +1,38 @@
+SourceProposalFlow.State(
+  _form: Form.State(
+    _focusedField: nil,
+    _submissionStatus: .idle,
+    _validation: [:],
+    _value: SourceProposalFlow.FormValue(
+      description: "",
+      title: ""
+    ),
+    _asyncValidationRuns: [:],
+    _nextValidationRunID: 0,
+    _pendingObservedChangeValidationFields: Set([])
+  ),
+  patch: SourcePatch(
+    fileChanges: [
+      [0]: SourcePatchFileChange(
+        path: "events/testival-2026/stages/meadow.yml",
+        kind: .modified,
+        oldContents: Data(13 bytes),
+        newContents: Data(22 bytes)
+      )
+    ]
+  ),
+  _sourceChangeGroups: [],
+  _sourceRecordComparisons: SourceRecordComparisons(comparisonsByChangeID: [:]),
+  _status: .composing,
+  target: .event(
+    OpenMusicEvent.Event.ID(
+      organizerID: DID(
+        method: Tagged(rawValue: "web"),
+        id: Tagged(rawValue: "example.com")
+      ),
+      eventID: Tagged(
+        rawValue: Tagged(rawValue: "testival-2026")
+      )
+    )
+  )
+)

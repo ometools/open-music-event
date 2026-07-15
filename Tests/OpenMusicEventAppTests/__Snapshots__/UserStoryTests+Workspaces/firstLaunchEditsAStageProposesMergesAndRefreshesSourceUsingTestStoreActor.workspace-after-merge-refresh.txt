@@ -1,0 +1,16 @@
+SourceWorkspaceSummary(
+  availability: .workspaceNeedsPreparation,
+  groups: [],
+  recordComparisons: SourceRecordComparisons(comparisonsByChangeID: [:]),
+  target: .event(
+    OpenMusicEvent.Event.ID(
+      organizerID: DID(
+        method: Tagged(rawValue: "web"),
+        id: Tagged(rawValue: "example.com")
+      ),
+      eventID: Tagged(
+        rawValue: Tagged(rawValue: "testival-2026")
+      )
+    )
+  )
+)

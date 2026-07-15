@@ -35,6 +35,9 @@ public enum AppRoute: Equatable, Sendable {
             } else if tail.count == 2, tail[0] == "stages" {
                 let stageID = tail[1]
                 self = .event(eventID, .stage(.init(.init(stageID))))
+            } else if tail.count == 2, tail[0] == "performances" {
+                let performanceID = tail[1]
+                self = .event(eventID, .performance(.init(.init(performanceID))))
             } else if tail == ["communications"] {
                 self = .event(eventID, .communications)
             } else if tail == ["contact-info"] {
@@ -82,6 +85,8 @@ public enum AppRoute: Equatable, Sendable {
                 return "\(base)/stages"
             case let .stage(stageID):
                 return "\(base)/stages/\(stageID.rawValue.rawValue)"
+            case let .performance(performanceID):
+                return "\(base)/performances/\(performanceID.rawValue.rawValue)"
             case .communications:
                 return "\(base)/communications"
             case .contactInfo:

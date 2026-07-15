@@ -3,6 +3,7 @@ import Foundation
 
 public enum EventTarget: Equatable, Sendable {
     case schedule
+    case performance(OMERecord.ID<OMERecord.Performance>)
     case contributors
     case contributor(OMERecord.ID<OMERecord.Contributor>)
     case stages
@@ -33,6 +34,8 @@ extension EventTarget {
     public var eventFeature: EventFeature {
         switch self {
         case .schedule:
+            .schedule(.schedule)
+        case .performance:
             .schedule(.schedule)
         case .contributors, .contributor:
             .contributors

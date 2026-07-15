@@ -55,8 +55,22 @@ public struct WhiteLabelRoot {
         case enterAuthoringAuthorizationFailed(Authoring.Subject)
         case enterAuthoringAuthorized(Authoring.Subject, Authoring.Scope)
         case enterAuthoringButtonTapped
+        case loadDataSucceeded(LoadedRoot)
         case retryButtonTapped
         case task
+    }
+
+    public struct LoadedRoot: Equatable, Sendable {
+        public init(
+            organizerID: OMERecord.Organizer.ID,
+            sourceBaselineIDs: [SourceBaselineRecord.ID]
+        ) {
+            self.organizerID = organizerID
+            self.sourceBaselineIDs = sourceBaselineIDs
+        }
+
+        public var organizerID: OMERecord.Organizer.ID
+        public var sourceBaselineIDs: [SourceBaselineRecord.ID]
     }
 
     @Dependency(\.authoringPolicy) var authoringPolicy
@@ -118,6 +132,17 @@ public struct WhiteLabelRoot {
                     try store.send(.enterAuthoringAuthorized(authoringSubject, scope))
                 }
 
+            case let .loadDataSucceeded(loadedRoot):
+                state.errorMessage = nil
+                state.isLoading = false
+                state.loadingPhase = .idle
+                state.organizerID = loadedRoot.organizerID
+                state.setLoadedRoot(
+                    organizerID: loadedRoot.organizerID,
+                    sourceBaselineIDs: loadedRoot.sourceBaselineIDs
+                )
+                state.refreshAuthoringMode()
+
             case .retryButtonTapped:
                 guard !state.isLoading else { return }
                 state.errorMessage = nil
@@ -160,12 +185,6 @@ public struct WhiteLabelRoot {
         let sourceRegistry = self.sourceRegistry
         let storedAuthentication = self.storedAuthentication
         store.addTask {
-            let updateLoadingPhase: (State.LoadingPhase) async -> Void = { phase in
-                _ = try? store.modify {
-                    $0.loadingPhase = phase
-                }
-            }
-
             let _: Void? = await store.withErrorHandling(
                 fallbackMessage: .storedAuthenticationLoadFailed,
                 operation: .storedAuthenticationLoad
@@ -177,22 +196,28 @@ public struct WhiteLabelRoot {
                 fallbackMessage: .whiteLabelLoadFailed,
                 operation: .whiteLabelLoad
             ) {
-                await updateLoadingPhase(Self.initialLoadingPhase(
-                    configuration,
-                    developmentSourceOverride: developmentSourceOverride
-                ))
+                try store.modify {
+                    $0.loadingPhase = Self.initialLoadingPhase(
+                        configuration,
+                        developmentSourceOverride: developmentSourceOverride
+                    )
+                }
                 let resolvedSource = try await Self.resolveSource(
                     configuration,
                     developmentSourceOverride: developmentSourceOverride,
                     identityResolver: identityResolver,
                     sourceRegistry: sourceRegistry
                 )
-                await updateLoadingPhase(.importingSource)
+                try store.modify {
+                    $0.loadingPhase = .importingSource
+                }
                 _ = try await sourceImport.ensureImported(
                     resolvedSource.organizerID,
                     resolvedSource.descriptor
                 )
-                await updateLoadingPhase(.openingEvent)
+                try store.modify {
+                    $0.loadingPhase = .openingEvent
+                }
                 let sourceBaselineIDs = try await Self.sourceBaselineIDs(
                     for: resolvedSource.organizerID,
                     in: database
@@ -209,17 +234,7 @@ public struct WhiteLabelRoot {
             }
 
             if let loadedRoot {
-                try store.modify {
-                    $0.errorMessage = nil
-                    $0.isLoading = false
-                    $0.loadingPhase = .idle
-                    $0.organizerID = loadedRoot.organizerID
-                    $0.setLoadedRoot(
-                        organizerID: loadedRoot.organizerID,
-                        sourceBaselineIDs: loadedRoot.sourceBaselineIDs
-                    )
-                    $0.refreshAuthoringMode()
-                }
+                try store.send(.loadDataSucceeded(loadedRoot))
                 return
             }
 
@@ -259,11 +274,6 @@ public struct WhiteLabelRoot {
     private struct ResolvedSource {
         var organizerID: OMERecord.Organizer.ID
         var descriptor: WhiteLabelSourceDescriptor
-    }
-
-    private struct LoadedRoot {
-        var organizerID: OMERecord.Organizer.ID
-        var sourceBaselineIDs: [SourceBaselineRecord.ID]
     }
 
     private static func initialLoadingPhase(

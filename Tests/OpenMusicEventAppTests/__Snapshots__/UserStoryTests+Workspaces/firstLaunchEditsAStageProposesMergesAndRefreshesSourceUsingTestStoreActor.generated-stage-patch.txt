@@ -1,0 +1,12 @@
+.generated(
+  SourcePatch(
+    fileChanges: [
+      [0]: SourcePatchFileChange(
+        path: "events/testival-2026/stages/meadow.yml",
+        kind: .modified,
+        oldContents: Data(13 bytes),
+        newContents: Data(22 bytes)
+      )
+    ]
+  )
+)
