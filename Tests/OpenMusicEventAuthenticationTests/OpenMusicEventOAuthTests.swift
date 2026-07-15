@@ -1,8 +1,10 @@
+import ATProto
 import ATProtoOAuth
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import Foundation
+import Sharing
 import TCATProtoAuthentication
 import Testing
 import WebMetadataClient
@@ -420,11 +422,15 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
-    func preparedDependenciesExposeSelectedSessionStoreFallback() {
+    func preparedDependenciesExposeSelectedSessionFromAppSelection() {
         OpenMusicEventOAuth.resetStoredSession()
         var dependencies = DependencyValues()
-        var sessionStore = OAuth.SessionStore()
-        sessionStore.upsert(.placeholder)
+        let sessionStore = OAuth.SessionStore(
+            selectedAccountID: nil,
+            sessions: [
+                OAuth.Session.placeholder.accountID.rawValue: .placeholder,
+            ]
+        )
         OpenMusicEventOAuth.sessionStore.withLock {
             $0 = sessionStore
         }
@@ -443,6 +449,49 @@ struct OpenMusicEventOAuthTests {
             @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
             #expect(getOptionalDefaultSession() == .placeholder)
         }
+        #expect(OpenMusicEventOAuth.sessionStore.wrappedValue.selectedAccountID == nil)
+    }
+
+    @Test
+    func selectedOAuthSessionDependencyWritesThroughSelectedSessionStore() async {
+        OpenMusicEventOAuth.resetStoredSession()
+        var dependencies = DependencyValues()
+        let sessionStore = OAuth.SessionStore(
+            selectedAccountID: nil,
+            sessions: [
+                OAuth.Session.placeholder.accountID.rawValue: .placeholder,
+            ]
+        )
+        OpenMusicEventOAuth.sessionStore.withLock {
+            $0 = sessionStore
+        }
+        OpenMusicEventOAuth.selectedSessionID.withLock {
+            $0 = OAuth.Session.placeholder.accountID
+        }
+        defer {
+            OpenMusicEventOAuth.resetStoredSession()
+        }
+
+        OpenMusicEventOAuth.prepareDependencies(&dependencies)
+
+        let refreshedAccessToken = OAuth.AccessToken(rawValue: "refreshed-access-token")
+        await withDependencies {
+            $0 = dependencies
+        } operation: {
+            @Dependency(\.selectedOAuthSession) var selectedOAuthSession
+            #expect(selectedOAuthSession.current() == .placeholder)
+
+            await selectedOAuthSession.update {
+                $0?.accessToken = refreshedAccessToken
+            }
+        }
+
+        #expect(
+            OpenMusicEventOAuth.sessionStore
+                .wrappedValue[OAuth.Session.placeholder.accountID]?
+                .accessToken == refreshedAccessToken
+        )
+        #expect(OpenMusicEventOAuth.sessionStore.wrappedValue.selectedAccountID == nil)
     }
 
     @Test
@@ -486,26 +535,27 @@ struct OpenMusicEventOAuthTests {
             $0.keychainStorage = keychainStorage
         } operation: {
             OpenMusicEventOAuth.resetStoredSession()
+            defer {
+                OpenMusicEventOAuth.resetStoredSession()
+            }
+            let selectedSessionID = OAuth.Session.placeholder.accountID
             var sessionStore = OAuth.SessionStore(
                 selectedAccountID: nil,
                 sessions: [
-                    OAuth.Session.placeholder.accountID.rawValue: .placeholder,
+                    selectedSessionID.rawValue: .placeholder,
                 ]
             )
-            OpenMusicEventOAuth.selectedSessionID.withLock {
-                $0 = OAuth.Session.placeholder.accountID
-            }
 
             try keychainStorage.setData(
                 JSONEncoder().encode(sessionStore),
                 OpenMusicEventOAuth.sessionStoreKeychainItem
             )
+            try keychainStorage.setData(
+                JSONEncoder().encode(selectedSessionID as Atmosphere.Account.ID?),
+                OpenMusicEventOAuth.selectedSessionIDKeychainItem
+            )
 
             try await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
-            sessionStore.selectedAccountID = OAuth.Session.placeholder.accountID
-
-            #expect(OpenMusicEventOAuth.session.wrappedValue == .placeholder)
-            #expect(OpenMusicEventOAuth.sessionStore.wrappedValue == sessionStore)
 
             var dependencies = DependencyValues()
             OpenMusicEventOAuth.prepareDependencies(&dependencies)
@@ -514,8 +564,116 @@ struct OpenMusicEventOAuthTests {
                 $0 = dependencies
             } operation: {
                 @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
-                #expect(getOptionalDefaultSession() == .placeholder)
+                @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
+                expectNoDifference(getSelectedOAuthSessionID(), selectedSessionID)
+                expectNoDifference(getOptionalDefaultSession(), .placeholder)
             }
+            sessionStore.selectedAccountID = selectedSessionID
+            expectNoDifference(OpenMusicEventOAuth.session.wrappedValue, .placeholder)
+            expectNoDifference(OpenMusicEventOAuth.sessionStore.wrappedValue, sessionStore)
+            expectNoDifference(OpenMusicEventOAuth.selectedSessionID.wrappedValue, selectedSessionID)
+        }
+    }
+
+    @Test
+    func storedAuthenticationReloadsSelectedSessionIDFromKeychainStorage() async throws {
+        let storage = InMemoryKeychainStorage()
+        let keychainStorage = KeychainStorageClient.inMemory(storage)
+        try await withDependencies {
+            $0.keychainStorage = keychainStorage
+        } operation: {
+            OpenMusicEventOAuth.sessionStore.withLock {
+                $0 = OAuth.SessionStore()
+            }
+            OpenMusicEventOAuth.selectedSessionID.withLock {
+                $0 = nil
+            }
+            defer {
+                OpenMusicEventOAuth.resetStoredSession()
+            }
+
+            let selectedSessionID = OAuth.Session.placeholder.accountID
+            var sessionStore = OAuth.SessionStore()
+            sessionStore.upsert(.placeholder)
+            try keychainStorage.setData(
+                JSONEncoder().encode(sessionStore),
+                OpenMusicEventOAuth.sessionStoreKeychainItem
+            )
+            try keychainStorage.setData(
+                JSONEncoder().encode(selectedSessionID as Atmosphere.Account.ID?),
+                OpenMusicEventOAuth.selectedSessionIDKeychainItem
+            )
+
+            try await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
+
+            var dependencies = DependencyValues()
+            OpenMusicEventOAuth.prepareDependencies(&dependencies)
+
+            withDependencies {
+                $0 = dependencies
+            } operation: {
+                @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
+                @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
+                expectNoDifference(getSelectedOAuthSessionID(), selectedSessionID)
+                expectNoDifference(getOptionalDefaultSession(), .placeholder)
+            }
+            sessionStore.selectedAccountID = selectedSessionID
+            expectNoDifference(OpenMusicEventOAuth.selectedSessionID.wrappedValue, selectedSessionID)
+            expectNoDifference(OpenMusicEventOAuth.sessionStore.wrappedValue, sessionStore)
+        }
+    }
+
+    @Test
+    func storedAuthenticationMigratesSelectedSessionIDFromSessionStore() async throws {
+        let storage = InMemoryKeychainStorage()
+        let keychainStorage = KeychainStorageClient.inMemory(storage)
+        try await withDependencies {
+            $0.keychainStorage = keychainStorage
+        } operation: {
+            OpenMusicEventOAuth.sessionStore.withLock {
+                $0 = OAuth.SessionStore()
+            }
+            OpenMusicEventOAuth.selectedSessionID.withLock {
+                $0 = nil
+            }
+            defer {
+                OpenMusicEventOAuth.resetStoredSession()
+            }
+
+            let selectedSessionID = OAuth.Session.placeholder.accountID
+            let sessionStore = OAuth.SessionStore(
+                selectedAccountID: selectedSessionID,
+                sessions: [
+                    selectedSessionID.rawValue: .placeholder,
+                ]
+            )
+            try keychainStorage.setData(
+                JSONEncoder().encode(sessionStore),
+                OpenMusicEventOAuth.sessionStoreKeychainItem
+            )
+
+            try await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
+
+            var dependencies = DependencyValues()
+            OpenMusicEventOAuth.prepareDependencies(&dependencies)
+
+            withDependencies {
+                $0 = dependencies
+            } operation: {
+                @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
+                @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
+                expectNoDifference(getSelectedOAuthSessionID(), selectedSessionID)
+                expectNoDifference(getOptionalDefaultSession(), .placeholder)
+            }
+            expectNoDifference(OpenMusicEventOAuth.selectedSessionID.wrappedValue, selectedSessionID)
+            let savedSelectedSessionIDData = try #require(
+                try keychainStorage.data(OpenMusicEventOAuth.selectedSessionIDKeychainItem)
+            )
+            let savedSelectedSessionID = try JSONDecoder().decode(
+                Atmosphere.Account.ID?.self,
+                from: savedSelectedSessionIDData
+            )
+            expectNoDifference(savedSelectedSessionID, selectedSessionID)
         }
     }
 }

@@ -50,13 +50,14 @@ private let openMusicEventOAuthSessionStore = Shared(
     KeychainSharedKey(item: OpenMusicEventOAuth.sessionStoreKeychainItem)
 )
 
+private let openMusicEventSelectedOAuthSessionID = Shared<Atmosphere.Account.ID?>(
+    wrappedValue: nil,
+    KeychainSharedKey(item: OpenMusicEventOAuth.selectedSessionIDKeychainItem)
+)
+
 #if os(Linux)
-private let openMusicEventSelectedOAuthSessionID = Shared<Atmosphere.Account.ID?>(value: nil)
 private let openMusicEventRecentlyUsedAccountIDs = Shared<[Atmosphere.Account.ID]>(value: [])
 #else
-private let openMusicEventSelectedOAuthSessionID = Shared<Atmosphere.Account.ID?>(
-    .appStorage("openMusicEventSelectedOAuthSessionID")
-)
 private let openMusicEventRecentlyUsedAccountIDs = Shared<[Atmosphere.Account.ID]>(
     .openMusicEventRecentlyUsedAccountIDs
 )
@@ -89,6 +90,11 @@ public enum OpenMusicEventOAuth {
     static let sessionStoreKeychainItem = KeychainStorageItem(
         service: "fm.woody.openMusicEvent",
         account: "oauth.sessionStore"
+    )
+
+    static let selectedSessionIDKeychainItem = KeychainStorageItem(
+        service: "fm.woody.openMusicEvent",
+        account: "oauth.selectedSessionID"
     )
 
     public static let clientMetadataURL = URL(
@@ -283,35 +289,38 @@ public enum OpenMusicEventOAuth {
         )
         let sessionStore = OpenMusicEventOAuth.sessionStore
         let selectedSessionID = OpenMusicEventOAuth.selectedSessionID
-        let selectedSession = OpenMusicEventOAuth.session
+        let selectedSession = OpenMusicEventSelectedOAuthSessionClient.live(
+            sessionStore: sessionStore,
+            selectedSessionID: selectedSessionID
+        )
         let getSelectedOAuthSessionID: @Sendable () -> Atmosphere.Account.ID? = {
             selectedSessionID.wrappedValue
         }
-        syncOpenMusicEventSelectedSessionID(selectedSessionID, into: sessionStore)
         dependencies.openMusicEventAuthorizationRequests = authorizationRequests
         dependencies.oauthAppConfiguration = appConfiguration
         dependencies.oauthAppManifest = appManifest
         dependencies.getSelectedOAuthSessionID = getSelectedOAuthSessionID
+        dependencies.selectedOAuthSession = selectedSession
         dependencies.oauthAuthorizationBroker = authorizationRequests
             .openMusicEventAutoStartingAuthorizationUpgrades(
-                session: { selectedSession.wrappedValue },
+                session: selectedSession.current,
                 sessionStore: { sessionStore.wrappedValue },
                 appManifest: appManifest
             )
             .broker()
         dependencies.oauthBrowserStrategy = .webAuthenticationSession
         dependencies.getDefaultSession = {
-            selectedSession.wrappedValue ?? .placeholder
+            selectedSession.current() ?? .placeholder
         }
         dependencies.getOptionalDefaultSession = {
-            selectedSession.wrappedValue
+            selectedSession.current()
         }
         dependencies.oauthScopes = appManifest.basePermissions.permissions
             .sorted { $0.rawValue < $1.rawValue }
             .map { OAuth.Scope(rawValue: $0.rawValue) }
         dependencies.errorInterceptors.append(
-            .tokenRefresh(
-                session: selectedSession,
+            .openMusicEventTokenRefresh(
+                selectedSession: selectedSession,
                 authFailureMessage: authFailureMessage
             )
         )
@@ -339,6 +348,15 @@ public enum OpenMusicEventOAuth {
 
     public static func enforceStoredAuthenticationFreshness() async throws {
         try await storage.enforceFreshness()
+        try await selectedSessionID.load()
+        if selectedSessionID.withLock({ $0 == nil }),
+           let storedSelectedAccountID = sessionStore.selectedAccountID.withLock({ $0 }) {
+            selectedSessionID.withLock {
+                $0 = storedSelectedAccountID
+            }
+            try await selectedSessionID.save()
+        }
+        syncOpenMusicEventSelectedSessionID(selectedSessionID, into: sessionStore)
     }
 }
 

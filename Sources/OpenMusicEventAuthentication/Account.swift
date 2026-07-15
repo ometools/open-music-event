@@ -311,7 +311,7 @@ public struct Account {
         }
 
         public var session: OAuth.Session? {
-            oauth.state.session
+            sessionStore[selectedSessionID] ?? oauth.state.session
         }
 
         public var sessionStore: OAuth.SessionStore {
