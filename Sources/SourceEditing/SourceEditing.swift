@@ -408,6 +408,21 @@ public struct AnySourceRecordComparison: @unchecked Sendable, Equatable, Hashabl
     }
 }
 
+extension AnySourceRecordComparison: CustomDumpReflectable {
+    public var customDumpMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "change": change,
+                "recordTypeName": recordTypeName,
+                "left": left as Any,
+                "right": right as Any,
+            ],
+            displayStyle: .struct
+        )
+    }
+}
+
 public struct SourceRecordComparisons: Equatable, Hashable, Sendable {
     public static var empty: Self { Self() }
 

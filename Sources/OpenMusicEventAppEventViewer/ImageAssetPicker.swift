@@ -1,4 +1,5 @@
 import ComposableArchitecture2
+import Dependencies
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventImages
@@ -169,12 +170,14 @@ public struct ImageAssetPicker {
 
     public struct ImageValue: Equatable, Identifiable, Sendable {
         public init(
-            id: UUID = UUID(),
+            id: UUID? = nil,
             asset: OMERecord.ImageAsset,
             importedImage: ImportImages.ImportedImage? = nil,
             sourceLabel: String? = nil,
             usesUniqueAssetKey: Bool = false
         ) {
+            @Dependency(\.uuid) var uuid
+            let id = id ?? uuid()
             self.asset = asset
             self.assetKeyDiscriminator = usesUniqueAssetKey && asset.assetKey == nil
                 ? id.uuidString.lowercased()

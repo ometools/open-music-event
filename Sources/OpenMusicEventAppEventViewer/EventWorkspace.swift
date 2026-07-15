@@ -728,6 +728,9 @@ public struct EventWorkspace {
                 state.tangledPullReviewDeleteFailures[review.id] = nil
                 state.tangledPullReviewMergeFailures[review.id] = nil
                 state.tangledPullReviewSemanticDiffs[review.id] = nil
+                if state.selectedTangledPullReview?.id == review.id {
+                    state.selectedTangledPullReview = nil
+                }
                 if case let .loaded(reviews) = state.tangledPullReviewStatus {
                     state.tangledPullReviewStatus = .loaded(
                         reviews.filter { $0.id != review.id }

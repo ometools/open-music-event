@@ -13,6 +13,7 @@
           "hidden" : false,
           "image-name" : "Layer 2.png",
           "name" : "Layer 2",
+          "opacity" : 0.74,
           "position" : {
             "scale" : 0.79,
             "translation-in-points" : [
@@ -25,7 +26,7 @@
           "glass" : false,
           "image-name" : "Flash.png",
           "name" : "Flash",
-          "opacity" : 0.45,
+          "opacity" : 1,
           "position" : {
             "scale" : 0.8,
             "translation-in-points" : [

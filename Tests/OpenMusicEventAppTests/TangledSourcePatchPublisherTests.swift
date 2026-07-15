@@ -41,7 +41,7 @@ struct TangledSourcePatchPublisherTests {
                 )
             ],
             source: TangledPullRecord.Source(
-                branch: "ome/proposal-test"
+                branch: "ome-proposal-test"
             ),
             createdAt: "2026-05-28T00:00:00Z"
         )
@@ -63,7 +63,7 @@ struct TangledSourcePatchPublisherTests {
         expectNoDifference(encodedTargetRepo, "did:plc:targetrepo")
         #expect(target["repoDid"] == nil)
         let source = try #require(json["source"] as? [String: Any])
-        #expect(source["branch"] as? String == "ome/proposal-test")
+        #expect(source["branch"] as? String == "ome-proposal-test")
         #expect(source["sha"] == nil)
     }
 
@@ -207,7 +207,7 @@ struct TangledSourcePatchPublisherTests {
             encoding: .utf8
         )
         let branchName = BranchName(
-            rawValue: "ome/proposal-00000000-0000-0000-0000-000000000042"
+            rawValue: "ome-proposal-00000000-0000-0000-0000-000000000042"
         )
         let commitID = CommitID(rawValue: "fedcbafedcbafedcbafedcbafedcbafedcbafedc")
         let credentials = Credentials(
@@ -388,6 +388,7 @@ struct TangledSourcePatchPublisherTests {
         }
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
+        #expect(publication.sourceChangeID == "at://did:plc:placeholder/sh.tangled.repo.pull/3pull")
         #expect(
             authorizedRequirements.withLock { $0 }
                 == [TangledOAuthRequirements.proposalAuthRequirement]
@@ -730,7 +731,7 @@ struct TangledSourcePatchPublisherTests {
             )
         )
         let branchName = BranchName(
-            rawValue: "ome/proposal-00000000-0000-0000-0000-000000000043"
+            rawValue: "ome-proposal-00000000-0000-0000-0000-000000000043"
         )
         let commitID = CommitID(rawValue: "fedcbafedcbafedcbafedcbafedcbafedc")
         let cloneRequests = Mutex([CloneRequest]())

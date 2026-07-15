@@ -258,6 +258,10 @@ struct NavigationTests {
                 AppRoute.event(eventID("event-1"), .stage(stageLocalID("stage-1")))
             ),
             (
+                "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances/performance-1",
+                AppRoute.event(eventID("event-1"), .performance(performanceLocalID("performance-1")))
+            ),
+            (
                 "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/workspace",
                 AppRoute.event(eventID("event-1"), .workspace)
             ),
@@ -290,6 +294,18 @@ struct NavigationTests {
         ]
     )
     func appRouteRejectsOldContributorURLs(urlString: String) throws {
+        let url = try #require(URL(string: urlString))
+        #expect(AppRoute(url: url) == nil)
+    }
+
+    @Test(
+        arguments: [
+            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances",
+            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances/opening/extra",
+            "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performance/opening",
+        ]
+    )
+    func appRouteRejectsIncompleteOrUnsupportedPerformanceURLs(urlString: String) throws {
         let url = try #require(URL(string: urlString))
         #expect(AppRoute(url: url) == nil)
     }
@@ -374,6 +390,67 @@ struct NavigationTests {
         #expect(
             store.state.root.eventViewer?.state.stagesViewer?.destination?.stageDetail?.stageID == stageID
         )
+    }
+
+    @Test
+    func performanceDeepLinkPresentsPerformanceDetail() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let performanceID = performanceLocalID("opening")
+        let date = try #require(LocalDate("2026-08-07"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Opening"
+            )
+        }
+
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+        let url = try #require(URL(
+            string: "https://openmusicevent.app/organizers/did%3Aweb%3Aexample.com/events/event-1/performances/opening"
+        ))
+        let route = try #require(AppRoute(url: url))
+
+        store.send(.root(.openRoute(route)))
+
+        #expect(store.state.root.eventViewer?.state.selectedFeature == .schedule(.schedule))
+        let scheduleViewer = try #require(
+            store.state.root.eventViewer?.state.scheduleViewers.first {
+                $0.state.scheduleDivision == .schedule
+            }
+        )
+        let performanceDetail = try #require(scheduleViewer.state.destination?.performanceDetail)
+        #expect(performanceDetail.performanceID == performanceID)
+        #expect(performanceDetail.performance?.title == "Opening")
+    }
+
+    @Test
+    func performanceDeepLinkPreservesIDWhenPerformanceIsUnavailable() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let performanceID = performanceLocalID("missing")
+        let store = makeRootHarnessStore(database: database, eventID: eventID)
+
+        store.send(.root(.openRoute(.event(eventID, .performance(performanceID)))))
+
+        let scheduleViewer = try #require(
+            store.state.root.eventViewer?.state.scheduleViewers.first {
+                $0.state.scheduleDivision == .schedule
+            }
+        )
+        let performanceDetail = try #require(scheduleViewer.state.destination?.performanceDetail)
+        #expect(performanceDetail.performanceID == performanceID)
+        #expect(performanceDetail.performance == nil)
     }
 
     @Test
