@@ -739,7 +739,6 @@ public struct EventWorkspace {
 
             case .generateSourcePatchButtonTapped:
                 generateSourcePatch(state: &state)
-                refreshTangledPullReviews(target: state.target, state: &state)
 
             case let .mergeTangledPullReviewButtonTapped(review):
                 mergeTangledPullReview(review, state: &state)
