@@ -150,6 +150,48 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
+    func dpopDiagnosticsIncludeNonceHeaderPresenceAndRawHeaders() throws {
+        let message = try #require(
+            OpenMusicEventOAuthNetworkDiagnostics.responseMessage(
+                method: "POST",
+                url: "https://jellybaby.us-east.host.bsky.network/xrpc/com.atproto.repo.createRecord",
+                status: "401",
+                isError: true,
+                headers: [
+                    (name: "cache-control", value: "no-store"),
+                    (name: "DPoP-Nonce", value: "server-nonce"),
+                ],
+                responseData: Data(#"{"error":"use_dpop_nonce","message":"DPoP \"nonce\" mismatch"}"#.utf8)
+            )
+        )
+
+        #expect(message.contains("dpop-nonce: present"))
+        #expect(message.contains("error: use_dpop_nonce"))
+        #expect(message.contains("cache-control: no-store"))
+        #expect(message.contains("DPoP-Nonce: server-nonce"))
+    }
+
+    @Test
+    func dpopDiagnosticsCallOutMissingNonceHeader() throws {
+        let message = try #require(
+            OpenMusicEventOAuthNetworkDiagnostics.responseMessage(
+                method: "POST",
+                url: "https://jellybaby.us-east.host.bsky.network/xrpc/com.atproto.repo.createRecord",
+                status: "401",
+                isError: true,
+                headers: [
+                    (name: "cache-control", value: "no-store"),
+                ],
+                responseData: Data(#"{"error":"use_dpop_nonce","message":"DPoP \"nonce\" mismatch"}"#.utf8)
+            )
+        )
+
+        #expect(message.contains("dpop-nonce: missing"))
+        #expect(message.contains("error: use_dpop_nonce"))
+        #expect(message.contains("cache-control: no-store"))
+    }
+
+    @Test
     func tangledWorkspaceManagementRequirementDoesNotRequestMergeUpFront() {
         let permissions = Set(
             OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement

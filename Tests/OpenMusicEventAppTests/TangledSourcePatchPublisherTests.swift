@@ -97,6 +97,54 @@ struct TangledSourcePatchPublisherTests {
     }
 
     @Test
+    func sourceControlDiagnosticsDescribeOperationStatusAndDetails() {
+        let message = TangledSourcePatchPublisherDiagnostics.message(
+            operation: "sourceControl.push",
+            status: .started,
+            details: [
+                "repository: /tmp/source",
+                "remoteBranch: ome/proposal-test",
+                "credentials: present",
+            ]
+        )
+
+        expectNoDifference(
+            message,
+            """
+            Tangled source patch sourceControl.push started
+            repository: /tmp/source
+            remoteBranch: ome/proposal-test
+            credentials: present
+            """
+        )
+    }
+
+    @Test
+    func sourceControlDiagnosticsDescribeFailuresAndSummarizePaths() {
+        let paths = TangledSourcePatchPublisherDiagnostics.pathSummary([
+            "events/2025/event.yml",
+            "events/2025/artist.yml",
+        ])
+        let message = TangledSourcePatchPublisherDiagnostics.message(
+            operation: "sourceControl.stage",
+            status: .failed,
+            details: [
+                "paths: \(paths)",
+            ],
+            error: TangledSourcePatchPublisherDiagnosticTestError.wedged
+        )
+
+        expectNoDifference(
+            message,
+            """
+            Tangled source patch sourceControl.stage failed
+            paths: events/2025/event.yml, events/2025/artist.yml
+            error: wedged
+            """
+        )
+    }
+
+    @Test
     func publishingRequiresTitle() async throws {
         let error = await #expect(throws: TangledSourcePatchPublisherError.self) {
             try await TangledSourcePatchPublisher().publish(
@@ -876,6 +924,10 @@ private actor HTTPRequestRecorder {
             )
         )
     }
+}
+
+private enum TangledSourcePatchPublisherDiagnosticTestError: Error {
+    case wedged
 }
 
 private enum TestAccountClientFailure: Error {

@@ -2,6 +2,7 @@ import ATProto
 import ATProtoOAuth
 import Dependencies
 import Foundation
+import HTTPClient
 import OpenMusicEventSourceClone
 #if os(Android)
 import SkipSharing
@@ -11,6 +12,9 @@ import Sharing
 import TCATProtoAuthentication
 import WebMetadataClient
 import XRPCClient
+#if canImport(OSLog)
+import OSLog
+#endif
 
 public struct OpenMusicEventStoredAuthenticationClient: Sendable {
     public var enforceFreshness: @Sendable () async throws -> Void
@@ -308,6 +312,7 @@ public enum OpenMusicEventOAuth {
                 authFailureMessage: authFailureMessage
             )
         )
+        OpenMusicEventOAuthNetworkDiagnostics.install(into: &dependencies)
         dependencies.xrpcAuthorizationGate = .defaultSessionAuthorization
     }
 
@@ -331,5 +336,79 @@ public enum OpenMusicEventOAuth {
 
     public static func enforceStoredAuthenticationFreshness() async throws {
         try await storage.enforceFreshness()
+    }
+}
+
+enum OpenMusicEventOAuthNetworkDiagnostics {
+    #if canImport(OSLog)
+    private static let logger = Logger(subsystem: "Networking", category: "DPoP")
+    #endif
+
+    static func install(into dependencies: inout DependencyValues) {
+        dependencies.responseInterceptors.append(
+            ResponseInterceptor { request, response, responseData in
+                let headers = response.headerFields.map {
+                    (name: "\($0.name)", value: $0.value)
+                }
+                guard let message = responseMessage(
+                    method: "\(request.method)",
+                    url: request.url?.absoluteString ?? "",
+                    status: "\(response.status)",
+                    isError: response.status.kind != .successful,
+                    headers: headers,
+                    responseData: responseData
+                ) else { return }
+
+                log(message)
+            }
+        )
+    }
+
+    static func responseMessage(
+        method: String,
+        url: String,
+        status: String,
+        isError: Bool,
+        headers: [(name: String, value: String)],
+        responseData: Data
+    ) -> String? {
+        let errorCode = responseErrorCode(responseData)
+        let nonceHeader = headers.first {
+            $0.name.caseInsensitiveCompare("DPoP-Nonce") == .orderedSame
+        }
+
+        guard isError || nonceHeader != nil || errorCode == "use_dpop_nonce" else {
+            return nil
+        }
+
+        let headerSummary = headers
+            .map { "\($0.name): \($0.value)" }
+            .joined(separator: "\n")
+
+        return """
+        DPoP response diagnostics for: \(method) \(url)
+        status: \(status)
+        dpop-nonce: \(nonceHeader == nil ? "missing" : "present")
+        error: \(errorCode ?? "nil")
+        headers:
+        \(headerSummary)
+        """
+    }
+
+    private static func responseErrorCode(_ responseData: Data) -> String? {
+        guard !responseData.isEmpty,
+              let object = try? JSONSerialization.jsonObject(with: responseData),
+              let dictionary = object as? [String: Any]
+        else { return nil }
+
+        return dictionary["error"] as? String
+    }
+
+    private static func log(_ message: String) {
+        #if canImport(OSLog)
+        logger.log("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
     }
 }
