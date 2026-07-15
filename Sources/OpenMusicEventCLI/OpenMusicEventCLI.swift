@@ -29,12 +29,45 @@ extension OpenMusicEventCommand {
             commandName: "source",
             abstract: "Work with organizer-owned OpenMusicEvent source repositories.",
             subcommands: [
+                Rewrite.self,
                 TangledPullIndexingRepro.self,
                 TangledSourceCloneCommand.self,
                 Validate.self
             ],
             defaultSubcommand: Validate.self
         )
+    }
+}
+
+extension OpenMusicEventCommand.Source {
+    struct Rewrite: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "rewrite",
+            abstract: "Read and rewrite a local source repository using the current source format."
+        )
+
+        @Argument(help: "Path to a local source repository root.")
+        var source: String
+
+        func run() async throws {
+            let sourceURL = URL(filePath: source).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: sourceURL.path,
+                isDirectory: &isDirectory
+            ), isDirectory.boolValue else {
+                throw ValidationError("Source must be an existing directory.")
+            }
+
+            let fileTree = OpenMusicEventSourceRepositoryFileTree()
+            let sourceRepository = try fileTree
+                .read(from: sourceURL)
+                .output
+                .requiredValue
+            _ = try fileTree.rewrite(sourceRepository, at: sourceURL)
+
+            print("Rewrote source repository at \(sourceURL.path)")
+        }
     }
 }
 

@@ -53,8 +53,8 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
     .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
     .package(
-        url: "https://source.woody.fm/swift-composable-atmosphere",
-        branch: "main",
+        name: "swift-composable-atmosphere",
+        path: "../worktrees/swift-composable-atmosphere-audience",
         traits: ["TCA26"]
     ),
     .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
