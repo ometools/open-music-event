@@ -50,7 +50,7 @@ products.append(contentsOf: [
 var dependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
+    .package(name: "swift-file-tree", path: "../../swift-packages/swift-file-tree"),
     .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
     .package(
         name: "swift-composable-atmosphere",

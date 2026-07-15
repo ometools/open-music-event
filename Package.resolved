@@ -1,5 +1,5 @@
 {
-  "originHash" : "60ab2798a4217df8e92c6ae3437b297aed1073ce85adc84a1f1ffccc4d086899",
+  "originHash" : "0c1e499d3d4c3b87a07571fc86627cd8491cc365a77cb70e1061ebd7eb80ab36",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -413,15 +413,6 @@
       "state" : {
         "revision" : "dc8121fdd2b444c97d6b0534e8ad4ddecbe0d5f4",
         "version" : "1.0.0"
-      }
-    },
-    {
-      "identity" : "swift-file-tree",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-file-tree",
-      "state" : {
-        "branch" : "main",
-        "revision" : "012622e52a6461983dff80052db474cacf2c77dd"
       }
     },
     {
