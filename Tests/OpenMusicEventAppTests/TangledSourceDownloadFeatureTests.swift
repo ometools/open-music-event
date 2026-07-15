@@ -1497,6 +1497,84 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func liveStoragePreservesOpenReferenceDatabaseWhenReplacingStoredRepository() throws {
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:replace-reference-test/repository-\(UUID().uuidString)",
+            ref: "HEAD"
+        )
+        let storedURL = try SourceRepositoryStorageClient
+            .storedRepositoryURL(for: sourceProvenance)
+            .standardizedFileURL
+        try? FileManager.default.removeItem(at: storedURL)
+        removeStoredRepositoryBackups(for: storedURL)
+        defer {
+            try? FileManager.default.removeItem(at: storedURL)
+            removeStoredRepositoryBackups(for: storedURL)
+        }
+
+        let referenceDatabaseURL = storedURL
+            .appending(path: ".ome", directoryHint: .isDirectory)
+            .appending(path: "reference.sqlite")
+        try SourceReferenceDatabaseClient.prepareReferenceDirectory(for: referenceDatabaseURL)
+        try "old".write(
+            to: storedURL.appending(path: "old.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        do {
+            let referenceDatabase = try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+            try referenceDatabase.write { db in
+                try db.execute(sql: "CREATE TABLE kept_reference (id INTEGER PRIMARY KEY)")
+                try db.execute(sql: "INSERT INTO kept_reference DEFAULT VALUES")
+            }
+
+            let sourceURL = FileManager.default.temporaryDirectory
+                .appending(path: "ome-source-repository-\(UUID().uuidString)")
+                .standardizedFileURL
+            defer { try? FileManager.default.removeItem(at: sourceURL) }
+            try writeMinimalSourceRepository(at: sourceURL)
+
+            let result = try SourceRepositoryStorageClient.live.store(
+                sourceURL,
+                sourceProvenance
+            )
+
+            #expect(result.normalizedSourceRepositoryPath == storedURL.normalizedSourceRepositoryPath)
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: storedURL.appending(path: "events").path(percentEncoded: false)
+                )
+            )
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: storedURL.appending(path: "old.txt").path(percentEncoded: false)
+                )
+            )
+            let keptReferenceCount = try referenceDatabase.read { db in
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM kept_reference")
+            }
+            #expect(keptReferenceCount == 1)
+        }
+
+        let backupURL = try #require(storedRepositoryBackupURLs(for: storedURL).first)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: backupURL
+                    .appending(path: ".ome", directoryHint: .isDirectory)
+                    .appending(path: "reference.sqlite")
+                    .path(percentEncoded: false)
+            )
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: backupURL.appending(path: "old.txt").path(percentEncoded: false)
+            )
+        )
+    }
+
+    @Test
     func liveStorageReplacesDanglingStoredRepositorySymlink() throws {
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
@@ -1903,6 +1981,20 @@ private final class SourceRepositoryStorageMapping: @unchecked Sendable {
             },
             remove: { _ in }
         )
+    }
+}
+
+private func storedRepositoryBackupURLs(for storedURL: URL) throws -> [URL] {
+    let parentURL = storedURL.deletingLastPathComponent()
+    let backupPrefix = ".\(storedURL.lastPathComponent).old-"
+    return try FileManager.default
+        .contentsOfDirectory(at: parentURL, includingPropertiesForKeys: nil)
+        .filter { $0.lastPathComponent.hasPrefix(backupPrefix) }
+}
+
+private func removeStoredRepositoryBackups(for storedURL: URL) {
+    for url in (try? storedRepositoryBackupURLs(for: storedURL)) ?? [] {
+        try? FileManager.default.removeItem(at: url)
     }
 }
 

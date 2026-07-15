@@ -138,7 +138,7 @@ public extension SourceRepositoryStorageClient {
         do {
             try fileManager.moveItem(at: sourceURL, to: destinationURL)
             if movedOldDestination {
-                try? fileManager.removeItem(at: oldDestinationURL)
+                try? removeStoredRepositoryBackup(at: oldDestinationURL)
             }
         } catch {
             if movedOldDestination {
@@ -146,6 +146,82 @@ public extension SourceRepositoryStorageClient {
             }
             throw error
         }
+    }
+
+    private static func removeStoredRepositoryBackup(at repositoryURL: URL) throws {
+        let referenceDatabaseURL = repositoryURL
+            .standardizedFileURL
+            .appending(path: ".ome", directoryHint: .isDirectory)
+            .appending(path: "reference.sqlite")
+        guard sourceReferenceDatabaseExists(at: referenceDatabaseURL) else {
+            try FileManager.default.removeItem(at: repositoryURL)
+            return
+        }
+
+        // Open workspace sessions can still have this SQLite database attached.
+        try removeContents(
+            of: repositoryURL,
+            preservingReferenceDatabaseAt: referenceDatabaseURL.standardizedFileURL.path
+        )
+    }
+
+    private static func sourceReferenceDatabaseExists(at databaseURL: URL) -> Bool {
+        let fileManager = FileManager.default
+        let databasePath = databaseURL.standardizedFileURL.path
+        return [
+            databasePath,
+            databasePath + "-shm",
+            databasePath + "-wal",
+            databasePath + "-journal",
+        ].contains { fileManager.fileExists(atPath: $0) }
+    }
+
+    private static func removeContents(
+        of directoryURL: URL,
+        preservingReferenceDatabaseAt referenceDatabasePath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let contents = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+
+        for url in contents {
+            let path = url.standardizedFileURL.path
+            if isReferenceDatabaseSidecar(path, referenceDatabasePath: referenceDatabasePath) {
+                continue
+            }
+
+            if referenceDatabasePath.hasPrefix(path + "/"),
+               try isDirectoryThatCanBeDescended(url)
+            {
+                try removeContents(
+                    of: url,
+                    preservingReferenceDatabaseAt: referenceDatabasePath
+                )
+                let remainingContents = try fileManager.contentsOfDirectory(
+                    at: url,
+                    includingPropertiesForKeys: nil
+                )
+                if remainingContents.isEmpty {
+                    try fileManager.removeItem(at: url)
+                }
+            } else {
+                try fileManager.removeItem(at: url)
+            }
+        }
+    }
+
+    private static func isReferenceDatabaseSidecar(
+        _ path: String,
+        referenceDatabasePath: String
+    ) -> Bool {
+        path == referenceDatabasePath || path.hasPrefix(referenceDatabasePath + "-")
+    }
+
+    private static func isDirectoryThatCanBeDescended(_ url: URL) throws -> Bool {
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        return values.isDirectory == true && values.isSymbolicLink != true
     }
 }
 
