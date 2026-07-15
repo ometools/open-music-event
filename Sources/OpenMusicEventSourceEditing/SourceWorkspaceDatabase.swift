@@ -136,9 +136,14 @@ public extension SourceWorkspaceDatabaseClient {
             sourceEditingSession: try SourceEditingSession(
                 workingDatabasePath: workingDatabasePath,
                 baselineDatabasePath: baselineDatabase.path,
+                baselineSchemaName: sourceBaselineSchemaName(),
                 configuration: configuration
             )
         )
+    }
+
+    private static func sourceBaselineSchemaName() -> String {
+        "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
     }
 }
 

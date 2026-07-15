@@ -407,6 +407,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         store.send(.sourceProposal(.delegate(.created(publication)))) {
             $0.pendingCreatedTangledPullReviewID = review.uri
+            $0.selectedTangledPullReview = .pending(id: review.uri)
             $0.sourceProposalStatus = .created(publication)
             $0.tangledPullReviewStatus = .loading
         }
@@ -417,7 +418,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             timeout: .seconds(1)
         ) {
             $0.pendingCreatedTangledPullReviewID = nil
-            $0.selectedTangledPullReview = review
+            $0.selectedTangledPullReview = .loaded(review)
             $0.tangledPullReviewStatus = .loaded([review])
         }
 

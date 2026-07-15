@@ -1541,20 +1541,9 @@ struct NavigationTests {
         let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let oldBaselineDatabase = try defaultBaselineDatabase(
-            path: directoryURL.appending(path: "old-baseline.sqlite").path()
-        )
-        let newBaselineDatabase = try defaultBaselineDatabase(
-            path: directoryURL.appending(path: "new-baseline.sqlite").path()
-        )
-        let oldSourceEditingSession = try SourceEditingSession(
-            workingDatabasePath: directoryURL.appending(path: "old-session.sqlite").path(),
-            baselineDatabasePath: oldBaselineDatabase.path
-        )
-        let newSourceEditingSession = try SourceEditingSession(
-            workingDatabasePath: directoryURL.appending(path: "new-session.sqlite").path(),
-            baselineDatabasePath: newBaselineDatabase.path
-        )
+        let baselineDatabasePath = directoryURL
+            .appending(path: "baseline.sqlite")
+            .path()
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Source Event Before Merge")
@@ -1574,14 +1563,27 @@ struct NavigationTests {
             }
             .execute(db)
         }
-        try database.backup(to: oldBaselineDatabase.database)
+        do {
+            let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabasePath)
+            try database.backup(to: baselineDatabase.database)
+        }
+        let workingDatabasePath = directoryURL
+            .appending(path: "session.sqlite")
+            .path()
+        let sourceEditingSession: @Sendable (String) throws -> SourceEditingSession = { schemaName in
+            try SourceEditingSession(
+                workingDatabasePath: workingDatabasePath,
+                baselineDatabasePath: baselineDatabasePath,
+                baselineSchemaName: schemaName
+            )
+        }
+        let initialSourceEditingSession = try sourceEditingSession("source_baseline_before_refresh")
         try await database.write { db in
             try OMERecord.Event
                 .find(eventID)
                 .update { $0.name = "Source Event After Merge" }
                 .execute(db)
         }
-        try database.backup(to: newBaselineDatabase.database)
 
         let review = TangledPullReview(
             author: "did:plc:author123",
@@ -1596,7 +1598,7 @@ struct NavigationTests {
             title: "Update source event name",
             uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
         )
-        let recorder = SourceRefreshRecorder()
+        let refreshedSourceBaselineIDs = Mutex([SourceBaselineRecord.ID]())
         let mergeRequests = Mutex([OpenMusicEventTangledPullReviewMergeRequest]())
         let isSourceRefreshed = Mutex(false)
         let store = withDependencies {
@@ -1604,17 +1606,23 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.sourceDataRefresh = SourceDataRefreshClient { refreshedSourceBaselineID in
-                await recorder.record(refreshedSourceBaselineID)
+                refreshedSourceBaselineIDs.withLock { $0.append(refreshedSourceBaselineID) }
+                try SourceReferenceDatabaseClient.removeSQLiteDatabase(
+                    at: URL(fileURLWithPath: baselineDatabasePath)
+                )
+                let baselineDatabase = try defaultBaselineDatabase(path: baselineDatabasePath)
+                try database.backup(to: baselineDatabase.database)
                 isSourceRefreshed.withLock { $0 = true }
             }
             $0.sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient(
                 event: { requestedEventID in
                     #expect(requestedEventID == eventID)
+                    let schemaName = isSourceRefreshed.withLock { $0 }
+                        ? "source_baseline_after_refresh"
+                        : "source_baseline_before_refresh"
                     return SourceWorkspaceDatabase(
                         database: database,
-                        sourceEditingSession: isSourceRefreshed.withLock { $0 }
-                            ? newSourceEditingSession
-                            : oldSourceEditingSession
+                        sourceEditingSession: try sourceEditingSession(schemaName)
                     )
                 },
                 sourceBaseline: { _ in
@@ -1633,7 +1641,7 @@ struct NavigationTests {
             initialState.eventViewer.eventWorkspace?.state.tangledPullReviewStatus = .loaded([
                 review,
             ])
-            initialState.eventViewer.eventWorkspace?.state.selectedTangledPullReview = review
+            initialState.eventViewer.eventWorkspace?.state.selectedTangledPullReview = .loaded(review)
             return TestStore(initialState: initialState) {
                 EventViewerHarness()
             }
@@ -1642,7 +1650,7 @@ struct NavigationTests {
         let initialWorkspaceSummary = try await withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.sourceEditingSession = oldSourceEditingSession
+            $0.sourceEditingSession = initialSourceEditingSession
         } operation: {
             try await database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
@@ -1657,11 +1665,13 @@ struct NavigationTests {
             EventWorkspace.Action.mergeTangledPullReviewButtonTapped(review)
         )?.value
         await waitUntil {
+            refreshedSourceBaselineIDs.withLock { $0 } == [sourceBaselineID]
+        }
+        await waitUntil {
             store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount == 0
         }
 
-        let sourceBaselineIDs = await recorder.sourceBaselineIDs
-        expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
+        expectNoDifference(refreshedSourceBaselineIDs.withLock { $0 }, [sourceBaselineID])
         expectNoDifference(
             mergeRequests.withLock { $0 },
             [
@@ -1671,7 +1681,7 @@ struct NavigationTests {
                 ),
             ]
         )
-        expectNoDifference(store.state.eventViewer.selectedFeature, .workspace)
+        expectNoDifference(store.state.eventViewer.selectedFeature, EventViewer.EventFeature.workspace)
         #expect(store.state.eventViewer.eventWorkspace?.state.selectedTangledPullReview == nil)
     }
 
