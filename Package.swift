@@ -51,7 +51,7 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(name: "swift-file-tree", path: "../../swift-packages/swift-file-tree"),
-    .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
+    .package(path: "../../swift-packages/swift-dependencies-http-client"),
     .package(
         name: "swift-composable-atmosphere",
         path: "../../swift-packages/swift-composable-atmosphere",
