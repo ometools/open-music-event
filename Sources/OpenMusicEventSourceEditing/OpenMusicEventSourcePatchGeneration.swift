@@ -273,10 +273,7 @@ public extension SourcePatchGenerator where Request == OpenMusicEventSourcePatch
                 return try await resolver.resolve(request)
             },
             read: { sourceURL in
-                try OpenMusicEventSourceEventFileTree()
-                    .read(from: sourceURL)
-                    .output
-                    .requiredValue
+                try readOpenMusicEventSourceEventForPatch(from: sourceURL)
             },
             update: { sourceEvent, request in
                 @Dependency(\.openMusicEventSourcePatchConversion) var conversion
@@ -300,10 +297,7 @@ public extension SourcePatchGenerator where Request == OpenMusicEventCalendarSou
                 return try await resolver.resolve(request)
             },
             read: { sourceURL in
-                try OpenMusicEventSourceRepositoryFileTree()
-                    .read(from: sourceURL)
-                    .output
-                    .requiredValue
+                try readOpenMusicEventSourceRepositoryForPatch(from: sourceURL)
             },
             update: { sourceRepository, request in
                 @Dependency(\.openMusicEventCalendarSourcePatchConversion) var conversion
@@ -380,6 +374,153 @@ private enum OpenMusicEventCalendarSourcePatchConversionKey: DependencyKey {
         .identity
     }
 }
+
+private func readOpenMusicEventSourceEventForPatch(
+    from sourceURL: URL
+) throws -> OpenMusicEventSourceEvent {
+    debugSourcePatchRead(
+        "event-read start url=\(sourceURL.path) raw=\(rawSourcePatchEventDirectorySummary(sourceURL))"
+    )
+    let result = try OpenMusicEventSourceEventFileTree()
+        .read(from: sourceURL)
+    debugSourcePatchDiagnostics(result.diagnostics)
+    switch result.output {
+    case let .value(event):
+        debugSourcePatchRead(
+            "event-read decoded url=\(sourceURL.path) \(decodedSourcePatchEventSummary(event))"
+        )
+        return event
+
+    case .invalid:
+        debugSourcePatchRead("event-read invalid url=\(sourceURL.path)")
+        return try result.output.requiredValue
+    }
+}
+
+private func readOpenMusicEventSourceRepositoryForPatch(
+    from sourceURL: URL
+) throws -> OpenMusicEventSourceRepository {
+    debugSourcePatchRead(
+        "repository-read start url=\(sourceURL.path) rawEvents=\(rawSourcePatchRepositoryEventSummary(sourceURL))"
+    )
+    let result = try OpenMusicEventSourceRepositoryFileTree()
+        .read(from: sourceURL)
+    debugSourcePatchDiagnostics(result.diagnostics)
+    switch result.output {
+    case let .value(repository):
+        debugSourcePatchRead(
+            "repository-read decoded url=\(sourceURL.path) events=\(decodedSourcePatchRepositoryEventSummary(repository))"
+        )
+        return repository
+
+    case .invalid:
+        debugSourcePatchRead("repository-read invalid url=\(sourceURL.path)")
+        return try result.output.requiredValue
+    }
+}
+
+private func rawSourcePatchRepositoryEventSummary(_ sourceURL: URL) -> String {
+    let eventsURL = sourceURL.appending(path: "events", directoryHint: .isDirectory)
+    let eventDirectories: [URL]
+    do {
+        eventDirectories = try FileManager.default
+            .contentsOfDirectory(
+                at: eventsURL,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+            .filter(\.hasDirectoryPath)
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    } catch {
+        return "events:error(\(error))"
+    }
+
+    guard !eventDirectories.isEmpty else { return "events:empty" }
+    return eventDirectories
+        .map { eventURL in
+            "\(eventURL.lastPathComponent):\(rawSourcePatchEventDirectorySummary(eventURL))"
+        }
+        .joined(separator: ",")
+}
+
+private func rawSourcePatchEventDirectorySummary(_ eventURL: URL) -> String {
+    [
+        "contributors=\(rawSourcePatchFileCount(eventURL.appending(path: "contributors", directoryHint: .isDirectory), extension: "md"))",
+        "stages=\(rawSourcePatchFileCount(eventURL.appending(path: "stages", directoryHint: .isDirectory), extension: "yml"))",
+        "schedules=\(rawSourcePatchFileCount(eventURL.appending(path: "schedules", directoryHint: .isDirectory), extension: "yml"))",
+    ]
+    .joined(separator: " ")
+}
+
+private func rawSourcePatchFileCount(
+    _ directoryURL: URL,
+    extension fileExtension: String
+) -> String {
+    var isDirectory = ObjCBool(false)
+    guard FileManager.default.fileExists(
+        atPath: directoryURL.path,
+        isDirectory: &isDirectory
+    ), isDirectory.boolValue
+    else { return "missing" }
+
+    do {
+        let count = try FileManager.default
+            .contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+            .filter { !$0.hasDirectoryPath && $0.pathExtension == fileExtension }
+            .count
+        return "\(count)"
+    } catch {
+        return "error(\(error))"
+    }
+}
+
+private func decodedSourcePatchRepositoryEventSummary(
+    _ repository: OpenMusicEventSourceRepository
+) -> String {
+    guard !repository.events.isEmpty else { return "empty" }
+    return repository.events
+        .map { event in
+            "\(event.directoryName):\(decodedSourcePatchEventSummary(event.components))"
+        }
+        .joined(separator: ",")
+}
+
+private func decodedSourcePatchEventSummary(
+    _ event: OpenMusicEventSourceEvent
+) -> String {
+    [
+        "contributors=\(event.contributors?.count.description ?? "nil")",
+        "stages=\(event.stages?.count.description ?? "nil")",
+        "schedules=\(event.schedules?.count.description ?? "nil")",
+    ]
+    .joined(separator: " ")
+}
+
+private func debugSourcePatchDiagnostics(
+    _ diagnostics: DiagnosticReport<FileTreeLocation>
+) {
+    guard !diagnostics.isEmpty else { return }
+    debugSourcePatchRead(
+        "diagnostics count=\(diagnostics.diagnostics.count) hasErrors=\(diagnostics.hasErrors)"
+    )
+    for diagnostic in diagnostics.diagnostics {
+        debugSourcePatchRead(
+            "diagnostic severity=\(diagnostic.severity.rawValue) code=\(diagnostic.code.rawValue) path=\(diagnostic.location?.path ?? "nil") message=\(diagnostic.message)"
+        )
+    }
+}
+
+#if DEBUG
+private func debugSourcePatchRead(_ message: @autoclosure () -> String) {
+    print("[OME SourcePatchRead] \(message())")
+}
+#else
+private func debugSourcePatchRead(_ message: @autoclosure () -> String) {}
+#endif
 
 extension OpenMusicEventSourceEvent {
     static var emptyForNewSourcePatch: Self {
