@@ -6649,6 +6649,42 @@ struct NavigationTests {
     }
 
     @Test
+    func whiteLabelRecoveredAuthoringModeUpdatesLaunchRestoredEventViewer() async throws {
+        let eventID = eventID("event-1")
+        let database = try makePreparedDatabase()
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            var state = RootHarness.State()
+            state.root = OpenMusicEventAppRoot.State(
+                variant: .whiteLabel(
+                    WhiteLabelAppConfiguration(
+                        brand: WhiteLabelBrand(displayName: "Test Festival"),
+                        organizerID: testOrganizerID
+                    )
+                ),
+                selectedEventIDAtLaunch: eventID
+            )
+            return TestStore(initialState: state) {
+                RootHarness()
+            }
+        }
+
+        #expect(store.state.root.eventViewer?.state.authoringMode == .attendee)
+        #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == false)
+
+        await store.modify {
+            $0.root.whiteLabelRoot?.state.authoringMode = .authoring(.all)
+        }?.value
+
+        #expect(store.state.root.eventViewer?.state.authoringMode == .authoring(.all))
+        #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == true)
+    }
+
+    @Test
     func normalEventViewerDismissClearsSelectedEvent() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()

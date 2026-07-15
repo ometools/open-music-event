@@ -442,8 +442,12 @@ struct OpenMusicEventOAuthTests {
             $0.keychainStorage = keychainStorage
         } operation: {
             OpenMusicEventOAuth.resetStoredSession()
-            var sessionStore = OAuth.SessionStore()
-            sessionStore.upsert(.placeholder)
+            var sessionStore = OAuth.SessionStore(
+                selectedAccountID: nil,
+                sessions: [
+                    OAuth.Session.placeholder.accountID.rawValue: .placeholder,
+                ]
+            )
             OpenMusicEventOAuth.selectedSessionID.withLock {
                 $0 = OAuth.Session.placeholder.accountID
             }
@@ -454,6 +458,10 @@ struct OpenMusicEventOAuthTests {
             )
 
             try await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
+            sessionStore.selectedAccountID = OAuth.Session.placeholder.accountID
+
+            #expect(OpenMusicEventOAuth.session.wrappedValue == .placeholder)
+            #expect(OpenMusicEventOAuth.sessionStore.wrappedValue == sessionStore)
 
             var dependencies = DependencyValues()
             OpenMusicEventOAuth.prepareDependencies(&dependencies)
@@ -464,7 +472,6 @@ struct OpenMusicEventOAuthTests {
                 @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
                 #expect(getOptionalDefaultSession() == .placeholder)
             }
-            #expect(OpenMusicEventOAuth.sessionStore.wrappedValue == sessionStore)
         }
     }
 }
