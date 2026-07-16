@@ -277,6 +277,7 @@ public struct EventWorkspace {
         @DebugSnapshotIgnored
         @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
         public var isPreparingSourceProposal = false
+        public var isRefreshingSource = false
         public var isResettingEdits = false
         public var resetEditsFailure: ResetEditsFailure?
         public var sourcePatchStatus: SourcePatchStatus = .notGenerated
@@ -702,15 +703,23 @@ public struct EventWorkspace {
                 refreshTangledPullReviews(target: state.target, state: &state)
 
             case .refreshSourceButtonTapped:
+                guard !state.isRefreshingSource else { return }
                 switch state.target {
                 case let .calendar(_, sourceBaselineID):
                     let sourceDataRefresh = sourceDataRefresh
+                    state.isRefreshingSource = true
                     store.addTask {
-                        let _: Void? = await store.withErrorHandling(
+                        let result: Void? = await store.withErrorHandling(
                             fallbackMessage: .sourceDataRefreshFailed,
                             operation: .sourceDataRefresh
                         ) {
                             try await sourceDataRefresh.refresh(sourceBaselineID)
+                        } cleanup: {
+                            $0.isRefreshingSource = false
+                        }
+                        guard result != nil else { return }
+                        try store.modify {
+                            $0.isRefreshingSource = false
                         }
                     }
 
@@ -1086,9 +1095,16 @@ public struct EventWorkspaceView: View {
                 Button {
                     store.send(.refreshSourceButtonTapped)
                 } label: {
-                    Label("Refresh Source", systemImage: "arrow.clockwise")
+                    if store.isRefreshingSource {
+                        HStack {
+                            ProgressView()
+                            Text("Refreshing Source")
+                        }
+                    } else {
+                        Label("Refresh Source", systemImage: "arrow.clockwise")
+                    }
                 }
-                .disabled(store.sourceBaselineID == nil)
+                .disabled(store.sourceBaselineID == nil || store.isRefreshingSource)
             } else {
                 Text("Team workspace required")
                     .foregroundStyle(.secondary)

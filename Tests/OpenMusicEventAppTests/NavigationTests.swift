@@ -108,6 +108,39 @@ private actor SourceRefreshRecorder {
     }
 }
 
+private actor SourceRefreshGate {
+    private var isOpen = false
+    private var hasStarted = false
+    private var openWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitForStart() async {
+        if hasStarted { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func pauseUntilOpened() async {
+        hasStarted = true
+        let startWaiters = startWaiters
+        self.startWaiters.removeAll()
+        startWaiters.forEach { $0.resume() }
+
+        if isOpen { return }
+        await withCheckedContinuation { continuation in
+            openWaiters.append(continuation)
+        }
+    }
+
+    func open() {
+        isOpen = true
+        let openWaiters = openWaiters
+        self.openWaiters.removeAll()
+        openWaiters.forEach { $0.resume() }
+    }
+}
+
 private actor SourceEditModePreparationRecorder {
     private var recordedSourceBaselineIDs: [SourceBaselineRecord.ID] = []
 
@@ -1266,6 +1299,52 @@ struct NavigationTests {
 
         await store.send(.didPullToRefresh)?.value
 
+        let sourceBaselineIDs = await recorder.sourceBaselineIDs
+        expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
+    }
+
+    @Test
+    func teamWorkspaceEditorShowsSourceRefreshProgressWhileRefreshIsRunning() async throws {
+        let database = try makePreparedDatabase()
+        let sourceProvenance = sourceProvenance("team-workspace-refresh-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let gate = SourceRefreshGate()
+        let recorder = SourceRefreshRecorder()
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+                await gate.pauseUntilOpened()
+            }
+        } operation: {
+            TestStore(
+                initialState: SourceWorkspace.State(
+                    sourceBaselineID: sourceBaselineID,
+                    calendarID: calendarID
+                )
+            ) {
+                SourceWorkspace()
+            }
+        }
+
+        let refreshTask = store.send(.refreshSourceButtonTapped) {
+            $0.isRefreshingSource = true
+        }
+        await gate.waitForStart()
+        #expect(store.state.isRefreshingSource)
+
+        store.send(.refreshSourceButtonTapped)
+
+        await gate.open()
+        await refreshTask?.value
+
+        #expect(store.state.isRefreshingSource == false)
         let sourceBaselineIDs = await recorder.sourceBaselineIDs
         expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
     }
