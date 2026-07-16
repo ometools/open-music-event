@@ -107,7 +107,6 @@ public struct EventViewer {
     public typealias EventFeature = OpenMusicEventViewers.EventFeature
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.authoringPolicy) var authoringPolicy
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
     @StoreTaskID var sourceDataRefreshTask
 
@@ -321,7 +320,6 @@ public struct EventViewer {
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
         public var destination: Destination.State?
-        public var isAuthoringRequestInFlight = false
         public var pendingAuthoringEntry: EditorEntry?
 
         public var id: OMERecord.Event.ID { eventID }
@@ -762,8 +760,6 @@ public struct EventViewer {
     }
 
     public enum Action {
-        case authoringEntryAuthorizationFailed(EditorEntry)
-        case authoringEntryAuthorized(EditorEntry, Authoring.Scope)
         case closeButtonTapped
         case destination(Destination.Action)
         case eventSearch(EventSearch.Action)
@@ -791,29 +787,6 @@ public struct EventViewer {
         case stageForm(Spawn<EditStage>)
     }
 
-    private func authorizeAuthoringEntry(
-        _ entry: EditorEntry,
-        request: Authoring.Request,
-        state: inout State
-    ) {
-        let authoringPolicy = authoringPolicy
-        state.isAuthoringRequestInFlight = true
-        state.pendingAuthoringEntry = entry
-        store.addTask {
-            let scope = await store.withErrorHandling(
-                fallbackMessage: .authoringAuthorizationFailed,
-                operation: .authoringAuthorization
-            ) {
-                try await authoringPolicy.authorize(request)
-            }
-            guard let scope else {
-                try store.send(.authoringEntryAuthorizationFailed(entry))
-                return
-            }
-            try store.send(.authoringEntryAuthorized(entry, scope))
-        }
-    }
-
     private func enterOrAuthorizeAuthoringEntry(_ entry: EditorEntry, state: inout State) {
         let previousAuthoringMode = state.authoringMode
         state.refreshAuthoringMode()
@@ -821,16 +794,17 @@ public struct EventViewer {
             state.reloadFeaturesForAuthoringMode()
         }
         guard !state.showsAuthoringControls else {
+            state.pendingAuthoringEntry = nil
             store.withDependencies {
                 state.enterAuthoringEntry(entry)
             }
             return
         }
-        authorizeAuthoringEntry(
-            entry,
-            request: entry.authoringRequest(eventID: state.eventID),
-            state: &state
-        )
+        state.setAuthoringMode(.authoring(.all))
+        state.pendingAuthoringEntry = nil
+        store.withDependencies {
+            state.enterAuthoringEntry(entry)
+        }
     }
 
     public var body: some Feature {
@@ -844,20 +818,6 @@ public struct EventViewer {
 
             case .destination:
                 break
-
-            case let .authoringEntryAuthorizationFailed(entry):
-                guard state.pendingAuthoringEntry == entry else { return }
-                state.isAuthoringRequestInFlight = false
-                state.pendingAuthoringEntry = nil
-
-            case let .authoringEntryAuthorized(entry, scope):
-                guard state.pendingAuthoringEntry == entry else { return }
-                state.isAuthoringRequestInFlight = false
-                state.pendingAuthoringEntry = nil
-                state.setAuthoringMode(.authoring(scope))
-                store.withDependencies {
-                    state.enterAuthoringEntry(entry)
-                }
 
             case .eventSearch:
                 break
@@ -1645,141 +1605,7 @@ private extension EventViewer.State {
     }
 }
 
-private extension EventViewer.EditorEntry {
-    func authoringRequest(eventID: OMERecord.Event.ID) -> Authoring.Request {
-        switch self {
-        case let .feature(feature):
-            return feature.authoringRequest(eventID: eventID)
-
-        case let .intent(intent):
-            return intent.authoringRequest
-
-        case let .target(target):
-            return target.eventFeature.authoringRequest(eventID: eventID)
-        }
-    }
-}
-
-private extension EventViewer.EventFeature {
-    func authoringRequest(eventID: OMERecord.Event.ID) -> Authoring.Request {
-        switch self {
-        case .settings:
-            return Authoring.Request(
-                subject: .event(eventID),
-                feature: .settings,
-                action: .enterAuthoring
-            )
-
-        case .workspace:
-            return Authoring.Request(
-                subject: .event(eventID),
-                feature: .workspace,
-                action: .manageWorkspace
-            )
-
-        case .about,
-             .communications,
-             .contactInfo,
-             .contributors,
-             .location,
-             .notifications,
-             .posters,
-             .schedule,
-             .search,
-             .siteMap,
-             .stages:
-            return Authoring.Request(
-                subject: .event(eventID),
-                feature: .event,
-                action: .enterAuthoring
-            )
-        }
-    }
-}
-
 private extension EventEditingIntent {
-    var authoringRequest: Authoring.Request {
-        Authoring.Request(
-            subject: .event(eventID),
-            feature: authoringFeature,
-            action: authoringAction
-        )
-    }
-
-    var authoringAction: Authoring.Action {
-        switch self {
-        case .addPerformance,
-             .addPosters,
-             .addSchedule,
-             .copyStagesFromEvent,
-             .createContributor,
-             .createStage:
-            return .create
-
-        case .deletePerformance,
-             .deletePoster:
-            return .delete
-
-        case .eventSettings:
-            return .enterAuthoring
-
-        case .eventWorkspace:
-            return .manageWorkspace
-
-        case .editContactInfo,
-             .editContributor,
-             .editEventInfo,
-             .editEventPolicies,
-             .editLocation,
-             .editPerformance,
-             .editPoster,
-             .editReportingLink,
-             .editStage:
-            return .update
-        }
-    }
-
-    var authoringFeature: Authoring.Feature {
-        switch self {
-        case .addPerformance,
-             .addSchedule,
-             .deletePerformance,
-             .editPerformance:
-            return .schedule
-
-        case .createContributor,
-             .editContributor:
-            return .contributors
-
-        case .copyStagesFromEvent,
-             .createStage,
-             .editStage:
-            return .stages
-
-        case .deletePoster,
-             .editPoster,
-             .addPosters:
-            return .posters
-
-        case .editContactInfo:
-            return .contactInfo
-
-        case .editLocation:
-            return .location
-
-        case .eventSettings,
-             .editEventPolicies,
-             .editReportingLink:
-            return .settings
-
-        case .eventWorkspace:
-            return .workspace
-
-        case .editEventInfo:
-            return .event
-        }
-    }
-
     var eventID: OMERecord.Event.ID {
         switch self {
         case let .addPerformance(eventID, _, _),

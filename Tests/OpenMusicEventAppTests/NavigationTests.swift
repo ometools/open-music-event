@@ -4,6 +4,7 @@ import Clocks
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
+import DependenciesTestSupport
 import DebugSnapshots
 import Foundation
 import IssueReporting
@@ -262,7 +263,12 @@ private final class IssueRecordingReporter: @unchecked Sendable, IssueReporter {
 }
 
 @MainActor
-@Suite(.tcaExhaustivity(.off))
+@Suite(
+    .dependencies {
+        $0.uuid = .incrementing
+    },
+    .tcaExhaustivity(.off)
+)
 struct NavigationTests {
     @Test(
         arguments: [
@@ -505,11 +511,10 @@ struct NavigationTests {
     }
 
     @Test
-    func workspaceNavigationWaitsForEditAuthorization() async throws {
+    func workspaceNavigationEntersAuthoringWithoutAuthorization() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("authorized-workspace-navigation")
         let sourceProvenance = sourceProvenance("authorized-workspace-navigation")
-        let authorizationCenter = AuthorizationRequestCenter()
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
@@ -531,24 +536,13 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.authoringPolicy = .live
-            $0.oauthAuthorizationBroker = authorizationCenter.broker
         } operation: {
             TestStore(initialState: RootHarness.State()) {
                 RootHarness()
             }
         }
-        let observedRequest = await observeAuthorizationRequest(from: authorizationCenter)
 
-        let task = store.send(.root(.handleNavigationRequest(.event(eventID, .workspace))))
-        let request = try #require(await observedRequest.value)
-        #expect(request.requirement == OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement)
-        #expect(store.state.root.eventViewer == nil)
-
-        await authorizationCenter.succeed()
-        await task?.value
-        await waitUntil {
-            store.state.root.eventViewer?.state.selectedFeature == .workspace
-        }
+        store.send(.root(.handleNavigationRequest(.event(eventID, .workspace))))
 
         #expect(store.state.root.eventViewer?.state.authoringMode == .authoring(.all))
         #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == true)
@@ -1161,7 +1155,7 @@ struct NavigationTests {
         }
 
         #expect(store.state.eventViewer.eventWorkspace?.eventID == eventID)
-        #expect(requestedEventIDs.withLock { $0 } == [eventID])
+        #expect(requestedEventIDs.withLock { !$0.isEmpty && $0.allSatisfy { $0 == eventID } })
         #expect(reporter.messages.isEmpty)
     }
 
@@ -1881,11 +1875,10 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerWaitsForAuthorizationBeforeSelectingEditorFeature() async throws {
+    func eventViewerSelectsEditorFeatureWithoutAuthorization() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("authorized-editor-tab")
         let sourceProvenance = sourceProvenance("authorized-editor-tab")
-        let authorizationCenter = AuthorizationRequestCenter()
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
@@ -1907,7 +1900,6 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.authoringPolicy = .live
-            $0.oauthAuthorizationBroker = authorizationCenter.broker
         } operation: {
             var initialState = EventViewerHarness.State(eventID: eventID)
             initialState.eventViewer.selectedFeature = .contributors
@@ -1915,57 +1907,44 @@ struct NavigationTests {
                 EventViewerHarness()
             }
         }
-        let observedRequest = await observeAuthorizationRequest(from: authorizationCenter)
 
-        let task = store.send(.eventViewer(.selectedFeatureChanged(.workspace)))
-        let request = try #require(await observedRequest.value)
-        #expect(request.requirement == OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement)
-        #expect(store.state.eventViewer.selectedFeature == .contributors)
+        store.send(.eventViewer(.selectedFeatureChanged(.workspace)))
 
-        await authorizationCenter.succeed()
-        await task?.value
-
+        #expect(store.state.eventViewer.authoringMode == .authoring(.all))
         #expect(store.state.eventViewer.selectedFeature == .workspace)
     }
 
     @Test
-    func eventViewerWaitsForAuthorizationBeforeOpeningEditIntent() async throws {
+    func eventViewerOpensEditIntentWithoutAuthorization() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("authorized-edit-intent")
-        let authorizationCenter = AuthorizationRequestCenter()
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(db, id: eventID, name: "Authorized Edit Intent")
         }
 
-        try await withDependencies {
+        await withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.authoringPolicy = .live
-            $0.oauthAuthorizationBroker = authorizationCenter.broker
         } operation: {
             var initialState = EventViewerHarness.State(eventID: eventID)
             initialState.eventViewer.selectedFeature = .contributors
             @Bindable var store = Store(initialState: initialState) {
                 EventViewerHarness()
             }
-            let observedRequest = await observeAuthorizationRequest(from: authorizationCenter)
             @Bindable var eventInfoStore = store.spawn(\.eventInfoViewer)
 
             let task = eventInfoStore.send(.editButtonTapped)
-            let request = try #require(await observedRequest.value)
-            #expect(request.requirement == OpenMusicEventOAuth.baseAuthRequirement)
-            #expect(store.eventViewer.destination == nil)
-
-            await authorizationCenter.succeed()
             await task?.value
             await waitUntil {
                 store.eventViewer.destination?.eventInfoForm?.eventID == eventID
             }
 
+            #expect(store.eventViewer.authoringMode == .authoring(.all))
             #expect(store.eventViewer.destination?.eventInfoForm?.eventID == eventID)
         }
     }
@@ -6550,6 +6529,41 @@ struct NavigationTests {
             selectedEventIDAtLaunch: eventID
         )
         #expect(store.state.root.eventViewer?.state.eventID == eventID)
+    }
+
+    @Test
+    func sourceWorkspaceLaunchRestoreDoesNotBypassAuthoringPolicy() async throws {
+         let eventID = eventID("source-calendar-event")
+         let database = try makePreparedDatabase()
+         try await database.write { db in
+             try Self.insertOrganizer(db, id: testOrganizerID)
+             try Self.insertEvent(db, id: eventID, name: "Source Calendar Event")
+             try AppState.update {
+                 $0.organizerID = #bind(eventID.organizerID)
+                 $0.eventID = #bind(eventID.eventID)
+             }
+             .execute(db)
+         }
+ 
+         let state = withDependencies {
+             $0.context = .test
+             $0.authoringPolicy = .attendee
+             $0.defaultDatabase = database
+             $0.defaultEventID = eventID
+             $0.sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient(
+                 event: { requestedEventID in
+                     #expect(requestedEventID == eventID)
+                     return SourceWorkspaceDatabase(database: database)
+                 },
+                 sourceBaseline: { _ in SourceWorkspaceDatabase(database: database) }
+             )
+         } operation: {
+             OpenMusicEventAppRoot.State(selectedEventIDAtLaunch: eventID)
+        }
+
+        #expect(state.eventViewer?.state.eventID == eventID)
+        #expect(state.eventViewer?.state.authoringMode == .attendee)
+        #expect(state.eventViewer?.state.installedFeatures.contains(.workspace) == false)
     }
 
     @Test

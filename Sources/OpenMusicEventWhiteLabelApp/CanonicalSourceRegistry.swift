@@ -1,6 +1,7 @@
 import ATProto
 import Dependencies
 import Foundation
+import OpenMusicEventAppEventViewer
 import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import OpenMusicEventWhiteLabel
@@ -57,6 +58,7 @@ public enum OpenMusicEventWhiteLabelAppDependencies {
     public static func prepareDependencies(
         _ dependencies: inout DependencyValues
     ) {
+        dependencies.authoringPolicy = .loginRequired
         dependencies.whiteLabelSourceRegistry = .canonicalSourceRecord
         dependencies.whiteLabelSourceImport = .live
     }

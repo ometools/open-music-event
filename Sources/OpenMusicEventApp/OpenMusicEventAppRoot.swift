@@ -65,7 +65,6 @@ public struct OpenMusicEventAppRoot {
 
     public enum Action {
         case authentication(AuthenticationCoordinator.Action)
-        case authoringNavigationAuthorized(OMERecord.Event.ID, EventTarget?, Authoring.Scope)
         case handleNavigationRequest(NavigationRequest)
         case localEventDeletionRequested(OMERecord.Event.ID)
         case openRoute(AppRoute)
@@ -119,26 +118,6 @@ public struct OpenMusicEventAppRoot {
             prefetchAssetsOnOpen(eventID)
         }
 
-        let authorizeAuthoringNavigation:
-            (OMERecord.Event.ID, EventTarget?) -> Void = { eventID, target in
-            let authoringPolicy = authoringPolicy
-            store.addTask {
-                let result = await store.withErrorHandling(
-                    fallbackMessage: .authoringAuthorizationFailed,
-                    operation: .authoringAuthorization
-                ) {
-                    try await authoringPolicy.authorize(
-                        Authoring.Request(
-                            eventID: eventID,
-                            editorTarget: target
-                        )
-                    )
-                }
-                guard let scope = result else { return }
-                try store.send(.authoringNavigationAuthorized(eventID, target, scope))
-            }
-        }
-
         let reportAuthenticationError: ((any Error)?) -> Void = { error in
             guard let error else { return }
             store.addTask {
@@ -168,10 +147,10 @@ public struct OpenMusicEventAppRoot {
                     openEventViewer(eventID, target, .authoring(scope), &state)
 
                 case .attendee:
-                    authorizeAuthoringNavigation(eventID, target)
+                    openEventViewer(eventID, target, .authoring(.all), &state)
                 }
             } catch {
-                authorizeAuthoringNavigation(eventID, target)
+                openEventViewer(eventID, target, .authoring(.all), &state)
             }
         }
 
@@ -180,9 +159,6 @@ public struct OpenMusicEventAppRoot {
                 switch action {
                 case .authentication:
                     break
-
-                case let .authoringNavigationAuthorized(eventID, target, scope):
-                    openEventViewer(eventID, target, .authoring(scope), &state)
 
                 case .handleNavigationRequest(let request):
                     switch request {
@@ -412,44 +388,6 @@ private extension OpenMusicEventAppRoot.State {
 
     var persistsSelectedEvent: Bool {
         variant.persistsSelectedEvent
-    }
-}
-
-private extension Authoring.Request {
-    init(eventID: OMERecord.Event.ID, editorTarget: EventTarget?) {
-        switch editorTarget?.eventFeature {
-        case .workspace:
-            self.init(
-                subject: .event(eventID),
-                feature: .workspace,
-                action: .manageWorkspace
-            )
-
-        case .settings:
-            self.init(
-                subject: .event(eventID),
-                feature: .settings,
-                action: .enterAuthoring
-            )
-
-        case .about,
-             .communications,
-             .contactInfo,
-             .contributors,
-             .location,
-             .notifications,
-             .posters,
-             .schedule,
-             .search,
-             .siteMap,
-             .stages,
-             .none:
-            self.init(
-                subject: .event(eventID),
-                feature: .event,
-                action: .enterAuthoring
-            )
-        }
     }
 }
 

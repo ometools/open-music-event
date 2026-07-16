@@ -2,10 +2,10 @@ import ATProto
 import ATProtoOAuth
 import Dependencies
 import ErrorHandling
-import GRDB
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventSourceEditing
+import SwiftUI
 
 public enum Authoring {
     public struct Scope: Equatable, Sendable {
@@ -107,23 +107,27 @@ public extension AuthoringPolicyClient {
     )
 
     static let live = Self(
-        authenticate: { subject in
-            try authRequirement(for: subject)
-        },
-        authorize: { request in
+        authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
+        authorize: { _ in .all },
+        mode: { _ in .authoring(.all) }
+    )
+
+    static let loginRequired = Self(
+        authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
+        authorize: { _ in
             @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
 
             try await authorizationBroker.authorize(
-                authRequirement(for: request.subject)
+                OpenMusicEventOAuth.baseAuthRequirement
             )
             return .all
         },
-        mode: { subject in
+        mode: { _ in
             @Dependency(\.getOptionalDefaultSession) var getOptionalDefaultSession
             @Dependency(\.oauthAppManifest) var appManifest
 
             switch OAuth.authorizationStatus(
-                for: try authRequirement(for: subject),
+                for: OpenMusicEventOAuth.baseAuthRequirement,
                 session: getOptionalDefaultSession(),
                 manifest: appManifest
             ) {
@@ -137,41 +141,9 @@ public extension AuthoringPolicyClient {
     )
 
     static func authRequirement(
-        for subject: Authoring.Subject
+        for _: Authoring.Subject
     ) throws -> OAuth.AuthRequirement {
-        @Dependency(\.defaultDatabase) var database
-        return try authRequirement(for: subject, database: database)
-    }
-
-    static func authRequirement(
-        for subject: Authoring.Subject,
-        database: any DatabaseReader
-    ) throws -> OAuth.AuthRequirement {
-        let sourceKind: OME.SourceDatabaseInsertion.SourceKind?
-        switch subject {
-        case let .event(eventID):
-            sourceKind = try database.read { db in
-                try EventSourceProvenanceRecord
-                    .where { $0.id.eq(eventID) }
-                    .fetchOne(db)?
-                    .sourceKind
-            }
-
-        case let .sourceBaseline(sourceBaselineID):
-            sourceKind = try database.read { db in
-                try SourceBaselineRecord
-                    .where { $0.id.eq(sourceBaselineID) }
-                    .fetchOne(db)?
-                    .sourceKind
-            }
-        }
-
-        switch sourceKind {
-        case .tangled:
-            return OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement
-        case .local, nil:
-            return OpenMusicEventOAuth.baseAuthRequirement
-        }
+        OpenMusicEventOAuth.baseAuthRequirement
     }
 }
 

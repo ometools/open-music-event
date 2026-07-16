@@ -267,7 +267,7 @@ struct WhiteLabelRootTests {
   }
 
   @Test
-  func singleTangledSourceConfiguresAccountForWorkspaceManagementScopes() async throws {
+  func singleTangledSourceConfiguresAccountForLoginScopes() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()
       let organizerID = organizerID("wickedwoods")
@@ -297,7 +297,7 @@ struct WhiteLabelRootTests {
       await load(store)
 
       let requiredPermissions = Set(
-        OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement.permissions.map(\.rawValue)
+        OpenMusicEventOAuth.baseAuthRequirement.permissions.map(\.rawValue)
       )
       let accountPermissions = Set(
         store.state.account.state.authRequirement.permissions.map(\.rawValue)
@@ -333,7 +333,7 @@ struct WhiteLabelRootTests {
         database: database
       ) {
         $0.authoringPolicy = AuthoringPolicyClient(
-          authenticate: { _ in OpenMusicEventOAuth.tangledWorkspaceManagementAuthRequirement },
+          authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
           authorize: { request in
             await recorder.record(request)
             return .all
@@ -378,6 +378,32 @@ struct WhiteLabelRootTests {
       #expect(store.state.showsAuthoringControls)
       #expect(!store.state.isAuthoringAuthorizationInFlight)
     }
+  }
+
+  @Test
+  func whiteLabelAppDependenciesRequireLoginBeforeAuthoringEntry() async throws {
+    let recorder = AuthRequirementRecorder()
+    let organizerID = organizerID("wickedwoods")
+    let eventID = eventID(organizerID: organizerID, eventID: "2025")
+
+    try await withDependencies {
+      OpenMusicEventWhiteLabelAppDependencies.prepareDependencies(&$0)
+      $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+        await recorder.record(requirement)
+      }
+    } operation: {
+      @Dependency(\.authoringPolicy) var authoringPolicy
+
+      let request = Authoring.Request(
+        subject: .event(eventID),
+        feature: .workspace,
+        action: .enterAuthoring
+      )
+      #expect(try authoringPolicy.authenticate(request.subject) == OpenMusicEventOAuth.baseAuthRequirement)
+      _ = try await authoringPolicy.authorize(request)
+    }
+
+    #expect(await recorder.requirements == [OpenMusicEventOAuth.baseAuthRequirement])
   }
 
   @Test
@@ -649,6 +675,18 @@ private actor AuthoringRequestRecorder {
 
   func record(_ request: Authoring.Request) {
     values.append(request)
+  }
+}
+
+private actor AuthRequirementRecorder {
+  private var values: [OAuth.AuthRequirement] = []
+
+  var requirements: [OAuth.AuthRequirement] {
+    values
+  }
+
+  func record(_ requirement: OAuth.AuthRequirement) {
+    values.append(requirement)
   }
 }
 
