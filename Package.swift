@@ -22,6 +22,7 @@ var products: [Product] = [
     .library(name: "OpenMusicEventComponents", targets: ["OpenMusicEventComponents"]),
     .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
     .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+    .library(name: "OpenMusicEventReleaseTools", targets: ["OpenMusicEventReleaseTools"]),
     .library(name: "OpenMusicEventRouting", targets: ["OpenMusicEventRouting"]),
     .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
     .library(name: "OpenMusicEventSourceEditing", targets: ["OpenMusicEventSourceEditing"]),
@@ -142,6 +143,9 @@ var targets: [Target] = [
     ),
     .target(
         name: "OpenMusicEventComponents"
+    ),
+    .target(
+        name: "OpenMusicEventReleaseTools"
     ),
     .target(
         name: "BlueskyActorCache",
@@ -332,6 +336,12 @@ var targets: [Target] = [
             "OpenMusicEventLexicon",
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+        ]
+    ),
+    .testTarget(
+        name: "OpenMusicEventReleaseToolsTests",
+        dependencies: [
+            "OpenMusicEventReleaseTools",
         ]
     ),
     .testTarget(
