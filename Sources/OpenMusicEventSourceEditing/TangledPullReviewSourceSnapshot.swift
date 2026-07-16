@@ -57,7 +57,7 @@ public extension TangledPullReviewSourceSnapshotClient {
             }
 
             let repository = try TangledRepositoryReference(
-                parsing: request.sourceProvenance.reference
+                sourceReference: request.sourceProvenance.reference
             )
             @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
             @Dependency(\.uuid) var uuid

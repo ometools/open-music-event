@@ -561,6 +561,39 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func resolvesTangledRepositoryATURIAsRemoteRepositoryLocation() throws {
+        let sourceReference = "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
+        let recordReference = try TangledRepositoryRecordReference(parsing: sourceReference)
+
+        expectNoDifference(
+            try SourceRepositoryLocation(parsing: sourceReference),
+            .tangledRepositoryURI(recordReference)
+        )
+        expectNoDifference(
+            recordReference.repositoryReference,
+            TangledRepositoryReference(
+                host: "tangled.org",
+                owner: "did:plc:5df2u7ief6m6tn77jznicxob",
+                repository: "ome-workspace"
+            )
+        )
+    }
+
+    @Test
+    func resolvesTangledRepositoryATURIAsCheckoutRepositoryReference() throws {
+        expectNoDifference(
+            try TangledRepositoryReference(
+                sourceReference: "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
+            ),
+            TangledRepositoryReference(
+                host: "tangled.org",
+                owner: "did:plc:5df2u7ief6m6tn77jznicxob",
+                repository: "ome-workspace"
+            )
+        )
+    }
+
+    @Test
     func rejectsMissingExplicitLocalSourcePath() {
         let localURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-cli-missing-source-\(UUID().uuidString)")

@@ -1300,6 +1300,72 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func liveImportPreservesTangledRepositoryATURIAsSourceReference() async throws {
+        let database = try makePreparedDatabase()
+
+        let targetURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-source-repository-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: targetURL) }
+
+        let uuid = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000004"))
+        let expectedTemporaryURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid)
+        defer { try? FileManager.default.removeItem(at: expectedTemporaryURL) }
+
+        let sourceReference = "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: sourceReference,
+            ref: "HEAD"
+        )
+
+        let result = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.uuid = .constant(uuid)
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                expectNoDifference(
+                    request.repository,
+                    TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: "did:plc:5df2u7ief6m6tn77jznicxob",
+                        repository: "ome-workspace"
+                    )
+                )
+                #expect(request.ref == "HEAD")
+                #expect(request.outputURL == expectedTemporaryURL)
+                try writeMinimalSourceRepository(at: request.outputURL)
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
+                repositoryURL: { provenance in
+                    #expect(provenance == sourceProvenance)
+                    return targetURL
+                },
+                store: { repositoryURL, provenance in
+                    #expect(repositoryURL == expectedTemporaryURL)
+                    #expect(provenance == sourceProvenance)
+                    try FileManager.default.moveItem(at: repositoryURL, to: targetURL)
+                    return targetURL
+                },
+                remove: { _ in }
+            )
+        } operation: {
+            try await TangledSourceImportClient.live.importSource(
+                OpenMusicEventSourceValidationRequest(source: sourceReference)
+            )
+        }
+
+        let sourceBaseline = try await database.read { db in
+            try SourceBaselineRecord.fetchOne(db)
+        }
+
+        #expect(result.repositoryURL == targetURL)
+        #expect(sourceBaseline?.sourceReference == sourceReference)
+        #expect(sourceBaseline?.ref == "HEAD")
+    }
+
+    @Test
     func sourceEditModePreparationDoesNotRequestSSHForArchiveBackedTangledSource() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(

@@ -94,7 +94,7 @@ struct TangledPullReviewClientTests {
                     repositoryURL: URL(filePath: "/tmp/wicked-woods-ome"),
                     remote: SourcePatchLocation.Remote(
                         kind: "tangled",
-                        reference: "woody.fm/wicked-woods-ome",
+                        reference: "at://did:plc:owner/sh.tangled.repo/wicked-woods-ome",
                         ref: "main"
                     )
                 )
@@ -102,26 +102,30 @@ struct TangledPullReviewClientTests {
             $0.tangledPullReviewListSource = .tangledXRPCWithConstellationBackfill
             $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
                 resolveHandle: { handle in
-                    #expect(handle.rawValue == "woody.fm")
-                    return (
-                        Atmosphere.Account(id: .init(ownerDID), handle: handle),
-                        try didDocument(
-                            did: ownerDID,
-                            handle: handle,
-                            pdsHost: "owner.pds.example"
-                        )
-                    )
+                    Issue.record("Did not expect handle resolution for \(handle.rawValue)")
+                    throw UnexpectedAccountResolution.handle(handle.rawValue)
                 },
                 resolveDID: { did in
-                    #expect(did == authorDID)
-                    return (
-                        Atmosphere.Account(id: .init(authorDID), handle: "author.example"),
-                        try didDocument(
-                            did: authorDID,
-                            handle: "author.example",
-                            pdsHost: "author.pds.example"
+                    if did == ownerDID {
+                        return (
+                            Atmosphere.Account(id: .init(ownerDID), handle: "owner.example"),
+                            try didDocument(
+                                did: ownerDID,
+                                handle: "owner.example",
+                                pdsHost: "owner.pds.example"
+                            )
                         )
-                    )
+                    } else {
+                        #expect(did == authorDID)
+                        return (
+                            Atmosphere.Account(id: .init(authorDID), handle: "author.example"),
+                            try didDocument(
+                                did: authorDID,
+                                handle: "author.example",
+                                pdsHost: "author.pds.example"
+                            )
+                        )
+                    }
                 }
             )
             $0[XRPC.Client.self] = .liveValue
@@ -832,4 +836,8 @@ private extension URL {
             .first(where: { $0.name == name })?
             .value
     }
+}
+
+private enum UnexpectedAccountResolution: Error {
+    case handle(String)
 }

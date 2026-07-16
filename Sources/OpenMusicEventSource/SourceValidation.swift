@@ -38,6 +38,13 @@ public struct OpenMusicEventSourceValidationRequest: Equatable, Sendable {
                 reference: repository.normalizedReference,
                 ref: resolvedRef
             )
+
+        case let .tangledRepositoryURI(repository):
+            return OME.SourceDatabaseInsertion.SourceProvenance(
+                kind: .tangled,
+                reference: repository.normalizedReference,
+                ref: resolvedRef
+            )
         }
     }
 }
@@ -119,6 +126,13 @@ public struct OpenMusicEventSourceValidator: Sendable {
                 throw OpenMusicEventSourceValidationError.invalidResolvedOrganizerID(did)
             }
             return organizerID
+
+        case let .tangledRepositoryURI(repository):
+            let did = try await repository.resolvedOwnerDID()
+            guard let organizerID = OME.Organizer.ID(did) else {
+                throw OpenMusicEventSourceValidationError.invalidResolvedOrganizerID(did)
+            }
+            return organizerID
         }
     }
 
@@ -131,35 +145,44 @@ public struct OpenMusicEventSourceValidator: Sendable {
             return (repositoryURL, nil)
 
         case let .tangled(repository):
-            @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+            return try await resolvedTangledRepositoryURL(repository)
 
-            let outputURL: URL
-            let cleanupURL: URL?
-            if let requestOutputURL = request.outputURL {
-                outputURL = requestOutputURL
-                cleanupURL = nil
-            } else {
-                @Dependency(\.uuid) var uuid
-                outputURL = TangledSourceCloner.temporaryOutputURL(uuid: uuid())
-                cleanupURL = outputURL
-            }
-
-            do {
-                _ = try await tangledSourceCheckout.checkout(
-                    TangledSourceCheckoutRequest(
-                        repository: repository,
-                        ref: request.resolvedRef,
-                        outputURL: outputURL
-                    )
-                )
-            } catch {
-                if let cleanupURL {
-                    try? FileManager.default.removeItem(at: cleanupURL)
-                }
-                throw error
-            }
-            return (outputURL, cleanupURL)
+        case let .tangledRepositoryURI(repository):
+            return try await resolvedTangledRepositoryURL(repository.repositoryReference)
         }
+    }
+
+    private func resolvedTangledRepositoryURL(
+        _ repository: TangledRepositoryReference
+    ) async throws -> (repositoryURL: URL, cleanupURL: URL?) {
+        @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+
+        let outputURL: URL
+        let cleanupURL: URL?
+        if let requestOutputURL = request.outputURL {
+            outputURL = requestOutputURL
+            cleanupURL = nil
+        } else {
+            @Dependency(\.uuid) var uuid
+            outputURL = TangledSourceCloner.temporaryOutputURL(uuid: uuid())
+            cleanupURL = outputURL
+        }
+
+        do {
+            _ = try await tangledSourceCheckout.checkout(
+                TangledSourceCheckoutRequest(
+                    repository: repository,
+                    ref: request.resolvedRef,
+                    outputURL: outputURL
+                )
+            )
+        } catch {
+            if let cleanupURL {
+                try? FileManager.default.removeItem(at: cleanupURL)
+            }
+            throw error
+        }
+        return (outputURL, cleanupURL)
     }
 }
 
@@ -176,6 +199,13 @@ private extension OME.SourceDatabaseInsertion.SourceProvenance {
             )
 
         case let .tangled(repository):
+            self.init(
+                kind: .tangled,
+                reference: repository.normalizedReference,
+                ref: ref
+            )
+
+        case let .tangledRepositoryURI(repository):
             self.init(
                 kind: .tangled,
                 reference: repository.normalizedReference,
