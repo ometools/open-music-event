@@ -80,6 +80,22 @@ extension EnvironmentValues {
     }
 }
 
+struct AnyTabFeaturesMoreContent: @unchecked Sendable {
+    let content: AnyView
+    let applyToolbar: (AnyView) -> AnyView
+}
+
+private struct TabFeaturesMoreContentKey: EnvironmentKey {
+    static let defaultValue: AnyTabFeaturesMoreContent? = nil
+}
+
+extension EnvironmentValues {
+    var tabFeaturesMoreContent: AnyTabFeaturesMoreContent? {
+        get { self[TabFeaturesMoreContentKey.self] }
+        set { self[TabFeaturesMoreContentKey.self] = newValue }
+    }
+}
+
 public extension View {
     func tabFeatureMaxVisibleTabs(
         _ resolver: @escaping TabFeatureMaxVisibleTabsResolver
@@ -96,6 +112,7 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
     public var badgeValue: Int?
     public var role: TabFeatureRole?
     public var navigation: TabFeatureNavigation?
+    public var isAllowedOnTabBar: Bool
 
     public init(
         value: Value,
@@ -104,7 +121,8 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         labelTint: Color? = nil,
         badgeValue: Int? = nil,
         role: TabFeatureRole? = nil,
-        navigation: TabFeatureNavigation? = nil
+        navigation: TabFeatureNavigation? = nil,
+        isAllowedOnTabBar: Bool = true
     ) {
         self.value = value
         self.title = title
@@ -113,6 +131,7 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         self.badgeValue = badgeValue
         self.role = role
         self.navigation = navigation
+        self.isAllowedOnTabBar = isAllowedOnTabBar
     }
 
     public var id: TabFeatureID {
@@ -160,6 +179,10 @@ public struct TabFeatureGroup<Value: TabFeatureValue>: TabFeatureContent {
     func featureBody(for id: TabFeatureID) -> AnyView? {
         self.content.featureBody(for: id)
     }
+
+    func moreContent(for ids: Set<TabFeatureID>) -> [AnyTabFeatureMoreContent<Value>] {
+        self.content.moreContent(for: ids)
+    }
 }
 
 public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent {
@@ -177,6 +200,10 @@ public struct TabFeatures<Value: TabFeatureValue>: TabFeatureContent {
 
     func featureBody(for id: TabFeatureID) -> AnyView? {
         self.group.featureBody(for: id)
+    }
+
+    func moreContent(for ids: Set<TabFeatureID>) -> [AnyTabFeatureMoreContent<Value>] {
+        self.group.moreContent(for: ids)
     }
 }
 
@@ -215,6 +242,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
     public let badgeValue: Int?
     public let role: TabFeatureRole?
     public let navigation: TabFeatureNavigation?
+    public private(set) var isAllowedOnTabBar: Bool
     public let content: Content
 
     public init(
@@ -233,6 +261,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         self.badgeValue = badgeValue
         self.role = nil
         self.navigation = navigation
+        self.isAllowedOnTabBar = true
         self.content = content()
     }
 
@@ -257,6 +286,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         self.badgeValue = badgeValue
         self.role = role
         self.navigation = navigation
+        self.isAllowedOnTabBar = true
         self.content = content()
     }
 
@@ -272,7 +302,8 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             labelTint: self.labelTint,
             badgeValue: self.badgeValue,
             role: self.role,
-            navigation: self.navigation
+            navigation: self.navigation,
+            isAllowedOnTabBar: self.isAllowedOnTabBar
         )
     }
 
@@ -282,6 +313,12 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
 
     public var item: TabFeatureItem {
         self.metadata.item
+    }
+
+    public func allowedOnTabBar(_ allowed: Bool) -> Self {
+        var feature = self
+        feature.isAllowedOnTabBar = allowed
+        return feature
     }
 
     func makeBody() -> Content {
@@ -302,10 +339,26 @@ extension TabFeatureMetadata {
     }
 }
 
+indirect enum AnyTabFeatureMoreContent<Value: TabFeatureValue> {
+    case feature(TabFeatureBuilder<Value>.AnyTabFeatureNode)
+    case section(String, [AnyTabFeatureMoreContent<Value>])
+    case group([AnyTabFeatureMoreContent<Value>])
+
+    var featureMetadata: [TabFeatureMetadata<Value>] {
+        switch self {
+        case .feature(let node):
+            [node.metadata]
+        case .section(_, let content), .group(let content):
+            content.flatMap(\.featureMetadata)
+        }
+    }
+}
+
 @resultBuilder
 public enum TabFeatureBuilder<Value: TabFeatureValue> {
     indirect enum Content {
         case feature(AnyTabFeatureNode)
+        case section(String, Content)
         case group([Content])
         case metadata([TabFeatureMetadata<Value>])
 
@@ -313,6 +366,8 @@ public enum TabFeatureBuilder<Value: TabFeatureValue> {
             switch self {
             case .feature(let node):
                 [node.metadata]
+            case .section(_, let content):
+                content.tabFeatureMetadata
             case .group(let children):
                 children.flatMap(\.tabFeatureMetadata)
             case .metadata(let metadata):
@@ -324,6 +379,8 @@ public enum TabFeatureBuilder<Value: TabFeatureValue> {
             switch self {
             case .feature(let node):
                 return node.metadata.id == id ? node.content : nil
+            case .section(_, let content):
+                return content.featureBody(for: id)
             case .group(let children):
                 for child in children {
                     if let body = child.featureBody(for: id) {
@@ -333,6 +390,23 @@ public enum TabFeatureBuilder<Value: TabFeatureValue> {
                 return nil
             case .metadata:
                 return nil
+            }
+        }
+
+        func moreContent(for ids: Set<TabFeatureID>) -> [AnyTabFeatureMoreContent<Value>] {
+            switch self {
+            case .feature(let node):
+                guard !node.metadata.isAllowedOnTabBar || ids.contains(node.metadata.id) else {
+                    return []
+                }
+                return [.feature(node)]
+            case .section(let title, let content):
+                let content = content.moreContent(for: ids)
+                return content.isEmpty ? [] : [.section(title, content)]
+            case .group(let children):
+                return children.flatMap { $0.moreContent(for: ids) }
+            case .metadata:
+                return []
             }
         }
     }
@@ -391,6 +465,13 @@ public enum TabFeatureBuilder<Value: TabFeatureValue> {
     }
 }
 
+public func Section<Value: TabFeatureValue>(
+    _ title: String,
+    @TabFeatureBuilder<Value> content: () -> TabFeatureGroup<Value>
+) -> TabFeatureGroup<Value> {
+    TabFeatureGroup(content: .section(title, content().content))
+}
+
 public extension TabFeatureContent {
     var tabFeatureItems: [TabFeatureItem] {
         self.tabFeatureMetadata.map(\.item)
@@ -400,8 +481,9 @@ public extension TabFeatureContent {
         layout: TabFeatureLayout,
         policy: TabFeaturePolicy
     ) -> ResolvedDeclaredTabFeatures<Value> {
-        let searchTab = self.tabFeatureMetadata.first(where: \.isSearchTab)
-        let nonSearchMetadata = self.tabFeatureMetadata.filter { !$0.isSearchTab }
+        let allowedMetadata = self.tabFeatureMetadata.filter(\.isAllowedOnTabBar)
+        let searchTab = allowedMetadata.first(where: \.isSearchTab)
+        let nonSearchMetadata = allowedMetadata.filter { !$0.isSearchTab }
         let metadataByID = Dictionary(
             uniqueKeysWithValues: nonSearchMetadata.map { ($0.id, $0) }
         )
@@ -434,7 +516,7 @@ public extension TabFeatureContent {
     ) -> TabFeaturePolicy {
         TabFeaturePolicy(
             fixedVisibleIDs: self.tabFeatureMetadata
-                .filter(\.isSearchTab)
+                .filter { $0.isAllowedOnTabBar && $0.isSearchTab }
                 .map(\.id),
             maxVisibleTabs: maxVisibleTabsResolver(context)
         )
@@ -520,6 +602,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     @Environment(\.tabFeatureMaxVisibleTabsResolver) var maxVisibleTabsResolver
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.verticalSizeClass) var verticalSizeClass
+    @Environment(\.tabFeaturesMoreContent) var moreContent
 
     @State var isMoreSelected = false
     @State var localOverflowSelection: Value?
@@ -543,8 +626,18 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
 
     public var body: some View {
         let resolved = features.resolve(layout: layout, policy: effectivePolicy)
+        let moreFeatureContent = features.moreContent(
+            for: Set(resolved.overflowFeatures.map(\.id))
+        )
+        let showsMore = !moreFeatureContent.isEmpty || moreContent != nil
 
-        TabView(selection: tabSelection(for: resolved)) {
+        TabView(
+            selection: tabSelection(
+                for: resolved,
+                showsMore: showsMore,
+                moreFeatureContent: moreFeatureContent
+            )
+        ) {
             if !resolved.visibleFeatures.isEmpty {
                 ForEach(resolved.visibleFeatures, id: \.value) { feature in
                     Tab(
@@ -558,13 +651,14 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                 }
             }
 
-            if resolved.showsMore {
+            if showsMore {
                 Tab("More", systemImage: "ellipsis", value: TabFeaturesSelection.more) {
                     TabFeaturesMoreView(
                         overflowSelection: resolvedOverflowSelection,
-                        overflowFeatures: resolved.overflowFeatures,
                         metadata: metadata(for:),
-                        overflowFeatureBody: overflowFeatureBody(for:)
+                        overflowFeatureBody: overflowFeatureBody(for:),
+                        featureContent: moreFeatureContent,
+                        moreContent: moreContent
                     )
                 }
                 .tabFeatureBadge(resolved.overflowBadgeValue)
@@ -579,14 +673,18 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     }
 
     private func tabSelection(
-        for resolved: ResolvedDeclaredTabFeatures<Value>
+        for resolved: ResolvedDeclaredTabFeatures<Value>,
+        showsMore: Bool,
+        moreFeatureContent: [AnyTabFeatureMoreContent<Value>]
     ) -> Binding<TabFeaturesSelection<Value>> {
         Binding {
             if let overflowSelection = resolvedOverflowSelection.wrappedValue,
                 resolved.overflowFeatures.contains(where: { $0.value == overflowSelection })
+                    || moreFeatureContent.flatMap(\.featureMetadata)
+                    .contains(where: { $0.value == overflowSelection })
             {
                 .more
-            } else if isMoreSelected && resolved.showsMore {
+            } else if isMoreSelected && showsMore {
                 .more
             } else {
                 .feature(selection)
@@ -665,6 +763,37 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     }
 }
 
+@available(iOS 18, macOS 15, tvOS 18, visionOS 2, watchOS 11, *)
+public extension TabFeaturesView {
+    func more<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        self.environment(
+            \.tabFeaturesMoreContent,
+            AnyTabFeaturesMoreContent(
+                content: AnyView(content()),
+                applyToolbar: { $0 }
+            )
+        )
+    }
+
+    func more<Content: View, Toolbar: ToolbarContent>(
+        @ViewBuilder content: () -> Content,
+        @ToolbarContentBuilder toolbar: () -> Toolbar
+    ) -> some View {
+        let toolbar = toolbar()
+        return self.environment(
+            \.tabFeaturesMoreContent,
+            AnyTabFeaturesMoreContent(
+                content: AnyView(content()),
+                applyToolbar: { view in
+                    AnyView(view.toolbar { toolbar })
+                }
+            )
+        )
+    }
+}
+
 enum TabFeaturesSelection<Value: TabFeatureValue>: Hashable {
     case feature(Value)
     case more
@@ -684,43 +813,91 @@ private extension TabContent {
 
 struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     @Binding var overflowSelection: Value?
-    let overflowFeatures: [TabFeatureMetadata<Value>]
     let metadata: (Value) -> TabFeatureMetadata<Value>?
     let overflowFeatureBody: (TabFeatureMetadata<Value>) -> AnyView?
+    let featureContent: [AnyTabFeatureMoreContent<Value>]
+    let moreContent: AnyTabFeaturesMoreContent?
     @State var path: [Value] = []
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                ForEach(overflowFeatures, id: \.value) { feature in
-                    NavigationLinkButton {
-                        navigationLinkButtonTapped(feature.value)
-                    } label: {
-                        TabFeatureMoreRow(
-                            title: feature.effectiveTitle,
-                            systemImage: feature.effectiveSystemImage,
-                            labelTint: feature.labelTint,
-                            badgeValue: feature.badgeValue
-                        )
+        let view = AnyView(
+            NavigationStack(path: $path) {
+                List {
+                    if !featureContent.isEmpty {
+                        moreContentList(featureContent)
+                    }
+
+                    if let moreContent {
+                        moreContent.content
+                    }
+                }
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #endif
+                .navigationTitle("More")
+                .onChange(of: path, initial: true) { _, newPath in
+                    onChangeOfPath(newPath)
+                }
+                .onChange(of: overflowSelection, initial: true) { _, newValue in
+                    onChangeOfOverflowSelection(newValue)
+                }
+
+                .navigationDestination(for: Value.self) { value in
+                    if let feature = metadata(value), let body = overflowFeatureBody(feature) {
+                        body
                     }
                 }
             }
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #endif
-            .navigationTitle("More")
-            .onChange(of: path, initial: true) { _, newPath in
-                onChangeOfPath(newPath)
-            }
-            .onChange(of: overflowSelection, initial: true) { _, newValue in
-                onChangeOfOverflowSelection(newValue)
-            }
+        )
 
-            .navigationDestination(for: Value.self) { value in
-                if let feature = metadata(value), let body = overflowFeatureBody(feature) {
-                    body
-                }
+        if let moreContent {
+            moreContent.applyToolbar(view)
+        } else {
+            view
+        }
+    }
+
+    @ViewBuilder
+    private func moreFeatureRow(_ feature: TabFeatureMetadata<Value>) -> some View {
+        NavigationLinkButton {
+            navigationLinkButtonTapped(feature.value)
+        } label: {
+            TabFeatureMoreRow(
+                title: feature.effectiveTitle,
+                systemImage: feature.effectiveSystemImage,
+                labelTint: feature.labelTint,
+                badgeValue: feature.badgeValue
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func moreContentList(
+        _ content: [AnyTabFeatureMoreContent<Value>]
+    ) -> AnyView {
+        AnyView(
+            ForEach(content.indices, id: \.self) { index in
+                moreContentList(content[index])
             }
+        )
+    }
+
+    private func moreContentList(
+        _ content: AnyTabFeatureMoreContent<Value>
+    ) -> AnyView {
+        switch content {
+        case .feature(let node):
+            return AnyView(moreFeatureRow(node.metadata))
+        case .section(let title, let content):
+            return AnyView(
+                SwiftUI.Section {
+                    moreContentList(content)
+                } header: {
+                    Text(title)
+                }
+            )
+        case .group(let content):
+            return moreContentList(content)
         }
     }
 
@@ -730,7 +907,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     }
 
     private func onChangeOfOverflowSelection(_ value: Value?) {
-        if let value, overflowFeatures.contains(where: { $0.value == value }) {
+        if let value, featureContent.flatMap(\.featureMetadata).contains(where: { $0.value == value }) {
 
         } else {
             if !path.isEmpty {
@@ -739,8 +916,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
         }
     }
 
-     func onChangeOfPath(_ path: [Value]) {
-        print("onChangeOfPath: \(path)")
+    func onChangeOfPath(_ path: [Value]) {
         if let value = path.first {
             if overflowSelection != value {
                 overflowSelection = value
