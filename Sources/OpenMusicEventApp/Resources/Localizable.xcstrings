@@ -122,6 +122,9 @@
         }
       }
     },
+    "Blank Event" : {
+
+    },
     "Branch" : {
 
     },
@@ -162,6 +165,18 @@
           }
         }
       }
+    },
+    "Canonical Sources" : {
+
+    },
+    "Carried Forward" : {
+
+    },
+    "Channel definitions" : {
+
+    },
+    "Connection details" : {
+
     },
     "Create Event" : {
 
@@ -254,6 +269,9 @@
     "Done" : {
 
     },
+    "Durable Details" : {
+
+    },
     "Edit Calendar" : {
 
     },
@@ -279,6 +297,9 @@
 
     },
     "Event Name" : {
+
+    },
+    "Event Ready" : {
 
     },
     "Event unavailable" : {
@@ -430,10 +451,16 @@
         }
       }
     },
+    "Loading previous events…" : {
+
+    },
     "main" : {
 
     },
     "Manage Team Workspace" : {
+
+    },
+    "Messages, announcements, and alert history are never carried forward." : {
 
     },
     "My Events" : {
@@ -477,6 +504,9 @@
     "No Events" : {
 
     },
+    "No Previous Events" : {
+
+    },
     "Notes" : {
       "comment" : "Item editor form label for the Notes field",
       "localizations" : {
@@ -505,6 +535,9 @@
           }
         }
       }
+    },
+    "Only events with stages can seed a rollover." : {
+
     },
     "Open Local Folder" : {
 
@@ -545,6 +578,9 @@
 
     },
     "Preparing Workspace" : {
+
+    },
+    "Previous Event" : {
 
     },
     "Previous Events" : {
@@ -636,7 +672,19 @@
     "Source" : {
 
     },
+    "Site map and theme/branding" : {
+
+    },
     "Source import output can only be used with Tangled repositories." : {
+
+    },
+    "Stages to Carry Forward" : {
+
+    },
+    "Start Fresh" : {
+
+    },
+    "Start from Previous Event" : {
 
     },
     "Start with the basics. This creates files in the active organizer workspace so the event can be edited locally." : {
@@ -690,6 +738,9 @@
 
     },
     "Testival 2026" : {
+
+    },
+    "The new event is ready in the organizer workspace. Review these items before building the season." : {
 
     },
     "The repository owner did not resolve to a valid organizer." : {
@@ -800,6 +851,12 @@
 
     },
     "Upload to Tangled" : {
+
+    },
+    "Venue and location details" : {
+
+    },
+    "Version" : {
 
     },
     "Version %@ (%@)" : {

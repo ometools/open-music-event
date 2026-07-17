@@ -16,6 +16,24 @@ public struct TeamWorkspaceCreateEvent {
 
     @Dependency(\.organizerSourceWorkspace) var organizerSourceWorkspace
 
+    public enum Strategy: Equatable, Sendable {
+        case blank
+        case rollover
+    }
+
+    public struct RolloverChecklist: Equatable, Sendable {
+        public var carriedForward: [String]
+        public var startFresh: [String]
+
+        public init(
+            carriedForward: [String],
+            startFresh: [String]
+        ) {
+            self.carriedForward = carriedForward
+            self.startFresh = startFresh
+        }
+    }
+
     public struct FormValue: Equatable {
         var endDateSelection: Date
         var eventDirectoryName = "2026"
@@ -37,22 +55,35 @@ public struct TeamWorkspaceCreateEvent {
         public init(
             sourceBaselineID: SourceBaselineRecord.ID,
             calendarID: OMERecord.Calendar.ID,
-            eventDirectoryName: String = "2026"
+            eventDirectoryName: String = "2026",
+            strategy: Strategy = .blank
         ) {
             @Dependency(\.date) var date
             let now = date()
             self.sourceBaselineID = sourceBaselineID
             self.calendarID = calendarID
+            self.strategy = strategy
             self.form = FormFeature.State(value: FormValue(now: now))
             self.eventDirectoryName = eventDirectoryName
         }
 
         public let calendarID: OMERecord.Calendar.ID
         public let sourceBaselineID: SourceBaselineRecord.ID
+        public let strategy: Strategy
 
+        var createdEventID: OMERecord.Event.ID?
         var errorMessage: String?
         var form: FormFeature.State
         var isSaving = false
+        var isLoadingRolloverOptions = false
+        var rolloverChecklist: RolloverChecklist?
+        var rolloverErrorMessage: String?
+        var rolloverOptions: [OrganizerSourceWorkspaceRolloverSourceEvent] = []
+        var selectedRolloverEventID: OMERecord.Event.ID?
+        var selectedRolloverStageIDs: Set<OMERecord.Stage.ID> = []
+        var copySiteMapAndTheme = true
+        var copyChannelDefinitions = true
+        var copyVenueDetails = true
 
         var endDateSelection: Date {
             get { form.value.endDateSelection }
@@ -155,6 +186,17 @@ public struct TeamWorkspaceCreateEvent {
             if let startDate, let endDate, endDate < startDate {
                 return "End date must be on or after the start date."
             }
+            if strategy == .rollover {
+                if selectedRolloverEvent == nil {
+                    return "Choose a previous event."
+                }
+                if selectedRolloverStageIDs.isEmpty {
+                    return "Choose at least one stage to carry forward."
+                }
+                if !rolloverHasDurableSelection {
+                    return "Choose at least one other durable group to carry forward."
+                }
+            }
             return nil
         }
 
@@ -166,17 +208,33 @@ public struct TeamWorkspaceCreateEvent {
         }
 
         var canSubmit: Bool {
-            !isSaving
+            rolloverChecklist == nil
+                && !isSaving
                 && form.canSubmit
                 && !trimmedEventName.isEmpty
                 && validationMessage == nil
+        }
+
+        var selectedRolloverEvent: OrganizerSourceWorkspaceRolloverSourceEvent? {
+            rolloverOptions.first { $0.id == selectedRolloverEventID }
+        }
+
+        var rolloverHasDurableSelection: Bool {
+            copySiteMapAndTheme || copyChannelDefinitions || copyVenueDetails
         }
     }
 
     public enum Action {
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
+        case rolloverChecklistDoneButtonTapped
+        case rolloverEventButtonTapped(OMERecord.Event.ID)
+        case rolloverStageButtonTapped(OMERecord.Stage.ID)
+        case copySiteMapAndThemeToggleChanged(Bool)
+        case copyChannelDefinitionsToggleChanged(Bool)
+        case copyVenueDetailsToggleChanged(Bool)
         case saveButtonTapped
+        case task
     }
 
     public var body: some Feature {
@@ -193,33 +251,75 @@ public struct TeamWorkspaceCreateEvent {
                 guard let validationMessage = state.submitValidationMessage else {
                     state.errorMessage = nil
                     state.isSaving = true
+                    let rollover: OrganizerSourceWorkspaceRollover?
+                    if state.strategy == .rollover {
+                        guard let sourceEvent = state.selectedRolloverEvent else {
+                            state.errorMessage = "Choose a previous event."
+                            state.isSaving = false
+                            return
+                        }
+                        rollover = OrganizerSourceWorkspaceRollover(
+                            sourceEventID: sourceEvent.id,
+                            selectedStageIDs: state.selectedRolloverStageIDs,
+                            copyVenueDetails: state.copyVenueDetails,
+                            copySiteMapAndTheme: state.copySiteMapAndTheme,
+                            copyChannelDefinitions: state.copyChannelDefinitions
+                        )
+                    } else {
+                        rollover = nil
+                    }
                     let request = OrganizerSourceWorkspaceCreateEventRequest(
                         calendarID: state.calendarID,
                         endDate: state.endDate,
                         eventDirectoryName: state.trimmedEventDirectoryName,
                         eventName: state.trimmedEventName,
                         organizerID: state.calendarID.ownerID,
+                        rollover: rollover,
                         sourceBaselineID: state.sourceBaselineID,
                         startDate: state.startDate,
                         timeZone: state.timeZone
                     )
                     let organizerSourceWorkspace = organizerSourceWorkspace
+                    let strategy = state.strategy
+                    let checklist = state.strategy == .rollover
+                        ? makeRolloverChecklist(
+                            sourceEventName: state.selectedRolloverEvent?.name ?? "previous event",
+                            copiedStages: state.selectedRolloverStageIDs.count,
+                            copyVenueDetails: state.copyVenueDetails,
+                            copySiteMapAndTheme: state.copySiteMapAndTheme,
+                            copyChannelDefinitions: state.copyChannelDefinitions
+                        )
+                        : nil
 
                     store.addTask {
                         do {
                             let eventID = try await organizerSourceWorkspace.createEvent(request)
                             try store.modify {
+                                $0.createdEventID = eventID
                                 $0.errorMessage = nil
                                 $0.isSaving = false
+                                $0.rolloverChecklist = checklist
                             }
-                            try store.post(
-                                key: NavigationRequested.self,
-                                value: .event(eventID, .workspace)
-                            )
-                            try store.dismiss()
+                            if strategy == .blank {
+                                try store.post(
+                                    key: NavigationRequested.self,
+                                    value: .event(eventID, .workspace)
+                                )
+                                try store.dismiss()
+                            }
                         } catch OrganizerSourceWorkspaceError.eventDirectoryAlreadyExists(_) {
                             try store.modify {
                                 $0.errorMessage = "An event already exists at that directory."
+                                $0.isSaving = false
+                            }
+                        } catch OrganizerSourceWorkspaceError.rolloverRequiresStages {
+                            try store.modify {
+                                $0.errorMessage = "Choose at least one stage to carry forward."
+                                $0.isSaving = false
+                            }
+                        } catch OrganizerSourceWorkspaceError.rolloverRequiresDurableSelection {
+                            try store.modify {
+                                $0.errorMessage = "Choose at least one other durable group to carry forward."
                                 $0.isSaving = false
                             }
                         } catch {
@@ -239,6 +339,43 @@ public struct TeamWorkspaceCreateEvent {
             case .form:
                 break
 
+            case .rolloverChecklistDoneButtonTapped:
+                guard let eventID = state.createdEventID else { return }
+                store.addTask {
+                    try store.post(
+                        key: NavigationRequested.self,
+                        value: .event(eventID, .workspace)
+                    )
+                    try store.dismiss()
+                }
+
+            case let .rolloverEventButtonTapped(eventID):
+                guard let sourceEvent = state.rolloverOptions.first(where: { $0.id == eventID }) else {
+                    return
+                }
+                state.selectedRolloverEventID = eventID
+                state.selectedRolloverStageIDs = Set(sourceEvent.stages.map(\.id))
+                state.rolloverErrorMessage = nil
+
+            case let .rolloverStageButtonTapped(stageID):
+                guard state.selectedRolloverEvent?.stages.contains(where: { $0.id == stageID }) == true else {
+                    return
+                }
+                if state.selectedRolloverStageIDs.contains(stageID) {
+                    state.selectedRolloverStageIDs.remove(stageID)
+                } else {
+                    state.selectedRolloverStageIDs.insert(stageID)
+                }
+
+            case let .copySiteMapAndThemeToggleChanged(isOn):
+                state.copySiteMapAndTheme = isOn
+
+            case let .copyChannelDefinitionsToggleChanged(isOn):
+                state.copyChannelDefinitions = isOn
+
+            case let .copyVenueDetailsToggleChanged(isOn):
+                state.copyVenueDetails = isOn
+
             case let .formSubmitted(value):
                 guard !state.isSaving else { return }
                 state.form.value = value
@@ -252,6 +389,38 @@ public struct TeamWorkspaceCreateEvent {
 
             case .saveButtonTapped:
                 submit(&state)
+
+            case .task:
+                guard state.strategy == .rollover,
+                      !state.isLoadingRolloverOptions,
+                      state.rolloverOptions.isEmpty
+                else { return }
+
+                state.isLoadingRolloverOptions = true
+                state.rolloverErrorMessage = nil
+                let organizerSourceWorkspace = organizerSourceWorkspace
+                let request = OrganizerSourceWorkspaceRolloverOptionsRequest(
+                    organizerID: state.calendarID.ownerID,
+                    sourceBaselineID: state.sourceBaselineID
+                )
+                store.addTask {
+                    do {
+                        let options = try await organizerSourceWorkspace.loadRolloverOptions(request)
+                        try store.modify {
+                            $0.isLoadingRolloverOptions = false
+                            $0.rolloverOptions = options.sourceEvents
+                            if let sourceEvent = options.sourceEvents.first {
+                                $0.selectedRolloverEventID = sourceEvent.id
+                                $0.selectedRolloverStageIDs = Set(sourceEvent.stages.map(\.id))
+                            }
+                        }
+                    } catch {
+                        try store.modify {
+                            $0.isLoadingRolloverOptions = false
+                            $0.rolloverErrorMessage = "Unable to load previous events."
+                        }
+                    }
+                }
             }
         }
     }
@@ -291,12 +460,85 @@ private extension TeamWorkspaceCreateEvent.FormFeature {
     }
 }
 
+private func makeRolloverChecklist(
+    sourceEventName: String,
+    copiedStages: Int,
+    copyVenueDetails: Bool,
+    copySiteMapAndTheme: Bool,
+    copyChannelDefinitions: Bool
+) -> TeamWorkspaceCreateEvent.RolloverChecklist {
+    var carriedForward = [
+        "\(copiedStages) stage\(copiedStages == 1 ? "" : "s") from \(sourceEventName)",
+    ]
+    if copyVenueDetails {
+        carriedForward.append("Venue and location details")
+    }
+    if copySiteMapAndTheme {
+        carriedForward.append("Site map and theme/branding")
+    }
+    if copyChannelDefinitions {
+        carriedForward.append("Channel definitions without message history")
+    }
+    return TeamWorkspaceCreateEvent.RolloverChecklist(
+        carriedForward: carriedForward,
+        startFresh: [
+            "Artist and contributor roster",
+            "Schedule performances",
+            "Announcements and alerts",
+            "Credentials and authoring permissions",
+        ]
+    )
+}
+
 struct TeamWorkspaceCreateEventView: View {
     @Environment(\.dismiss) var dismiss
     @Bindable var store: StoreOf<TeamWorkspaceCreateEvent>
     @State var isTimeZonePickerPresented = false
 
     var body: some View {
+        Group {
+            if let checklist = store.rolloverChecklist {
+                rolloverChecklistView(checklist)
+            } else {
+                formView
+            }
+        }
+        .task {
+            await store.send(.task)?.value
+        }
+        .sheet(isPresented: $isTimeZonePickerPresented) {
+            TimeZonePicker(selection: $store.timeZoneSelection)
+        }
+        .toolbar {
+            if store.rolloverChecklist != nil {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        store.send(.rolloverChecklistDoneButtonTapped)
+                    }
+                }
+            } else {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Label("Cancel", systemImage: "close")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    SubmitButton(
+                        isInProgress: store.isSaving,
+                        isDisabled: !store.canSubmit
+                    ) {
+                        store.send(.saveButtonTapped)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    var formView: some View {
         SwiftUI.Form {
             Section {
                 Text("Start with the basics. This creates files in the active organizer workspace so the event can be edited locally.")
@@ -354,6 +596,10 @@ struct TeamWorkspaceCreateEventView: View {
                 Text("Dates are saved as local calendar dates in \(store.timeZone.identifier).")
             }
 
+            if store.strategy == .rollover {
+                rolloverSelectionSections
+            }
+
             if let validationMessage = store.validationMessage {
                 Section {
                     Text(validationMessage)
@@ -372,26 +618,109 @@ struct TeamWorkspaceCreateEventView: View {
         }
         .disabled(store.isSaving)
         .navigationTitle("New Event")
-        .sheet(isPresented: $isTimeZonePickerPresented) {
-            TimeZonePicker(selection: $store.timeZoneSelection)
-        }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button {
-                    dismiss()
-                } label: {
-                    Label("Cancel", systemImage: "close")
-                        .labelStyle(.iconOnly)
+    }
+
+    @ViewBuilder
+    var rolloverSelectionSections: some View {
+        Section("Previous Event") {
+            if store.isLoadingRolloverOptions && store.rolloverOptions.isEmpty {
+                ProgressView("Loading previous events…")
+            } else if store.rolloverOptions.isEmpty {
+                ContentUnavailableView(
+                    "No Previous Events",
+                    systemImage: "calendar.badge.exclamationmark",
+                    description: Text("Only events with stages can seed a rollover.")
+                )
+            } else {
+                ForEach(store.rolloverOptions) { sourceEvent in
+                    Button {
+                        store.send(.rolloverEventButtonTapped(sourceEvent.id))
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(sourceEvent.name)
+                                Text(sourceEvent.sourceEventDirectory)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if store.selectedRolloverEventID == sourceEvent.id {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            ToolbarItem(placement: .confirmationAction) {
-                SubmitButton(
-                    isInProgress: store.isSaving,
-                    isDisabled: !store.canSubmit
-                ) {
-                    store.send(.saveButtonTapped)
+        }
+
+        if let sourceEvent = store.selectedRolloverEvent {
+            Section {
+                ForEach(sourceEvent.stages) { stage in
+                    Button {
+                        store.send(.rolloverStageButtonTapped(stage.id))
+                    } label: {
+                        HStack {
+                            Text(stage.name)
+                            Spacer()
+                            Image(
+                                systemName: store.selectedRolloverStageIDs.contains(stage.id)
+                                    ? "checkmark.circle.fill"
+                                    : "circle"
+                            )
+                            .foregroundStyle(
+                                store.selectedRolloverStageIDs.contains(stage.id)
+                                    ? Color.accentColor
+                                    : Color.secondary
+                            )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            } header: {
+                Text("Stages to Carry Forward")
+            }
+
+            Section("Durable Details") {
+                Toggle("Venue and location details", isOn: $store.copyVenueDetails)
+                Toggle("Site map and theme/branding", isOn: $store.copySiteMapAndTheme)
+                Toggle("Channel definitions", isOn: $store.copyChannelDefinitions)
+                Text("Messages, announcements, and alert history are never carried forward.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        if let rolloverErrorMessage = store.rolloverErrorMessage {
+            Section {
+                Text(rolloverErrorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    func rolloverChecklistView(
+        _ checklist: TeamWorkspaceCreateEvent.RolloverChecklist
+    ) -> some View {
+        List {
+            Section {
+                Text("The new event is ready in the organizer workspace. Review these items before building the season.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Carried Forward") {
+                ForEach(checklist.carriedForward, id: \.self) { item in
+                    Label(item, systemImage: "checkmark.circle.fill")
+                }
+            }
+            Section("Start Fresh") {
+                ForEach(checklist.startFresh, id: \.self) { item in
+                    Label(item, systemImage: "arrow.right.circle")
                 }
             }
         }
+        .navigationTitle("Event Ready")
     }
 }

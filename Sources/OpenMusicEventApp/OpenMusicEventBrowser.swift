@@ -941,6 +941,7 @@ public struct TeamWorkspaceDetail {
 
     public enum Action {
         case addEventButtonTapped
+        case rolloverEventButtonTapped
         case destination(Destination.Action)
         case didPullToRefresh
         case editButtonTapped
@@ -1090,6 +1091,20 @@ public struct TeamWorkspaceDetail {
                         TeamWorkspaceCreateEvent.State(
                             sourceBaselineID: sourceBaseline.id,
                             calendarID: calendarID
+                        )
+                    )
+                )
+
+            case .rolloverEventButtonTapped:
+                guard let calendarID = state.editableCalendarID,
+                      let sourceBaseline = state.sourceBaseline
+                else { return }
+                state.destination = .createEvent(
+                    Spawn(
+                        TeamWorkspaceCreateEvent.State(
+                            sourceBaselineID: sourceBaseline.id,
+                            calendarID: calendarID,
+                            strategy: .rollover
                         )
                     )
                 )
@@ -1363,8 +1378,13 @@ public struct TeamWorkspaceDetailView: View {
                 }
             }
             if showsAuthoringControls, store.canCreateEvent {
-                Button {
-                    store.send(.addEventButtonTapped)
+                Menu {
+                    Button("Blank Event") {
+                        store.send(.addEventButtonTapped)
+                    }
+                    Button("Start from Previous Event") {
+                        store.send(.rolloverEventButtonTapped)
+                    }
                 } label: {
                     Label("Add Event", systemImage: "plus")
                         .labelStyle(.iconOnly)
