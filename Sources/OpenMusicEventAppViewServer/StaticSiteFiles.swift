@@ -23,6 +23,10 @@ public struct StaticSiteFiles: Sendable {
             return "index.html"
         case "/.well-known/oauth-client-metadata.json":
             return ".well-known/oauth-client-metadata.json"
+        case "/favicon.png":
+            return "favicon.png"
+        case "/apple-touch-icon.png":
+            return "apple-touch-icon.png"
         case "/styles.css":
             return "styles.css"
         default:

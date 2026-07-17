@@ -17,6 +17,14 @@ struct OpenMusicEventRoutingTests {
             .site(.stylesheet)
         )
         expectNoDifference(
+            openMusicEventPathRouter.parse("/favicon.png"),
+            .site(.favicon)
+        )
+        expectNoDifference(
+            openMusicEventPathRouter.parse("/apple-touch-icon.png"),
+            .site(.appleTouchIcon)
+        )
+        expectNoDifference(
             openMusicEventPathRouter.parse("/assets/ome-mark.jpg"),
             .site(.asset(OpenMusicEventSiteAsset(rawValue: "ome-mark.jpg")))
         )
@@ -44,6 +52,8 @@ struct OpenMusicEventRoutingTests {
         expectNoDifference(router.path(for: .site(.home)), "/")
         expectNoDifference(router.path(for: .site(.index)), "/index.html")
         expectNoDifference(router.path(for: .site(.stylesheet)), "/styles.css")
+        expectNoDifference(router.path(for: .site(.favicon)), "/favicon.png")
+        expectNoDifference(router.path(for: .site(.appleTouchIcon)), "/apple-touch-icon.png")
         expectNoDifference(
             router.path(for: .site(.asset(OpenMusicEventSiteAsset(rawValue: "ome-mark.jpg")))),
             "/assets/ome-mark.jpg"

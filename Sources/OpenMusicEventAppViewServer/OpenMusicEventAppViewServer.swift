@@ -111,6 +111,26 @@ public enum OpenMusicEventAppViewServer {
             )
         }
 
+        hummingbirdRouter.get("/favicon.png") { request, _ async throws -> Response in
+            try response(
+                host: request.authority,
+                path: "/favicon.png",
+                routeResolver: routeResolver,
+                staticSiteFiles: staticSiteFiles,
+                wellKnownFiles: wellKnownFiles
+            )
+        }
+
+        hummingbirdRouter.get("/apple-touch-icon.png") { request, _ async throws -> Response in
+            try response(
+                host: request.authority,
+                path: "/apple-touch-icon.png",
+                routeResolver: routeResolver,
+                staticSiteFiles: staticSiteFiles,
+                wellKnownFiles: wellKnownFiles
+            )
+        }
+
         hummingbirdRouter.get("/assets/{file}") { request, context async throws -> Response in
             try response(
                 host: request.authority,

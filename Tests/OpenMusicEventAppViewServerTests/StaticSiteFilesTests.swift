@@ -8,6 +8,8 @@ struct StaticSiteFilesTests {
         #expect(StaticSiteFiles.relativePath(for: "/") == "index.html")
         #expect(StaticSiteFiles.relativePath(for: "/index.html") == "index.html")
         #expect(StaticSiteFiles.relativePath(for: "/styles.css") == "styles.css")
+        #expect(StaticSiteFiles.relativePath(for: "/favicon.png") == "favicon.png")
+        #expect(StaticSiteFiles.relativePath(for: "/apple-touch-icon.png") == "apple-touch-icon.png")
         #expect(StaticSiteFiles.relativePath(for: "/.well-known/oauth-client-metadata.json") == ".well-known/oauth-client-metadata.json")
         #expect(StaticSiteFiles.relativePath(for: "/assets/ome-mark.jpg") == "assets/ome-mark.jpg")
     }

@@ -53,7 +53,9 @@ public enum OpenMusicEventRoute: Equatable, Sendable {
 }
 
 public enum OpenMusicEventSiteRoute: Equatable, Sendable {
+    case appleTouchIcon
     case asset(OpenMusicEventSiteAsset)
+    case favicon
     case home
     case index
     case stylesheet
@@ -86,6 +88,12 @@ public struct OpenMusicEventPathRouter: Sendable {
 
         case ["styles.css"]:
             return .site(.stylesheet)
+
+        case ["favicon.png"]:
+            return .site(.favicon)
+
+        case ["apple-touch-icon.png"]:
+            return .site(.appleTouchIcon)
 
         case ["apple-app-site-association"]:
             return .appleAppSiteAssociation
@@ -123,9 +131,15 @@ public struct OpenMusicEventPathRouter: Sendable {
 
     public func path(for siteRoute: OpenMusicEventSiteRoute) -> String {
         switch siteRoute {
+        case .appleTouchIcon:
+            return "/apple-touch-icon.png"
+
         case let .asset(asset):
             precondition(isSafeSinglePathComponent(asset.rawValue), "Unsafe asset path component.")
             return "/assets/\(asset.rawValue)"
+
+        case .favicon:
+            return "/favicon.png"
 
         case .home:
             return "/"

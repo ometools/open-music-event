@@ -32,6 +32,18 @@ struct AppViewRouteTests {
                 #expect(response.body.readableBytes == 4)
             }
 
+            try await client.execute(uri: "/favicon.png", method: .get) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.contentType] == "image/png")
+                #expect(response.body.readableBytes == 4)
+            }
+
+            try await client.execute(uri: "/apple-touch-icon.png", method: .get) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.contentType] == "image/png")
+                #expect(response.body.readableBytes == 4)
+            }
+
             try await client.execute(uri: "/healthz", method: .get) { response in
                 #expect(response.status == .ok)
                 #expect(String(buffer: response.body) == "ok")
@@ -119,6 +131,10 @@ private struct TestAppViewRoots {
             .write(to: siteRoot.appendingPathComponent("styles.css", isDirectory: false))
         try Data([0xff, 0xd8, 0xff, 0x00])
             .write(to: siteRoot.appendingPathComponent("assets/ome-mark.jpg", isDirectory: false))
+        try Data([0x89, 0x50, 0x4e, 0x47])
+            .write(to: siteRoot.appendingPathComponent("favicon.png", isDirectory: false))
+        try Data([0x89, 0x50, 0x4e, 0x47])
+            .write(to: siteRoot.appendingPathComponent("apple-touch-icon.png", isDirectory: false))
         try Data(#"{"client_id":"openmusicevent.app"}"#.utf8)
             .write(to: siteRoot.appendingPathComponent(".well-known/oauth-client-metadata.json", isDirectory: false))
         try Data("did:plc:localtest".utf8)

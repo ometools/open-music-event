@@ -2,6 +2,10 @@
 
 This workspace contains the first hosting-oriented AppView scaffold for `openmusicevent.app` and `ome.social`.
 
+The AppView origin is intended to serve `openmusicevent.app`, `ome.social`,
+`openmusic.events`, `opencomedy.events`, `openconferences.events`, and
+`openmusicevent.live`, including their configured `www` aliases.
+
 ## Current Surface
 
 - `OpenMusicEventAppView`: Hummingbird executable.
