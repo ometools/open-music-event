@@ -1,4 +1,5 @@
 import Foundation
+import CustomDump
 import OpenMusicEventReleaseTools
 import Testing
 
@@ -47,6 +48,34 @@ struct ReleaseMetadataGateTests {
             path: "Deployments/ome-under-construction/public/index.html",
             reference: "assets/ome-location.jpeg"
         )))
+    }
+
+    @Test
+    func rendersActionableFailureOutputForFastlane() {
+        let report = ReleaseMetadataGateReport(issues: [
+            .missingScreenshotDirectory("Darwin/fastlane/screenshots/en-US"),
+            .placeholderText(
+                path: "Darwin/fastlane/metadata/en-US/description.txt",
+                text: "A great new app built with Skip!"
+            ),
+            .legacyWebsiteScreenshotReference(
+                path: "Deployments/ome-under-construction/public/index.html",
+                reference: "assets/ome-schedule.jpeg"
+            ),
+        ])
+
+        expectNoDifference(
+            report.render(),
+            """
+            Release readiness check failed with 3 issues:
+
+            - Missing screenshot directory: Darwin/fastlane/screenshots/en-US
+            - Placeholder metadata remains in Darwin/fastlane/metadata/en-US/description.txt: A great new app built with Skip!
+            - Website still references legacy screenshot asset in Deployments/ome-under-construction/public/index.html: assets/ome-schedule.jpeg
+
+            Fix these before running store upload or promotion lanes.
+            """
+        )
     }
 }
 

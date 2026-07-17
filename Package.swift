@@ -16,6 +16,7 @@ let skipstonePlugins: [Target.PluginUsage] = []
 
 var products: [Product] = [
     .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
+    .executable(name: "ome-release-check", targets: ["OpenMusicEventReleaseCheck"]),
     .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
     .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
     .library(name: "OpenMusicEventAppViewServer", targets: ["OpenMusicEventAppViewServer"]),
@@ -146,6 +147,12 @@ var targets: [Target] = [
     ),
     .target(
         name: "OpenMusicEventReleaseTools"
+    ),
+    .executableTarget(
+        name: "OpenMusicEventReleaseCheck",
+        dependencies: [
+            "OpenMusicEventReleaseTools",
+        ]
     ),
     .target(
         name: "BlueskyActorCache",
@@ -342,6 +349,7 @@ var targets: [Target] = [
         name: "OpenMusicEventReleaseToolsTests",
         dependencies: [
             "OpenMusicEventReleaseTools",
+            .product(name: "CustomDump", package: "swift-custom-dump"),
         ]
     ),
     .testTarget(

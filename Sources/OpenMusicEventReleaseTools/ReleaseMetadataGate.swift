@@ -109,3 +109,45 @@ public enum ReleaseMetadataGateIssue: Equatable, Hashable, Sendable {
     case placeholderText(path: String, text: String)
     case legacyWebsiteScreenshotReference(path: String, reference: String)
 }
+
+public struct ReleaseMetadataGateReport: Equatable, Sendable {
+    public var issues: [ReleaseMetadataGateIssue]
+
+    public init(issues: [ReleaseMetadataGateIssue]) {
+        self.issues = issues
+    }
+
+    public var didPass: Bool {
+        issues.isEmpty
+    }
+
+    public func render() -> String {
+        guard !issues.isEmpty else {
+            return "Release readiness check passed."
+        }
+
+        var lines = [
+            "Release readiness check failed with \(issues.count) \(issues.count == 1 ? "issue" : "issues"):",
+            "",
+        ]
+        lines.append(contentsOf: issues.map { "- \($0.message)" })
+        lines.append("")
+        lines.append("Fix these before running store upload or promotion lanes.")
+        return lines.joined(separator: "\n")
+    }
+}
+
+extension ReleaseMetadataGateIssue {
+    public var message: String {
+        switch self {
+        case let .missingScreenshotDirectory(path):
+            return "Missing screenshot directory: \(path)"
+
+        case let .placeholderText(path, text):
+            return "Placeholder metadata remains in \(path): \(text)"
+
+        case let .legacyWebsiteScreenshotReference(path, reference):
+            return "Website still references legacy screenshot asset in \(path): \(reference)"
+        }
+    }
+}
