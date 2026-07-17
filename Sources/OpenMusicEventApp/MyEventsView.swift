@@ -21,7 +21,7 @@ struct MyEventsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This permanently deletes the selected event data from this device. Team workspace source trees can be re-imported from the Tangled workspace, but created events are not cached off device.")
+                Text("This permanently deletes the selected event data from this device. Shared workspace source trees can be opened again, but created events are not cached off device.")
             }
             .toolbar {
                 toolbarContent
@@ -76,7 +76,7 @@ struct MyEventsView: View {
     @ViewBuilder
     private var teamWorkspacesSection: some View {
         if !store.teamWorkspaces.isEmpty {
-            Section("Team Workspaces") {
+            Section("Shared Workspaces") {
                 ForEach(store.teamWorkspaces) { teamWorkspace in
                     Button {
                         store.send(.didTapTeamWorkspace(teamWorkspace.id))
@@ -117,7 +117,7 @@ struct MyEventsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
-            Button("Import Team Workspace", systemImage: "arrow.down.doc") {
+            Button("Open Shared Workspace", systemImage: "arrow.down.doc") {
                 store.send(.didTapImportTeamWorkspace)
             }
 
@@ -212,10 +212,12 @@ struct TeamWorkspaceRowView: View {
                 .frame(width: 60, height: 60)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(teamWorkspace.sourceBaseline.sourceReference)
+                Text("Shared workspace")
                     .lineLimit(1)
                 Text(
-                    "\(teamWorkspace.refTitle) - \(teamWorkspace.organizer.id.description)"
+                    teamWorkspace.eventCount == 1
+                    ? "1 event · \(teamWorkspace.refTitle)"
+                    : "\(teamWorkspace.eventCount) events · \(teamWorkspace.refTitle)"
                 )
                     .lineLimit(1)
                     .font(.caption2)

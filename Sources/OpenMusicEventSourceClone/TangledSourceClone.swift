@@ -61,6 +61,7 @@ public struct TangledSourceCloneCommand: AsyncParsableCommand {
 public enum SourceRepositoryLocation: Equatable, Sendable {
     case local(URL)
     case tangled(TangledRepositoryReference)
+    case tangledRepositoryURI(TangledRepositoryRecordReference)
 
     public init(parsing rawValue: String) throws {
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -78,10 +79,67 @@ public enum SourceRepositoryLocation: Equatable, Sendable {
             throw ValidationError("Local source path does not exist: \(localURL.path())")
         }
 
+        if trimmedValue.hasPrefix("at://") {
+            self = .tangledRepositoryURI(
+                try TangledRepositoryRecordReference(parsing: trimmedValue)
+            )
+            return
+        }
+
         do {
             self = .tangled(try TangledRepositoryReference(parsing: trimmedValue))
         } catch {
-            throw ValidationError("Source must be an existing local path or Tangled repository reference.")
+            throw ValidationError("Source must be an existing local path, Tangled repository reference, or sh.tangled.repo AT URI.")
+        }
+    }
+}
+
+public struct TangledRepositoryRecordReference: Equatable, Sendable {
+    public var uri: ATProto.URI
+    public var rkey: ATProto.Record.Key
+
+    public init(uri: ATProto.URI) throws {
+        guard uri.collection?.rawValue == TangledRepositoryRecord.collection,
+              let rkey = uri.rkey
+        else {
+            throw ValidationError("Tangled repository AT URI must identify a sh.tangled.repo record.")
+        }
+        self.uri = uri
+        self.rkey = rkey
+    }
+
+    public init(parsing rawValue: String) throws {
+        guard let uri = ATProto.URI(rawValue) else {
+            throw ValidationError("Tangled repository AT URI is invalid.")
+        }
+        try self.init(uri: uri)
+    }
+
+    public var normalizedReference: String {
+        uri.description
+    }
+
+    public var repositoryReference: TangledRepositoryReference {
+        TangledRepositoryReference(
+            host: "tangled.org",
+            owner: uri.authority.description,
+            repository: rkey.rawValue
+        )
+    }
+
+    public func resolvedOwnerDID() async throws -> String {
+        switch uri.authority {
+        case let .did(did):
+            return did.description
+
+        case let .handle(handle):
+            do {
+                @Dependency(Atmosphere.Account.Client.self) var accountClient
+                let (account, _) = try await accountClient.resolveHandle(handle)
+                return account.id.rawValue.description
+            } catch {
+                throw ValidationError("Could not resolve repository owner \(handle.rawValue) to a DID: \(error)")
+            }
         }
     }
 }
@@ -97,6 +155,19 @@ public struct TangledRepositoryReference: Equatable, Sendable {
         self.port = port
         self.owner = owner
         self.repository = repository
+    }
+
+    public init(sourceReference rawValue: String) throws {
+        switch try SourceRepositoryLocation(parsing: rawValue) {
+        case .local:
+            throw ValidationError("Tangled source reference must be a Tangled repository reference or sh.tangled.repo AT URI.")
+
+        case let .tangled(repository):
+            self = repository
+
+        case let .tangledRepositoryURI(repository):
+            self = repository.repositoryReference
+        }
     }
 
     public init(parsing rawValue: String) throws {

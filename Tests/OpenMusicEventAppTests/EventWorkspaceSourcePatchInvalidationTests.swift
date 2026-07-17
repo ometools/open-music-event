@@ -390,6 +390,9 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let requests = Mutex([OpenMusicEventTangledPullReviewRequest]())
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
+            $0.actorIdentityLookup.resolve = { _ in
+                throw URLError(.badServerResponse)
+            }
             $0.tangledPullReviewClient = TangledPullReviewClient { request in
                 requests.withLock { $0.append(request) }
                 return [review]
@@ -1022,6 +1025,9 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let requests = Mutex([OpenMusicEventTangledPullReviewRequest]())
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
+            $0.actorIdentityLookup.resolve = { _ in
+                throw URLError(.badServerResponse)
+            }
             $0.tangledPullReviewClient = TangledPullReviewClient { request in
                 requests.withLock { $0.append(request) }
                 return [review]
@@ -1236,6 +1242,9 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let review = testTangledPullReview()
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
+            $0.actorIdentityLookup.resolve = { _ in
+                throw URLError(.badServerResponse)
+            }
             $0.tangledPullReviewClient = TangledPullReviewClient { _ in
                 [review]
             }

@@ -38,6 +38,13 @@ public struct OpenMusicEventSourceValidationRequest: Equatable, Sendable {
                 reference: repository.normalizedReference,
                 ref: resolvedRef
             )
+
+        case let .tangledRepositoryURI(repository):
+            return OME.SourceDatabaseInsertion.SourceProvenance(
+                kind: .tangled,
+                reference: repository.normalizedReference,
+                ref: resolvedRef
+            )
         }
     }
 }
@@ -119,6 +126,13 @@ public struct OpenMusicEventSourceValidator: Sendable {
                 throw OpenMusicEventSourceValidationError.invalidResolvedOrganizerID(did)
             }
             return organizerID
+
+        case let .tangledRepositoryURI(repository):
+            let did = try await repository.resolvedOwnerDID()
+            guard let organizerID = OME.Organizer.ID(did) else {
+                throw OpenMusicEventSourceValidationError.invalidResolvedOrganizerID(did)
+            }
+            return organizerID
         }
     }
 
@@ -131,6 +145,16 @@ public struct OpenMusicEventSourceValidator: Sendable {
             return (repositoryURL, nil)
 
         case let .tangled(repository):
+            return try await resolvedTangledRepositoryURL(repository)
+
+        case let .tangledRepositoryURI(repository):
+            return try await resolvedTangledRepositoryURL(repository.repositoryReference)
+        }
+    }
+
+    private func resolvedTangledRepositoryURL(
+        _ repository: TangledRepositoryReference
+    ) async throws -> (repositoryURL: URL, cleanupURL: URL?) {
             @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
 
             let outputURL: URL
@@ -159,7 +183,6 @@ public struct OpenMusicEventSourceValidator: Sendable {
                 throw error
             }
             return (outputURL, cleanupURL)
-        }
     }
 }
 
@@ -176,6 +199,13 @@ private extension OME.SourceDatabaseInsertion.SourceProvenance {
             )
 
         case let .tangled(repository):
+            self.init(
+                kind: .tangled,
+                reference: repository.normalizedReference,
+                ref: ref
+            )
+
+        case let .tangledRepositoryURI(repository):
             self.init(
                 kind: .tangled,
                 reference: repository.normalizedReference,

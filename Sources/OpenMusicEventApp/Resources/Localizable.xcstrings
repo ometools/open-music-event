@@ -1,18 +1,18 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%@ - %@" : {
+    "%lld events" : {
+
+    },
+    "%lld events · %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ - %2$@"
+            "value" : "%1$lld events · %2$@"
           }
         }
       }
-    },
-    "%lld events" : {
-
     },
     "%lld Items" : {
       "comment" : "Header title for a list that contains the number of items",
@@ -42,6 +42,9 @@
           }
         }
       }
+    },
+    "1 event · %@" : {
+
     },
     "2026" : {
 
@@ -116,9 +119,6 @@
         }
       }
     },
-    "Branch" : {
-
-    },
     "Browse" : {
 
     },
@@ -157,7 +157,13 @@
         }
       }
     },
+    "Connection details" : {
+
+    },
     "Create Event" : {
+
+    },
+    "Create Shared Workspace" : {
 
     },
     "Creates events/%@/event.yml in the organizer workspace." : {
@@ -225,6 +231,9 @@
 
     },
     "Dates are saved as local calendar dates in %@." : {
+
+    },
+    "Default version" : {
 
     },
     "Delete Created Events" : {
@@ -386,13 +395,7 @@
     "https://tangled.org/owner/repo" : {
 
     },
-    "Import Team Workspace" : {
-
-    },
     "Imported" : {
-
-    },
-    "Knot" : {
 
     },
     "Light" : {
@@ -427,7 +430,10 @@
     "main" : {
 
     },
-    "Manage Team Workspace" : {
+    "main or HEAD" : {
+
+    },
+    "Manage Shared Workspace" : {
 
     },
     "My Events" : {
@@ -503,7 +509,7 @@
     "Open Local Folder" : {
 
     },
-    "Open Team Workspace" : {
+    "Open Shared Workspace" : {
 
     },
     "Powered by [Skip](https://skip.dev)" : {
@@ -535,7 +541,7 @@
         }
       }
     },
-    "Preparing Team Workspace" : {
+    "Preparing Shared Workspace" : {
 
     },
     "Preparing Workspace" : {
@@ -544,16 +550,7 @@
     "Previous Events" : {
 
     },
-    "Ref" : {
-
-    },
-    "Reference" : {
-
-    },
-    "Remote" : {
-
-    },
-    "Repository" : {
+    "Provider address" : {
 
     },
     "Retry" : {
@@ -630,7 +627,10 @@
         }
       }
     },
-    "Source" : {
+    "Shared workspace" : {
+
+    },
+    "Shared Workspaces" : {
 
     },
     "Source import output can only be used with Tangled repositories." : {
@@ -677,7 +677,7 @@
     "tangled.org" : {
 
     },
-    "Team Workspaces" : {
+    "Technical details" : {
 
     },
     "Test error." : {
@@ -704,7 +704,7 @@
     "This permanently deletes the selected event data from this device. Created events are not cached off device." : {
 
     },
-    "This permanently deletes the selected event data from this device. Team workspace source trees can be re-imported from the Tangled workspace, but created events are not cached off device." : {
+    "This permanently deletes the selected event data from this device. Shared workspace source trees can be opened again, but created events are not cached off device." : {
 
     },
     "This source has no events." : {
@@ -793,7 +793,7 @@
     "Upcoming Events" : {
 
     },
-    "Upload to Tangled" : {
+    "Version" : {
 
     },
     "Version %@ (%@)" : {
@@ -865,6 +865,12 @@
 
     },
     "Workspace" : {
+
+    },
+    "Workspace address" : {
+
+    },
+    "Workspace name" : {
 
     }
   },

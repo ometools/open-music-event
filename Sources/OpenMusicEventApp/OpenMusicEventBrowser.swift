@@ -1295,11 +1295,27 @@ public struct TeamWorkspaceDetailView: View {
             }
 
             if let sourceBaseline = store.sourceBaseline {
-                DisclosureGroup("Source", isExpanded: $sourceSectionExpanded) {
-                    LabeledContent("Reference", value: sourceBaseline.sourceReference)
-                    LabeledContent("Ref", value: sourceBaseline.ref ?? "default ref")
-                    LabeledContent(
-                        "Imported",
+                DisclosureGroup("Technical details", isExpanded: $sourceSectionExpanded) {
+                    WorkspaceTechnicalValueView(
+                        label: "Source address",
+                        value: sourceBaseline.sourceReference
+                    )
+                    WorkspaceTechnicalValueView(
+                        label: "Provider",
+                        value: sourceBaseline.sourceKind.rawValue
+                    )
+                    WorkspaceTechnicalValueView(
+                        label: "Version",
+                        value: sourceBaseline.ref ?? "default version"
+                    )
+                    if let organizerID = store.organizer?.id.description {
+                        WorkspaceTechnicalValueView(
+                            label: "Owner actor ID",
+                            value: organizerID
+                        )
+                    }
+                    WorkspaceTechnicalValueView(
+                        label: "Imported",
                         value: sourceBaseline.importedAt.formatted(
                             date: .abbreviated,
                             time: .shortened
@@ -1375,15 +1391,15 @@ public struct TeamWorkspaceDetailView: View {
                 }
             }
             if showsAuthoringControls, store.canUploadToTangled {
-                Button("Upload to Tangled") {
+                Button("Create Shared Workspace") {
                     store.send(.uploadToTangledButtonTapped)
                 }
             }
             if showsAuthoringControls, isManageWorkspaceToolbarItemVisible && store.canManageSource {
                 Button(
                     store.isPreparingTeamWorkspaceEditor
-                        ? "Preparing Team Workspace"
-                        : "Manage Team Workspace",
+                        ? "Preparing Shared Workspace"
+                        : "Manage Shared Workspace",
                     systemImage: "person.3"
                 ) {
                     store.send(.manageSourceButtonTapped)
@@ -1402,9 +1418,7 @@ public struct TeamWorkspaceDetailView: View {
 
     private var calendarTitle: String {
         store.calendar?.name
-        ?? store.sourceBaseline?.sourceReference
-        ?? store.organizer?.id.description
-        ?? store.sourceBaselineID.rawValue
+        ?? "Shared workspace"
     }
 
     private var entryRows: CalendarDetail.EntryRows {

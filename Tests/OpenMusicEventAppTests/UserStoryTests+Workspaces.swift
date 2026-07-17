@@ -46,6 +46,9 @@ extension UserStoryTests {
                 $0.continuousClock = ImmediateClock()
                 $0.defaultDatabase = database
                 $0.defaultEventID = eventID
+                $0.actorIdentityLookup.resolve = { _ in
+                    throw URLError(.badServerResponse)
+                }
                 $0.sourceDataRefresh = backend.sourceDataRefresh
                 $0.sourceReferenceDatabase = backend.sourceReferenceDatabase
                 $0.sourceReferenceDatabaseMigrator = .openMusicEvent

@@ -253,7 +253,7 @@ public extension TangledPullReviewClient {
                     throw TangledPullReviewClientError.unsupportedRemoteKind(remote.kind)
                 }
 
-                let repository = try TangledRepositoryReference(parsing: remote.reference)
+                let repository = try TangledRepositoryReference(sourceReference: remote.reference)
                 let targetRepository = try await TangledSourcePatchPublisher()
                     .targetRepository(repository)
                 guard let subject = DID(targetRepository.repoDID) else {
@@ -549,7 +549,7 @@ private struct TangledPullReviewMergeRepository: Sendable {
             throw TangledPullReviewClientError.unsupportedRemoteKind(remote.kind)
         }
 
-        let repository = try TangledRepositoryReference(parsing: remote.reference)
+        let repository = try TangledRepositoryReference(sourceReference: remote.reference)
         let owner = try await TangledPullReviewRepositoryOwner.resolve(repository)
         var cursor: String?
 

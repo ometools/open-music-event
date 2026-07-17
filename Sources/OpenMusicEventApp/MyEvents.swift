@@ -140,7 +140,7 @@ public struct MyEvents {
                         }
                     } catch {
                         try store.modify {
-                            $0.errorMessage = "Unable to delete team workspace."
+                            $0.errorMessage = "Unable to delete shared workspace."
                         }
                     }
                 }

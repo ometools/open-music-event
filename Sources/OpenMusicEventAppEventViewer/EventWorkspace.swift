@@ -1,3 +1,4 @@
+import ATProto
 import ComposableArchitecture2
 import ComposableForms
 import ErrorHandling
@@ -6,8 +7,10 @@ import GRDB
 import HTTPClient
 import Lexicon
 import OpenMusicEventComponents
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SourceEditing
 import SQLiteData
@@ -284,6 +287,10 @@ public struct EventWorkspace {
         }
     }
 
+    public enum WorkspaceActorIdentityLookupFailure: Equatable, Error, Sendable {
+        case unavailable
+    }
+
     public struct TangledPullReviewSemanticDiff: Equatable, Sendable {
         public var groups: [SourceChangeGroup]
         public var recordComparisons: SourceRecordComparisons
@@ -379,6 +386,9 @@ public struct EventWorkspace {
         public var tangledPullReviewDeleteFailures: [String: TangledPullReviewDeleteFailure] = [:]
         public var tangledPullReviewMergeFailures: [String: TangledPullReviewMergeFailure] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
+        public var workspaceOwnerIdentity: WorkspaceActorIdentity = .unavailable
+        public var signedInAccountIdentity: WorkspaceActorIdentity = .signedOut
+        public var tangledPullReviewAuthorIdentities: [String: WorkspaceActorIdentity] = [:]
         @FetchOne public var sourceBaseline: SourceBaselineRecord?
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
 
@@ -454,6 +464,9 @@ public struct EventWorkspace {
         case refreshSourceButtonTapped
         case resetEditsButtonTapped
         case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
+        case signedInAccountIdentityResponse(
+            Result<ActorIdentity, WorkspaceActorIdentityLookupFailure>
+        )
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
         case sourceProposal(SourceProposalFlow.Action)
@@ -474,7 +487,14 @@ public struct EventWorkspace {
             review: TangledPullReview,
             Result<Void, TangledPullReviewMergeFailure>
         )
+        case tangledPullReviewAuthorIdentityResponse(
+            author: String,
+            Result<ActorIdentity, WorkspaceActorIdentityLookupFailure>
+        )
         case tangledPullReviewsResponse(Result<[TangledPullReview], TangledPullReviewFailure>)
+        case workspaceOwnerIdentityResponse(
+            Result<ActorIdentity, WorkspaceActorIdentityLookupFailure>
+        )
     }
 
     public enum Delegate: Equatable, Sendable {
@@ -489,8 +509,79 @@ public struct EventWorkspace {
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
     var calendarSourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
+    @Dependency(\.actorIdentityLookup) var actorIdentityLookup
+    @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
+
+    private func loadWorkspaceIdentities(state: inout State) {
+        let ownerActorReference = state.sourceContext?.ownerActorReference
+        state.workspaceOwnerIdentity = ownerActorReference == nil ? .unavailable : .loading
+
+        let selectedAccountID = getSelectedOAuthSessionID()
+        state.signedInAccountIdentity = selectedAccountID == nil ? .signedOut : .loading
+
+        let actorIdentityLookup = actorIdentityLookup
+        store.addTask {
+            if let ownerActorReference {
+                do {
+                    let identity = try await actorIdentityLookup.resolve(ownerActorReference)
+                    try store.send(.workspaceOwnerIdentityResponse(.success(identity)))
+                } catch {
+                    try store.send(
+                        .workspaceOwnerIdentityResponse(
+                            .failure(.unavailable)
+                        )
+                    )
+                }
+            }
+
+            if let selectedAccountID {
+                do {
+                    let identity = try await actorIdentityLookup.resolve(
+                        selectedAccountID.rawValue.description
+                    )
+                    try store.send(.signedInAccountIdentityResponse(.success(identity)))
+                } catch {
+                    try store.send(
+                        .signedInAccountIdentityResponse(
+                            .failure(.unavailable)
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private func loadReviewAuthorIdentities(
+        for reviews: [TangledPullReview],
+        state: inout State
+    ) {
+        let authors = Set(reviews.map(\.author).filter { !$0.isEmpty })
+        let actorIdentityLookup = actorIdentityLookup
+        for author in authors {
+            guard state.tangledPullReviewAuthorIdentities[author] == nil else { continue }
+            state.tangledPullReviewAuthorIdentities[author] = .loading
+            store.addTask {
+                do {
+                    let identity = try await actorIdentityLookup.resolve(author)
+                    try store.send(
+                        .tangledPullReviewAuthorIdentityResponse(
+                            author: author,
+                            .success(identity)
+                        )
+                    )
+                } catch {
+                    try store.send(
+                        .tangledPullReviewAuthorIdentityResponse(
+                            author: author,
+                            .failure(.unavailable)
+                        )
+                    )
+                }
+            }
+        }
+    }
 
     private func refreshTangledPullReviews(
         target: SourceProposalTarget,
@@ -787,8 +878,10 @@ public struct EventWorkspace {
                 mergeTangledPullReview(review, state: &state)
 
             case .onAppear:
-                guard state.tangledPullReviewStatus == .notLoaded else { return }
-                refreshTangledPullReviews(target: state.target, state: &state)
+                loadWorkspaceIdentities(state: &state)
+                if state.tangledPullReviewStatus == .notLoaded {
+                    refreshTangledPullReviews(target: state.target, state: &state)
+                }
 
             case .refreshSourceButtonTapped:
                 switch state.target {
@@ -849,6 +942,12 @@ public struct EventWorkspace {
             case let .resetEditsResponse(.failure(failure)):
                 state.isResettingEdits = false
                 state.resetEditsFailure = failure
+
+            case let .signedInAccountIdentityResponse(.success(identity)):
+                state.signedInAccountIdentity = .loaded(identity)
+
+            case .signedInAccountIdentityResponse(.failure):
+                state.signedInAccountIdentity = .unavailable
 
             case let .sourceProposal(.delegate(.created(publication))):
                 state.isPreparingSourceProposal = false
@@ -935,11 +1034,18 @@ public struct EventWorkspace {
                 state.mergingTangledPullReviewIDs.remove(review.id)
                 state.tangledPullReviewMergeFailures[review.id] = failure
 
+            case let .tangledPullReviewAuthorIdentityResponse(author, .success(identity)):
+                state.tangledPullReviewAuthorIdentities[author] = .loaded(identity)
+
+            case let .tangledPullReviewAuthorIdentityResponse(author, .failure):
+                state.tangledPullReviewAuthorIdentities[author] = .unavailable
+
             case let .tangledPullReviewsResponse(.success(reviews)):
                 let loadedReviews = reviews
                     .filter { !state.locallyRemovedTangledPullReviewIDs.contains($0.id) }
                     .tangledPullReviewsSortedByDate
                 state.tangledPullReviewStatus = .loaded(loadedReviews)
+                loadReviewAuthorIdentities(for: loadedReviews, state: &state)
                 if let pendingReviewID = state.pendingCreatedTangledPullReviewID,
                    let review = loadedReviews.first(where: { $0.id == pendingReviewID })
                 {
@@ -953,6 +1059,12 @@ public struct EventWorkspace {
 
             case let .tangledPullReviewsResponse(.failure(failure)):
                 state.tangledPullReviewStatus = .failed(failure)
+
+            case let .workspaceOwnerIdentityResponse(.success(identity)):
+                state.workspaceOwnerIdentity = .loaded(identity)
+
+            case .workspaceOwnerIdentityResponse(.failure):
+                state.workspaceOwnerIdentity = .unavailable
             }
         }
         .onMount { state in
@@ -1042,10 +1154,10 @@ public struct EventWorkspaceView: View {
 
     @ViewBuilder
     private var workspaceContextHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Current Changes")
+                    Text("Your changes")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(store.sourceWorkspaceSummary.totalCount, format: .number)
@@ -1057,7 +1169,7 @@ public struct EventWorkspaceView: View {
 
                 if let sourceContext = store.sourceContext {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(sourceContext.sourceKind.sourceIndicatorTitle)
+                        Text(sourceContext.sourceKind.workspaceTitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text(sourceContext.detailTitle)
@@ -1068,11 +1180,46 @@ public struct EventWorkspaceView: View {
             }
 
             if let sourceContext = store.sourceContext {
-                Text(sourceContext.sourceReference)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                WorkspaceActorIdentityView(
+                    label: "Workspace owner",
+                    identity: store.workspaceOwnerIdentity,
+                    avatarSize: 32
+                )
+
+                DisclosureGroup("Technical details") {
+                    WorkspaceTechnicalValueView(
+                        label: "Source address",
+                        value: sourceContext.sourceReference
+                    )
+                    WorkspaceTechnicalValueView(
+                        label: "Provider",
+                        value: sourceContext.sourceKind.rawValue
+                    )
+                    WorkspaceTechnicalValueView(
+                        label: "Version",
+                        value: sourceContext.sourceRefTitle
+                    )
+                    if let ownerActorReference = sourceContext.ownerActorReference {
+                        WorkspaceTechnicalValueView(
+                            label: "Owner actor ID",
+                            value: ownerActorReference
+                        )
+                    }
+                    if let technicalLocation = sourceContext.technicalLocation {
+                        WorkspaceTechnicalValueView(
+                            label: "Source path",
+                            value: technicalLocation
+                        )
+                    }
+                }
+                .font(.caption)
             }
+
+            WorkspaceActorIdentityView(
+                label: "Signed in as",
+                identity: store.signedInAccountIdentity,
+                avatarSize: 32
+            )
 
             if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
                 let count = store.sourceWorkspaceSummary.outOfTargetCount
@@ -1103,9 +1250,9 @@ public struct EventWorkspaceView: View {
     private var navigationTitle: Text {
         switch store.target {
         case .calendar:
-            Text("Team Workspace")
+            Text("Shared Workspace")
         case .event:
-            Text("Workspace")
+            Text("Shared Workspace")
         }
     }
 
@@ -1153,7 +1300,7 @@ public struct EventWorkspaceView: View {
     private var changesActionSection: some View {
         Section {
             if store.sourceWorkspaceSummary.totalCount == 0 {
-                Text("No unpublished changes")
+                Text("No changes yet")
                     .foregroundStyle(.secondary)
             } else if store.canReviewSourceProposal {
                 Button(store.sourcePatchStatus.proposeButtonTitle) {
@@ -1166,7 +1313,7 @@ public struct EventWorkspaceView: View {
                     SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
                 }
             } else {
-                Text("Team workspace required to propose changes.")
+                Text("Open a shared workspace to send changes for review.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -1197,7 +1344,7 @@ public struct EventWorkspaceView: View {
                 }
                 .disabled(store.sourceBaselineID == nil)
             } else {
-                Text("Team workspace required")
+                Text("Open a shared workspace to review changes.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -1205,13 +1352,13 @@ public struct EventWorkspaceView: View {
 
     @ViewBuilder
     private var sourceDiffSections: some View {
-        Section("Source Diff") {
+        Section("Files changed") {
             if store.canReviewSourceProposal {
                 SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
 
                 if case let .generated(patch) = store.sourcePatchStatus {
                     if patch.isEmpty {
-                        Text("No changes to propose")
+                        Text("No changes to send")
                             .foregroundStyle(.secondary)
                     }
                 } else {
@@ -1221,7 +1368,7 @@ public struct EventWorkspaceView: View {
                     .disabled(store.sourcePatchStatus.isGenerating)
                 }
             } else {
-                Text("Team workspace required")
+                Text("Open a shared workspace to check changes.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -1234,11 +1381,11 @@ public struct EventWorkspaceView: View {
     @ViewBuilder
     private var reviewSection: some View {
         if store.sourceKind == .tangled {
-            tangledPullReviewsSection(title: "Review")
+            tangledPullReviewsSection(title: "Reviews")
         } else {
             ExistingProposalsSection(
-                title: "Review",
-                emptyTitle: "No proposed changes to review",
+                title: "Reviews",
+                emptyTitle: "No changes waiting for review",
                 state: .loaded([])
             )
         }
@@ -1275,6 +1422,8 @@ public struct EventWorkspaceView: View {
                             NavigationLink {
                                 TangledPullReviewDetailView(
                                     review: review,
+                                    authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
+                                        ?? .unavailable,
                                     semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                                         ?? .notLoaded,
                                     isMerging: isMerging,
@@ -1290,6 +1439,8 @@ public struct EventWorkspaceView: View {
                             } label: {
                                 TangledPullReviewRow(
                                     review: review,
+                                    authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
+                                        ?? .unavailable,
                                     isClosing: isClosing,
                                     isDeleting: isDeleting,
                                     isMerging: isMerging,
@@ -1302,7 +1453,7 @@ public struct EventWorkspaceView: View {
                                 Button {
                                     store.send(.mergeTangledPullReviewButtonTapped(review))
                                 } label: {
-                                    Text(isMerging ? "Merging" : "Merge")
+                                    Text(isMerging ? "Applying" : "Approve")
                                 }
                                 .disabled(isBusy)
                                 .tint(.green)
@@ -1327,21 +1478,21 @@ public struct EventWorkspaceView: View {
                                 Button {
                                     store.send(.mergeTangledPullReviewButtonTapped(review))
                                 } label: {
-                                    Text("Merge PR")
+                                    Text("Approve changes")
                                 }
                                 .disabled(isBusy)
 
                                 Button(role: .destructive) {
                                     store.send(.closeTangledPullReviewButtonTapped(review))
                                 } label: {
-                                    Text("Close PR")
+                                    Text("Close review")
                                 }
                                 .disabled(isBusy)
 
                                 Button(role: .destructive) {
                                     store.send(.deleteTangledPullReviewForeverButtonTapped(review))
                                 } label: {
-                                    Text("Delete PR Forever")
+                                    Text("Delete review permanently")
                                 }
                                 .disabled(isBusy)
                             }
@@ -1426,6 +1577,8 @@ public struct EventWorkspaceView: View {
 
         return TangledPullReviewDetailView(
             review: review,
+            authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
+                ?? .unavailable,
             semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                 ?? .notLoaded,
             isMerging: isMerging,
@@ -1447,17 +1600,18 @@ struct PendingTangledPullReviewDetailView: View {
     var body: some View {
         VStack(spacing: 14) {
             ProgressView()
-            Text("Loading PR")
+            Text("Loading review")
                 .font(.headline)
-            Text(reviewID)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+            DisclosureGroup("Technical details") {
+                WorkspaceTechnicalValueView(
+                    label: "Review ID",
+                    value: reviewID
+                )
+            }
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("Pull Request")
+        .navigationTitle("Review")
     }
 }
 
@@ -1474,16 +1628,17 @@ enum EventWorkspaceTab: String, CaseIterable, Identifiable {
             case .calendar:
                 "Changes"
             case .event:
-                "Propose"
+                "Draft"
             }
         case .review:
-            "Review"
+            "Reviews"
         }
     }
 }
 
 struct TangledPullReviewRow: View {
     let review: TangledPullReview
+    let authorIdentity: WorkspaceActorIdentity
     var isClosing = false
     var isDeleting = false
     var isMerging = false
@@ -1507,6 +1662,12 @@ struct TangledPullReviewRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
+            WorkspaceActorIdentityView(
+                label: "Submitted by",
+                identity: authorIdentity,
+                avatarSize: 28
+            )
+
             HStack(spacing: 8) {
                 Text(review.patchBlobCountTitle)
                 Text(review.commentCountTitle)
@@ -1517,7 +1678,7 @@ struct TangledPullReviewRow: View {
             if isClosing {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("Closing PR")
+                    Text("Closing review")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1526,7 +1687,7 @@ struct TangledPullReviewRow: View {
             if isMerging {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("Merging PR")
+                    Text("Applying changes")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1535,7 +1696,7 @@ struct TangledPullReviewRow: View {
             if isDeleting {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("Deleting PR")
+                    Text("Deleting review")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1543,7 +1704,7 @@ struct TangledPullReviewRow: View {
 
             if let closeFailure {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("PR could not be closed")
+                    Text("Review could not be closed")
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Text(closeFailure.message)
@@ -1555,7 +1716,7 @@ struct TangledPullReviewRow: View {
 
             if let mergeFailure {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("PR could not be merged")
+                    Text("Changes could not be applied")
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Text(mergeFailure.message)
@@ -1567,7 +1728,7 @@ struct TangledPullReviewRow: View {
 
             if let deleteFailure {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("PR could not be deleted")
+                    Text("Review could not be deleted")
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Text(deleteFailure.message)
@@ -1597,15 +1758,11 @@ struct TangledPullReviewStateChip: View {
 
 private extension TangledPullReview {
     var pullRequestMetadataTitle: String {
-        "Opened \(createdAt.tangledPullReviewCreatedAtTitle) for \(organizerDestinationTitle)"
-    }
-
-    var organizerDestinationTitle: String {
-        targetBranch == "main" ? "Main organizer" : "\(targetBranch) organizer"
+        "Submitted \(createdAt.tangledPullReviewCreatedAtTitle)"
     }
 
     var patchBlobCountTitle: String {
-        patchBlobs.count == 1 ? "1 patch" : "\(patchBlobs.count) patches"
+        patchBlobs.count == 1 ? "1 change set" : "\(patchBlobs.count) change sets"
     }
 
     var commentCountTitle: String {
@@ -1635,6 +1792,7 @@ private extension Collection where Element == TangledPullReview {
 
 struct TangledPullReviewDetailView: View {
     let review: TangledPullReview
+    let authorIdentity: WorkspaceActorIdentity
     let semanticDiffStatus: EventWorkspace.TangledPullReviewSemanticDiffStatus
     var isMerging = false
     var isBusy = false
@@ -1644,18 +1802,21 @@ struct TangledPullReviewDetailView: View {
 
     var body: some View {
         List {
-            Section("Pull Request") {
+            Section("Review") {
+                WorkspaceActorIdentityView(
+                    label: "Submitted by",
+                    identity: authorIdentity,
+                    avatarSize: 36
+                )
                 LabeledContent("State", value: review.state.tangledPullReviewStateTitle)
-                LabeledContent("Author", value: review.author)
                 LabeledContent("Created", value: review.createdAt)
-                LabeledContent("Target branch", value: review.targetBranch)
             }
 
             if isMerging {
                 Section {
                     HStack(spacing: 8) {
                         ProgressView()
-                        Text("Merging PR")
+                        Text("Applying changes")
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -1664,7 +1825,7 @@ struct TangledPullReviewDetailView: View {
             if let mergeFailure {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("PR could not be merged")
+                        Text("Changes could not be applied")
                             .foregroundStyle(.orange)
                         Text(mergeFailure.message)
                             .font(.caption)
@@ -1683,20 +1844,43 @@ struct TangledPullReviewDetailView: View {
 
             reviewSemanticDiffSections
 
-            Section("Details") {
-                DisclosureGroup("Repository") {
-                    LabeledContent("Target", value: review.targetRepositoryDID)
-                    if let sourceBranch = review.sourceBranch {
-                        LabeledContent("Source branch", value: sourceBranch)
-                    }
-                    if let sourceRepositoryDID = review.sourceRepositoryDID {
-                        LabeledContent("Source", value: sourceRepositoryDID)
-                    }
+            Section("Technical details") {
+                WorkspaceTechnicalValueView(
+                    label: "Review URI",
+                    value: review.uri
+                )
+                WorkspaceTechnicalValueView(
+                    label: "Author ID",
+                    value: review.author
+                )
+                WorkspaceTechnicalValueView(
+                    label: "Created at",
+                    value: review.createdAt
+                )
+                WorkspaceTechnicalValueView(
+                    label: "Target branch",
+                    value: review.targetBranch
+                )
+                WorkspaceTechnicalValueView(
+                    label: "Target repository ID",
+                    value: review.targetRepositoryDID
+                )
+                if let sourceBranch = review.sourceBranch {
+                    WorkspaceTechnicalValueView(
+                        label: "Source branch",
+                        value: sourceBranch
+                    )
+                }
+                if let sourceRepositoryDID = review.sourceRepositoryDID {
+                    WorkspaceTechnicalValueView(
+                        label: "Source repository ID",
+                        value: sourceRepositoryDID
+                    )
                 }
 
-                DisclosureGroup("Patch blobs") {
+                DisclosureGroup("Patch metadata") {
                     if review.patchBlobs.isEmpty {
-                        Text("No patch blobs")
+                        Text("No patch metadata")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(review.patchBlobs) { patchBlob in
@@ -1704,17 +1888,19 @@ struct TangledPullReviewDetailView: View {
                                 Text("Round \(patchBlob.index)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                Text(patchBlob.cid)
-                                    .font(.caption)
-                                    .monospaced()
-                                    .textSelection(.enabled)
-                                Text(patchBlob.mimeType)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                WorkspaceTechnicalValueView(
+                                    label: "Blob ID",
+                                    value: patchBlob.cid
+                                )
+                                WorkspaceTechnicalValueView(
+                                    label: "Media type",
+                                    value: patchBlob.mimeType
+                                )
                                 if let size = patchBlob.size {
-                                    Text("\(size) bytes")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                                    WorkspaceTechnicalValueView(
+                                        label: "Size",
+                                        value: "\(size) bytes"
+                                    )
                                 }
                             }
                             .padding(.vertical, 2)
@@ -1729,6 +1915,7 @@ struct TangledPullReviewDetailView: View {
                         .textSelection(.enabled)
                 }
             }
+
         }
         .navigationTitle(review.title)
         #if !os(macOS)
@@ -1740,7 +1927,7 @@ struct TangledPullReviewDetailView: View {
                 Button {
                     onMerge()
                 } label: {
-                    Text(isMerging ? "Merging" : "Merge")
+                    Text(isMerging ? "Applying" : "Approve changes")
                 }
                 .disabled(isBusy)
             }
@@ -1754,7 +1941,7 @@ struct TangledPullReviewDetailView: View {
     private var reviewSemanticDiffSections: some View {
         switch semanticDiffStatus {
         case let .failed(failure):
-            Section("Semantic Diff") {
+            Section("What changed") {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Review changes could not be loaded")
                     Text(failure.message)
@@ -1770,7 +1957,7 @@ struct TangledPullReviewDetailView: View {
 
         case let .loaded(diff):
             if diff.totalCount == 0 {
-                Section("Semantic Diff") {
+                Section("What changed") {
                     Text("No semantic changes")
                         .foregroundStyle(.secondary)
                 }
@@ -1782,7 +1969,7 @@ struct TangledPullReviewDetailView: View {
             }
 
         case .loading:
-            Section("Semantic Diff") {
+            Section("What changed") {
                 HStack(spacing: 8) {
                     ProgressView()
                     Text("Loading review changes")
@@ -1790,7 +1977,7 @@ struct TangledPullReviewDetailView: View {
             }
 
         case .notLoaded:
-            Section("Semantic Diff") {
+            Section("What changed") {
                 Button("Load Review Changes") {
                     onLoadSemanticDiff()
                 }
@@ -1949,7 +2136,7 @@ public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: Vi
                             Button {
                                 onProposeChange()
                             } label: {
-                                Label("Propose Change", systemImage: "paperplane")
+                                Label("Send for review", systemImage: "paperplane")
                             }
                             .disabled(sourceProposalStatus.isProposing)
                         }
@@ -2003,17 +2190,45 @@ struct SourceWorkspaceSourceContext: Equatable, Sendable {
     var sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind
     var sourceReference: String
     var sourceRefTitle: String
+    var ownerActorReference: String?
+    var technicalLocation: String?
 
     init(
         detailTitle: String,
         sourceKind: OMERecord.SourceDatabaseInsertion.SourceKind,
         sourceReference: String,
-        sourceRefTitle: String
+        sourceRefTitle: String,
+        ownerActorReference: String? = nil,
+        technicalLocation: String? = nil
     ) {
         self.detailTitle = detailTitle
         self.sourceKind = sourceKind
         self.sourceReference = sourceReference
         self.sourceRefTitle = sourceRefTitle
+        self.ownerActorReference = ownerActorReference
+        self.technicalLocation = technicalLocation
+    }
+}
+
+public struct WorkspaceTechnicalValueView: View {
+    public let label: String
+    public let value: String
+
+    public init(label: String, value: String) {
+        self.label = label
+        self.value = value
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -2022,21 +2237,40 @@ struct SourceIndicatorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label(sourceContext.sourceKind.sourceIndicatorTitle, systemImage: "folder")
+            Label(sourceContext.sourceKind.workspaceTitle, systemImage: "folder")
 
-            Text(sourceContext.sourceReference)
+            Text(sourceContext.detailTitle)
                 .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .textSelection(.enabled)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(sourceContext.sourceRefTitle)
-                Text(sourceContext.detailTitle)
-            }
-            .font(.caption2)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+
+            DisclosureGroup("Technical details") {
+                WorkspaceTechnicalValueView(
+                    label: "Source address",
+                    value: sourceContext.sourceReference
+                )
+                WorkspaceTechnicalValueView(
+                    label: "Provider",
+                    value: sourceContext.sourceKind.rawValue
+                )
+                WorkspaceTechnicalValueView(
+                    label: "Version",
+                    value: sourceContext.sourceRefTitle
+                )
+                if let ownerActorReference = sourceContext.ownerActorReference {
+                    WorkspaceTechnicalValueView(
+                        label: "Owner actor ID",
+                        value: ownerActorReference
+                    )
+                }
+                if let technicalLocation = sourceContext.technicalLocation {
+                    WorkspaceTechnicalValueView(
+                        label: "Source path",
+                        value: technicalLocation
+                    )
+                }
+            }
+            .font(.caption)
         }
         .padding(.vertical, 2)
     }
@@ -2109,16 +2343,16 @@ public struct SourceProposalStatusView: View {
 
         case let .created(publication):
             VStack(alignment: .leading, spacing: 8) {
-                Label("Proposal Created", systemImage: "checkmark.circle")
+                Label("Sent for review", systemImage: "checkmark.circle")
                     .foregroundStyle(.green)
                 if let sourceChangeURL = publication.sourceChangeURL {
-                    Link("Open Proposal", destination: sourceChangeURL)
+                    Link("Open review", destination: sourceChangeURL)
                 }
             }
 
         case let .failed(failure):
             VStack(alignment: .leading, spacing: 4) {
-                Label("Proposal couldn't be created", systemImage: "exclamationmark.triangle")
+                Label("Changes couldn't be sent", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
                 DisclosureGroup("Details") {
                     Text(failure.message)
@@ -2131,7 +2365,7 @@ public struct SourceProposalStatusView: View {
         case .proposing:
             HStack(spacing: 8) {
                 ProgressView()
-                Text("Creating proposal")
+                Text("Sending for review")
             }
         }
     }
@@ -2180,7 +2414,7 @@ public struct SourceProposalComposerView: View {
                     }
                 }
             }
-            .navigationTitle("Propose Change")
+            .navigationTitle("Send changes for review")
             .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2211,7 +2445,7 @@ struct SourcePatchFileChangesSection: View {
     }
 
     var body: some View {
-        DisclosureGroup("Changed Files") {
+        DisclosureGroup("Files changed") {
             ForEach(patch.fileChanges) { change in
                 SourcePatchFileChangeRow(change: change)
             }
@@ -2311,7 +2545,7 @@ struct SourceChangeSummarySection: View {
     let groups: [SourceChangeGroup]
 
     var body: some View {
-        Section("Semantic Diff") {
+        Section("What changed") {
             ForEach(groups.filter { $0.totalCount > 0 }) { group in
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -2454,19 +2688,19 @@ private extension Array where Element == SourceChangeGroup {
 }
 
 private extension OMERecord.SourceDatabaseInsertion.SourceKind {
-    var sourceIndicatorTitle: String {
+    var workspaceTitle: String {
         switch self {
         case .local:
-            "Local Source"
+            "On this device"
         case .tangled:
-            "Tangled Source"
+            "Shared workspace"
         }
     }
 }
 
 private extension EventSourceProvenanceRecord {
     var sourceRefTitle: String {
-        ref ?? "default ref"
+        ref ?? "default version"
     }
 }
 
@@ -2514,19 +2748,26 @@ private extension EventWorkspace.State {
     var sourceContext: SourceWorkspaceSourceContext? {
         if let sourceBaseline {
             return SourceWorkspaceSourceContext(
-                detailTitle: "Organizer source",
+                detailTitle: "Shared calendar",
                 sourceKind: sourceBaseline.sourceKind,
                 sourceReference: sourceBaseline.sourceReference,
-                sourceRefTitle: sourceBaseline.ref ?? "default ref"
+                sourceRefTitle: sourceBaseline.ref ?? "default version",
+                ownerActorReference: sourceBaseline.sourceKind == .tangled
+                    ? sourceBaseline.sourceReference.workspaceOwnerActorReference
+                    : nil
             )
         }
 
         if let sourceProvenance {
             return SourceWorkspaceSourceContext(
-                detailTitle: "events/\(sourceProvenance.sourceEventDirectory)",
+                detailTitle: "Event source",
                 sourceKind: sourceProvenance.sourceKind,
                 sourceReference: sourceProvenance.sourceReference,
-                sourceRefTitle: sourceProvenance.sourceRefTitle
+                sourceRefTitle: sourceProvenance.sourceRefTitle,
+                ownerActorReference: sourceProvenance.sourceKind == .tangled
+                    ? sourceProvenance.sourceReference.workspaceOwnerActorReference
+                    : nil,
+                technicalLocation: "events/\(sourceProvenance.sourceEventDirectory)"
             )
         }
 
@@ -2623,6 +2864,23 @@ private extension EventWorkspace.State {
               !sourceProposalStatus.isProposing
         else { return false }
         return true
+    }
+}
+
+private extension String {
+    var workspaceOwnerActorReference: String? {
+        if hasPrefix("at://") {
+            return String(dropFirst(5))
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .first
+                .map(String.init)
+        }
+
+        guard let repository = try? TangledRepositoryReference(parsing: self) else {
+            return nil
+        }
+        let owner = repository.owner
+        return owner.hasPrefix("@") ? String(owner.dropFirst()) : owner
     }
 }
 
@@ -2878,13 +3136,13 @@ private extension EventWorkspace.SourcePatchStatus {
     var proposeButtonTitle: String {
         switch self {
         case .failed:
-            "Try Proposing Again"
+            "Try Sending Again"
         case .generating:
-            "Preparing Proposal"
+            "Preparing Review"
         case .generated:
-            "Propose Changes"
+            "Send for review"
         case .needsGeneration, .notGenerated:
-            "Propose Changes"
+            "Send for review"
         }
     }
 
@@ -2918,16 +3176,16 @@ private extension SourceChangesReviewMode {
     var notGeneratedTitle: String {
         switch self {
         case .proposal:
-            "Check changes before creating a proposal"
+            "Check your changes before sending them for review"
         case .workspace:
-            "Check unpublished changes"
+            "Check your changes"
         }
     }
 
     var readyTitle: String {
         switch self {
         case .proposal:
-            "Proposal can be created"
+            "Ready to send for review"
         case .workspace:
             "Changes checked"
         }
@@ -2945,9 +3203,9 @@ private extension SourceChangesReviewMode {
     var sectionTitle: String {
         switch self {
         case .proposal:
-            "Proposal"
+            "For review"
         case .workspace:
-            "Unpublished Changes"
+            "Your changes"
         }
     }
 }
@@ -3042,7 +3300,7 @@ private extension String {
         case "closed":
             "Closed"
         case "merged":
-            "Merged"
+            "Applied"
         default:
             self
         }

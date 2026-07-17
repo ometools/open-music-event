@@ -59,7 +59,7 @@ public struct TangledWorkspaceUpload {
             case .uploadButtonTapped:
                 guard !state.isUploading else { return }
                 guard state.canUpload else {
-                    state.errorMessage = "Enter a repository name, knot, and branch."
+                    state.errorMessage = "Enter a workspace name, provider, and version."
                     return
                 }
 
@@ -112,7 +112,7 @@ public struct TangledWorkspaceUploadView: View {
     public var body: some View {
         Form {
             Section {
-                TextField("Repository", text: $store.repositoryName, prompt: Text("festival-source"))
+                TextField("Workspace name", text: $store.repositoryName, prompt: Text("festival-source"))
                     .autocorrectionDisabled()
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
@@ -121,24 +121,24 @@ public struct TangledWorkspaceUploadView: View {
                 TextField("Description", text: $store.description)
                     .autocorrectionDisabled()
             } header: {
-                Text("Repository")
+                Text("Shared workspace")
             }
 
             Section {
-                TextField("Knot", text: $store.knotHost, prompt: Text("tangled.org"))
+                TextField("Provider address", text: $store.knotHost, prompt: Text("tangled.org"))
                     .autocorrectionDisabled()
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
                     .textContentType(.URL)
                     #endif
 
-                TextField("Branch", text: $store.defaultBranch, prompt: Text("main"))
+                TextField("Default version", text: $store.defaultBranch, prompt: Text("main"))
                     .autocorrectionDisabled()
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
                     #endif
             } header: {
-                Text("Remote")
+                Text("Connection details")
             }
 
             if let errorMessage = store.errorMessage {
@@ -150,7 +150,7 @@ public struct TangledWorkspaceUploadView: View {
             }
         }
         .disabled(store.isUploading)
-        .navigationTitle("Upload to Tangled")
+        .navigationTitle("Create Shared Workspace")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {

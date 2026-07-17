@@ -146,7 +146,7 @@ public struct TangledSourceDownload {
             case .importButtonTapped:
                 guard !state.isImporting else { return }
                 guard !state.trimmedRepository.isEmpty else {
-                    state.errorMessage = "Enter a source path or Tangled repository."
+                    state.errorMessage = "Enter a local folder or shared workspace address."
                     return
                 }
 
@@ -223,7 +223,7 @@ struct TangledSourceDownloadView: View {
                 }
 
                 TextField(
-                    "Repository",
+                    "Workspace address",
                     text: $store.repository,
                     prompt: Text("https://tangled.org/owner/repo")
                 )
@@ -233,13 +233,13 @@ struct TangledSourceDownloadView: View {
                 .textContentType(.URL)
                 #endif
 
-                TextField("Ref", text: $store.ref, prompt: Text("HEAD"))
+                TextField("Version", text: $store.ref, prompt: Text("main or HEAD"))
                     .autocorrectionDisabled()
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
                     #endif
             } header: {
-                Text("Source")
+                Text("Workspace")
             }
 
             if let importedSummary = store.importedSummary {
@@ -274,7 +274,7 @@ struct TangledSourceDownloadView: View {
                 store.send(.sourceFolderSelectionFailed)
             }
         }
-        .navigationTitle("Open Team Workspace")
+        .navigationTitle("Open Shared Workspace")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {

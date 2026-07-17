@@ -453,6 +453,7 @@ targets.append(contentsOf: [
             "OpenMusicEventImages",
             "OpenMusicEventLexicon",
             "OpenMusicEventAuthentication",
+            "OpenMusicEventSourceClone",
             "OpenMusicEventSourceEditing",
             "OpenMusicEventTimeZones",
             "OpenMusicEventViewers",
