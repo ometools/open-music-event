@@ -332,6 +332,7 @@ struct AccountTests {
         let row = try #require(store.accountRows.first)
         #expect(row.title == "Alice Example")
         #expect(row.subtitle == "alice.example.com")
+        #expect(row.pickerHandle == "@alice.example.com")
         #expect(row.identity?.avatar == avatarURL)
         #expect(!row.title.contains("did:"))
         #expect(!row.subtitle.contains("did:"))
@@ -363,6 +364,7 @@ struct AccountTests {
 
         #expect(row.title == "AT Protocol account")
         #expect(row.subtitle == "Hosted by fallback.pds.example")
+        #expect(row.pickerHandle == "Account unavailable")
         #expect(!row.title.contains("did:"))
         #expect(!row.subtitle.contains("did:"))
     }

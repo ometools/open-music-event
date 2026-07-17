@@ -107,6 +107,13 @@ public struct Account {
             let initials = String(words).uppercased()
             return initials.isEmpty ? "AT" : initials
         }
+
+        var pickerHandle: String {
+            guard let handle = identity?.handle?.rawValue.accountDisplayValue else {
+                return "Account unavailable"
+            }
+            return handle.hasPrefix("@") ? handle : "@\(handle)"
+        }
     }
 
     public enum Surface: Equatable, Sendable {
@@ -864,6 +871,97 @@ public struct AccountView: View {
     }
 }
 
+public struct AccountPicker: View {
+    @Bindable var store: StoreOf<Account>
+
+    public init(store: StoreOf<Account>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Menu {
+            if store.accountRows.isEmpty {
+                Button {
+                    store.send(.accountButtonTapped)
+                } label: {
+                    Label("Sign In", systemImage: "person-circle")
+                }
+            } else {
+                ForEach(store.accountRows) { row in
+                    Button {
+                        select(row)
+                    } label: {
+                        AccountPickerRow(row: row)
+                    }
+                }
+            }
+        } label: {
+            AccountPickerLabel(row: store.accountRows.first(where: \.isSelected))
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .accountAuthenticationSheet(store: store)
+        .task(id: store.accountRows.map(\.id)) {
+            await store.send(.accountRowsAppeared)?.value
+        }
+    }
+
+    private var accessibilityLabel: String {
+        if let row = store.accountRows.first(where: \.isSelected) {
+            return "Signed in as \(row.pickerHandle)"
+        }
+        return "Sign in"
+    }
+
+    private func select(_ row: Account.AccountRow) {
+        guard !row.isSelected else { return }
+        withAnimation(SwiftUI.Animation.easeInOut(duration: 0.2)) {
+            _ = store.send(.accountRowTapped(row.id))
+        }
+    }
+}
+
+struct AccountPickerLabel: View {
+    let row: Account.AccountRow?
+
+    var body: some View {
+        if let row {
+            AccountPickerRow(row: row, showsSelection: false)
+        } else {
+            Image(systemName: "person-circle")
+                .imageScale(.large)
+        }
+    }
+}
+
+struct AccountPickerRow: View {
+    let row: Account.AccountRow
+    let showsSelection: Bool
+
+    init(row: Account.AccountRow, showsSelection: Bool = true) {
+        self.row = row
+        self.showsSelection = showsSelection
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AccountAvatar(
+                identity: row.identity,
+                initials: row.avatarInitials,
+                size: 24
+            )
+
+            Text(row.pickerHandle)
+                .lineLimit(1)
+
+            if showsSelection, row.isSelected {
+                Spacer(minLength: 4)
+                Image(systemName: "checkmark")
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct AccountManagementSection: View {
     @Bindable var store: StoreOf<Account>
 
@@ -981,6 +1079,17 @@ struct AccountRowView: View {
 struct AccountAvatar: View {
     let identity: ActorIdentity?
     let initials: String
+    let size: CGFloat
+
+    init(
+        identity: ActorIdentity?,
+        initials: String,
+        size: CGFloat = 44
+    ) {
+        self.identity = identity
+        self.initials = initials
+        self.size = size
+    }
 
     var body: some View {
         AsyncImage(url: identity?.avatar) { phase in
@@ -991,13 +1100,13 @@ struct AccountAvatar: View {
                     .scaledToFill()
 
             case .empty, .failure:
-                AccountAvatarPlaceholder(initials: initials)
+                AccountAvatarPlaceholder(initials: initials, size: size)
 
             @unknown default:
-                AccountAvatarPlaceholder(initials: initials)
+                AccountAvatarPlaceholder(initials: initials, size: size)
             }
         }
-        .frame(width: 44, height: 44)
+        .frame(width: size, height: size)
         .clipShape(Circle())
         .overlay {
             Circle()
@@ -1008,11 +1117,17 @@ struct AccountAvatar: View {
 
 struct AccountAvatarPlaceholder: View {
     let initials: String
+    let size: CGFloat
+
+    init(initials: String, size: CGFloat = 44) {
+        self.initials = initials
+        self.size = size
+    }
 
     var body: some View {
         Circle()
             .fill(.secondary.opacity(0.18))
-            .frame(width: 44, height: 44)
+            .frame(width: size, height: size)
             .overlay {
                 Text(initials)
                     .font(.caption.weight(.semibold))
@@ -1022,6 +1137,14 @@ struct AccountAvatarPlaceholder: View {
 }
 
 public extension View {
+    func accountPickerToolbar(store: StoreOf<Account>) -> some View {
+        toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                AccountPicker(store: store)
+            }
+        }
+    }
+
     func accountAuthenticationSheet(store: StoreOf<Account>) -> some View {
         modifier(AccountAuthenticationSheetModifier(store: store))
     }
