@@ -132,6 +132,26 @@ public extension OME.Event {
         ].compactMap { $0 }
     }
 
+    func heroImageSources(posters: [OME.Poster]) -> [HeroImageSource] {
+        let context = LocalImageCacheContext(eventID: id)
+        var sources = [HeroImageSource]()
+        if let hero = images?.imageAsset(role: .hero) {
+            sources.append(.primaryImage(DisplayImageAsset(asset: hero, cacheContext: context)))
+        }
+        sources.append(contentsOf: posters.map { poster in
+            .primaryImage(
+                DisplayImageAsset(
+                    asset: poster.image,
+                    cacheContext: .init(posterID: poster.id)
+                )
+            )
+        })
+        if let icon = images?.imageAsset(role: .icon) {
+            sources.append(.logo(DisplayImageAsset(asset: icon, cacheContext: context)))
+        }
+        return sources
+    }
+
     var heroImageTitleSources: [HeroImageTitleSource] {
         let context = LocalImageCacheContext(eventID: id)
         return [

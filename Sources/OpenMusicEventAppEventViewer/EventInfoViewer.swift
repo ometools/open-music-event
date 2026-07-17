@@ -15,6 +15,7 @@ public struct EventInfoViewer {
         public let eventID: OMERecord.Event.ID
         @FetchOne public var event: OMERecord.Event?
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
+        @FetchAll public var posters: [OMERecord.Poster]
 
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
@@ -23,6 +24,9 @@ public struct EventInfoViewer {
             )
             _sourceProvenance = FetchOne(
                 EventSourceProvenanceRecord.where { $0.id.eq(eventID) }
+            )
+            _posters = FetchAll(
+                PostersViewer.postersQuery(eventID: eventID)
             )
         }
     }
@@ -76,7 +80,7 @@ public struct EventInfoViewerView: View {
     public var body: some View {
         Group {
             if let event = store.event {
-                let heroImageSources = event.heroImageSources
+                let heroImageSources = event.heroImageSources(posters: store.posters)
                 let heroImageTitleSources = event.heroImageTitleSources
                 HeroImageList(
                     title: Text(event.name),

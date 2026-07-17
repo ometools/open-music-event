@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Foundation
 import OpenMusicEventImages
 import OpenMusicEventLexicon
+import SQLiteData
 import SwiftUI
 
 struct MyEventsView: View {
@@ -233,6 +234,21 @@ struct TeamWorkspaceRowView: View {
 struct EventRowView: View {
     var event: OMERecord.Event
 
+    nonisolated static func imageAssets(
+        icon: OME.ImageAsset?,
+        poster: OME.ImageAsset?
+    ) -> [OME.ImageAsset] {
+        [icon, poster].compactMap { $0 }
+    }
+
+    static func posterQuery(
+        eventID: OMERecord.Event.ID
+    ) -> some SelectStatementOf<OMERecord.Poster> {
+        OMERecord.Poster
+            .where { $0.id.organizerID.eq(eventID.organizerID) }
+            .where { $0.id.eventID.eq(eventID.eventID) }
+    }
+
     var eventDateString: String? {
         event.eventDateText(dateStyle: .long)
     }
@@ -262,16 +278,20 @@ struct EventRowView: View {
 
     struct EventIconImageView: View {
         let event: OMERecord.Event
+        @FetchOne var poster: OMERecord.Poster?
+
+        init(event: OMERecord.Event) {
+            self.event = event
+            _poster = FetchOne(EventRowView.posterQuery(eventID: event.id))
+        }
 
         var body: some View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.secondary.opacity(0.12))
 
-                ImageAssetAsyncImage(
-                    asset: event.images?.imageAsset(role: .icon),
-                    cacheContext: .init(eventID: event.id),
-                    contentMode: .fit
+                EventImageSourceChain(
+                    sources: imageSources[...]
                 ) {
                     Image(systemName: "music.note")
                         .font(.system(size: 24, weight: .semibold))
@@ -280,6 +300,51 @@ struct EventRowView: View {
                 .padding(10)
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+
+        private var imageSources: [DisplayImageAsset] {
+            EventRowView.imageAssets(
+                icon: event.images?.imageAsset(role: .icon),
+                poster: poster?.image
+            ).map { asset in
+                DisplayImageAsset(
+                    asset: asset,
+                    cacheContext: asset.role == .poster
+                        ? poster.map { .init(posterID: $0.id) }
+                        : .init(eventID: event.id)
+                )
+            }
+        }
+    }
+}
+
+struct EventImageSourceChain<Placeholder: View>: View {
+    let sources: ArraySlice<DisplayImageAsset>
+    @ViewBuilder var placeholder: () -> Placeholder
+
+    @ViewBuilder
+    var body: some View {
+        if let source = sources.first {
+            ImageAssetAsyncImage(
+                image: source,
+                contentMode: .fit
+            ) { reason in
+                switch reason {
+                case .loading:
+                    Color.clear
+                case .failure, .unavailable:
+                    if sources.dropFirst().isEmpty {
+                        placeholder()
+                    } else {
+                        EventImageSourceChain(
+                            sources: sources.dropFirst(),
+                            placeholder: placeholder
+                        )
+                    }
+                }
+            }
+        } else {
+            placeholder()
         }
     }
 }
