@@ -1086,6 +1086,7 @@ public struct EditStage {
                 resetImagePickers()
             }
         }
+        var destination: Destination.State?
         var errorMessage: String?
         var form: FormFeature.State
         var hasLoadedDraft = false
@@ -1360,12 +1361,23 @@ public struct EditStage {
 
     public enum Action {
         case cancelButtonTapped
+        case destination(Destination.Action)
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case heroImagePicker(ImageAssetPicker.Action)
         case logoImagePicker(ImageAssetPicker.Action)
         case posterImagePicker(ImageAssetPicker.Action)
         case saveButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case heroImageInfo(Spawn<ImageInfo>)
+        case heroImportImages(Spawn<ImportImages>)
+        case logoImageInfo(Spawn<ImageInfo>)
+        case logoImportImages(Spawn<ImportImages>)
+        case posterImageInfo(Spawn<ImageInfo>)
+        case posterImportImages(Spawn<ImportImages>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -1392,6 +1404,9 @@ public struct EditStage {
                 store.addTask {
                     try store.dismiss()
                 }
+
+            case .destination:
+                break
 
             case .form:
                 break
@@ -1433,7 +1448,46 @@ public struct EditStage {
                     }
                 }
 
-            case .heroImagePicker, .logoImagePicker, .posterImagePicker:
+            case .heroImagePicker(.addButtonTapped):
+                state.destination = .heroImportImages(
+                    Spawn(state.heroImagePicker.importImagesState())
+                )
+
+            case let .heroImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.heroImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .heroImageInfo(Spawn(imageInfoState))
+
+            case .heroImagePicker:
+                break
+
+            case .logoImagePicker(.addButtonTapped):
+                state.destination = .logoImportImages(
+                    Spawn(state.logoImagePicker.importImagesState())
+                )
+
+            case let .logoImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.logoImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .logoImageInfo(Spawn(imageInfoState))
+
+            case .logoImagePicker:
+                break
+
+            case .posterImagePicker(.addButtonTapped):
+                state.destination = .posterImportImages(
+                    Spawn(state.posterImagePicker.importImagesState())
+                )
+
+            case let .posterImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.posterImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .posterImageInfo(Spawn(imageInfoState))
+
+            case .posterImagePicker:
                 break
 
             case .saveButtonTapped:
@@ -1446,6 +1500,60 @@ public struct EditStage {
                 store.addTask {
                     try store.send(.form(.submittedForm))
                 }
+            }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.heroImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.heroImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.heroImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+                .ifCaseLet(\.logoImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.logoImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.logoImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+                .ifCaseLet(\.posterImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.posterImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.posterImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+        }
+        .onEvent(ImportedImagesSubmitted.self) { images, state in
+            switch state.destination {
+            case .heroImportImages(_):
+                state.heroImagePicker.append(images)
+            case .logoImportImages(_):
+                state.logoImagePicker.append(images)
+            case .posterImportImages(_):
+                state.posterImagePicker.append(images)
+            case .heroImageInfo(_), .logoImageInfo(_), .posterImageInfo(_), nil:
+                break
             }
         }
         .onMount { state in
@@ -1551,6 +1659,36 @@ public struct EditStageView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
+        .sheet(item: $store.scope(\.destination, action: \.destination).logoImportImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).logoImageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).heroImportImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).heroImageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).posterImportImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).posterImageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
+            }
+        }
     }
 
     private var loadedForm: some View {

@@ -2289,12 +2289,48 @@ struct NavigationTests {
     }
 
     @Test
+    func editCalendarImagePickerImportAddsImageThroughParentDestination() async throws {
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let image = ImportImages.Configuration.calendarHero.importedImage(
+            id: UUID(uuidString: "00000000-0000-0000-0000-00000000ca01")!,
+            title: "Calendar Hero",
+            sourceName: "calendar-hero.png",
+            sourceURL: URL(fileURLWithPath: "/tmp/calendar-hero.png"),
+            mimeType: "image/png",
+            data: Data("calendar-hero".utf8)
+        )
+
+        var state = EditCalendar.State(calendarID: calendarID)
+        state.hasLoadedDraft = true
+
+        @Bindable var store = Store(initialState: state) {
+            EditCalendar()
+        }
+
+        store.send(.heroImagePicker(.addButtonTapped))
+        let importStore = try #require(
+            $store.scope(\.destination, action: \.destination).heroImportImages.wrappedValue
+        )
+        importStore.send(.imagesImported([image]))
+        await importStore.send(.saveButtonTapped)?.value
+
+        await waitUntil { store.destination == nil }
+        expectNoDifference(store.heroImagePicker.images.map(\.importedImage), [image])
+        #expect(store.logoImagePicker.images.isEmpty)
+    }
+
+    @Test
     func organizerDetailGroupsDefaultCalendarEntries() async throws {
         let database = try makePreparedDatabase()
         let calendarID = OrganizerDetail.defaultCalendarID(organizerID: testOrganizerID)
         let currentEventID = eventID("current-event")
         let previousEventID = eventID("previous-event")
+        let previousLaterEventID = eventID("previous-later-event")
         let upcomingEventID = eventID("upcoming-event")
+        let upcomingLaterEventID = eventID("upcoming-later-event")
         let legacyOnlyEventID = eventID("legacy-only-event")
         let currentEntryID = OMERecord.CalendarEntry.ID(
             calendarOwnerID: testOrganizerID,
@@ -2306,10 +2342,20 @@ struct NavigationTests {
             calendarID: OMERecord.Calendar.defaultID,
             entryID: calendarEntryLocalID("previous-event")
         )
+        let previousLaterEntryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("previous-later-event")
+        )
         let upcomingEntryID = OMERecord.CalendarEntry.ID(
             calendarOwnerID: testOrganizerID,
             calendarID: OMERecord.Calendar.defaultID,
             entryID: calendarEntryLocalID("upcoming-event")
+        )
+        let upcomingLaterEntryID = OMERecord.CalendarEntry.ID(
+            calendarOwnerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID,
+            entryID: calendarEntryLocalID("upcoming-later-event")
         )
         let timeZone = try #require(TimeZone(secondsFromGMT: 0))
         let today = try #require(LocalDate("2026-05-11"))
@@ -2317,8 +2363,12 @@ struct NavigationTests {
         let currentEndDate = try #require(LocalDate("2026-05-12"))
         let previousStartDate = try #require(LocalDate("2026-05-01"))
         let previousEndDate = try #require(LocalDate("2026-05-03"))
+        let previousLaterStartDate = try #require(LocalDate("2026-05-04"))
+        let previousLaterEndDate = try #require(LocalDate("2026-05-05"))
         let upcomingStartDate = try #require(LocalDate("2026-06-01"))
         let upcomingEndDate = try #require(LocalDate("2026-06-03"))
+        let upcomingLaterStartDate = try #require(LocalDate("2026-06-04"))
+        let upcomingLaterEndDate = try #require(LocalDate("2026-06-06"))
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
             try Self.insertEvent(
@@ -2339,10 +2389,26 @@ struct NavigationTests {
             )
             try Self.insertEvent(
                 db,
+                id: previousLaterEventID,
+                name: "Previous Later Event",
+                startDate: previousLaterStartDate,
+                endDate: previousLaterEndDate,
+                timeZone: timeZone
+            )
+            try Self.insertEvent(
+                db,
                 id: upcomingEventID,
                 name: "Upcoming Event",
                 startDate: upcomingStartDate,
                 endDate: upcomingEndDate,
+                timeZone: timeZone
+            )
+            try Self.insertEvent(
+                db,
+                id: upcomingLaterEventID,
+                name: "Upcoming Later Event",
+                startDate: upcomingLaterStartDate,
+                endDate: upcomingLaterEndDate,
                 timeZone: timeZone
             )
             try Self.insertEvent(db, id: legacyOnlyEventID, name: "Legacy Only Event")
@@ -2362,9 +2428,21 @@ struct NavigationTests {
             )
             try Self.insertCalendarEntry(
                 db,
+                id: previousLaterEntryID,
+                event: OMERecord.Event.reference(id: previousLaterEventID),
+                createdAt: Date(timeIntervalSince1970: 250)
+            )
+            try Self.insertCalendarEntry(
+                db,
                 id: upcomingEntryID,
                 event: OMERecord.Event.reference(id: upcomingEventID),
                 createdAt: Date(timeIntervalSince1970: 300)
+            )
+            try Self.insertCalendarEntry(
+                db,
+                id: upcomingLaterEntryID,
+                event: OMERecord.Event.reference(id: upcomingLaterEventID),
+                createdAt: Date(timeIntervalSince1970: 350)
             )
         }
         let entryRows = try await database.read { db in
@@ -2382,8 +2460,9 @@ struct NavigationTests {
         )
 
         #expect(sections.currentRows.map(\.event?.id) == [currentEventID])
-        #expect(sections.upcomingRows.map(\.event?.id) == [upcomingEventID])
-        #expect(sections.previousRows.map(\.event?.id) == [previousEventID])
+        #expect(sections.upcomingRows.map(\.event?.id) == [upcomingEventID, upcomingLaterEventID])
+        #expect(sections.previousRows.map(\.event?.id) == [previousEventID, previousLaterEventID])
+        #expect(sections.initialSection == .now)
     }
 
     @Test
@@ -4394,6 +4473,34 @@ struct NavigationTests {
     }
 
     @Test
+    func editContributorImagePickerImportAddsImageThroughParentDestination() async throws {
+        let eventID = eventID("event-1")
+        let image = ImportImages.Configuration.contributorPhoto.importedImage(
+            id: UUID(uuidString: "00000000-0000-0000-0000-00000000c001")!,
+            title: "Contributor Photo",
+            sourceName: "contributor-photo.png",
+            sourceURL: URL(fileURLWithPath: "/tmp/contributor-photo.png"),
+            mimeType: "image/png",
+            data: Data("contributor-photo".utf8)
+        )
+
+        @Bindable var store = Store(initialState: EditContributor.State(eventID: eventID)) {
+            EditContributor()
+        }
+
+        store.send(.photoImagePicker(.addButtonTapped))
+        let importStore = try #require(
+            $store.scope(\.destination, action: \.destination).photoImportImages.wrappedValue
+        )
+        importStore.send(.imagesImported([image]))
+        await importStore.send(.saveButtonTapped)?.value
+
+        await waitUntil { store.destination == nil }
+        expectNoDifference(store.photoImagePicker.images.map(\.importedImage), [image])
+        #expect(store.logoImagePicker.images.isEmpty)
+    }
+
+    @Test
     func editContributorSaveSurfacesUnderlyingError() async throws {
         let database = try defaultDatabase()
         let eventID = eventID("event-1")
@@ -6230,6 +6337,35 @@ struct NavigationTests {
         #expect(stage.iconImageURL?.absoluteString == "https://example.com/new-logo.png")
         #expect(stage.imageURL?.absoluteString == "https://example.com/new-hero.png")
         #expect(stage.posterImageURL == nil)
+    }
+
+    @Test
+    func editStageImagePickerImportAddsImageThroughParentDestination() async throws {
+        let eventID = eventID("event-1")
+        let image = ImportImages.Configuration.stagePoster.importedImage(
+            id: UUID(uuidString: "00000000-0000-0000-0000-0000000057a6")!,
+            title: "Stage Poster",
+            sourceName: "stage-poster.png",
+            sourceURL: URL(fileURLWithPath: "/tmp/stage-poster.png"),
+            mimeType: "image/png",
+            data: Data("stage-poster".utf8)
+        )
+
+        @Bindable var store = Store(initialState: EditStage.State(eventID: eventID)) {
+            EditStage()
+        }
+
+        store.send(.posterImagePicker(.addButtonTapped))
+        let importStore = try #require(
+            $store.scope(\.destination, action: \.destination).posterImportImages.wrappedValue
+        )
+        importStore.send(.imagesImported([image]))
+        await importStore.send(.saveButtonTapped)?.value
+
+        await waitUntil { store.destination == nil }
+        expectNoDifference(store.posterImagePicker.images.map(\.importedImage), [image])
+        #expect(store.heroImagePicker.images.isEmpty)
+        #expect(store.logoImagePicker.images.isEmpty)
     }
 
     @Test

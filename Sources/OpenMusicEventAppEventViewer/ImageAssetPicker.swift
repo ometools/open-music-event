@@ -13,15 +13,11 @@ public struct ImageAssetPicker {
         public init(
             configuration: ImportImages.Configuration,
             cacheContext: LocalImageCacheContext? = nil,
-            imageInfo: Spawn<ImageInfo>? = nil,
-            images: [ImageValue] = [],
-            importImages: Spawn<ImportImages>? = nil
+            images: [ImageValue] = []
         ) {
             self.cacheContext = cacheContext
             self.configuration = configuration
-            self.imageInfo = imageInfo
             self.images = images
-            self.importImages = importImages
         }
 
         public init(
@@ -42,9 +38,7 @@ public struct ImageAssetPicker {
 
         public var cacheContext: LocalImageCacheContext?
         public var configuration: ImportImages.Configuration
-        public var imageInfo: Spawn<ImageInfo>?
         public var images: [ImageValue]
-        public var importImages: Spawn<ImportImages>?
 
         var addButtonTitle: String {
             switch configuration.cardinality {
@@ -82,6 +76,36 @@ public struct ImageAssetPicker {
             case .multiple:
                 images.append(contentsOf: imageValues)
             }
+        }
+
+        func importImagesState() -> ImportImages.State {
+            ImportImages.State(configuration: configuration)
+        }
+
+        func imageInfoState(for id: ImageValue.ID) -> ImageInfo.State? {
+            guard let image = images.first(where: { $0.id == id }) else {
+                return nil
+            }
+
+            return ImageInfo.State(
+                id: image.id,
+                asset: image.asset,
+                configuration: configuration.imageInfoConfiguration,
+                sourceLabel: image.displaySource,
+                cacheContext: cacheContext,
+                previewData: image.importedImage?.data
+            )
+        }
+
+        mutating func updateImageInfo(
+            imageID: ImageValue.ID,
+            asset: OMERecord.ImageAsset
+        ) {
+            guard let index = images.firstIndex(where: { $0.id == imageID }) else {
+                return
+            }
+            images[index].asset = asset
+            images[index].importedImage?.asset = asset
         }
 
         public func materializedImages(
@@ -225,43 +249,13 @@ public struct ImageAssetPicker {
         Update { state, action in
             switch action {
             case .addButtonTapped:
-                state.importImages = Spawn(
-                    ImportImages.State(configuration: state.configuration)
-                )
+                break
 
-            case let .imageInfoButtonTapped(id):
-                guard let image = state.images.first(where: { $0.id == id }) else {
-                    return
-                }
-                state.imageInfo = Spawn(
-                    ImageInfo.State(
-                        id: image.id,
-                        asset: image.asset,
-                        configuration: state.configuration.imageInfoConfiguration,
-                        sourceLabel: image.displaySource
-                    )
-                )
+            case .imageInfoButtonTapped:
+                break
 
             case let .removeButtonTapped(id):
                 state.images.removeAll { $0.id == id }
-            }
-        }
-        .ifLet(\.imageInfo) {
-            ImageInfo { imageID, asset in
-                try store.modify {
-                    guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
-                        return
-                    }
-                    $0.images[index].asset = asset
-                    $0.images[index].importedImage?.asset = asset
-                }
-            }
-        }
-        .ifLet(\.importImages) {
-            ImportImages { images in
-                try store.modify {
-                    $0.append(images)
-                }
             }
         }
     }
@@ -304,20 +298,6 @@ public struct ImageAssetPickerSection: View {
                     store.send(.addButtonTapped)
                 } label: {
                     Label(store.addButtonTitle, systemImage: "photo.badge.plus")
-                }
-            }
-        }
-        .sheet(isPresented: $store.importImages.isPresented) {
-            if let importStore = store.spawn(\.importImages) {
-                NavigationStack {
-                    ImportImagesView(store: importStore)
-                }
-            }
-        }
-        .sheet(isPresented: $store.imageInfo.isPresented) {
-            if let imageInfoStore = store.spawn(\.imageInfo) {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
                 }
             }
         }

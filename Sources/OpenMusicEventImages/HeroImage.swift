@@ -144,6 +144,7 @@ public struct HeroImageBackground<Placeholder: View>: View {
 public struct HeroImageList<HeroContent: View, ListContent: View>: View {
     let title: Text
     let showsNavigationTitleBeforeScroll: Bool
+    let initialScrollID: AnyHashable?
     let heroContent: HeroContent
     let listContent: ListContent
 
@@ -153,26 +154,40 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
     public init(
         title: Text,
         showsNavigationTitleBeforeScroll: Bool = false,
+        initialScrollID: AnyHashable? = nil,
         @ViewBuilder hero: () -> HeroContent,
         @ViewBuilder content: () -> ListContent
     ) {
         self.title = title
         self.showsNavigationTitleBeforeScroll = showsNavigationTitleBeforeScroll
+        self.initialScrollID = initialScrollID
         self.heroContent = hero()
         self.listContent = content()
     }
 
     public var body: some View {
         #if os(Android)
-        List {
-            heroContent
-                .frame(maxWidth: .infinity)
-                .frame(height: 320)
-                .listRowInsets(EdgeInsets())
+        ScrollViewReader { proxy in
+            List {
+                heroContent
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 320)
+                    .listRowInsets(EdgeInsets())
 
-            listContent
+                listContent
+            }
+            .navigationTitle(title)
+            .onAppear {
+                if let initialScrollID {
+                    proxy.scrollTo(initialScrollID, anchor: .top)
+                }
+            }
+            .onChange(of: initialScrollID) { _, newValue in
+                if let newValue {
+                    proxy.scrollTo(newValue, anchor: .top)
+                }
+            }
         }
-        .navigationTitle(title)
         #else
         GeometryReader { geometry in
             scrollTrackedList(height: heroHeight(for: geometry.size.width))
@@ -199,29 +214,41 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
     }
 
     private func list(height: CGFloat) -> some View {
-        List {
-            heroRow(height: height)
+        ScrollViewReader { proxy in
+            List {
+                heroRow(height: height)
 
-            listContent
-        }
-        .listStyle(.plain)
-        .coordinateSpace(name: coordinateSpaceName)
-        .onPreferenceChange(HeroImageOffsetPreferenceKey.self) { minY in
-            geometryOffsetChanged(minY)
-        }
-        .ignoresSafeArea(.all, edges: .top)
-        .navigationTitle(title)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                inlineNavigationTitle
+                listContent
+            }
+            .listStyle(.plain)
+            .coordinateSpace(name: coordinateSpaceName)
+            .onPreferenceChange(HeroImageOffsetPreferenceKey.self) { minY in
+                geometryOffsetChanged(minY)
+            }
+            .ignoresSafeArea(.all, edges: .top)
+            .navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    inlineNavigationTitle
+                }
+            }
+            .toolbarBackground(showNavigationChrome ? .visible : .hidden)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .animation(.default, value: showNavigationChrome)
+            .animation(.default, value: shouldShowNavigationTitle)
+            .onAppear {
+                if let initialScrollID {
+                    proxy.scrollTo(initialScrollID, anchor: .top)
+                }
+            }
+            .onChange(of: initialScrollID) { _, newValue in
+                if let newValue {
+                    proxy.scrollTo(newValue, anchor: .top)
+                }
             }
         }
-        .toolbarBackground(showNavigationChrome ? .visible : .hidden)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .animation(.default, value: showNavigationChrome)
-        .animation(.default, value: shouldShowNavigationTitle)
     }
 
     private func heroRow(height: CGFloat) -> some View {

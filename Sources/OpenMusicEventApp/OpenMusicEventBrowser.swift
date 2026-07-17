@@ -541,6 +541,13 @@ public struct OrganizerDetail {
     }
 
     public struct CalendarEntrySections: Equatable, Sendable {
+        public enum ScheduleSection: Hashable, Sendable {
+            case past
+            case now
+            case upcoming
+            case unavailable
+        }
+
         public var currentRows: [CalendarDetail.EntryRow]
         public var previousRows: [CalendarDetail.EntryRow]
         public var unavailableRows: [CalendarDetail.EntryRow]
@@ -548,10 +555,16 @@ public struct OrganizerDetail {
 
         public init(entryRows: CalendarDetail.EntryRows, now: Date) {
             let rows = entryRows.rows
-            self.currentRows = rows.filter { Self.timing(for: $0, now: now) == .current }
-            self.previousRows = rows.filter { Self.timing(for: $0, now: now) == .previous }
+            self.currentRows = Self.sortChronologically(
+                rows.filter { Self.timing(for: $0, now: now) == .current }
+            )
+            self.previousRows = Self.sortChronologically(
+                rows.filter { Self.timing(for: $0, now: now) == .previous }
+            )
             self.unavailableRows = rows.filter { Self.timing(for: $0, now: now) == .unavailable }
-            self.upcomingRows = rows.filter { Self.timing(for: $0, now: now) == .upcoming }
+            self.upcomingRows = Self.sortChronologically(
+                rows.filter { Self.timing(for: $0, now: now) == .upcoming }
+            )
         }
 
         public var isEmpty: Bool {
@@ -559,6 +572,14 @@ public struct OrganizerDetail {
             && previousRows.isEmpty
             && unavailableRows.isEmpty
             && upcomingRows.isEmpty
+        }
+
+        public var initialSection: ScheduleSection? {
+            if !currentRows.isEmpty { return .now }
+            if !upcomingRows.isEmpty { return .upcoming }
+            if !previousRows.isEmpty { return .past }
+            if !unavailableRows.isEmpty { return .unavailable }
+            return nil
         }
 
         private enum Timing {
@@ -589,6 +610,52 @@ public struct OrganizerDetail {
             case (.none, .none):
                 return .previous
             }
+        }
+
+        private static func sortChronologically(
+            _ rows: [CalendarDetail.EntryRow]
+        ) -> [CalendarDetail.EntryRow] {
+            rows.sorted(by: Self.comesBefore)
+        }
+
+        private static func comesBefore(
+            lhs: CalendarDetail.EntryRow,
+            rhs: CalendarDetail.EntryRow
+        ) -> Bool {
+            switch (
+                lhs.event.flatMap { $0.startDate ?? $0.endDate },
+                rhs.event.flatMap { $0.startDate ?? $0.endDate }
+            ) {
+            case let (.some(lhsDate), .some(rhsDate)):
+                let dateComparison = lhsDate.description.localizedStandardCompare(rhsDate.description)
+                if dateComparison != .orderedSame {
+                    return dateComparison == .orderedAscending
+                }
+
+            case (.some, .none):
+                return true
+
+            case (.none, .some):
+                return false
+
+            case (.none, .none):
+                break
+            }
+
+            let lhsName = lhs.event?.name ?? ""
+            let rhsName = rhs.event?.name ?? ""
+            let nameComparison = lhsName.localizedStandardCompare(rhsName)
+            if nameComparison != .orderedSame {
+                return nameComparison == .orderedAscending
+            }
+
+            if lhs.entry.createdAt != rhs.entry.createdAt {
+                return lhs.entry.createdAt < rhs.entry.createdAt
+            }
+
+            return lhs.entry.id.entryID.rawValue.rawValue.localizedStandardCompare(
+                rhs.entry.id.entryID.rawValue.rawValue
+            ) == .orderedAscending
         }
     }
 
@@ -681,8 +748,16 @@ public struct OrganizerDetailView: View {
         self.whiteLabelRootStore = whiteLabelRootStore
     }
 
+    var initialScrollID: AnyHashable? {
+        guard let initialSection = sections.initialSection else { return nil }
+        return AnyHashable(initialSection)
+    }
+
     public var body: some View {
-        HeroImageList(title: Text(organizerTitle)) {
+        HeroImageList(
+            title: Text(organizerTitle),
+            initialScrollID: initialScrollID
+        ) {
             HeroImage(
                 title: Text(organizerTitle),
                 sources: [],
@@ -706,28 +781,32 @@ public struct OrganizerDetailView: View {
                 }
             }
 
+            if !sections.previousRows.isEmpty {
+                Section("Past") {
+                    calendarEntryRows(sections.previousRows)
+                }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.past)
+            }
+
             if !sections.currentRows.isEmpty {
-                Section("Happening Now") {
+                Section("Now") {
                     calendarEntryRows(sections.currentRows)
                 }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.now)
             }
 
             if !sections.upcomingRows.isEmpty {
-                Section("Upcoming Events") {
+                Section("Upcoming") {
                     calendarEntryRows(sections.upcomingRows)
                 }
-            }
-
-            if !sections.previousRows.isEmpty {
-                Section("Previous Events") {
-                    calendarEntryRows(sections.previousRows)
-                }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.upcoming)
             }
 
             if !sections.unavailableRows.isEmpty {
                 Section("Unavailable Events") {
                     calendarEntryRows(sections.unavailableRows)
                 }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.unavailable)
             }
 
             if sections.isEmpty {
@@ -1270,12 +1349,19 @@ public struct TeamWorkspaceDetailView: View {
 
     @State var sourceSectionExpanded = false
 
+    var initialScrollID: AnyHashable? {
+        guard let initialSection = sections.initialSection else { return nil }
+        return AnyHashable(initialSection)
+    }
 
-        public var body: some View {
-            HeroImageList(title: Text(calendarTitle)) {
-                HeroImage(
-                    title: Text(calendarTitle),
-                    sources: store.calendar?.heroImageSources ?? [],
+    public var body: some View {
+        HeroImageList(
+            title: Text(calendarTitle),
+            initialScrollID: initialScrollID
+        ) {
+            HeroImage(
+                title: Text(calendarTitle),
+                sources: store.calendar?.heroImageSources ?? [],
                 titleSources: store.calendar?.heroImageTitleSources ?? [.title]
             ) {
                 Image(systemName: "calendar")
@@ -1324,28 +1410,32 @@ public struct TeamWorkspaceDetailView: View {
                 }
             }
 
+            if !sections.previousRows.isEmpty {
+                Section("Past") {
+                    calendarEntryRows(sections.previousRows)
+                }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.past)
+            }
+
             if !sections.currentRows.isEmpty {
-                Section("Happening Now") {
+                Section("Now") {
                     calendarEntryRows(sections.currentRows)
                 }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.now)
             }
 
             if !sections.upcomingRows.isEmpty {
-                Section("Upcoming Events") {
+                Section("Upcoming") {
                     calendarEntryRows(sections.upcomingRows)
                 }
-            }
-
-            if !sections.previousRows.isEmpty {
-                Section("Previous Events") {
-                    calendarEntryRows(sections.previousRows)
-                }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.upcoming)
             }
 
             if !sections.unavailableRows.isEmpty {
                 Section("Unavailable Events") {
                     calendarEntryRows(sections.unavailableRows)
                 }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.unavailable)
             }
 
             if sections.isEmpty {

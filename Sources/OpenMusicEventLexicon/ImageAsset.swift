@@ -13,6 +13,7 @@ extension OpenMusicEvent {
             appearance: Appearance? = nil,
             materializationPolicy: MaterializationPolicy,
             thumbhash: String? = nil,
+            dimensions: Dimensions? = nil,
             focalPoint: FocalPoint? = nil
         ) {
             self.assetKey = assetKey
@@ -22,6 +23,7 @@ extension OpenMusicEvent {
             self.appearance = appearance
             self.materializationPolicy = materializationPolicy
             self.thumbhash = thumbhash
+            self.dimensions = dimensions
             self.focalPoint = focalPoint
         }
 
@@ -32,6 +34,7 @@ extension OpenMusicEvent {
         public var appearance: Appearance?
         public var materializationPolicy: MaterializationPolicy
         public var thumbhash: String?
+        public var dimensions: Dimensions?
         public var focalPoint: FocalPoint?
     }
 }
@@ -98,6 +101,21 @@ extension OpenMusicEvent.ImageAsset {
 
         public var x: Double
         public var y: Double
+    }
+
+    public struct Dimensions: Codable, Equatable, Sendable {
+        public init(width: Double, height: Double) {
+            self.width = width
+            self.height = height
+        }
+
+        public var width: Double
+        public var height: Double
+
+        public var aspectRatio: Double? {
+            guard width > 0, height > 0 else { return nil }
+            return width / height
+        }
     }
 }
 

@@ -440,6 +440,7 @@ public struct EditContributor {
         public var actorSearchQuery = ""
         public var actorSearchSections: [PredictiveSearchSection<ActorIdentity>] = []
         public var contributorDID: DID?
+        var destination: Destination.State?
         @DebugSnapshotTracked var errorMessage: String?
         var form: FormFeature.State
         @DebugSnapshotTracked var hasLoadedDraft: Bool = false
@@ -717,6 +718,7 @@ public struct EditContributor {
         case actorSearchResponse(PredictiveSearchResponse<ActorIdentity>)
         case actorProfileResponse(BlueskyActorProfile?)
         case cancelButtonTapped
+        case destination(Destination.Action)
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case logoImagePicker(ImageAssetPicker.Action)
@@ -725,6 +727,14 @@ public struct EditContributor {
         case saveButtonTapped
         case saveFailed(String)
         case saveSucceeded
+    }
+
+    @Feature
+    public enum Destination {
+        case logoImageInfo(Spawn<ImageInfo>)
+        case logoImportImages(Spawn<ImportImages>)
+        case photoImageInfo(Spawn<ImageInfo>)
+        case photoImportImages(Spawn<ImportImages>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -811,6 +821,9 @@ public struct EditContributor {
                     try store.dismiss()
                 }
 
+            case .destination:
+                break
+
             case .form:
                 break
 
@@ -857,7 +870,32 @@ public struct EditContributor {
                     }
                 }
 
-            case .logoImagePicker, .photoImagePicker:
+            case .logoImagePicker(.addButtonTapped):
+                state.destination = .logoImportImages(
+                    Spawn(state.logoImagePicker.importImagesState())
+                )
+
+            case let .logoImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.logoImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .logoImageInfo(Spawn(imageInfoState))
+
+            case .logoImagePicker:
+                break
+
+            case .photoImagePicker(.addButtonTapped):
+                state.destination = .photoImportImages(
+                    Spawn(state.photoImagePicker.importImagesState())
+                )
+
+            case let .photoImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.photoImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .photoImageInfo(Spawn(imageInfoState))
+
+            case .photoImagePicker:
                 break
 
             case let .removeLinkButtonTapped(id):
@@ -908,6 +946,45 @@ public struct EditContributor {
                 } catch {
                     state.errorMessage = "This contributor could not be loaded."
                 }
+            }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.logoImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.logoImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.logoImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+                .ifCaseLet(\.photoImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.photoImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.photoImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+        }
+        .onEvent(ImportedImagesSubmitted.self) { images, state in
+            switch state.destination {
+            case .logoImportImages(_):
+                state.logoImagePicker.append(images)
+            case .photoImportImages(_):
+                state.photoImagePicker.append(images)
+            case .logoImageInfo(_), .photoImageInfo(_), nil:
+                break
             }
         }
         .onMount { state in
@@ -1123,6 +1200,26 @@ public struct EditContributorView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
+        .sheet(item: $store.scope(\.destination, action: \.destination).photoImportImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).photoImageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).logoImportImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).logoImageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
+            }
+        }
     }
 
     private var nameField: some View {

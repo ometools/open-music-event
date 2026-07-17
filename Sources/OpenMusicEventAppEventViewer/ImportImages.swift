@@ -23,7 +23,7 @@ import UniformTypeIdentifiers
 @Feature
 public struct ImportImages {
     public init(
-        onSave: @escaping ([ImportedImage]) async throws -> Void
+        onSave: (([ImportedImage]) async throws -> Void)? = nil
     ) {
         self.onSave = onSave
     }
@@ -31,11 +31,12 @@ public struct ImportImages {
     public struct State {
         public init(
             configuration: Configuration,
+            destination: Destination.State? = nil,
             imageInfo: Spawn<ImageInfo>? = nil,
             images: [ImportedImage] = []
         ) {
             self.configuration = configuration
-            self.imageInfo = imageInfo
+            self.destination = destination ?? imageInfo.map(Destination.State.imageInfo)
             self.images = images
         }
 
@@ -51,14 +52,24 @@ public struct ImportImages {
         }
 
         public var configuration: Configuration
+        public var destination: Destination.State?
         public var errorMessage: String?
-        public var imageInfo: Spawn<ImageInfo>?
         public var images: [ImportedImage]
         public var isImporting = false
         public var isSaving = false
 
         public var canSave: Bool {
             !images.isEmpty && !isImporting && !isSaving
+        }
+
+        public var imageInfo: Spawn<ImageInfo>? {
+            get {
+                guard case let .imageInfo(imageInfo) = destination else { return nil }
+                return imageInfo
+            }
+            set {
+                destination = newValue.map(Destination.State.imageInfo)
+            }
         }
 
         mutating func append(_ importedImages: [ImportedImage]) {
@@ -73,6 +84,7 @@ public struct ImportImages {
 
     public enum Action {
         case cancelButtonTapped
+        case destination(Destination.Action)
         case imageInfoButtonTapped(ImportedImage.ID)
         case imageImportFailed(String)
         case imageImportStarted
@@ -81,7 +93,12 @@ public struct ImportImages {
         case saveButtonTapped
     }
 
-    let onSave: ([ImportedImage]) async throws -> Void
+    @Feature
+    public enum Destination {
+        case imageInfo(Spawn<ImageInfo>)
+    }
+
+    let onSave: (([ImportedImage]) async throws -> Void)?
 
     public var body: some Feature {
         Update { state, action in
@@ -91,18 +108,22 @@ public struct ImportImages {
                     try store.dismiss()
                 }
 
+            case .destination:
+                break
+
             case let .imageInfoButtonTapped(id):
                 guard let image = state.images.first(where: { $0.id == id }) else {
                     return
                 }
-                state.imageInfo = Spawn(
+                state.destination = .imageInfo(Spawn(
                     ImageInfo.State(
                         id: image.id,
                         asset: image.asset,
                         configuration: state.configuration.imageInfoConfiguration,
-                        sourceLabel: image.sourceLabel
+                        sourceLabel: image.sourceLabel,
+                        previewData: image.data
                     )
-                )
+                ))
 
             case let .imageImportFailed(message):
                 state.errorMessage = message
@@ -129,7 +150,14 @@ public struct ImportImages {
 
                 store.addTask {
                     do {
-                        try await onSave(images)
+                        if let onSave {
+                            try await onSave(images)
+                        } else if let task = try store.post(
+                            key: ImportedImagesSubmitted.self,
+                            value: images
+                        ) {
+                            await task.value
+                        }
                         try store.dismiss()
                     } catch {
                         try store.modify {
@@ -140,17 +168,24 @@ public struct ImportImages {
                 }
             }
         }
-        .ifLet(\.imageInfo) {
-            ImageInfo { imageID, asset in
-                try store.modify {
-                    guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
-                        return
+        .ifLet(\.destination, action: \.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.imageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
+                                return
+                            }
+                            $0.images[index].asset = asset
+                        }
                     }
-                    $0.images[index].asset = asset
                 }
-            }
         }
     }
+}
+
+public enum ImportedImagesSubmitted: FeatureEventKey {
+    public typealias Value = [ImportImages.ImportedImage]
 }
 
 public extension ImportImages {
@@ -454,11 +489,9 @@ public struct ImportImagesView: View {
             allowsMultipleSelection: store.configuration.allowsMultipleSelection,
             onCompletion: fileImportCompleted
         )
-        .sheet(isPresented: $store.imageInfo.isPresented) {
-            if let imageInfoStore = store.spawn(\.imageInfo) {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
-                }
+        .sheet(item: $store.scope(\.destination, action: \.destination).imageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
             }
         }
         #if !SKIP && canImport(PhotosUI)

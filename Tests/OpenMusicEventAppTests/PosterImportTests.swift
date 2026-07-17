@@ -308,10 +308,14 @@ struct PosterImportTests {
             materializationPolicy: .lazy
         )
 
-        let preparedImages = try ImageAssetPicker.State.materializedImages(
-            [ImageAssetPicker.ImageValue(asset: asset)],
-            context: .init(posterID: posterID)
-        )
+        let preparedImages = try withDependencies {
+            $0.uuid = .constant(UUID(uuidString: "00000000-0000-0000-0000-000000000317")!)
+        } operation: {
+            try ImageAssetPicker.State.materializedImages(
+                [ImageAssetPicker.ImageValue(asset: asset)],
+                context: .init(posterID: posterID)
+            )
+        }
 
         expectNoDifference(preparedImages.images.map(\.appearance), [nil])
     }
