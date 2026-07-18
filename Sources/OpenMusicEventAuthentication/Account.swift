@@ -9,6 +9,7 @@ import Sharing
 import SwiftUI
 import Tagged
 import TCATProtoAuthentication
+import XRPCClient
 
 @Feature
 public struct Account {
@@ -206,6 +207,9 @@ public struct Account {
         public var selectedMode: Mode
         public var selectedSignUpServerOptionID: OAuthSignUpServerOption.ID?
         public var signUpServerConfiguration: OAuthSignUpServerConfiguration
+        public var signInActorSearchFailures: [PredictiveSearchFailure] = []
+        public var signInActorSearchIsLoading = false
+        public var signInActorSearchResults: [ActorIdentity] = []
         public var signInForm: SignInFormFeature.State
         public var signUpForm: SignUpFormFeature.State
         public var usesCustomSignUpServerHost: Bool
@@ -322,6 +326,12 @@ public struct Account {
             set { signInForm.value.handle = newValue }
         }
 
+        mutating func resetSignInActorSearch() {
+            signInActorSearchFailures = []
+            signInActorSearchIsLoading = false
+            signInActorSearchResults = []
+        }
+
         public var surface: Surface {
             accountRows.isEmpty ? .authentication : .accountManagement
         }
@@ -343,6 +353,10 @@ public struct Account {
         case loginResponse(Result<OAuth.Session, OAuthAccount.LoginFailure>)
         case selectedModeChanged(Mode)
         case signOutAllButtonTapped
+        case signInActorIdentityTapped(ActorIdentity)
+        case signInActorSearchQueryChanged(String)
+        case signInActorSearchResponse(PredictiveSearchResponse<ActorIdentity>)
+        case signInActorSearchSubmitted
         case signInForm(SignInFormFeature.Action)
         case signInFormSubmitted(SignInFormValue)
         case signUpForm(SignUpFormFeature.Action)
@@ -356,6 +370,7 @@ public struct Account {
     @Dependency(\.openMusicEventAccountAuthorizationClient) var accountAuthorizationClient
     @Dependency(\.openMusicEventAuthorizationRequests) var authorizationRequests
     @Dependency(\.openMusicEventSignUpServerConfiguration) var signUpServerConfiguration
+    @StoreTaskID var signInActorSearchTask
 
     public var body: some Feature {
         Features {
@@ -376,6 +391,7 @@ public struct Account {
                 case .accountButtonTapped:
                     state.selectedMode = .signIn
                     state.signInForm = SignInFormFeature.State(value: SignInFormValue())
+                    state.resetSignInActorSearch()
                     state.isAuthenticationSheetPresented = true
 
                 case .accountIdentityResponse(let accountID, let identity):
@@ -467,6 +483,7 @@ public struct Account {
 
                 case .authenticationSheetDismissed:
                     state.isAuthenticationSheetPresented = false
+                    state.resetSignInActorSearch()
 
                 case .customSignUpServerOptionTapped:
                     guard state.signUpServerConfiguration.allowsCustomServerHost else { return }
@@ -503,6 +520,38 @@ public struct Account {
 
                 case .selectedModeChanged(let mode):
                     state.selectedMode = mode
+
+                    if mode == .signUp {
+                        state.resetSignInActorSearch()
+                    }
+
+                case let .signInActorIdentityTapped(identity):
+                    state.signInLoginHint = identity.handle?.rawValue ?? identity.did.description
+                    state.resetSignInActorSearch()
+                    store.addTask {
+                        try store.send(.signInForm(.submittedForm))
+                    }
+
+                case let .signInActorSearchQueryChanged(query):
+                    state.signInLoginHint = query
+                    searchSignInActors(query: query, includingExactLookup: false, state: &state)
+
+                case .signInActorSearchResponse(let response):
+                    guard response.query == state.signInLoginHint.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ) else {
+                        return
+                    }
+                    state.signInActorSearchIsLoading = false
+                    state.signInActorSearchFailures = response.failures
+                    state.signInActorSearchResults = response.results
+
+                case .signInActorSearchSubmitted:
+                    searchSignInActors(
+                        query: state.signInLoginHint,
+                        includingExactLookup: true,
+                        state: &state
+                    )
 
                 case .signInForm:
                     break
@@ -634,6 +683,42 @@ public struct Account {
             )
         }
     }
+
+    private func searchSignInActors(
+        query: String,
+        includingExactLookup: Bool,
+        state: inout State
+    ) {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else {
+            state.resetSignInActorSearch()
+            return
+        }
+
+        state.signInActorSearchIsLoading = true
+        store.addTask(id: signInActorSearchTask) {
+            let response = await (
+                includingExactLookup ? Self.exactSignInActorSearch : Self.signInActorTypeaheadSearch
+            )
+            .search(query)
+            try Task.checkCancellation()
+            try store.send(.signInActorSearchResponse(response))
+        }
+    }
+
+    static let exactSignInActorSearch = PredictiveSearch(
+        actorIdentitySources: [
+            .exactActorIdentityLookup(title: "Exact match"),
+        ],
+        minimumQueryLength: 2
+    )
+
+    static let signInActorTypeaheadSearch = PredictiveSearch(
+        actorIdentitySources: [
+            .appBskyActorTypeahead(title: "Profiles", limit: 10),
+        ],
+        minimumQueryLength: 2
+    )
 }
 
 private extension Account.SignInFormFeature {
@@ -857,6 +942,10 @@ struct AccountAuthenticationSheetView: View {
             SwiftUI.Form {
                 AccountAuthenticationFormSections(store: store)
             }
+            #if os(macOS)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+            #endif
             .navigationTitle("Account")
             .safeEdgeExpansion(edge: .bottom) {
                 AccountAuthenticationSafeEdgeAction(store: store)
@@ -903,44 +992,93 @@ struct AccountAuthenticationFormSections: View {
             }
         }
 
-        Section {
-            Picker("Account action", selection: $store.selectedMode) {
+        Section("Account") {
+            Picker("Action", selection: $store.selectedMode) {
                 ForEach(Account.Mode.allCases, id: \.self) { mode in
                     Text(mode.title)
                         .tag(mode)
                 }
             }
             .pickerStyle(.segmented)
+        }
 
-            switch store.selectedMode {
-            case .signIn:
+        switch store.selectedMode {
+        case .signIn:
+            Section {
                 Text(store.selectedMode.helperText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                TextField("name.atmo.social", text: $store.signInForm.value.handle)
-                    #if !os(macOS)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
+                TextField(
+                    "Search profiles",
+                    text: $store.signInForm.value.handle,
+                    prompt: Text("name.atmo.social")
+                )
+                #if os(iOS) || os(macOS)
+                .textContentType(.username)
+                #endif
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+                .autocorrectionDisabled()
+                .onSubmit {
+                    store.send(.signInActorSearchSubmitted)
+                }
+                .onChange(of: store.signInLoginHint) { _, query in
+                    store.send(.signInActorSearchQueryChanged(query))
+                }
+
+                if store.signInActorSearchIsLoading {
+                    ProgressView()
+                }
+
+                ForEach(store.signInActorSearchResults) { identity in
+                    Button {
+                        store.send(.signInActorIdentityTapped(identity))
+                    } label: {
+                        AccountActorIdentityRow(identity: identity)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(store.isWorking)
+                }
+
+                if store.signInLoginHint.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
+                    Button("Look up exact handle or DID") {
+                        store.send(.signInActorSearchSubmitted)
+                    }
+                    .disabled(store.signInActorSearchIsLoading || store.isWorking)
+                }
+
+                ForEach(store.signInActorSearchFailures, id: \.sourceID) { failure in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(failure.title)
+                        Text(failure.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
                 FormFieldValidationStatus(
                     validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
                 )
-
-            case .signUp:
-                Text(store.selectedMode.helperText)
+            } header: {
+                Text("ATProto Identity")
+            } footer: {
+                Text("Already use Bluesky? Your Bluesky handle works too.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
-            if store.selectedMode == .signUp {
-                AccountSignUpServerFormView(store: store)
+        case .signUp:
+            Section {
+                Text(store.selectedMode.helperText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Account provider")
             }
-        } footer: {
-            Text("Already use Bluesky? Your Bluesky handle works too.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+
+            AccountSignUpServerFormView(store: store)
         }
 
         if let errorMessage = store.errorMessage {
@@ -949,6 +1087,92 @@ struct AccountAuthenticationFormSections: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+struct AccountActorIdentityRow: View {
+    let identity: ActorIdentity
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AccountActorAvatar(identity: identity)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(identity.authenticationDisplayTitle)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(identity.authenticationDisplaySubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct AccountActorAvatar: View {
+    let identity: ActorIdentity
+
+    var body: some View {
+        AsyncImage(url: identity.avatar) { phase in
+            switch phase {
+            case let .success(image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+
+            case .empty, .failure:
+                AccountActorAvatarPlaceholder(identity: identity)
+
+            @unknown default:
+                AccountActorAvatarPlaceholder(identity: identity)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .clipShape(Circle())
+    }
+}
+
+struct AccountActorAvatarPlaceholder: View {
+    let identity: ActorIdentity
+
+    var body: some View {
+        Circle()
+            .fill(.secondary.opacity(0.18))
+            .overlay {
+                Text(identity.authenticationAvatarInitials)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+    }
+}
+
+private extension ActorIdentity {
+    var authenticationDisplayTitle: String {
+        displayName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmptyForAuthentication
+            ?? handle?.rawValue
+            ?? did.description
+    }
+
+    var authenticationDisplaySubtitle: String {
+        if let handle {
+            return "@\(handle.rawValue) - \(did.description)"
+        }
+        return did.description
+    }
+
+    var authenticationAvatarInitials: String {
+        String(authenticationDisplayTitle.prefix(2)).uppercased()
+    }
+}
+
+private extension String {
+    var nilIfEmptyForAuthentication: String? {
+        isEmpty ? nil : self
     }
 }
 

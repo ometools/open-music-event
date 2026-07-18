@@ -50,15 +50,15 @@ products.append(contentsOf: [
 var dependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-file-tree", branch: "main"),
-    .package(url: "https://source.woody.fm/swift-dependencies-http-client", branch: "main"),
+    .package(name: "swift-file-tree", path: "../../swift-packages/swift-file-tree"),
+    .package(path: "../../swift-packages/swift-dependencies-http-client"),
     .package(
-        url: "https://source.woody.fm/swift-composable-atmosphere",
-        branch: "main",
+        name: "swift-composable-atmosphere",
+        path: "../../swift-packages/swift-composable-atmosphere",
         traits: ["TCA26"]
     ),
-    .package(url: "https://source.woody.fm/composable-atmosphere-constellation", branch: "main"),
-    .package(url: "https://source.woody.fm/composable-atmosphere-tangled", branch: "main"),
+    .package(path: "../composable-atmosphere-constellation"),
+    .package(path: "../composable-atmosphere-tangled"),
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),

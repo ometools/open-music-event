@@ -179,6 +179,104 @@ struct AccountTests {
     }
 
     @Test
+    func `selecting a sign-in autofill starts web authorization`() async throws {
+        let accountAuthorization = AccountDirectAuthorizationRecorder(
+            signInContinuation: .suspended
+        )
+        let typeaheadQueries = AccountObservationRecorder<String>()
+        let identity = ActorIdentity(
+            did: try #require(DID("did:plc:alice123")),
+            handle: Atmosphere.Account.Handle(rawValue: "alice.bsky.social"),
+            displayName: "Alice Example",
+            source: .typeahead
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.actorTypeaheadSearch.search = { query in
+                await typeaheadQueries.record(query.normalizedText)
+                return [identity]
+            }
+            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    isAuthenticationSheetPresented: true
+                )
+            ) { Account() }
+        }
+
+        // The user searches for their account and sees Alice's profile offered as an autofill.
+        await store.send(.signInActorSearchQueryChanged(" alice "))?.value
+
+        let typeaheadQueryValues = await typeaheadQueries.values
+        expectNoDifference(store.signInActorSearchResults, [identity])
+        expectNoDifference(typeaheadQueryValues, ["alice"])
+        #expect(store.signInActorSearchIsLoading == false)
+
+        // Tapping the autofill immediately starts the web authorization flow for that handle.
+        let selectionTask = store.send(.signInActorIdentityTapped(identity))
+        try await waitForCondition {
+            store.isLoginInProgress
+        }
+
+        #expect(store.signInLoginHint == "alice.bsky.social")
+        #expect(store.signInActorSearchResults.isEmpty)
+        let signInRequests = await accountAuthorization.signInRequests
+        expectNoDifference(
+            signInRequests,
+            [
+                AccountDirectAuthorizationRecorder.SignInRequest(
+                    requirement: OpenMusicEventOAuth.baseAuthRequirement,
+                    loginHint: "alice.bsky.social",
+                    sessionStore: OAuth.SessionStore()
+                )
+            ]
+        )
+
+        // Completing the web flow signs the user in and closes the sheet.
+        await accountAuthorization.resumeSignIn(returning: .placeholder)
+        await selectionTask?.value
+        try await waitForCondition {
+            store.session == .placeholder && !store.isAuthenticationSheetPresented
+        }
+
+        #expect(store.session == .placeholder)
+        #expect(store.isAuthenticationSheetPresented == false)
+    }
+
+    @Test
+    func signInActorSearchLooksUpExactHandleOrDIDOnSubmit() async throws {
+        let exactLookupInputs = AccountObservationRecorder<String>()
+        let identity = ActorIdentity(
+            did: try #require(DID("did:plc:exact123")),
+            handle: Atmosphere.Account.Handle(rawValue: "exact.example.com"),
+            displayName: "Exact Example",
+            source: .canonicalResolution
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.continuousClock = ImmediateClock()
+            $0.actorTypeaheadSearch.search = { _ in [] }
+            $0.actorIdentityLookup.resolve = { input in
+                await exactLookupInputs.record(input)
+                return identity
+            }
+        } operation: {
+            Store(initialState: Account.State.localTestState()) {
+                Account()
+            }
+        }
+
+        await store.send(.signInActorSearchQueryChanged("exact.example.com"))?.value
+        await store.send(.signInActorSearchSubmitted)?.value
+
+        #expect(store.signInActorSearchResults == [identity])
+        #expect(await exactLookupInputs.values == ["exact.example.com"])
+        #expect(store.signInActorSearchFailures.isEmpty)
+    }
+
+    @Test
     func accountStateUsesSignUpServerConfigurationDependency() {
         let configuration = accountTestSignUpServerConfiguration
 
@@ -767,6 +865,14 @@ struct AccountTests {
         #expect(store.surface == .authentication)
         #expect(store.isAuthenticationSheetPresented == false)
         #expect(await recorder.didCancel)
+    }
+}
+
+private actor AccountObservationRecorder<Value: Sendable> {
+    var values: [Value] = []
+
+    func record(_ value: Value) {
+        values.append(value)
     }
 }
 

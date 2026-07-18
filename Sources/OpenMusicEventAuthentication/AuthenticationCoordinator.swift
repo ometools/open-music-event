@@ -1,4 +1,5 @@
 #if canImport(SwiftUI)
+import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
@@ -57,6 +58,15 @@ public struct OpenMusicEventAuthorizationFlowSheetView: View {
 
 public struct OpenMusicEventAuthorizationFormView: View {
     @Bindable var store: StoreOf<AuthorizationFlow>
+    @State private var signInActorSearchFailures: [PredictiveSearchFailure] = []
+    @State private var signInActorSearchIsLoading = false
+    @State private var signInActorSearchRequest: SignInActorSearchRequest?
+    @State private var signInActorSearchResults: [ActorIdentity] = []
+
+    private struct SignInActorSearchRequest: Equatable {
+        let includingExactLookup: Bool
+        let query: String
+    }
 
     public init(store: StoreOf<AuthorizationFlow>) {
         self.store = store
@@ -77,40 +87,91 @@ public struct OpenMusicEventAuthorizationFormView: View {
                 .padding(.vertical, 4)
             }
 
-            Section {
-                Picker("Account action", selection: selectedAccountAction) {
+            Section("Account") {
+                Picker("Action", selection: selectedAccountAction) {
                     ForEach(AccountAction.allCases) { action in
                         Text(action.title)
                             .tag(action)
                     }
                 }
                 .pickerStyle(.segmented)
+            }
 
-                switch store.mode {
-                case .signIn:
+            switch store.mode {
+            case .signIn:
+                Section {
                     Text(AccountAction.signIn.helperText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
-                    TextField("name.atmo.social", text: $store.loginHint)
-                        #if !os(macOS)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        #endif
+                    TextField(
+                        "Search profiles",
+                        text: $store.loginHint,
+                        prompt: Text("name.atmo.social")
+                    )
+                    #if os(iOS) || os(macOS)
+                    .textContentType(.username)
+                    #endif
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .autocorrectionDisabled()
+                    .onSubmit {
+                        requestSignInActorSearch(includingExactLookup: true)
+                    }
+                    .onChange(of: store.loginHint) { _, query in
+                        requestSignInActorSearch(
+                            query: query,
+                            includingExactLookup: false
+                        )
+                    }
 
-                case .signUp:
-                    Text(AccountAction.signUp.helperText)
+                    if signInActorSearchIsLoading {
+                        ProgressView()
+                    }
+
+                    ForEach(signInActorSearchResults) { identity in
+                        Button {
+                            selectSignInActor(identity)
+                        } label: {
+                            AccountActorIdentityRow(identity: identity)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if store.loginHint.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
+                        Button("Look up exact handle or DID") {
+                            requestSignInActorSearch(includingExactLookup: true)
+                        }
+                        .disabled(signInActorSearchIsLoading)
+                    }
+
+                    ForEach(signInActorSearchFailures, id: \.sourceID) { failure in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(failure.title)
+                            Text(failure.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("ATProto Identity")
+                } footer: {
+                    Text("Already use Bluesky? Your Bluesky handle works too.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
-                if store.mode == .signUp {
-                    authorizationSignUpServerForm
+            case .signUp:
+                Section {
+                    Text(AccountAction.signUp.helperText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Account provider")
                 }
-            } footer: {
-                Text("Already use Bluesky? Your Bluesky handle works too.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+
+                authorizationSignUpServerForm
             }
 
             if let error = store.error {
@@ -127,6 +188,29 @@ public struct OpenMusicEventAuthorizationFormView: View {
                 }
             }
         }
+        .onChange(of: store.mode) { _, mode in
+            if mode == .signUp {
+                resetSignInActorSearch()
+            }
+        }
+        .task(id: signInActorSearchRequest) {
+            guard let request = signInActorSearchRequest else { return }
+            signInActorSearchIsLoading = true
+            let response = await (
+                request.includingExactLookup
+                    ? Account.exactSignInActorSearch
+                    : Account.signInActorTypeaheadSearch
+            )
+            .search(request.query)
+            guard !Task.isCancelled else { return }
+            signInActorSearchIsLoading = false
+            signInActorSearchFailures = response.failures
+            signInActorSearchResults = response.results
+        }
+        #if os(macOS)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity)
+        #endif
         .navigationTitle("Account")
         .safeEdgeExpansion(edge: .bottom) {
             authorizationSubmitButton
@@ -141,6 +225,35 @@ public struct OpenMusicEventAuthorizationFormView: View {
                 }
             }
         }
+    }
+
+    private func requestSignInActorSearch(
+        query: String? = nil,
+        includingExactLookup: Bool
+    ) {
+        let query = (query ?? store.loginHint)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else {
+            resetSignInActorSearch()
+            return
+        }
+        signInActorSearchRequest = SignInActorSearchRequest(
+            includingExactLookup: includingExactLookup,
+            query: query
+        )
+    }
+
+    private func resetSignInActorSearch() {
+        signInActorSearchFailures = []
+        signInActorSearchIsLoading = false
+        signInActorSearchRequest = nil
+        signInActorSearchResults = []
+    }
+
+    private func selectSignInActor(_ identity: ActorIdentity) {
+        store.send(.loginHintChanged(identity.handle?.rawValue ?? identity.did.description))
+        resetSignInActorSearch()
+        store.send(.submit)
     }
 
     @ViewBuilder

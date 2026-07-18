@@ -537,6 +537,10 @@ struct WhiteLabelRootAccountManagementView: View {
             Form {
                 AccountView(store: accountStore)
             }
+            #if os(macOS)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+            #endif
             .navigationTitle("Account")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

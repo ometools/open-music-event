@@ -58,6 +58,10 @@ public struct SettingsFeatureView: View {
                 }
             }
         }
+        #if os(macOS)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity)
+        #endif
         .accountAuthenticationSheet(store: accountStore)
         .navigationTitle("Settings")
     }
