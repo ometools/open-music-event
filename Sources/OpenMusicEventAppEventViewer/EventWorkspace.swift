@@ -400,8 +400,8 @@ public struct EventWorkspace {
         public var tangledPullReviewMergeFailures: [String: TangledPullReviewMergeFailure] = [:]
         public var tangledPullReviewRawDiffs: [String: TangledPullReviewRawDiffStatus] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
+        public var account = Spawn(Account.State())
         public var workspaceOwnerIdentity: WorkspaceActorIdentity = .unavailable
-        public var signedInAccountIdentity: WorkspaceActorIdentity = .signedOut
         public var tangledPullReviewAuthorIdentities: [String: WorkspaceActorIdentity] = [:]
         @FetchOne public var sourceBaseline: SourceBaselineRecord?
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
@@ -479,9 +479,6 @@ public struct EventWorkspace {
         case refreshSourceButtonTapped
         case resetEditsButtonTapped
         case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
-        case signedInAccountIdentityResponse(
-            Result<ActorIdentity, WorkspaceActorIdentityLookupFailure>
-        )
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
         case sourceProposal(SourceProposalFlow.Action)
@@ -529,45 +526,25 @@ public struct EventWorkspace {
     var calendarSourcePatchGenerator
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     @Dependency(\.actorIdentityLookup) var actorIdentityLookup
-    @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
 
-    private func loadWorkspaceIdentities(state: inout State) {
+    private func loadWorkspaceOwnerIdentity(state: inout State) {
         let ownerActorReference = state.sourceContext?.ownerActorReference
         state.workspaceOwnerIdentity = ownerActorReference == nil ? .unavailable : .loading
 
-        let selectedAccountID = getSelectedOAuthSessionID()
-        state.signedInAccountIdentity = selectedAccountID == nil ? .signedOut : .loading
-
+        guard let ownerActorReference else { return }
         let actorIdentityLookup = actorIdentityLookup
         store.addTask {
-            if let ownerActorReference {
-                do {
-                    let identity = try await actorIdentityLookup.resolve(ownerActorReference)
-                    try store.send(.workspaceOwnerIdentityResponse(.success(identity)))
-                } catch {
-                    try store.send(
-                        .workspaceOwnerIdentityResponse(
-                            .failure(.unavailable)
-                        )
+            do {
+                let identity = try await actorIdentityLookup.resolve(ownerActorReference)
+                try store.send(.workspaceOwnerIdentityResponse(.success(identity)))
+            } catch {
+                try store.send(
+                    .workspaceOwnerIdentityResponse(
+                        .failure(.unavailable)
                     )
-                }
-            }
-
-            if let selectedAccountID {
-                do {
-                    let identity = try await actorIdentityLookup.resolve(
-                        selectedAccountID.rawValue.description
-                    )
-                    try store.send(.signedInAccountIdentityResponse(.success(identity)))
-                } catch {
-                    try store.send(
-                        .signedInAccountIdentityResponse(
-                            .failure(.unavailable)
-                        )
-                    )
-                }
+                )
             }
         }
     }
@@ -931,7 +908,7 @@ public struct EventWorkspace {
                 mergeTangledPullReview(review, state: &state)
 
             case .onAppear:
-                loadWorkspaceIdentities(state: &state)
+                loadWorkspaceOwnerIdentity(state: &state)
                 if state.tangledPullReviewStatus == .notLoaded {
                     refreshTangledPullReviews(target: state.target, state: &state)
                 }
@@ -1003,12 +980,6 @@ public struct EventWorkspace {
             case let .resetEditsResponse(.failure(failure)):
                 state.isResettingEdits = false
                 state.resetEditsFailure = failure
-
-            case let .signedInAccountIdentityResponse(.success(identity)):
-                state.signedInAccountIdentity = .loaded(identity)
-
-            case .signedInAccountIdentityResponse(.failure):
-                state.signedInAccountIdentity = .unavailable
 
             case let .sourceProposal(.delegate(.created(publication))):
                 state.isPreparingSourceProposal = false
@@ -1157,6 +1128,9 @@ public struct EventWorkspace {
             guard let status else { return }
             state.sourceProposalStatus = status
         }
+        .spawn(\.account) {
+            Account()
+        }
     }
 }
 
@@ -1201,6 +1175,8 @@ public struct EventWorkspaceView: View {
     }
 
     public var body: some View {
+        let accountStore = store.spawn(\.account)
+
         VStack(spacing: 0) {
             workspaceTabContent
         }
@@ -1239,6 +1215,7 @@ public struct EventWorkspaceView: View {
                 }
             }
         }
+        .accountPickerToolbar(store: accountStore)
         .onAppear {
             store.send(.onAppear)
         }
@@ -1355,12 +1332,6 @@ public struct EventWorkspaceView: View {
                 .font(.caption)
             }
 
-            WorkspaceActorIdentityView(
-                label: "Signed in as",
-                identity: store.signedInAccountIdentity,
-                avatarSize: 32
-            )
-
             if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
                 let count = store.sourceWorkspaceSummary.outOfTargetCount
                 Text(
@@ -1453,8 +1424,8 @@ public struct EventWorkspaceView: View {
     @ViewBuilder
     private var proposeList: some View {
         List {
-            changesActionSection
             semanticDiffSections
+            changesActionSection
             sourceDiffSections
             resetEditsSection
         }
@@ -1744,7 +1715,7 @@ public struct EventWorkspaceView: View {
                     Button(role: .destructive) {
                         isResetConfirmationPresented = true
                     } label: {
-                        Label("Reset Edits", systemImage: "arrow.counterclockwise")
+                        Label("Reset changes", systemImage: "arrow.counterclockwise")
                     }
                     .disabled(!store.canResetEdits)
                 }
@@ -2897,32 +2868,37 @@ struct SourceChangeCountBadges: View {
     let group: SourceChangeGroup
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             if group.added > 0 {
-                SourceChangeCountBadge(title: "A", count: group.added)
+                SourceChangeCountBadge(kind: .added, count: group.added)
             }
             if group.modified > 0 {
-                SourceChangeCountBadge(title: "M", count: group.modified)
+                SourceChangeCountBadge(kind: .modified, count: group.modified)
             }
             if group.deleted > 0 {
-                SourceChangeCountBadge(title: "D", count: group.deleted)
+                SourceChangeCountBadge(kind: .deleted, count: group.deleted)
             }
         }
-        .font(.caption)
-        .monospacedDigit()
-        .foregroundStyle(.secondary)
     }
 }
 
 struct SourceChangeCountBadge: View {
-    let title: String
+    let kind: SourceRecordChangeKind
     let count: Int
 
     var body: some View {
         HStack(spacing: 3) {
-            Text(title)
+            Text(kind.shortTitle)
             Text(count, format: .number)
         }
+        .font(.caption2.weight(.semibold))
+        .monospacedDigit()
+        .foregroundStyle(kind.badgeForegroundStyle)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(kind.badgeBackgroundStyle, in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(count) \(kind.title)")
     }
 }
 
@@ -5016,6 +4992,17 @@ struct SourceFieldChangeRow: View {
 }
 
 private extension SourceRecordChangeKind {
+    var shortTitle: String {
+        switch self {
+        case .added:
+            "A"
+        case .modified:
+            "M"
+        case .deleted:
+            "D"
+        }
+    }
+
     var title: String {
         switch self {
         case .added:

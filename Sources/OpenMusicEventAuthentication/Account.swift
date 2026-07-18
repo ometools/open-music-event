@@ -909,6 +909,7 @@ public struct AccountPicker: View {
                 .environment(\.accountPickerHandleVisibility, .hidden)
         }
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("Selects the account used for workspace changes and approvals.")
         .accountAuthenticationSheet(store: store)
         .task(id: store.accountRows.map(\.id)) {
             await store.send(.accountRowsAppeared)?.value
