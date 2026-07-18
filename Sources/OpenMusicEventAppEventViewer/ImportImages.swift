@@ -587,8 +587,8 @@ struct ImportImageRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ImportedImageThumbnail(data: image.data)
-                .frame(width: 64, height: 64)
+            ImportedImageThumbnail(data: image.data, contentMode: .fit)
+                .frame(height: 64)
 
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Title", text: $image.title)
@@ -623,6 +623,12 @@ struct ImportImageRowView: View {
 
 struct ImportedImageThumbnail: View {
     let data: Data
+    let contentMode: ContentMode
+
+    init(data: Data, contentMode: ContentMode = .fill) {
+        self.data = data
+        self.contentMode = contentMode
+    }
 
     var body: some View {
         Group {
@@ -630,7 +636,7 @@ struct ImportedImageThumbnail: View {
             if let image = UIImage(data: data) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 placeholder
             }
@@ -638,7 +644,7 @@ struct ImportedImageThumbnail: View {
             if let image = NSImage(data: data) {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 placeholder
             }
