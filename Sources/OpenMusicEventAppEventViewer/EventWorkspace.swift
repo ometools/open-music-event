@@ -919,11 +919,15 @@ public struct EventWorkspaceView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            workspaceContextHeader
-            workspaceTabPicker
             workspaceTabContent
         }
         .navigationTitle(navigationTitle)
+        #if !os(macOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .safeAreaInset(edge: .top, spacing: 0) {
+            workspaceTopBarExtension
+        }
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
         .sheet(item: $store.scope(\.sourceProposal, action: \.sourceProposal)) { proposalStore in
             SourceProposalComposerView(store: proposalStore)
@@ -949,6 +953,43 @@ public struct EventWorkspaceView: View {
         }
         .onAppear {
             store.send(.onAppear)
+        }
+    }
+
+    @ViewBuilder
+    var workspaceTopBarExtension: some View {
+        VStack(spacing: 0) {
+            workspaceContextHeader
+            workspaceTabPicker
+
+            if selectedTab == .propose,
+               store.sourceWorkspaceSummary.totalCount > 0,
+               store.canReviewSourceProposal
+            {
+                HStack(spacing: 12) {
+                    Label(
+                        "Updates ready to propose",
+                        systemImage: "square.and.pencil"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                    Spacer(minLength: 8)
+
+                    Button(store.sourcePatchStatus.proposeButtonTitle, systemImage: "paperplane") {
+                        store.send(.proposeChangeButtonTapped)
+                    }
+                    .disabled(!store.canProposeLocalChanges)
+                    .buttonStyle(.bordered)
+                    .tint(.blue)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+        }
+        .background(.background)
+        .overlay(alignment: .bottom) {
+            Divider()
         }
     }
 
@@ -990,8 +1031,8 @@ public struct EventWorkspaceView: View {
                 let count = store.sourceWorkspaceSummary.outOfTargetCount
                 Text(
                     count == 1
-                    ? "1 change is outside this event."
-                    : "\(count) changes are outside this event."
+                        ? "1 change is outside this event."
+                        : "\(count) changes are outside this event."
                 )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -1029,7 +1070,8 @@ public struct EventWorkspaceView: View {
             }
         }
         .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
     }
 
     private var workspaceTabPicker: some View {
@@ -1040,7 +1082,7 @@ public struct EventWorkspaceView: View {
         }
         .pickerStyle(.segmented)
         .padding(.horizontal)
-        .padding(.bottom, 8)
+        .padding(.bottom, 6)
     }
 
     private var navigationTitle: Text {
@@ -1094,23 +1136,51 @@ public struct EventWorkspaceView: View {
 
     @ViewBuilder
     private var changesActionSection: some View {
-        Section {
+        Section("Your changes") {
+            HStack(alignment: .firstTextBaseline) {
+                Label(
+                    store.sourceWorkspaceSummary.totalCount == 0
+                        ? "No updates to propose"
+                        : "\(store.sourceWorkspaceSummary.totalCount) updates to propose",
+                    systemImage: store.sourceWorkspaceSummary.totalCount == 0
+                        ? "checkmark.circle"
+                        : "square.and.pencil"
+                )
+                .font(.headline)
+
+                Spacer(minLength: 12)
+            }
+
             if store.sourceWorkspaceSummary.totalCount == 0 {
-                Text("No unpublished changes")
+                Text("There are no updates to propose yet.")
                     .foregroundStyle(.secondary)
             } else if store.canReviewSourceProposal {
-                Button(store.sourcePatchStatus.proposeButtonTitle) {
-                    store.send(.proposeChangeButtonTapped)
+                if store.isPreparingSourceProposal {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Preparing proposal")
+                    }
+                    .foregroundStyle(.secondary)
                 }
-                .disabled(!store.canProposeLocalChanges)
 
                 SourceProposalStatusView(status: store.sourceProposalStatus)
                 if store.sourcePatchStatus.requiresAttentionInChanges {
                     SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
                 }
             } else {
-                Text("Team workspace required to propose changes.")
+                Text("This workspace isn't ready to propose updates.")
                     .foregroundStyle(.secondary)
+            }
+
+            if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
+                let count = store.sourceWorkspaceSummary.outOfTargetCount
+                Text(
+                    count == 1
+                        ? "1 change is for another event and won’t be included."
+                        : "\(count) changes are for another event and won’t be included."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
     }
@@ -1119,12 +1189,6 @@ public struct EventWorkspaceView: View {
     private var semanticDiffSections: some View {
 
         SourceChangeSummarySection(groups: store.sourceWorkspaceSummary.groups)
-        ForEach(store.sourceWorkspaceSummary.groups.filter { !$0.records.isEmpty }) { group in
-            SourceChangeGroupSections(
-                group: group,
-                recordComparisons: store.sourceWorkspaceSummary.recordComparisons
-            )
-        }
     }
 
     @ViewBuilder
@@ -2243,11 +2307,13 @@ public struct SourceProposalSummarySections: View {
 
     public var body: some View {
         if groups.contains(where: { !$0.records.isEmpty }) {
-            ForEach(groups.filter { !$0.records.isEmpty }) { group in
-                SourceChangeGroupSections(
-                    group: group,
-                    recordComparisons: recordComparisons
-                )
+            Section("What will change") {
+                ForEach(groups.filter { !$0.records.isEmpty }) { group in
+                    SourceChangeGroupDisclosure(
+                        group: group,
+                        recordComparisons: recordComparisons
+                    )
+                }
             }
         } else {
             Section {
@@ -2264,20 +2330,68 @@ struct SourceChangeSummarySection: View {
     var body: some View {
         Section("Semantic Diff") {
             ForEach(groups.filter { $0.totalCount > 0 }) { group in
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(group.displayName)
-                        Text(group.totalCount, format: .number)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    SourceChangeCountBadges(group: group)
-                }
+                SourceChangeGroupDisclosure(group: group)
             }
         }
+    }
+}
+
+struct SourceChangeGroupDisclosure: View {
+    let group: SourceChangeGroup
+    let recordComparisons: SourceRecordComparisons
+
+    init(
+        group: SourceChangeGroup,
+        recordComparisons: SourceRecordComparisons = .empty
+    ) {
+        self.group = group
+        self.recordComparisons = recordComparisons
+    }
+
+    var body: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(kinds, id: \.self) { kind in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(kind.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(records(for: kind)) { record in
+                            SourceRecordChangeRow(
+                                group: group,
+                                record: record,
+                                comparison: recordComparisons[record]
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.displayName)
+                    Text(group.totalCount, format: .number)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                SourceChangeCountBadges(group: group)
+            }
+        }
+    }
+
+    private var kinds: [SourceRecordChangeKind] {
+        SourceRecordChangeKind.allCases.filter { kind in
+            group.records.contains { $0.kind == kind }
+        }
+    }
+
+    private func records(for kind: SourceRecordChangeKind) -> [SourceRecordChange] {
+        group.records.filter { $0.kind == kind }
     }
 }
 

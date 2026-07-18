@@ -906,6 +906,7 @@ public struct AccountPicker: View {
             }
         } label: {
             AccountPickerLabel(row: store.accountRows.first(where: \.isSelected))
+                .environment(\.accountPickerHandleVisibility, .hidden)
         }
         .accessibilityLabel(accessibilityLabel)
         .accountAuthenticationSheet(store: store)
@@ -942,6 +943,17 @@ struct AccountPickerLabel: View {
     }
 }
 
+enum AccountPickerHandleVisibilityKey: EnvironmentKey {
+    static let defaultValue: Visibility = .automatic
+}
+
+extension EnvironmentValues {
+    var accountPickerHandleVisibility: Visibility {
+        get { self[AccountPickerHandleVisibilityKey.self] }
+        set { self[AccountPickerHandleVisibilityKey.self] = newValue }
+    }
+}
+
 struct AccountPickerRow: View {
     let row: Account.AccountRow
     let showsSelection: Bool
@@ -951,6 +963,8 @@ struct AccountPickerRow: View {
         self.showsSelection = showsSelection
     }
 
+    @Environment(\.accountPickerHandleVisibility) var handleVisibility
+
     var body: some View {
         HStack(spacing: 8) {
             AccountAvatar(
@@ -958,11 +972,17 @@ struct AccountPickerRow: View {
                 initials: row.avatarInitials,
                 size: 24
             )
+            .mask(Circle())
             .clipShape(Circle())
-            .compositingGroup()
+            .geometryGroup()
 
-            Text(row.pickerHandle)
-                .lineLimit(1)
+            switch handleVisibility {
+            case .visible, .automatic:
+                Text(row.pickerHandle)
+                    .lineLimit(1)
+            case .hidden:
+                EmptyView()
+            }
 
             if showsSelection, row.isSelected {
                 Spacer(minLength: 4)

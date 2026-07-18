@@ -1060,7 +1060,7 @@ public struct EditContributorView: View {
                             Picker("Platform", selection: $link.platformRawValue) {
                                 Text("Auto").tag("")
                                 ForEach(ExternalPlatform.allCases, id: \.rawValue) { platform in
-                                    Text(platform.name).tag(platform.rawValue)
+//                                    Text(platform.name).tag(platform.rawValue)
                                 }
                             }
 
@@ -1126,6 +1126,7 @@ public struct EditContributorView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
+        .modifier(EditContributorImagePickerSheets(store: store))
     }
 
     private var nameField: some View {
@@ -1137,6 +1138,19 @@ public struct EditContributorView: View {
                 }
             FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.name])
         }
+    }
+}
+
+struct EditContributorImagePickerSheets: ViewModifier {
+    @Bindable var store: StoreOf<EditContributor>
+
+    func body(content: Content) -> some View {
+        @Bindable var photoImagePicker = store.scope(\.photoImagePicker, action: \.photoImagePicker)
+        @Bindable var logoImagePicker = store.scope(\.logoImagePicker, action: \.logoImagePicker)
+
+        content
+            .modifier(ImageAssetPickerPresentationSheets(store: photoImagePicker))
+            .modifier(ImageAssetPickerPresentationSheets(store: logoImagePicker))
     }
 }
 

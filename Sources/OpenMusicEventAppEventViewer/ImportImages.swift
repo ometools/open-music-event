@@ -31,11 +31,12 @@ public struct ImportImages {
     public struct State {
         public init(
             configuration: Configuration,
+            destination: Destination.State? = nil,
             imageInfo: Spawn<ImageInfo>? = nil,
             images: [ImportedImage] = []
         ) {
             self.configuration = configuration
-            self.imageInfo = imageInfo
+            self.destination = destination ?? imageInfo.map(Destination.State.imageInfo)
             self.images = images
         }
 
@@ -51,14 +52,24 @@ public struct ImportImages {
         }
 
         public var configuration: Configuration
+        public var destination: Destination.State?
         public var errorMessage: String?
-        public var imageInfo: Spawn<ImageInfo>?
         public var images: [ImportedImage]
         public var isImporting = false
         public var isSaving = false
 
         public var canSave: Bool {
             !images.isEmpty && !isImporting && !isSaving
+        }
+
+        public var imageInfo: Spawn<ImageInfo>? {
+            get {
+                guard case let .imageInfo(imageInfo) = destination else { return nil }
+                return imageInfo
+            }
+            set {
+                destination = newValue.map(Destination.State.imageInfo)
+            }
         }
 
         mutating func append(_ importedImages: [ImportedImage]) {
@@ -73,12 +84,18 @@ public struct ImportImages {
 
     public enum Action {
         case cancelButtonTapped
+        case destination(Destination.Action)
         case imageInfoButtonTapped(ImportedImage.ID)
         case imageImportFailed(String)
         case imageImportStarted
         case imagesImported([ImportedImage])
         case removeImageButtonTapped(ImportedImage.ID)
         case saveButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case imageInfo(Spawn<ImageInfo>)
     }
 
     let onSave: ([ImportedImage]) async throws -> Void
@@ -91,11 +108,14 @@ public struct ImportImages {
                     try store.dismiss()
                 }
 
+            case .destination:
+                break
+
             case let .imageInfoButtonTapped(id):
                 guard let image = state.images.first(where: { $0.id == id }) else {
                     return
                 }
-                state.imageInfo = Spawn(
+                state.destination = .imageInfo(Spawn(
                     ImageInfo.State(
                         id: image.id,
                         asset: image.asset,
@@ -103,7 +123,7 @@ public struct ImportImages {
                         sourceLabel: image.sourceLabel,
                         previewData: image.data
                     )
-                )
+                ))
 
             case let .imageImportFailed(message):
                 state.errorMessage = message
@@ -141,15 +161,18 @@ public struct ImportImages {
                 }
             }
         }
-        .ifLet(\.imageInfo) {
-            ImageInfo { imageID, asset in
-                try store.modify {
-                    guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
-                        return
+        .ifLet(\.destination, action: \.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.imageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
+                                return
+                            }
+                            $0.images[index].asset = asset
+                        }
                     }
-                    $0.images[index].asset = asset
                 }
-            }
         }
     }
 }
@@ -460,11 +483,9 @@ public struct ImportImagesView: View {
             allowsMultipleSelection: store.configuration.allowsMultipleSelection,
             onCompletion: fileImportCompleted
         )
-        .sheet(isPresented: $store.imageInfo.isPresented) {
-            if let imageInfoStore = store.spawn(\.imageInfo) {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
-                }
+        .sheet(item: $store.scope(\.destination, action: \.destination).imageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
             }
         }
         #if !SKIP && canImport(PhotosUI)

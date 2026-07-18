@@ -13,13 +13,14 @@ public struct ImageAssetPicker {
         public init(
             configuration: ImportImages.Configuration,
             cacheContext: LocalImageCacheContext? = nil,
+            destination: Destination.State? = nil,
             imageInfo: Spawn<ImageInfo>? = nil,
             images: [ImageValue] = [],
             importImages: Spawn<ImportImages>? = nil
         ) {
             self.cacheContext = cacheContext
             self.configuration = configuration
-            self.imageInfo = imageInfo
+            self.destination = destination ?? imageInfo.map(Destination.State.imageInfo)
             self.images = images
             self.importImages = importImages
         }
@@ -42,9 +43,19 @@ public struct ImageAssetPicker {
 
         public var cacheContext: LocalImageCacheContext?
         public var configuration: ImportImages.Configuration
-        public var imageInfo: Spawn<ImageInfo>?
+        public var destination: Destination.State?
         public var images: [ImageValue]
         public var importImages: Spawn<ImportImages>?
+
+        public var imageInfo: Spawn<ImageInfo>? {
+            get {
+                guard case let .imageInfo(imageInfo) = destination else { return nil }
+                return imageInfo
+            }
+            set {
+                destination = newValue.map(Destination.State.imageInfo)
+            }
+        }
 
         var addButtonTitle: String {
             switch configuration.cardinality {
@@ -217,8 +228,15 @@ public struct ImageAssetPicker {
 
     public enum Action {
         case addButtonTapped
+        case destination(Destination.Action)
         case imageInfoButtonTapped(ImageValue.ID)
+        case importImagesPresentationDismissed
         case removeButtonTapped(ImageValue.ID)
+    }
+
+    @Feature
+    public enum Destination {
+        case imageInfo(Spawn<ImageInfo>)
     }
 
     public var body: some Feature {
@@ -229,11 +247,14 @@ public struct ImageAssetPicker {
                     ImportImages.State(configuration: state.configuration)
                 )
 
+            case .destination:
+                break
+
             case let .imageInfoButtonTapped(id):
                 guard let image = state.images.first(where: { $0.id == id }) else {
                     return
                 }
-                state.imageInfo = Spawn(
+                state.destination = .imageInfo(Spawn(
                     ImageInfo.State(
                         id: image.id,
                         asset: image.asset,
@@ -242,22 +263,28 @@ public struct ImageAssetPicker {
                         cacheContext: state.cacheContext,
                         previewData: image.importedImage?.data
                     )
-                )
+                ))
+
+            case .importImagesPresentationDismissed:
+                state.importImages = nil
 
             case let .removeButtonTapped(id):
                 state.images.removeAll { $0.id == id }
             }
         }
-        .ifLet(\.imageInfo) {
-            ImageInfo { imageID, asset in
-                try store.modify {
-                    guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
-                        return
+        .ifLet(\.destination, action: \.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.imageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
+                                return
+                            }
+                            $0.images[index].asset = asset
+                            $0.images[index].importedImage?.asset = asset
+                        }
                     }
-                    $0.images[index].asset = asset
-                    $0.images[index].importedImage?.asset = asset
                 }
-            }
         }
         .ifLet(\.importImages) {
             ImportImages { images in
@@ -266,6 +293,48 @@ public struct ImageAssetPicker {
                 }
             }
         }
+    }
+}
+
+@MainActor
+extension Store where State == ImageAssetPicker.State, Action == ImageAssetPicker.Action {
+    var importImagesPresentation: Binding<StoreOf<ImportImages>?> {
+        Binding(
+            get: {
+                self.spawn(\.importImages)
+            },
+            set: { store in
+                if store == nil {
+                    self.send(.importImagesPresentationDismissed)
+                }
+            }
+        )
+    }
+}
+
+public struct ImageAssetPickerPresentationSheets: ViewModifier {
+    @Bindable var store: StoreOf<ImageAssetPicker>
+
+    public init(store: StoreOf<ImageAssetPicker>) {
+        self.store = store
+    }
+
+    public func body(content: Content) -> some View {
+        content
+            .sheet(
+                item: store.importImagesPresentation
+            ) { importStore in
+                NavigationStack {
+                    ImportImagesView(store: importStore)
+                }
+            }
+            .sheet(
+                item: $store.scope(\.destination, action: \.destination).imageInfo
+            ) { imageInfoStore in
+                NavigationStack {
+                    ImageInfoView(store: imageInfoStore)
+                }
+            }
     }
 }
 
@@ -306,20 +375,6 @@ public struct ImageAssetPickerSection: View {
                     store.send(.addButtonTapped)
                 } label: {
                     Label(store.addButtonTitle, systemImage: "photo.badge.plus")
-                }
-            }
-        }
-        .sheet(isPresented: $store.importImages.isPresented) {
-            if let importStore = store.spawn(\.importImages) {
-                NavigationStack {
-                    ImportImagesView(store: importStore)
-                }
-            }
-        }
-        .sheet(isPresented: $store.imageInfo.isPresented) {
-            if let imageInfoStore = store.spawn(\.imageInfo) {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
                 }
             }
         }

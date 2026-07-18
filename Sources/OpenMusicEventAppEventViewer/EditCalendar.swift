@@ -306,6 +306,7 @@ public struct EditCalendarView: View {
             }
         }
         .navigationTitle(store.navigationTitle)
+        .modifier(EditCalendarImagePickerSheets(store: store))
     }
 
     private var loadedForm: some View {
@@ -341,6 +342,19 @@ public struct EditCalendarView: View {
                 }
             }
         }
+    }
+}
+
+struct EditCalendarImagePickerSheets: ViewModifier {
+    @Bindable var store: StoreOf<EditCalendar>
+
+    func body(content: Content) -> some View {
+        @Bindable var heroImagePicker = store.scope(\.heroImagePicker, action: \.heroImagePicker)
+        @Bindable var logoImagePicker = store.scope(\.logoImagePicker, action: \.logoImagePicker)
+
+        content
+            .modifier(ImageAssetPickerPresentationSheets(store: heroImagePicker))
+            .modifier(ImageAssetPickerPresentationSheets(store: logoImagePicker))
     }
 }
 
