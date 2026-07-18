@@ -35,6 +35,12 @@ public enum TabFeaturePlatform: Sendable {
     case watchOS
 }
 
+public enum TabFeaturePresentationStyle: Equatable, Sendable {
+    case automatic
+    case tabs
+    case sidebar
+}
+
 public struct TabFeatureMaxVisibleTabsContext: Sendable {
     public var platform: TabFeaturePlatform
     public var operatingSystemVersion: OperatingSystemVersion
@@ -66,6 +72,31 @@ func defaultTabFeatureMaxVisibleTabs(
         .max
     default:
         3
+    }
+}
+
+func defaultTabFeaturePresentationStyle(
+    for context: TabFeatureMaxVisibleTabsContext
+) -> TabFeaturePresentationStyle {
+    switch context.platform {
+    case .macOS:
+        .sidebar
+    case .iOS where context.horizontalSizeClass == .regular:
+        .sidebar
+    default:
+        .tabs
+    }
+}
+
+func resolvedTabFeaturePresentationStyle(
+    _ presentationStyle: TabFeaturePresentationStyle,
+    for context: TabFeatureMaxVisibleTabsContext
+) -> TabFeaturePresentationStyle {
+    switch presentationStyle {
+    case .automatic:
+        defaultTabFeaturePresentationStyle(for: context)
+    case .tabs, .sidebar:
+        presentationStyle
     }
 }
 
@@ -608,6 +639,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     @State var localOverflowSelection: Value?
     let policy: TabFeaturePolicy?
     let overflowSelection: Binding<Value?>?
+    let presentationStyle: TabFeaturePresentationStyle
     let features: TabFeatures<Value>
 
     public init(
@@ -615,12 +647,14 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         layout: Binding<TabFeatureLayout>,
         policy: TabFeaturePolicy? = nil,
         overflowSelection: Binding<Value?>? = nil,
+        presentationStyle: TabFeaturePresentationStyle = .automatic,
         @TabFeatureBuilder<Value> content: () -> TabFeatureGroup<Value>
     ) {
         self._selection = selection
         self._layout = layout
         self.policy = policy
         self.overflowSelection = overflowSelection
+        self.presentationStyle = presentationStyle
         self.features = TabFeatures(content: content)
     }
 
@@ -631,6 +665,28 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         )
         let showsMore = !moreFeatureContent.isEmpty || moreContent != nil
 
+        switch effectivePresentationStyle {
+        case .sidebar:
+            sidebarView(
+                for: resolved,
+                showsMore: showsMore,
+                moreFeatureContent: moreFeatureContent
+            )
+        case .automatic, .tabs:
+            tabView(
+                for: resolved,
+                showsMore: showsMore,
+                moreFeatureContent: moreFeatureContent
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func tabView(
+        for resolved: ResolvedDeclaredTabFeatures<Value>,
+        showsMore: Bool,
+        moreFeatureContent: [AnyTabFeatureMoreContent<Value>]
+    ) -> some View {
         TabView(
             selection: tabSelection(
                 for: resolved,
@@ -670,6 +726,80 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func sidebarView(
+        for resolved: ResolvedDeclaredTabFeatures<Value>,
+        showsMore: Bool,
+        moreFeatureContent: [AnyTabFeatureMoreContent<Value>]
+    ) -> some View {
+        #if os(watchOS)
+        tabView(
+            for: resolved,
+            showsMore: showsMore,
+            moreFeatureContent: moreFeatureContent
+        )
+        #else
+        NavigationSplitView {
+            List {
+                ForEach(sidebarFeatures(for: resolved), id: \.value) { feature in
+                    Button {
+                        sidebarFeatureButtonTapped(feature.value)
+                    } label: {
+                        TabFeatureSidebarRow(
+                            title: feature.effectiveTitle,
+                            systemImage: feature.effectiveSystemImage,
+                            badgeValue: feature.badgeValue,
+                            isSelected: selectedSidebarFeature(for: resolved)?.value == feature.value
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            #if os(iOS) || os(macOS)
+            .listStyle(.sidebar)
+            #endif
+        } detail: {
+            if let selectedFeature = selectedSidebarFeature(for: resolved) {
+                primaryFeatureDestination(for: selectedFeature)
+            } else {
+                EmptyView()
+            }
+        }
+        #endif
+    }
+
+    private func sidebarFeatures(
+        for resolved: ResolvedDeclaredTabFeatures<Value>
+    ) -> [TabFeatureMetadata<Value>] {
+        var features: [TabFeatureMetadata<Value>] = []
+        if let searchTab = resolved.searchTab {
+            features.append(searchTab)
+        }
+        features.append(contentsOf: resolved.visibleFeatures)
+        features.append(contentsOf: resolved.overflowFeatures)
+        return features
+    }
+
+    private func selectedSidebarFeature(
+        for resolved: ResolvedDeclaredTabFeatures<Value>
+    ) -> TabFeatureMetadata<Value>? {
+        let features = sidebarFeatures(for: resolved)
+        if let overflowSelection = resolvedOverflowSelection.wrappedValue,
+            let overflowFeature = features.first(where: { $0.value == overflowSelection })
+        {
+            return overflowFeature
+        }
+        return features.first { $0.value == selection }
+    }
+
+    private func sidebarFeatureButtonTapped(_ value: Value) {
+        isMoreSelected = false
+        if resolvedOverflowSelection.wrappedValue != nil {
+            resolvedOverflowSelection.wrappedValue = nil
+        }
+        selection = value
     }
 
     private func tabSelection(
@@ -735,8 +865,15 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         self.policy
             ?? self.features.defaultPolicy(
                 for: maxVisibleTabsContext,
-                maxVisibleTabsResolver: maxVisibleTabsResolver
-            )
+            maxVisibleTabsResolver: maxVisibleTabsResolver
+        )
+    }
+
+    private var effectivePresentationStyle: TabFeaturePresentationStyle {
+        resolvedTabFeaturePresentationStyle(
+            self.presentationStyle,
+            for: maxVisibleTabsContext
+        )
     }
 
     private var maxVisibleTabsContext: TabFeatureMaxVisibleTabsContext {
@@ -760,6 +897,41 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         #elseif os(watchOS)
         .watchOS
         #endif
+    }
+}
+
+struct TabFeatureSidebarRow: View {
+    let title: String
+    let systemImage: TabFeatureSymbolName
+    let badgeValue: Int?
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage.rawValue)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.tint)
+                .frame(width: 20)
+
+            Text(title)
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            if let badgeValue, badgeValue > 0 {
+                TabFeatureBadgeValueView(value: badgeValue)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.14))
+            }
+        }
     }
 }
 

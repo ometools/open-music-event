@@ -936,6 +936,10 @@ public struct EventWorkspaceView: View {
                         .labelStyle(.iconOnly)
                 }
             }
+
+            ToolbarItem(placement: .topBarLeading) {
+                AccountPicker(store: accountStore)
+            }
         }
         .onAppear {
             store.send(.onAppear)

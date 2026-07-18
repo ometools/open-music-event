@@ -927,7 +927,7 @@ struct AccountPickerLabel: View {
         if let row {
             AccountPickerRow(row: row, showsSelection: false)
         } else {
-            Image(systemName: "person-circle")
+            Image(systemName: "person.circle")
                 .imageScale(.large)
         }
     }
@@ -1139,7 +1139,7 @@ struct AccountAvatarPlaceholder: View {
 public extension View {
     func accountPickerToolbar(store: StoreOf<Account>) -> some View {
         toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .topBarLeading) {
                 AccountPicker(store: store)
             }
         }
@@ -1269,13 +1269,6 @@ struct AccountAuthenticationFormSections: View {
                     .disabled(store.isWorking)
                 }
 
-                if store.signInLoginHint.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
-                    Button("Look up exact handle or DID") {
-                        store.send(.signInActorSearchSubmitted)
-                    }
-                    .disabled(store.signInActorSearchIsLoading || store.isWorking)
-                }
-
                 ForEach(store.signInActorSearchFailures, id: \.sourceID) { failure in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(failure.title)
@@ -1288,8 +1281,6 @@ struct AccountAuthenticationFormSections: View {
                 FormFieldValidationStatus(
                     validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
                 )
-            } header: {
-                Text("ATProto Identity")
             } footer: {
                 Text("Already use Bluesky? Your Bluesky handle works too.")
                     .font(.footnote)
