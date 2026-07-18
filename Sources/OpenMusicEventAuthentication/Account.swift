@@ -884,7 +884,7 @@ public struct AccountPicker: View {
                 Button {
                     store.send(.accountButtonTapped)
                 } label: {
-                    Label("Sign In", systemImage: "person-circle")
+                    Label("Sign In", systemImage: "person")
                 }
             } else {
                 ForEach(store.accountRows) { row in
@@ -927,7 +927,7 @@ struct AccountPickerLabel: View {
         if let row {
             AccountPickerRow(row: row, showsSelection: false)
         } else {
-            Image(systemName: "person.circle")
+            Image(systemName: "person")
                 .imageScale(.large)
         }
     }
@@ -949,6 +949,8 @@ struct AccountPickerRow: View {
                 initials: row.avatarInitials,
                 size: 24
             )
+            .clipShape(Circle())
+            .compositingGroup()
 
             Text(row.pickerHandle)
                 .lineLimit(1)

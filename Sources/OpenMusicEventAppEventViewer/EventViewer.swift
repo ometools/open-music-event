@@ -297,6 +297,7 @@ public struct EventViewer {
         public var notificationsViewer: Spawn<NotificationsViewer>?
         public var eventSettings: Spawn<EventSettings>?
         public var eventWorkspace: Spawn<EventWorkspace>?
+        public var account = Spawn(Account.State())
         public var eventSearch: Spawn<EventSearch>
         public var eventInfoViewer: Spawn<EventInfoViewer>?
 
@@ -910,6 +911,9 @@ public struct EventViewer {
                     }
                 }
         }
+        .spawn(\.account) {
+            Account()
+        }
         .ifLet(\.eventInfoViewer) {
             EventInfoViewer()
         }
@@ -1026,6 +1030,8 @@ public struct EventViewerView: View {
         @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
+            let accountStore = store.spawn(\.account)
+
             TabFeaturesView(
                 selection: selectedFeature,
                 layout: $tabLayout
@@ -1095,45 +1101,47 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if let featureStore = store.spawn(\.contactInfoViewer) {
-                    TabFeature(
-                        .contactInfo,
-                        title: EventViewer.EventFeature.contactInfo.title,
-                        systemImage: EventViewer.EventFeature.contactInfo.systemImage,
-                        labelTint: EventViewer.EventFeature.contactInfo.labelTint,
-                        navigation: .stack
-                    ) {
-                        ContactInfoViewerView(
-                            store: featureStore,
-                            showsAuthoringControls: store.showsAuthoringControls
-                        )
+                Section("Event") {
+                    if let featureStore = store.spawn(\.contactInfoViewer) {
+                        TabFeature(
+                            .contactInfo,
+                            title: EventViewer.EventFeature.contactInfo.title,
+                            systemImage: EventViewer.EventFeature.contactInfo.systemImage,
+                            labelTint: EventViewer.EventFeature.contactInfo.labelTint,
+                            navigation: .stack
+                        ) {
+                            ContactInfoViewerView(
+                                store: featureStore,
+                                showsAuthoringControls: store.showsAuthoringControls
+                            )
+                        }
                     }
-                }
 
-                if let featureStore = store.spawn(\.locationViewer) {
-                    TabFeature(
-                        .location,
-                        title: EventViewer.EventFeature.location.title,
-                        systemImage: EventViewer.EventFeature.location.systemImage,
-                        labelTint: EventViewer.EventFeature.location.labelTint,
-                        navigation: .stack
-                    ) {
-                        LocationViewerView(
-                            store: featureStore,
-                            showsAuthoringControls: store.showsAuthoringControls
-                        )
+                    if let featureStore = store.spawn(\.locationViewer) {
+                        TabFeature(
+                            .location,
+                            title: EventViewer.EventFeature.location.title,
+                            systemImage: EventViewer.EventFeature.location.systemImage,
+                            labelTint: EventViewer.EventFeature.location.labelTint,
+                            navigation: .stack
+                        ) {
+                            LocationViewerView(
+                                store: featureStore,
+                                showsAuthoringControls: store.showsAuthoringControls
+                            )
+                        }
                     }
-                }
 
-                if let featureStore = store.spawn(\.siteMapViewer) {
-                    TabFeature(
-                        .siteMap,
-                        title: EventViewer.EventFeature.siteMap.title,
-                        systemImage: EventViewer.EventFeature.siteMap.systemImage,
-                        labelTint: EventViewer.EventFeature.siteMap.labelTint,
-                        navigation: .stack
-                    ) {
-                        SiteMapViewerView(store: featureStore)
+                    if let featureStore = store.spawn(\.siteMapViewer) {
+                        TabFeature(
+                            .siteMap,
+                            title: EventViewer.EventFeature.siteMap.title,
+                            systemImage: EventViewer.EventFeature.siteMap.systemImage,
+                            labelTint: EventViewer.EventFeature.siteMap.labelTint,
+                            navigation: .stack
+                        ) {
+                            SiteMapViewerView(store: featureStore)
+                        }
                     }
                 }
 
@@ -1214,6 +1222,19 @@ public struct EventViewerView: View {
                     }
                 }
 
+            }
+            .more {
+                EmptyView()
+            } toolbar: {
+                ToolbarItem(placement: .topBarLeading) {
+                    AccountPicker(store: accountStore)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Exit") {
+                        store.send(.closeButtonTapped)
+                    }
+                }
             }
         }
 

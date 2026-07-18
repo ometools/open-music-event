@@ -993,39 +993,38 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
 
     var body: some View {
         let view = AnyView(
-            NavigationStack(path: $path) {
-                List {
-                    if !featureContent.isEmpty {
-                        moreContentList(featureContent)
-                    }
-
-                    if let moreContent {
-                        moreContent.content
-                    }
-                }
-                #if os(iOS)
-                .listStyle(.insetGrouped)
-                #endif
-                .navigationTitle("More")
-                .onChange(of: path, initial: true) { _, newPath in
-                    onChangeOfPath(newPath)
-                }
-                .onChange(of: overflowSelection, initial: true) { _, newValue in
-                    onChangeOfOverflowSelection(newValue)
+            List {
+                if !featureContent.isEmpty {
+                    moreContentList(featureContent)
                 }
 
-                .navigationDestination(for: Value.self) { value in
-                    if let feature = metadata(value), let body = overflowFeatureBody(feature) {
-                        body
-                    }
+                if let moreContent {
+                    moreContent.content
+                }
+            }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #endif
+            .navigationTitle("More")
+            .onChange(of: path, initial: true) { _, newPath in
+                onChangeOfPath(newPath)
+            }
+            .onChange(of: overflowSelection, initial: true) { _, newValue in
+                onChangeOfOverflowSelection(newValue)
+            }
+            .navigationDestination(for: Value.self) { value in
+                if let feature = metadata(value), let body = overflowFeatureBody(feature) {
+                    body
                 }
             }
         )
 
-        if let moreContent {
-            moreContent.applyToolbar(view)
-        } else {
-            view
+        NavigationStack(path: $path) {
+            if let moreContent {
+                moreContent.applyToolbar(view)
+            } else {
+                view
+            }
         }
     }
 
