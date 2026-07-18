@@ -4,6 +4,7 @@ import ErrorHandling
 import Foundation
 import IssueReporting
 import OpenMusicEventAppEventViewer
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventSourceEditing
@@ -1227,6 +1228,7 @@ public struct TeamWorkspaceDetail {
 public struct TeamWorkspaceDetailView: View {
     @Bindable var store: StoreOf<TeamWorkspaceDetail>
     @Dependency(\.date.now) var now
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let isManageWorkspaceToolbarItemVisible: Bool
     let showsAuthoringControls: Bool
 
@@ -1266,12 +1268,28 @@ public struct TeamWorkspaceDetailView: View {
                 }
             }
 
-            if let sourceBaseline = store.sourceBaseline {
-                DisclosureGroup("Source", isExpanded: $sourceSectionExpanded) {
-                    LabeledContent("Reference", value: sourceBaseline.sourceReference)
-                    LabeledContent("Ref", value: sourceBaseline.ref ?? "default ref")
-                    LabeledContent(
-                        "Imported",
+            if showsTechnicalDetails, let sourceBaseline = store.sourceBaseline {
+                DisclosureGroup("Technical details", isExpanded: $sourceSectionExpanded) {
+                    WorkspaceTechnicalValueView(
+                        label: "Source address",
+                         value: sourceBaseline.sourceReference
+                     )
+                     WorkspaceTechnicalValueView(
+                         label: "Provider",
+                         value: sourceBaseline.sourceKind.rawValue
+                     )
+                     WorkspaceTechnicalValueView(
+                         label: "Version",
+                         value: sourceBaseline.ref ?? "default version"
+                     )
+                     if let organizerID = store.organizer?.id.description {
+                         WorkspaceTechnicalValueView(
+                             label: "Owner actor ID",
+                             value: organizerID
+                         )
+                    }
+                    WorkspaceTechnicalValueView(
+                        label: "Imported",
                         value: sourceBaseline.importedAt.formatted(
                             date: .abbreviated,
                             time: .shortened

@@ -5,6 +5,7 @@ import ComposableArchitecture2
 import ComposableForms
 import Dependencies
 import IssueReporting
+import OpenMusicEventComponents
 import Sharing
 import SwiftUI
 import Tagged
@@ -81,7 +82,7 @@ public struct Account {
         public var title: String {
             identity?.displayName?.accountDisplayValue
                 ?? identity?.handle?.rawValue.accountDisplayValue
-                ?? "AT Protocol account"
+                ?? "Account"
         }
 
         public var subtitle: String {
@@ -97,6 +98,14 @@ public struct Account {
 
         var requiresRelog: Bool {
             sessionValidationStatus.requiresRelog
+        }
+
+        func visibleSubtitle(showsTechnicalDetails: Bool) -> String? {
+            if identity?.displayName?.accountDisplayValue != nil,
+               let handle = identity?.handle?.rawValue.accountDisplayValue {
+                return handle.hasPrefix("@") ? handle : "@\(handle)"
+            }
+            return showsTechnicalDetails ? "Hosted by \(pdsHost)" : nil
         }
 
         var avatarInitials: String {
@@ -1042,6 +1051,7 @@ struct AccountManagementSection: View {
 
 struct AccountRowView: View {
     let row: Account.AccountRow
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1054,10 +1064,14 @@ struct AccountRowView: View {
                     .foregroundStyle(row.requiresRelog ? .secondary : .primary)
                     .lineLimit(1)
 
-                Text(row.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let subtitle = row.visibleSubtitle(
+                    showsTechnicalDetails: showsTechnicalDetails
+                ) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .opacity(row.requiresRelog ? 0.68 : 1)
 
@@ -1201,6 +1215,7 @@ struct AccountAuthenticationSheetView: View {
 
 struct AccountAuthenticationFormSections: View {
     @Bindable var store: StoreOf<Account>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let showsIntro: Bool
 
     init(
@@ -1218,7 +1233,9 @@ struct AccountAuthenticationFormSections: View {
                     Text("Your Atmosphere account")
                         .font(.headline)
                     Text(
-                        "Use one portable social account across Open Music Event and other AT Protocol apps."
+                        showsTechnicalDetails
+                            ? "Use one portable social account across Open Music Event and other AT Protocol apps."
+                            : "Use one portable social account across Open Music Event and other compatible apps."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -1267,7 +1284,11 @@ struct AccountAuthenticationFormSections: View {
                     ProgressView()
                 }
 
-                ForEach(store.signInActorSearchResults) { identity in
+                ForEach(
+                    store.signInActorSearchResults.filter {
+                        showsTechnicalDetails || $0.handle != nil
+                    }
+                ) { identity in
                     Button {
                         store.send(.signInActorIdentityTapped(identity))
                     } label: {
@@ -1289,6 +1310,8 @@ struct AccountAuthenticationFormSections: View {
                 FormFieldValidationStatus(
                     validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
                 )
+            } header: {
+                Text(showsTechnicalDetails ? "ATProto Identity" : "Account")
             } footer: {
                 Text("Already use Bluesky? Your Bluesky handle works too.")
                     .font(.footnote)
@@ -1318,20 +1341,25 @@ struct AccountAuthenticationFormSections: View {
 
 struct AccountActorIdentityRow: View {
     let identity: ActorIdentity
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         HStack(spacing: 12) {
             AccountActorAvatar(identity: identity)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(identity.authenticationDisplayTitle)
+                Text(identity.authenticationDisplayTitle(showsTechnicalDetails: showsTechnicalDetails))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(identity.authenticationDisplaySubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let subtitle = identity.authenticationDisplaySubtitle(
+                    showsTechnicalDetails: showsTechnicalDetails
+                ) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
@@ -1365,12 +1393,15 @@ struct AccountActorAvatar: View {
 
 struct AccountActorAvatarPlaceholder: View {
     let identity: ActorIdentity
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         Circle()
             .fill(.secondary.opacity(0.18))
             .overlay {
-                Text(identity.authenticationAvatarInitials)
+                Text(identity.authenticationAvatarInitials(
+                    showsTechnicalDetails: showsTechnicalDetails
+                ))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -1378,27 +1409,29 @@ struct AccountActorAvatarPlaceholder: View {
 }
 
 private extension ActorIdentity {
-    var authenticationDisplayTitle: String {
-        displayName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmptyForAuthentication
-            ?? handle?.rawValue
-            ?? did.description
+    func authenticationDisplayTitle(showsTechnicalDetails: Bool) -> String {
+        TechnicalDetails.identityTitle(
+            displayName: displayName,
+            handle: handle?.rawValue,
+            technicalID: did.description,
+            isVisible: showsTechnicalDetails
+        )
     }
 
-    var authenticationDisplaySubtitle: String {
-        if let handle {
-            return "@\(handle.rawValue) - \(did.description)"
-        }
-        return did.description
+    func authenticationDisplaySubtitle(showsTechnicalDetails: Bool) -> String? {
+        TechnicalDetails.identitySubtitle(
+            displayName: displayName,
+            handle: handle?.rawValue,
+            technicalID: did.description,
+            isVisible: showsTechnicalDetails
+        )
     }
 
-    var authenticationAvatarInitials: String {
-        String(authenticationDisplayTitle.prefix(2)).uppercased()
-    }
-}
-
-private extension String {
-    var nilIfEmptyForAuthentication: String? {
-        isEmpty ? nil : self
+    func authenticationAvatarInitials(showsTechnicalDetails: Bool) -> String {
+        String(
+            authenticationDisplayTitle(showsTechnicalDetails: showsTechnicalDetails).prefix(2)
+        )
+        .uppercased()
     }
 }
 
@@ -1695,7 +1728,7 @@ struct AccountCustomSignUpServerOptionRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Custom")
                     .font(.headline)
-                Text("Use another AT Protocol server")
+                Text("Use another account provider")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

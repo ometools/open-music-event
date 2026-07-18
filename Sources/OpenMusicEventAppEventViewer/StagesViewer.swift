@@ -928,6 +928,7 @@ public struct StageDetail {
 
 public struct StageDetailView: View {
     @Bindable var store: StoreOf<StageDetail>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let showsAuthoringControls: Bool
 
     public init(
@@ -962,7 +963,7 @@ public struct StageDetailView: View {
                                 LabeledContent("Category", value: category)
                             }
 
-                            if let sortIndex = stage.sortIndex {
+                            if showsTechnicalDetails, let sortIndex = stage.sortIndex {
                                 LabeledContent("Sort Index", value: sortIndex.formatted())
                             }
                         }
@@ -989,11 +990,17 @@ public struct StageDetailView: View {
                     }
                 }
             } else {
-                ContentUnavailableView(
-                    "Stage",
-                    systemImage: "square.grid.2x2",
-                    description: Text(verbatim: store.stageID.rawValue.rawValue)
-                )
+                Group {
+                    if showsTechnicalDetails {
+                        ContentUnavailableView(
+                            "Stage",
+                            systemImage: "square.grid.2x2",
+                            description: Text(verbatim: store.stageID.rawValue.rawValue)
+                        )
+                    } else {
+                        ContentUnavailableView("Stage unavailable", systemImage: "square.grid.2x2")
+                    }
+                }
                 .navigationTitle("Stage")
             }
         }
@@ -1515,6 +1522,7 @@ private extension EditStage.FormFeature {
 
 public struct EditStageView: View {
     @Bindable var store: StoreOf<EditStage>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @FocusState var focusedField: AnyHashable?
 
     public init(store: StoreOf<EditStage>) {
@@ -1568,7 +1576,9 @@ public struct EditStageView: View {
     private var loadedForm: some View {
         SwiftUI.Form {
             eventStageSection
-            iconSection
+            if showsTechnicalDetails {
+                iconSection
+            }
             imageSection
             errorSection
         }
@@ -1580,7 +1590,9 @@ public struct EditStageView: View {
 
             TextField("Category", text: $store.form.value.category)
 
-            sortIndexField
+            if showsTechnicalDetails {
+                sortIndexField
+            }
             colorField
         }
     }

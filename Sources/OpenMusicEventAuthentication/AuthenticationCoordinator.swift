@@ -3,6 +3,7 @@ import ATProto
 import ATProtoOAuth
 import ComposableArchitecture2
 import Dependencies
+import OpenMusicEventComponents
 import SwiftUI
 import TCATProtoAuthentication
 
@@ -58,6 +59,7 @@ public struct OpenMusicEventAuthorizationFlowSheetView: View {
 
 public struct OpenMusicEventAuthorizationFormView: View {
     @Bindable var store: StoreOf<AuthorizationFlow>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State private var signInActorSearchFailures: [PredictiveSearchFailure] = []
     @State private var signInActorSearchIsLoading = false
     @State private var signInActorSearchRequest: SignInActorSearchRequest?
@@ -79,7 +81,9 @@ public struct OpenMusicEventAuthorizationFormView: View {
                     Text("Your Atmosphere account")
                         .font(.headline)
                     Text(
-                        "Use one portable social account across Open Music Event and other AT Protocol apps."
+                        showsTechnicalDetails
+                            ? "Use one portable social account across Open Music Event and other AT Protocol apps."
+                            : "Use one portable social account across Open Music Event and other compatible apps."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -130,7 +134,11 @@ public struct OpenMusicEventAuthorizationFormView: View {
                         ProgressView()
                     }
 
-                    ForEach(signInActorSearchResults) { identity in
+                    ForEach(
+                        signInActorSearchResults.filter {
+                            showsTechnicalDetails || $0.handle != nil
+                        }
+                    ) { identity in
                         Button {
                             selectSignInActor(identity)
                         } label: {
@@ -140,7 +148,11 @@ public struct OpenMusicEventAuthorizationFormView: View {
                     }
 
                     if store.loginHint.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
-                        Button("Look up exact handle or DID") {
+                        Button(
+                            showsTechnicalDetails
+                                ? "Look up exact handle or DID"
+                                : "Look up exact account"
+                        ) {
                             requestSignInActorSearch(includingExactLookup: true)
                         }
                         .disabled(signInActorSearchIsLoading)
@@ -155,7 +167,7 @@ public struct OpenMusicEventAuthorizationFormView: View {
                         }
                     }
                 } header: {
-                    Text("ATProto Identity")
+                    Text(showsTechnicalDetails ? "ATProto Identity" : "Account")
                 } footer: {
                     Text("Already use Bluesky? Your Bluesky handle works too.")
                         .font(.footnote)
@@ -251,6 +263,7 @@ public struct OpenMusicEventAuthorizationFormView: View {
     }
 
     private func selectSignInActor(_ identity: ActorIdentity) {
+        guard showsTechnicalDetails || identity.handle != nil else { return }
         store.send(.loginHintChanged(identity.handle?.rawValue ?? identity.did.description))
         resetSignInActorSearch()
         store.send(.submit)

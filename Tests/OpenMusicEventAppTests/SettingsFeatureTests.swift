@@ -6,6 +6,7 @@ import ErrorHandling
 import Foundation
 import IssueReporting
 import Lexicon
+import OpenMusicEventComponents
 import SQLiteData
 import SwiftUI
 import Testing
@@ -13,6 +14,127 @@ import Testing
 @testable import OpenMusicEventApp
 @testable import OpenMusicEventAppEventViewer
 @testable import OpenMusicEventEditors
+
+@Suite
+struct TechnicalDetailsTests {
+    @Test
+    func `technical details are hidden by default and enabled by the setting`() {
+        // A fresh install does not surface raw implementation details.
+        expectNoDifference(
+            TechnicalDetails.isVisible(userPreference: false, environment: [:]),
+            false
+        )
+
+        // The user can explicitly opt in from Settings.
+        expectNoDifference(
+            TechnicalDetails.isVisible(userPreference: true, environment: [:]),
+            true
+        )
+    }
+
+    @Test
+    func `environment variable overrides the persisted setting`() {
+        // A development launch can force technical details on.
+        expectNoDifference(
+            TechnicalDetails.isVisible(
+                userPreference: false,
+                environment: ["OME_SHOW_TECHNICAL_DETAILS": "true"]
+            ),
+            true
+        )
+
+        // An explicit off value wins even when the user preference was previously enabled.
+        expectNoDifference(
+            TechnicalDetails.isVisible(
+                userPreference: true,
+                environment: ["OME_SHOW_TECHNICAL_DETAILS": "0"]
+            ),
+            false
+        )
+    }
+
+    @Test
+    func `account presentation does not fall back to a DID unless opted in`() {
+        let did = "did:plc:alice123"
+
+        // Without a profile or handle, the ordinary surface stays human-facing.
+        expectNoDifference(
+            TechnicalDetails.identityTitle(
+                displayName: nil,
+                handle: nil,
+                technicalID: did,
+                isVisible: false
+            ),
+            "Account"
+        )
+        expectNoDifference(
+            TechnicalDetails.identitySubtitle(
+                displayName: nil,
+                handle: nil,
+                technicalID: did,
+                isVisible: false
+            ),
+            nil
+        )
+
+        // Opting in restores the exact account identifier.
+        expectNoDifference(
+            TechnicalDetails.identityTitle(
+                displayName: nil,
+                handle: nil,
+                technicalID: did,
+                isVisible: true
+            ),
+            did
+        )
+    }
+
+    @Test
+    func `account presentation keeps friendly names and handles when details are hidden`() {
+        expectNoDifference(
+            TechnicalDetails.identityTitle(
+                displayName: "Alice",
+                handle: "alice.example",
+                technicalID: "did:plc:alice123",
+                isVisible: false
+            ),
+            "Alice"
+        )
+        expectNoDifference(
+            TechnicalDetails.identitySubtitle(
+                displayName: "Alice",
+                handle: "alice.example",
+                technicalID: "did:plc:alice123",
+                isVisible: false
+            ),
+            "@alice.example"
+        )
+    }
+
+    @Test
+    func `performance editor does not turn an account identifier into a display name`() throws {
+        let actor = try #require(
+            OMERecord.Contributor.Actor("did:plc:alice123")
+        )
+        let state = ContributorRelationshipPicker.State()
+        let selection = ContributorRelationshipPicker.Selection.identityOnly(
+            actor: actor,
+            displayTitle: nil
+        )
+
+        // The ordinary authoring surface remains human-facing.
+        expectNoDifference(
+            state.summary(for: selection, showsTechnicalDetails: false)?.title,
+            "Account"
+        )
+
+        // The raw identifier is still available after an explicit opt-in.
+        expectNoDifference(
+            state.summary(for: selection, showsTechnicalDetails: true)?.title,
+            actor.description
+        )
+    }
+}
 
 @MainActor
 @Suite(.tcaExhaustivity(.off))

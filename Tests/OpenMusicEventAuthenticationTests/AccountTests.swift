@@ -362,7 +362,7 @@ struct AccountTests {
 
         let row = try #require(state.accountRows.first)
 
-        #expect(row.title == "AT Protocol account")
+        #expect(row.title == "Account")
         #expect(row.subtitle == "Hosted by fallback.pds.example")
         #expect(row.pickerHandle == "Account unavailable")
         #expect(!row.title.contains("did:"))

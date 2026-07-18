@@ -791,6 +791,10 @@ struct OpenMusicEventSourceTests {
     @Test
     func readsBundledAppearanceSourceImageAssets() throws {
         let repositoryURL = try temporaryRepositoryURL()
+        try FileManager.default.createDirectory(
+            at: repositoryURL.appending(path: "events", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
         try """
         name: Appearance Calendar
         images:
@@ -838,6 +842,10 @@ struct OpenMusicEventSourceTests {
     @Test
     func readsLegacyFlatAppearanceImagePairsAsBundledSourceImageAssets() throws {
         let repositoryURL = try temporaryRepositoryURL()
+        try FileManager.default.createDirectory(
+            at: repositoryURL.appending(path: "events", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
         try """
         name: Legacy Appearance Calendar
         images:
@@ -861,10 +869,11 @@ struct OpenMusicEventSourceTests {
             .output
             .requiredValue
         let calendar = try #require(repository.calendar)
-        let logo = try #require(calendar.images?.first)
+        let bundledImages = try #require(calendar.images?.bundlingAppearancePairs())
+        let logo = try #require(bundledImages.first)
         let appearances = try #require(logo.appearances)
 
-        expectNoDifference(calendar.images?.count, 1)
+        expectNoDifference(bundledImages.count, 1)
         expectNoDifference(appearances.light.source, .file("images/logo-light.png"))
         expectNoDifference(appearances.dark.source, .file("images/logo-dark.png"))
     }

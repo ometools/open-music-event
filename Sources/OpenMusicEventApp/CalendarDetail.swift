@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
@@ -376,6 +377,7 @@ struct CalendarEntryButton: View {
 
 struct CalendarEntryRowView: View {
     let row: CalendarDetail.EntryRow
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -390,10 +392,12 @@ struct CalendarEntryRowView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Event unavailable")
-                        Text(row.entry.event.uri.description)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        if showsTechnicalDetails {
+                            Text(row.entry.event.uri.description)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
 
                     Spacer()

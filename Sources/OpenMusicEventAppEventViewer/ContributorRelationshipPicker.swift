@@ -1,6 +1,7 @@
 import ATProto
 import ComposableArchitecture2
 import Foundation
+import OpenMusicEventComponents
 import SwiftUI
 import XRPCClient
 
@@ -50,11 +51,11 @@ public struct ContributorRelationshipPicker {
         public var contributorName: String {
             displayName?.nilIfEmpty
                 ?? handle?.nilIfEmpty
-                ?? did.description
+                ?? "Account"
         }
 
-        public var subtitle: String {
-            handle.map { "@\($0) - \(did.description)" } ?? did.description
+        public var subtitle: String? {
+            handle.map { "@\($0)" }
         }
     }
 
@@ -109,7 +110,10 @@ public struct ContributorRelationshipPicker {
             summary(for: selection)
         }
 
-        func summary(for selection: Selection) -> (title: String, subtitle: String?)? {
+        func summary(
+            for selection: Selection,
+            showsTechnicalDetails: Bool = false
+        ) -> (title: String, subtitle: String?)? {
             switch selection {
             case .none:
                 return nil
@@ -118,10 +122,17 @@ public struct ContributorRelationshipPicker {
                 if let contributor = selectedContributorOption(id: id) {
                     return (contributor.name, contributor.subtitle)
                 }
-                return (id.rawValue.rawValue, "Contributor")
+                return (
+                    showsTechnicalDetails ? id.rawValue.rawValue : "Contributor",
+                    showsTechnicalDetails ? "Contributor ID" : nil
+                )
 
-            case let .identityOnly(_, displayTitle):
-                return (displayTitle?.nilIfEmpty ?? "ATProto identity", "Identity only")
+            case let .identityOnly(actor, displayTitle):
+                return (
+                    displayTitle?.nilIfEmpty
+                        ?? (showsTechnicalDetails ? actor.description : "Account"),
+                    "Identity only"
+                )
 
             case let .newContributor(name):
                 return (name, "New contributor")
@@ -192,7 +203,7 @@ public struct ContributorRelationshipPicker {
 
             case let .identityLinkOnlyButtonTapped(identity):
                 guard let actor = OMERecord.Contributor.Actor(identity.did.description) else {
-                    state.actorSearchErrorMessage = "The selected DID is not a valid contributor actor."
+                    state.actorSearchErrorMessage = "The selected account is not a valid contributor identity."
                     return
                 }
                 state.selection = .identityOnly(
@@ -275,6 +286,7 @@ struct ContributorRelationshipPickerView: View {
 
 struct ContributorRelationshipPickerRows: View {
     @Bindable var store: StoreOf<ContributorRelationshipPicker>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         TextField("Search or add contributor", text: $store.searchQuery)
@@ -297,7 +309,7 @@ struct ContributorRelationshipPickerRows: View {
                 } label: {
                     ContributorRelationshipOptionRow(
                         title: contributor.name,
-                        subtitle: contributor.subtitle ?? contributor.rawID,
+                        subtitle: contributor.subtitle,
                         accessory: isSelectedContributor(contributor.id) ? "Selected" : nil
                     )
                 }
@@ -349,7 +361,11 @@ struct ContributorRelationshipPickerRows: View {
         }
 
         if store.searchQuery.trimmedForContributorPicker.count >= 2 {
-            Button("Look up exact handle or DID") {
+            Button(
+                showsTechnicalDetails
+                    ? "Look up exact handle or DID"
+                    : "Look up exact account"
+            ) {
                 store.send(.actorSearchSubmitted)
             }
             .disabled(store.actorSearchIsLoading)

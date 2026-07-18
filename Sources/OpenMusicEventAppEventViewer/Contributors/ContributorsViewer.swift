@@ -752,7 +752,7 @@ public struct EditContributor {
 
             case let .actorIdentityTapped(identity):
                 guard let actor = OMERecord.Contributor.Actor(identity.did.description) else {
-                    state.actorSearchErrorMessage = "The selected DID is not a valid contributor actor."
+                    state.actorSearchErrorMessage = "The selected account is not a valid contributor identity."
                     return
                 }
 
@@ -1142,6 +1142,7 @@ public struct EditContributorView: View {
 
 struct EditContributorActorProfileSection: View {
     @Binding var query: String
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let actor: OMERecord.Contributor.Actor?
     let sections: [PredictiveSearchSection<ActorIdentity>]
     let failures: [PredictiveSearchFailure]
@@ -1153,7 +1154,7 @@ struct EditContributorActorProfileSection: View {
     let identityTapped: (ActorIdentity) -> Void
 
     var body: some View {
-        Section("ATProto Identity") {
+        Section(showsTechnicalDetails ? "ATProto Identity" : "Account") {
             TextField("Search profiles", text: $query)
                 .autocorrectionDisabled()
                 #if os(iOS)
@@ -1166,7 +1167,7 @@ struct EditContributorActorProfileSection: View {
                     queryChanged(value)
                 }
 
-            if let actor {
+            if showsTechnicalDetails, let actor {
                 LabeledContent("Current DID", value: actor.description)
             }
 
@@ -1191,7 +1192,11 @@ struct EditContributorActorProfileSection: View {
             }
 
             if query.trimmedForActorSearch.count >= 2 {
-                Button("Look up exact handle or DID") {
+                Button(
+                    showsTechnicalDetails
+                        ? "Look up exact handle or DID"
+                        : "Look up exact account"
+                ) {
                     querySubmitted()
                 }
                 .disabled(isLoading || isSavingActor)
@@ -1219,20 +1224,25 @@ struct EditContributorActorProfileSection: View {
 struct ContributorActorIdentityRow: View {
     let identity: ActorIdentity
     let isSelected: Bool
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         HStack(spacing: 12) {
             ContributorActorAvatar(identity: identity)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(identity.displayTitle)
+                Text(identity.displayTitle(showsTechnicalDetails: showsTechnicalDetails))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(identity.displaySubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let subtitle = identity.displaySubtitle(
+                    showsTechnicalDetails: showsTechnicalDetails
+                ) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
@@ -1272,12 +1282,13 @@ struct ContributorActorAvatar: View {
 
 struct ContributorActorAvatarPlaceholder: View {
     let identity: ActorIdentity
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         Circle()
             .fill(.secondary.opacity(0.18))
             .overlay {
-                Text(identity.avatarInitials)
+                Text(identity.avatarInitials(showsTechnicalDetails: showsTechnicalDetails))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -1404,24 +1415,29 @@ extension OMERecord.Contributor {
 
 extension ActorIdentity {
     var displayTitle: String {
-        displayName?.trimmedForActorSearch.nilIfEmptyForActorDisplay
-            ?? handle?.rawValue
-            ?? did.description
+        displayTitle(showsTechnicalDetails: false)
     }
 
-    var displaySubtitle: String {
-        if let handle {
-            return "@\(handle.rawValue) - \(did.description)"
-        }
-
-        return did.description
+    func displayTitle(showsTechnicalDetails: Bool) -> String {
+        TechnicalDetails.identityTitle(
+            displayName: displayName,
+            handle: handle?.rawValue,
+            technicalID: did.description,
+            isVisible: showsTechnicalDetails
+        )
     }
 
-    var avatarInitials: String {
-        let source = displayName?.trimmedForActorSearch.nilIfEmptyForActorDisplay
-            ?? handle?.rawValue
-            ?? did.description
-        return String(source.prefix(2)).uppercased()
+    func displaySubtitle(showsTechnicalDetails: Bool) -> String? {
+        TechnicalDetails.identitySubtitle(
+            displayName: displayName,
+            handle: handle?.rawValue,
+            technicalID: did.description,
+            isVisible: showsTechnicalDetails
+        )
+    }
+
+    func avatarInitials(showsTechnicalDetails: Bool) -> String {
+        String(displayTitle(showsTechnicalDetails: showsTechnicalDetails).prefix(2)).uppercased()
     }
 }
 
@@ -1433,10 +1449,6 @@ private extension Array where Element == ExternalPlatform.Link {
 
 private extension String {
     var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
-
-    var nilIfEmptyForActorDisplay: String? {
         isEmpty ? nil : self
     }
 

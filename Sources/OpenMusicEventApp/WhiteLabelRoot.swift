@@ -4,6 +4,7 @@ import ErrorHandling
 import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
@@ -546,6 +547,7 @@ struct WhiteLabelRootAccountManagementView: View {
         NavigationStack {
             Form {
                 AccountView(store: accountStore)
+                TechnicalDetailsSettingsSection()
             }
             #if os(macOS)
             .frame(maxWidth: 720)

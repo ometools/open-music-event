@@ -7,6 +7,7 @@ import SQLiteData
 import ComposableArchitecture2
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
@@ -86,6 +87,7 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
     }
 
     let store: StoreOf<OpenMusicEventAppRoot>
+    @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
 
     /* SKIP @bridge */public init() {
         self.store = Self.genericStore
@@ -107,6 +109,10 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 
     public var body: some View {
         OpenMusicEventAppRootView(store: store)
+            .environment(
+                \.showsTechnicalDetails,
+                TechnicalDetails.isVisible(userPreference: technicalDetailsUserPreference)
+            )
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")
             }

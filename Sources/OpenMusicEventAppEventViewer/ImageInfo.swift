@@ -280,6 +280,7 @@ public struct ImageInfoView: View {
 
 public struct ImageInfoEditorSection: View {
     @Bindable var store: StoreOf<ImageInfo>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(store: StoreOf<ImageInfo>) {
         self.store = store
@@ -287,7 +288,7 @@ public struct ImageInfoEditorSection: View {
 
     public var body: some View {
         Section("Image") {
-            if let sourceDescription = store.sourceDescription {
+            if showsTechnicalDetails, let sourceDescription = store.sourceDescription {
                 LabeledContent("Source", value: sourceDescription)
             }
 

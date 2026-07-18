@@ -1,18 +1,18 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%@ - %@" : {
+    "%lld events" : {
+
+    },
+    "%lld events · %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ - %2$@"
+            "value" : "%1$lld events · %2$@"
           }
         }
       }
-    },
-    "%lld events" : {
-
     },
     "%lld Items" : {
       "comment" : "Header title for a list that contains the number of items",
@@ -42,6 +42,12 @@
           }
         }
       }
+    },
+    "1 event" : {
+
+    },
+    "1 event · %@" : {
+
     },
     "2026" : {
 
@@ -547,9 +553,6 @@
     "Ref" : {
 
     },
-    "Reference" : {
-
-    },
     "Remote" : {
 
     },
@@ -678,6 +681,9 @@
 
     },
     "Team Workspaces" : {
+
+    },
+    "Technical details" : {
 
     },
     "Test error." : {
