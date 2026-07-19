@@ -1195,7 +1195,7 @@ public struct EventWorkspaceView: View {
                                 Button {
                                     store.send(.mergeTangledPullReviewButtonTapped(review))
                                 } label: {
-                                    Text(isMerging ? "Merging" : "Merge")
+                                    Text(isMerging ? "Applying" : "Approve")
                                 }
                                 .disabled(isBusy)
                                 .tint(.green)
@@ -1220,21 +1220,21 @@ public struct EventWorkspaceView: View {
                                 Button {
                                     store.send(.mergeTangledPullReviewButtonTapped(review))
                                 } label: {
-                                    Text("Merge PR")
+                                    Text("Approve changes")
                                 }
                                 .disabled(isBusy)
 
                                 Button(role: .destructive) {
                                     store.send(.closeTangledPullReviewButtonTapped(review))
                                 } label: {
-                                    Text("Close PR")
+                                    Text("Close review")
                                 }
                                 .disabled(isBusy)
 
                                 Button(role: .destructive) {
                                     store.send(.deleteTangledPullReviewForeverButtonTapped(review))
                                 } label: {
-                                    Text("Delete PR Forever")
+                                    Text("Delete review permanently")
                                 }
                                 .disabled(isBusy)
                             }
