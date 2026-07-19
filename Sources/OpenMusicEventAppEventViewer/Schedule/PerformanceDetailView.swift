@@ -316,6 +316,7 @@ public struct PerformanceDetailView: View {
                                 store.send(.editButtonTapped)
                             } label: {
                                 Label("Edit Performance", systemImage: "pencil")
+                                    .labelStyle(.iconOnly)
                             }
                             .disabled(!store.canEditPerformance)
                         }

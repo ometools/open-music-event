@@ -863,8 +863,11 @@ struct AccountAuthenticationSheetView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
+                    Button {
                         store.send(.authenticationSheetDismissed)
+                    } label: {
+                        Label("Done", systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }

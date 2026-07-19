@@ -296,11 +296,17 @@ public struct CalendarDetailView: View {
             Text("This permanently deletes the selected event data from this device. Created events are not cached off device.")
         }
         .toolbar {
-            Button("Add Event", systemImage: "plus") {
+            Button {
                 store.send(.addEventButtonTapped)
+            } label: {
+                Label("Add Event", systemImage: "plus")
+                    .labelStyle(.iconOnly)
             }
-            Button("Edit Calendar", systemImage: "pencil") {
+            Button {
                 store.send(.editButtonTapped)
+            } label: {
+                Label("Edit Calendar", systemImage: "pencil")
+                    .labelStyle(.iconOnly)
             }
         }
         .whiteLabelRootActionsToolbar(store: whiteLabelRootStore)

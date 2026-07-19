@@ -238,8 +238,11 @@ public struct ImageInfoView: View {
         .navigationTitle("Image Info")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     store.send(.cancelButtonTapped)
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
 

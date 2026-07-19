@@ -1201,10 +1201,13 @@ public struct EventViewerView: View {
                             store: featureStore,
                             showsAuthoringControls: store.showsAuthoringControls
                         )
-                            .toolbar {
+                        .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Close") {
+                                Button {
                                     store.send(.closeButtonTapped)
+                                } label: {
+                                    Label("Close", systemImage: "close")
+                                        .labelStyle(.iconOnly)
                                 }
                             }
                         }
@@ -1473,8 +1476,11 @@ public struct EventViewerView: View {
                 .toolbar {
                     if feature == .about {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Close") {
+                            Button {
                                 store.send(.closeButtonTapped)
+                            } label: {
+                                Label("Close", systemImage: "close")
+                                    .labelStyle(.iconOnly)
                             }
                         }
                     }

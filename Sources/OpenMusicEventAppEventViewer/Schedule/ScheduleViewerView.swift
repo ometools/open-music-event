@@ -37,6 +37,7 @@ public struct ScheduleAddMenu: View {
             )
         } label: {
             Label("Add", systemImage: "plus")
+                .labelStyle(.iconOnly)
         }
     }
 }
@@ -68,7 +69,10 @@ public struct ScheduleModeMenu: View {
                     }
                 }
             }
-        } label: { selectedModeLabel }
+        } label: {
+            selectedModeLabel
+                .labelStyle(.iconOnly)
+        }
     }
 
     @ViewBuilder

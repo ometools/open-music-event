@@ -597,8 +597,11 @@ public struct StagesViewerView: View {
         .toolbar {
             if showsAuthoringControls, store.canCopyStagesFromOtherEvent && !store.stages.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("From Other Event") {
+                    Button {
                         store.send(.fromOtherEventButtonTapped)
+                    } label: {
+                        Label("From Other Event", systemImage: "square.on.square")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }
@@ -800,8 +803,11 @@ public struct CopyStagesFromEventView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
 
@@ -973,8 +979,11 @@ public struct StageDetailView: View {
                 .toolbar {
                     if showsAuthoringControls {
                         ToolbarItem(placement: .primaryAction) {
-                            Button("Edit") {
+                            Button {
                                 store.send(.editButtonTapped)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                                    .labelStyle(.iconOnly)
                             }
                         }
                     }
@@ -1537,8 +1546,11 @@ public struct EditStageView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     store.send(.cancelButtonTapped)
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {

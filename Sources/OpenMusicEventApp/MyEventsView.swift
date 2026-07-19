@@ -117,12 +117,18 @@ struct MyEventsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
-            Button("Import Team Workspace", systemImage: "arrow.down.doc") {
+            Button {
                 store.send(.didTapImportTeamWorkspace)
+            } label: {
+                Label("Import Team Workspace", systemImage: "arrow.down.doc")
+                    .labelStyle(.iconOnly)
             }
 
-            Button("Create Event", systemImage: "plus") {
+            Button {
                 store.send(.didTapCreateEvent)
+            } label: {
+                Label("Create Event", systemImage: "plus")
+                    .labelStyle(.iconOnly)
             }
         }
     }

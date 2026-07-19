@@ -312,8 +312,11 @@ public struct PosterDetailView: View {
         .toolbar {
             if showsAuthoringControls {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Edit") {
+                    Button {
                         store.send(.editButtonTapped)
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                            .labelStyle(.iconOnly)
                     }
                     .disabled(store.poster == nil)
                 }
@@ -643,8 +646,11 @@ public struct EditPosterView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel") {
+            Button {
                 store.send(.cancelButtonTapped)
+            } label: {
+                Label("Cancel", systemImage: "close")
+                    .labelStyle(.iconOnly)
             }
         }
 

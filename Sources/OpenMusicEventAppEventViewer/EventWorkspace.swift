@@ -873,8 +873,11 @@ public struct EventWorkspaceView: View {
         }
         .toolbar {
             if store.canCreateEvent {
-                Button("Create Event", systemImage: "plus") {
+                Button {
                     store.send(.createEventButtonTapped)
+                } label: {
+                    Label("Create Event", systemImage: "plus")
+                        .labelStyle(.iconOnly)
                 }
             }
         }
@@ -1526,7 +1529,8 @@ struct TangledPullReviewDetailView: View {
                 Button {
                     onMerge()
                 } label: {
-                    Text(isMerging ? "Merging" : "Merge")
+                    Label(isMerging ? "Merging" : "Merge", systemImage: "arrow.triangle.merge")
+                        .labelStyle(.iconOnly)
                 }
                 .disabled(isBusy)
             }
@@ -1970,8 +1974,11 @@ public struct SourceProposalComposerView: View {
             .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
+                    Button {
                         store.send(.doneButtonTapped)
+                    } label: {
+                        Label("Done", systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
                     }
                     .disabled(store.status.isProposing)
                 }

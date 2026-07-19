@@ -133,8 +133,11 @@ public struct OpenMusicEventAuthorizationFormView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Done") {
+                Button {
                     store.send(.cancel)
+                } label: {
+                    Label("Done", systemImage: "checkmark")
+                        .labelStyle(.iconOnly)
                 }
             }
         }

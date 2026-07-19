@@ -26,8 +26,11 @@ public struct TimeZonePicker: View {
         .searchable(text: $query, prompt: "Search city or identifier")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
         }

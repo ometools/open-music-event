@@ -378,11 +378,10 @@ public struct WhiteLabelRootView: View {
         Group {
             if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail) {
                 NavigationStack {
-                TeamWorkspaceDetailView(
-                    store: teamWorkspaceDetailStore,
-                    isManageWorkspaceToolbarItemVisible: false,
-                    showsAuthoringControls: store.showsAuthoringControls
-                )
+                    TeamWorkspaceDetailView(
+                        store: teamWorkspaceDetailStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                     .whiteLabelRootActionsToolbar(store: store)
                 }
             } else if let organizationRootStore = store.spawn(\.organizationRoot) {
@@ -541,8 +540,11 @@ struct WhiteLabelRootAccountManagementView: View {
             .navigationTitle("Account")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
+                    Button {
                         store.send(.accountManagementDoneButtonTapped)
+                    } label: {
+                        Label("Done", systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }

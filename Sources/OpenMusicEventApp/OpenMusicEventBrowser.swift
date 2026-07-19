@@ -731,8 +731,11 @@ public struct OrganizerDetailView: View {
             Text("This permanently deletes the selected event data from this device. Created events are not cached off device.")
         }
         .toolbar {
-            Button("Add Event", systemImage: "plus") {
+            Button {
                 store.send(.addEventButtonTapped)
+            } label: {
+                Label("Add Event", systemImage: "plus")
+                    .labelStyle(.iconOnly)
             }
         }
         .whiteLabelRootActionsToolbar(store: whiteLabelRootStore)
@@ -1334,28 +1337,40 @@ public struct TeamWorkspaceDetailView: View {
         }
         .toolbar {
             if showsAuthoringControls, store.canEditCalendar {
-                Button("Edit Calendar", systemImage: "pencil") {
+                Button {
                     store.send(.editButtonTapped)
+                } label: {
+                    Label("Edit Calendar", systemImage: "pencil")
+                        .labelStyle(.iconOnly)
                 }
             }
             if showsAuthoringControls, store.canCreateEvent {
-                Button("Add Event", systemImage: "plus") {
+                Button {
                     store.send(.addEventButtonTapped)
+                } label: {
+                    Label("Add Event", systemImage: "plus")
+                        .labelStyle(.iconOnly)
                 }
             }
             if showsAuthoringControls, store.canUploadToTangled {
-                Button("Upload to Tangled") {
+                Button {
                     store.send(.uploadToTangledButtonTapped)
+                } label: {
+                    Label("Upload to Tangled", systemImage: "arrow.up.doc")
+                        .labelStyle(.iconOnly)
                 }
             }
             if showsAuthoringControls, isManageWorkspaceToolbarItemVisible && store.canManageSource {
-                Button(
-                    store.isPreparingTeamWorkspaceEditor
-                        ? "Preparing Team Workspace"
-                        : "Manage Team Workspace",
-                    systemImage: "person.3"
-                ) {
+                Button {
                     store.send(.manageSourceButtonTapped)
+                } label: {
+                    Label(
+                        store.isPreparingTeamWorkspaceEditor
+                            ? "Preparing Team Workspace"
+                            : "Manage Team Workspace",
+                        systemImage: "tray.full"
+                    )
+                    .labelStyle(.iconOnly)
                 }
                 .disabled(store.isPreparingTeamWorkspaceEditor)
             }
