@@ -1150,6 +1150,45 @@ public struct EventWorkspaceView: View {
         .onAppear {
             store.send(.onAppear)
         }
+        .alert(
+            "Reset local changes?",
+            isPresented: $isResetConfirmationPresented
+        ) {
+            Button("Reset changes", role: .destructive) {
+                store.send(.resetEditsButtonTapped)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will discard all local changes in this workspace.")
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceTopBarExtension: some View {
+        VStack(spacing: 0) {
+            workspaceContextHeader
+            workspaceTabPicker
+
+            if selectedTab == .propose,
+               store.sourceWorkspaceSummary.totalCount > 0,
+               store.canReviewSourceProposal
+            {
+                HStack(spacing: 12) {
+                    Button("Propose changes", systemImage: "paperplane") {
+                        store.send(.proposeChangeButtonTapped)
+                    }
+                    .disabled(!store.canProposeLocalChanges)
+                    .buttonStyle(.bordered)
+                    .tint(.blue)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+        }
+        .background(.background)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 
     @ViewBuilder
