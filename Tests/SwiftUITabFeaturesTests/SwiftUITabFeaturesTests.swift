@@ -84,6 +84,28 @@ struct SwiftUITabFeaturesTests {
         _ = view
     }
 
+    @Test func `More remembers its destination while visiting a tab bar tab`() {
+        var state = TabFeatureSelectionState(
+            selection: DemoTab.schedule,
+            overflowSelection: DemoTab.settings,
+            isMoreSelected: true
+        )
+
+        state.select(.feature(.about))
+
+        #expect(state.selection == .about)
+        #expect(state.overflowSelection == .settings)
+        #expect(state.isMoreSelected == false)
+        #expect(state.tabSelection(showsMore: true) == .feature(.about))
+
+        state.select(.more)
+
+        #expect(state.selection == .about)
+        #expect(state.overflowSelection == .settings)
+        #expect(state.isMoreSelected)
+        #expect(state.tabSelection(showsMore: true) == .more)
+    }
+
     @Test func `builder preserves declaration order`() {
         let features = TabFeatures<DemoTab> {
             TabFeature(

@@ -688,11 +688,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         moreFeatureContent: [AnyTabFeatureMoreContent<Value>]
     ) -> some View {
         TabView(
-            selection: tabSelection(
-                for: resolved,
-                showsMore: showsMore,
-                moreFeatureContent: moreFeatureContent
-            )
+            selection: tabSelection(showsMore: showsMore)
         ) {
             if !resolved.visibleFeatures.isEmpty {
                 ForEach(resolved.visibleFeatures, id: \.value) { feature in
@@ -803,32 +799,29 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     }
 
     private func tabSelection(
-        for resolved: ResolvedDeclaredTabFeatures<Value>,
-        showsMore: Bool,
-        moreFeatureContent: [AnyTabFeatureMoreContent<Value>]
+        showsMore: Bool
     ) -> Binding<TabFeaturesSelection<Value>> {
         Binding {
-            if let overflowSelection = resolvedOverflowSelection.wrappedValue,
-                resolved.overflowFeatures.contains(where: { $0.value == overflowSelection })
-                    || moreFeatureContent.flatMap(\.featureMetadata)
-                    .contains(where: { $0.value == overflowSelection })
-            {
-                .more
-            } else if isMoreSelected && showsMore {
-                .more
-            } else {
-                .feature(selection)
+            TabFeatureSelectionState(
+                selection: selection,
+                overflowSelection: resolvedOverflowSelection.wrappedValue,
+                isMoreSelected: isMoreSelected
+            )
+            .tabSelection(showsMore: showsMore)
+        } set: { newSelection in
+            var state = TabFeatureSelectionState(
+                selection: selection,
+                overflowSelection: resolvedOverflowSelection.wrappedValue,
+                isMoreSelected: isMoreSelected
+            )
+            state.select(newSelection)
+
+            isMoreSelected = state.isMoreSelected
+            if resolvedOverflowSelection.wrappedValue != state.overflowSelection {
+                resolvedOverflowSelection.wrappedValue = state.overflowSelection
             }
-        } set: { newValue in
-            switch newValue {
-            case .feature(let value):
-                isMoreSelected = false
-                if resolvedOverflowSelection.wrappedValue != nil {
-                    resolvedOverflowSelection.wrappedValue = nil
-                }
-                selection = value
-            case .more:
-                isMoreSelected = true
+            if selection != state.selection {
+                selection = state.selection
             }
         }
     }
@@ -969,6 +962,30 @@ public extension TabFeaturesView {
 enum TabFeaturesSelection<Value: TabFeatureValue>: Hashable {
     case feature(Value)
     case more
+}
+
+struct TabFeatureSelectionState<Value: TabFeatureValue>: Equatable {
+    var selection: Value
+    var overflowSelection: Value?
+    var isMoreSelected: Bool
+
+    func tabSelection(showsMore: Bool) -> TabFeaturesSelection<Value> {
+        if isMoreSelected && showsMore {
+            .more
+        } else {
+            .feature(selection)
+        }
+    }
+
+    mutating func select(_ selection: TabFeaturesSelection<Value>) {
+        switch selection {
+        case .feature(let value):
+            isMoreSelected = false
+            self.selection = value
+        case .more:
+            isMoreSelected = true
+        }
+    }
 }
 
 @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
