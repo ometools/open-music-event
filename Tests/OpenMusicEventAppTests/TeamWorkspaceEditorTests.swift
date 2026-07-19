@@ -11,6 +11,7 @@ import OpenMusicEventSourceEditing
 import OpenMusicEventTimeZones
 import SourceEditing
 import SQLiteData
+import Synchronization
 import Testing
 
 @testable import OpenMusicEventApp
@@ -228,6 +229,80 @@ struct TeamWorkspaceEditorTests {
         #expect(store.state.sourceProposal?.target == .calendar(calendarID, sourceBaselineID))
         #expect(store.state.sourceProposal?.sourceChangeGroups == [])
         #expect(store.state.sourceProposal?.patch == patch)
+    }
+
+    @Test
+    func resetsCalendarSourceChangesAndClearsProposalState() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "source")
+        let resetRequests = Mutex([SourceProposalTarget]())
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "calendar.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
+        let proposalFailure = EventWorkspace.SourceProposalFailure(SourceWorkspacePatchFailure())
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.eventWorkspaceResetter = EventWorkspaceResetter(
+                reset: { eventID in
+                    Issue.record("Expected source reset request, not event reset for \(eventID).")
+                },
+                resetSourceChanges: { target in
+                    resetRequests.withLock { $0.append(target) }
+                }
+            )
+        } operation: {
+            var state = SourceWorkspace.State(
+                sourceBaselineID: sourceBaselineID,
+                calendarID: calendarID
+            )
+            state.sourcePatchStatus = .generated(patch)
+            state.sourceProposal = SourceProposalFlow.State(
+                target: .calendar(calendarID, sourceBaselineID),
+                patch: patch
+            )
+            state.sourceProposalStatus = .failed(proposalFailure)
+            return TestStore(initialState: state) {
+                SourceWorkspace()
+            }
+        }
+
+        let task = store.send(.resetEditsButtonTapped) {
+            $0.isResettingEdits = true
+        }
+        await store.receive(
+            \.resetEditsResponse,
+            .equals(
+                Result<EventWorkspace.ResetEditsSuccess, EventWorkspace.ResetEditsFailure>
+                    .success(EventWorkspace.ResetEditsSuccess())
+            ),
+            timeout: .seconds(1)
+        ) {
+            $0.isResettingEdits = false
+            $0.sourcePatchStatus = .generated(SourcePatch())
+            $0.sourceProposalStatus = .idle
+        }
+        await task?.value
+
+        #expect(store.state.sourceProposal == nil)
+        expectNoDifference(
+            resetRequests.withLock { $0 },
+            [.calendar(calendarID, sourceBaselineID)]
+        )
+        await store.dismount()
     }
 
     @Test

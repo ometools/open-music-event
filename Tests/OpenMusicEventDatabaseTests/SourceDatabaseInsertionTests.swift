@@ -1555,6 +1555,7 @@ struct SourceDatabaseInsertionTests {
     func eventWorkspaceResetterRestoresRealSchemaRows() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let calendarID = calendarID(organizerID: organizerID)
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
         let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
         let insertion = try OME.SourceDatabaseInsertion(
@@ -1581,6 +1582,10 @@ struct SourceDatabaseInsertionTests {
         }
 
         try await database.write { db in
+            try OME.Calendar
+                .find(calendarID)
+                .update { $0.name = "Changed Calendar" }
+                .execute(db)
             try OME.Event
                 .find(openedEventID)
                 .update { $0.name = "Changed Event" }
@@ -1597,7 +1602,7 @@ struct SourceDatabaseInsertionTests {
             baselineDatabase: baselineDatabase
         )
         #expect(changedSummary.availability == .available)
-        #expect(changedSummary.totalCount == 2)
+        #expect(changedSummary.totalCount == 3)
 
         try withDependencies {
             $0.defaultDatabase = database
@@ -1606,7 +1611,7 @@ struct SourceDatabaseInsertionTests {
             $0.sourceReferenceDatabase = .test(database: baselineDatabase)
         } operation: {
             @Dependency(\.eventWorkspaceResetter) var resetter
-            try resetter.reset(openedEventID)
+            try resetter.resetSourceChanges(.event(openedEventID))
         }
 
         let resetSummary = try await eventWorkspaceSummary(
@@ -1618,16 +1623,18 @@ struct SourceDatabaseInsertionTests {
         #expect(resetSummary.totalCount == 0)
 
         let restoredRows = try await database.read { db in
+            let calendar = try #require(try OME.Calendar.find(calendarID).fetchOne(db))
             let event = try #require(try OME.Event.find(openedEventID).fetchOne(db))
             let stage = try #require(
                 try OME.Stage
                     .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
                     .fetchOne(db)
             )
-            return (event, stage)
+            return (calendar, event, stage)
         }
-        #expect(restoredRows.0.name == "Testival 2026")
-        #expect(restoredRows.1.name == "Meadow")
+        #expect(restoredRows.0.name == "Events")
+        #expect(restoredRows.1.name == "Testival 2026")
+        #expect(restoredRows.2.name == "Meadow")
     }
 
     @Test

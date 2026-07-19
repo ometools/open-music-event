@@ -244,7 +244,7 @@ public func openMusicEventSourceEditSummary(
     }
 
     var summaries = [calendarSummary]
-    for eventID in try sourceEventIDs(
+    for eventID in try openMusicEventSourceEventIDs(
         in: db,
         baselineSchemaName: baselineSchemaName,
         sourceBaselineID: sourceBaselineID,
@@ -269,7 +269,7 @@ public func openMusicEventSourceEditSummary(
     )
 }
 
-private func sourceEventIDs(
+func openMusicEventSourceEventIDs(
     in db: Database,
     baselineSchemaName: String,
     sourceBaselineID: SourceBaselineRecord.ID,

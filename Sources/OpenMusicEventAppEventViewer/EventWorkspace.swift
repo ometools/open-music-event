@@ -711,13 +711,13 @@ public struct EventWorkspace {
 
             case .resetEditsButtonTapped:
                 guard !state.isResettingEdits else { return }
-                guard case let .event(eventID) = state.target else { return }
+                let target = state.target
                 let workspaceResetter = workspaceResetter
                 state.isResettingEdits = true
                 state.resetEditsFailure = nil
                 store.addTask {
                     do {
-                        try workspaceResetter.reset(eventID)
+                        try workspaceResetter.resetSourceChanges(target)
                         try store.send(.resetEditsResponse(.success(ResetEditsSuccess())))
                     } catch {
                         try store.send(
@@ -2383,8 +2383,7 @@ private extension EventWorkspace.State {
     }
 
     var canResetEdits: Bool {
-        guard case .event = target,
-              !isResettingEdits,
+        guard !isResettingEdits,
               sourceWorkspaceSummary.totalCount > 0,
               case .available = sourceWorkspaceSummary.availability
         else { return false }
