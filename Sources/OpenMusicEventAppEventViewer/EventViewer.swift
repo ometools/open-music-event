@@ -1226,15 +1226,29 @@ public struct EventViewerView: View {
             .more {
                 EmptyView()
             } toolbar: {
+                #if os(macOS) && !SKIP
+                ToolbarItem(placement: .automatic) {
+                    AccountPicker(store: accountStore)
+                }
+                #else
                 ToolbarItem(placement: .topBarLeading) {
                     AccountPicker(store: accountStore)
                 }
+                #endif
 
+                #if os(macOS) && !SKIP
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Exit") {
+                        store.send(.closeButtonTapped)
+                    }
+                }
+                #else
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Exit") {
                         store.send(.closeButtonTapped)
                     }
                 }
+                #endif
             }
         }
 

@@ -929,16 +929,14 @@ public struct EventWorkspaceView: View {
         }
         .toolbar {
             if store.canCreateEvent {
-                Button {
-                    store.send(.createEventButtonTapped)
-                } label: {
-                    Label("Create Event", systemImage: "plus")
-                        .labelStyle(.iconOnly)
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.createEventButtonTapped)
+                    } label: {
+                        Label("Create Event", systemImage: "plus")
+                            .labelStyle(.iconOnly)
+                    }
                 }
-            }
-
-            ToolbarItem(placement: .topBarLeading) {
-                AccountPicker(store: accountStore)
             }
         }
         .onAppear {

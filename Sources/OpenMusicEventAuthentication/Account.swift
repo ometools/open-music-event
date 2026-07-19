@@ -1141,9 +1141,15 @@ struct AccountAvatarPlaceholder: View {
 public extension View {
     func accountPickerToolbar(store: StoreOf<Account>) -> some View {
         toolbar {
+            #if os(macOS) && !SKIP
+            ToolbarItem(placement: .automatic) {
+                AccountPicker(store: store)
+            }
+            #else
             ToolbarItem(placement: .topBarLeading) {
                 AccountPicker(store: store)
             }
+            #endif
         }
     }
 
