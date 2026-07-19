@@ -291,6 +291,7 @@ public extension TangledPullReviewClient {
             close: { review in
                 @Dependency(\.date.now) var now
                 @Dependency(\.getDefaultSession) var getDefaultSession
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 @Dependency(XRPC.Client.self) var xrpcClient
 
                 guard let pullURI = ATProto.URI(review.uri) else {
@@ -301,6 +302,9 @@ public extension TangledPullReviewClient {
                         review.uri
                     )
                 }
+                try await authorizationBroker.authorize(
+                    TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+                )
 
                 let record = TangledPullStatusRecord(
                     pull: pullURI,
@@ -321,9 +325,13 @@ public extension TangledPullReviewClient {
             merge: { request in
                 @Dependency(\.date.now) var now
                 @Dependency(\.getDefaultSession) var getDefaultSession
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 @Dependency(XRPC.Client.self) var xrpcClient
 
                 let pullURI = try requireTangledPullURI(request.review.uri)
+                try await authorizationBroker.authorize(
+                    TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+                )
                 let pullAuthorDID = try requireDIDAuthority(pullURI)
                 let pullRecord = try await xrpcClient.tangledPullRecord(pullURI)
                 let mergeRepository = try await TangledPullReviewMergeRepository
@@ -372,10 +380,14 @@ public extension TangledPullReviewClient {
                 )
             },
             delete: { review in
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 @Dependency(XRPC.Client.self) var xrpcClient
 
                 let pullURI = try requireTangledPullURI(review.uri)
                 guard let rkey = pullURI.rkey else { fatalError("validated above") }
+                try await authorizationBroker.authorize(
+                    TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+                )
 
                 _ = try await xrpcClient.run(
                     TangledRepositoryRequests.deleteRecord(

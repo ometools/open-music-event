@@ -171,6 +171,9 @@ public enum OpenMusicEventOAuth {
     public static let tangledPullRequestSurfaceAuthRequirement =
         TangledOAuthRequirements.pullRequestSurfaceAuthRequirement
 
+    public static let tangledPullRequestWorkflowAuthRequirement =
+        TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+
     public static let tangledPullStatusAuthRequirement =
         TangledOAuthRequirements.pullStatusAuthRequirement
 

@@ -342,7 +342,7 @@ struct TangledSourcePatchPublisherTests {
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
         #expect(
             authorizedRequirements.withLock { $0 }
-                == [TangledOAuthRequirements.proposalAuthRequirement]
+                == [TangledOAuthRequirements.pullRequestWorkflowAuthRequirement]
         )
         #expect(openRequests.withLock { $0.map(\.standardizedFileURL) } == [repositoryURL.standardizedFileURL])
         let createBranchRequest = try #require(createBranchRequests.withLock { $0.first })
@@ -702,7 +702,10 @@ struct TangledSourcePatchPublisherTests {
             )
             $0[XRPC.Client.self] = .liveValue
             $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
-                #expect(requirement == TangledOAuthRequirements.proposalAuthRequirement)
+                #expect(
+                    requirement
+                        == TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+                )
                 publishEvents.withLock { $0.append("authorize") }
             }
             $0.pdsHost = "publisher.pds.example"

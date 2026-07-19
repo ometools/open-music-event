@@ -1,4 +1,5 @@
 import ATProtoOAuth
+import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import Foundation
@@ -81,6 +82,49 @@ struct OpenMusicEventOAuthTests {
             OpenMusicEventOAuth.appManifest.maximumPermissions
                 .missing(OpenMusicEventOAuth.sourceRecordAuthRequirement.permissions)
                 .isEmpty
+        )
+    }
+
+    @Test
+    func pullRequestWorkflowAuthorizationCoversTheFullLifecycle() {
+        expectNoDifference(
+            OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions,
+            OpenMusicEventOAuth.proposalAuthRequirement.permissions
+                .union(OpenMusicEventOAuth.tangledPullRequestSurfaceAuthRequirement.permissions)
+                .union(OpenMusicEventOAuth.tangledPullMergeAuthRequirement.permissions)
+        )
+        #expect(
+            OpenMusicEventOAuth.appManifest.maximumPermissions
+                .missing(
+                    OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions
+                )
+                .isEmpty
+        )
+    }
+
+    @Test
+    func pullRequestWorkflowAuthorizationSatisfiesEveryLaterAction() {
+        let session = openMusicEventTestSession(
+            permissions: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
+                .permissions
+                .union([.atproto])
+        )
+        let requirements = [
+            OpenMusicEventOAuth.proposalAuthRequirement,
+            OpenMusicEventOAuth.tangledPullStatusAuthRequirement,
+            OpenMusicEventOAuth.tangledPullMergeAuthRequirement,
+            OpenMusicEventOAuth.tangledPullDeleteAuthRequirement,
+        ]
+
+        expectNoDifference(
+            requirements.map {
+                OAuth.authorizationStatus(
+                    for: $0,
+                    session: session,
+                    manifest: OpenMusicEventOAuth.appManifest
+                )
+            },
+            requirements.map { _ in OAuth.AuthorizationStatus.satisfied(session) }
         )
     }
 
