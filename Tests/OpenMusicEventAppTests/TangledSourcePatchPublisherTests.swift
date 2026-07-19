@@ -174,6 +174,7 @@ struct TangledSourcePatchPublisherTests {
         let commitRequests = Mutex([CommitRequest]())
         let formatPatchRequests = Mutex([FormatPatchRequest]())
         let pushRequests = Mutex([PushRequest]())
+        let cloneRequests = Mutex([CloneRequest]())
         let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
         let largeEventContents = "name: New\n"
             + String(repeating: "description: A long proposal patch line.\n", count: 8_000)
@@ -269,7 +270,10 @@ struct TangledSourcePatchPublisherTests {
                 }
             }
             $0.sourceControl = SourceControlClient(
-                clone: { request in Repository(url: request.destinationURL) },
+                clone: { request in
+                    cloneRequests.withLock { $0.append(request) }
+                    return Repository(url: request.destinationURL)
+                },
                 open: { url in
                     openRequests.withLock { $0.append(url) }
                     return Repository(url: url)
@@ -344,6 +348,7 @@ struct TangledSourcePatchPublisherTests {
             authorizedRequirements.withLock { $0 }
                 == [TangledOAuthRequirements.pullRequestWorkflowAuthRequirement]
         )
+        #expect(cloneRequests.withLock { $0.isEmpty })
         #expect(openRequests.withLock { $0.map(\.standardizedFileURL) } == [repositoryURL.standardizedFileURL])
         let createBranchRequest = try #require(createBranchRequests.withLock { $0.first })
         #expect(createBranchRequest.name == branchName)
