@@ -1048,8 +1048,13 @@ struct SourceDatabaseInsertionTests {
 
     @Test
     func sourceEditingListsSourceRecordTypes() {
+        struct SourceProjectionAssertion: Equatable {
+            var tableID: String
+            var fileFamily: OpenMusicEventSourceProjection.FileFamily
+        }
+
         expectNoDifference(
-            OME.sourceRecordTableTypes.map(ObjectIdentifier.init),
+            OME.sourceEventProjections.map { ObjectIdentifier($0.tableType) },
             [
                 ObjectIdentifier(OME.Event.self),
                 ObjectIdentifier(OME.Stage.self),
@@ -1058,6 +1063,36 @@ struct SourceDatabaseInsertionTests {
                 ObjectIdentifier(OME.Performance.self),
                 ObjectIdentifier(OME.Channel.self),
                 ObjectIdentifier(OME.Poster.self),
+            ]
+        )
+        expectNoDifference(
+            OME.sourceRecordTableTypes.map(ObjectIdentifier.init),
+            OME.sourceEventProjections.map { ObjectIdentifier($0.tableType) }
+        )
+        expectNoDifference(
+            OME.sourceRecordTypes.map(\.descriptor.id),
+            OME.sourceEventProjections.map(\.recordType.descriptor.id)
+        )
+        expectNoDifference(
+            OME.sourceTableDescriptors.map(\.id),
+            OME.sourceEventProjections.map(\.recordType.descriptor.id)
+        )
+        expectNoDifference(
+            OME.sourceProjections.map {
+                SourceProjectionAssertion(
+                    tableID: $0.recordType.descriptor.id,
+                    fileFamily: $0.fileFamily
+                )
+            },
+            [
+                SourceProjectionAssertion(tableID: OME.Calendar.tableName, fileFamily: .calendar),
+                SourceProjectionAssertion(tableID: OME.Event.tableName, fileFamily: .event),
+                SourceProjectionAssertion(tableID: OME.Stage.tableName, fileFamily: .stage),
+                SourceProjectionAssertion(tableID: OME.Contributor.tableName, fileFamily: .contributor),
+                SourceProjectionAssertion(tableID: OME.Schedule.tableName, fileFamily: .schedule),
+                SourceProjectionAssertion(tableID: OME.Performance.tableName, fileFamily: .schedule),
+                SourceProjectionAssertion(tableID: OME.Channel.tableName, fileFamily: .channel),
+                SourceProjectionAssertion(tableID: OME.Poster.tableName, fileFamily: .poster),
             ]
         )
     }

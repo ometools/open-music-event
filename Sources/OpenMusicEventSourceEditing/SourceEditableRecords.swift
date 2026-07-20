@@ -6,42 +6,112 @@ import SourceEditing
 import SQLiteData
 
 public extension OME {
-    static var sourceMetadataRecordTypes: [AnySourceEditableRecordType] {
+    static var sourceMetadataProjections: [OpenMusicEventSourceProjection] {
         [
-            Calendar.sourceRecordType,
+            OpenMusicEventSourceProjection(
+                tableType: Calendar.self,
+                recordType: Calendar.sourceRecordType,
+                fileFamily: .calendar
+            ),
         ]
+    }
+
+    static var sourceEventProjections: [OpenMusicEventSourceProjection] {
+        [
+            OpenMusicEventSourceProjection(
+                tableType: Event.self,
+                recordType: Event.sourceRecordType,
+                fileFamily: .event
+            ),
+            OpenMusicEventSourceProjection(
+                tableType: Stage.self,
+                recordType: Stage.sourceRecordType,
+                fileFamily: .stage
+            ),
+            OpenMusicEventSourceProjection(
+                tableType: Contributor.self,
+                recordType: Contributor.sourceRecordType,
+                fileFamily: .contributor
+            ),
+            OpenMusicEventSourceProjection(
+                tableType: Schedule.self,
+                recordType: Schedule.sourceRecordType,
+                fileFamily: .schedule
+            ),
+            OpenMusicEventSourceProjection(
+                tableType: Performance.self,
+                recordType: Performance.sourceRecordType,
+                fileFamily: .schedule
+            ),
+            OpenMusicEventSourceProjection(
+                tableType: Channel.self,
+                recordType: Channel.sourceRecordType,
+                fileFamily: .channel
+            ),
+            OpenMusicEventSourceProjection(
+                tableType: Poster.self,
+                recordType: Poster.sourceRecordType,
+                fileFamily: .poster
+            ),
+        ]
+    }
+
+    static var sourceProjections: [OpenMusicEventSourceProjection] {
+        sourceMetadataProjections + sourceEventProjections
+    }
+
+    static var sourceMetadataRecordTypes: [AnySourceEditableRecordType] {
+        sourceMetadataProjections.map(\.recordType)
     }
 
     static var sourceRecordTableTypes: [any SourceEditableTable.Type] {
-        [
-            Event.self,
-            Stage.self,
-            Contributor.self,
-            Schedule.self,
-            Performance.self,
-            Channel.self,
-            Poster.self,
-        ]
+        sourceEventProjections.map(\.tableType)
     }
 
     static var sourceRecordTypes: [AnySourceEditableRecordType] {
-        [
-            Event.sourceRecordType,
-            Stage.sourceRecordType,
-            Contributor.sourceRecordType,
-            Schedule.sourceRecordType,
-            Performance.sourceRecordType,
-            Channel.sourceRecordType,
-            Poster.sourceRecordType,
-        ]
+        sourceEventProjections.map(\.recordType)
     }
 
     static var sourceDiffRecordTypes: [AnySourceEditableRecordType] {
-        sourceMetadataRecordTypes + sourceRecordTypes
+        sourceProjections.map(\.recordType)
     }
 
     static var sourceTableDescriptors: [SourceTableDescriptor] {
-        sourceRecordTypes.map(\.descriptor)
+        sourceEventProjections.map(\.recordType.descriptor)
+    }
+
+    static var sourceProjectionsByTableID: [SourceTableDescriptor.ID: OpenMusicEventSourceProjection] {
+        Dictionary(
+            uniqueKeysWithValues: sourceProjections.map {
+                ($0.recordType.descriptor.id, $0)
+            }
+        )
+    }
+}
+
+public struct OpenMusicEventSourceProjection {
+    public enum FileFamily: Equatable, Sendable {
+        case calendar
+        case event
+        case stage
+        case contributor
+        case schedule
+        case channel
+        case poster
+    }
+
+    public var tableType: any SourceEditableTable.Type
+    public var recordType: AnySourceEditableRecordType
+    public var fileFamily: FileFamily
+
+    public init(
+        tableType: any SourceEditableTable.Type,
+        recordType: AnySourceEditableRecordType,
+        fileFamily: FileFamily
+    ) {
+        self.tableType = tableType
+        self.recordType = recordType
+        self.fileFamily = fileFamily
     }
 }
 

@@ -498,6 +498,113 @@ struct OpenMusicEventSourcePatchGenerationTests {
     }
 
     @Test
+    func liveConversionWritesChannelFilesFromDatabase() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "events/test-event/event.yml",
+            contents: """
+            name: Test Event
+            timeZone: UTC
+            """
+        )
+        try fixture.writeFile(
+            "events/test-event/channels/general.yml",
+            contents: """
+            name: General
+            description: Old official updates.
+            defaultNotificationState: unsubscribed
+            notificationsRequired: false
+            """
+        )
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("test-event")
+        let channelID = OME.Channel.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            channelID: localID("general")
+        )
+        let repositoryURL = fixture.repositoryURL
+        let sourceReference = repositoryURL.path
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: eventID.organizerID)
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Test Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: TimeZone(identifier: "UTC")!,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try OME.Channel.insert {
+                OME.Channel.Draft(
+                    id: channelID,
+                    name: "Announcements",
+                    description: "Important announcements.",
+                    iconImageURL: nil,
+                    headerImageURL: nil,
+                    sortIndex: nil,
+                    defaultNotificationState: .subscribed,
+                    notificationsRequired: true
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceKind: .local,
+                    sourceReference: sourceReference,
+                    ref: nil,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "test-event"
+                )
+            }
+            .execute(db)
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventSourcePatchRequest(eventID: eventID)
+            )
+        }
+
+        let change = try #require(patch.fileChanges.first)
+        #expect(patch.fileChanges.count == 1)
+        #expect(change.path == "events/test-event/channels/general.yml")
+        #expect(change.kind == .modified)
+        let newContents = try #require(change.newContents)
+        let newText = String(decoding: newContents, as: UTF8.self)
+        #expect(newText.contains("name: Announcements"))
+        #expect(newText.contains("description: Important announcements."))
+        #expect(newText.contains("defaultNotificationState: subscribed"))
+        #expect(newText.contains("notificationsRequired: true"))
+    }
+
+    @Test
     func calendarGeneratorUpdatesRootCalendarYamlFromDatabase() async throws {
         let fixture = try OpenMusicEventSourcePatchGenerationFixture()
         defer { fixture.cleanUp() }

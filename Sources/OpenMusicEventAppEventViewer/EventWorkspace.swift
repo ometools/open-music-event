@@ -2130,16 +2130,25 @@ struct TangledPullReviewDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
                 Button {
                     onMerge()
                 } label: {
                     Label(isMerging ? "Merging" : "Merge", systemImage: "arrow.triangle.merge")
-                        .labelStyle(.iconOnly)
+                        .frame(maxWidth: .infinity)
                 }
                 .disabled(isBusy)
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                Divider()
             }
+            .background(.background)
+        }
+        .toolbar {
             ToolbarItem(placement: .secondaryAction) {
                 Menu {
                     Button(

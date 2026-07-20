@@ -1,6 +1,7 @@
 import Dependencies
 import FileTree
 import Foundation
+import GRDB
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import SQLiteData
@@ -10,61 +11,15 @@ public extension OpenMusicEventSourcePatchConversion {
         Self { sourceEvent, request in
             @Dependency(\.defaultDatabase) var database
 
-            let (
-                event,
-                stages,
-                contributors,
-                posters,
-                schedules,
-                performances,
-                performanceContributors
-            ) = try await database.read { db in
-                let event = try OME.Event
-                    .where { $0.id.eq(request.eventID) }
-                    .fetchOne(db)
-                guard let event else {
+            let (sourceRecords, event) = try await database.read { db in
+                let sourceRecords = try OpenMusicEventSourceRecords(
+                    eventID: request.eventID,
+                    in: db
+                )
+                guard let event = sourceRecords.event else {
                     throw OpenMusicEventSourcePatchConversionError.eventNotFound(request.eventID)
                 }
-
-                let stages = try OME.Stage
-                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
-                    .where { $0.id.eventID.eq(request.eventID.eventID) }
-                    .fetchAll(db)
-
-                let contributors = try OME.Contributor
-                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
-                    .where { $0.id.eventID.eq(request.eventID.eventID) }
-                    .fetchAll(db)
-
-                let posters = try OME.Poster
-                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
-                    .where { $0.id.eventID.eq(request.eventID.eventID) }
-                    .fetchAll(db)
-
-                let schedules = try OME.Schedule
-                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
-                    .where { $0.id.eventID.eq(request.eventID.eventID) }
-                    .fetchAll(db)
-
-                let performances = try OME.Performance
-                    .where { $0.id.organizerID.eq(request.eventID.organizerID) }
-                    .where { $0.id.eventID.eq(request.eventID.eventID) }
-                    .fetchAll(db)
-
-                let performanceContributors = try OME.Performance.Contributors
-                    .where { $0.performanceID.organizerID.eq(request.eventID.organizerID) }
-                    .where { $0.performanceID.eventID.eq(request.eventID.eventID) }
-                    .fetchAll(db)
-
-                return (
-                    event,
-                    stages,
-                    contributors,
-                    posters,
-                    schedules,
-                    performances,
-                    performanceContributors
-                )
+                return (sourceRecords, event)
             }
 
             var sourceEvent = sourceEvent
@@ -82,22 +37,26 @@ public extension OpenMusicEventSourcePatchConversion {
                 )
             )
             sourceEvent.stages = try sourceEvent.sourceStageFiles(
-                from: stages,
+                from: sourceRecords.stages,
                 eventID: request.eventID
             )
             sourceEvent.contributors = try sourceEvent.sourceContributorFiles(
-                from: contributors,
+                from: sourceRecords.contributors,
                 eventID: request.eventID
             )
             sourceEvent.posters = try sourceEvent.sourcePosterFiles(
-                from: posters,
+                from: sourceRecords.posters,
+                eventID: request.eventID
+            )
+            sourceEvent.channels = try sourceEvent.sourceChannelFiles(
+                from: sourceRecords.channels,
                 eventID: request.eventID
             )
             let sourceSchedules = try sourceEvent.sourceScheduleRendering(
-                from: schedules,
-                contributors: contributors,
-                performances: performances,
-                performanceContributors: performanceContributors,
+                from: sourceRecords.schedules,
+                contributors: sourceRecords.contributors,
+                performances: sourceRecords.performances,
+                performanceContributors: sourceRecords.performanceContributors,
                 event: event,
                 sourceInlineSchedule: sourceInlineSchedule
             )
@@ -177,6 +136,89 @@ public enum OpenMusicEventSourcePatchConversionError: Equatable, Error, Sendable
 
 public enum OpenMusicEventCalendarSourcePatchConversionError: Equatable, Error, Sendable {
     case calendarNotFound(OME.Calendar.ID)
+}
+
+private struct OpenMusicEventSourceRecords {
+    var event: OME.Event?
+    var stages: [OME.Stage] = []
+    var contributors: [OME.Contributor] = []
+    var posters: [OME.Poster] = []
+    var schedules: [OME.Schedule] = []
+    var performances: [OME.Performance] = []
+    var channels: [OME.Channel] = []
+    var performanceContributors: [OME.Performance.Contributors] = []
+
+    init() {}
+
+    init(
+        eventID: OME.Event.ID,
+        in db: Database
+    ) throws {
+        var records = Self()
+
+        for projection in OME.sourceEventProjections {
+            switch projection.fileFamily {
+            case .event:
+                records.event = try OME.Event
+                    .where { $0.id.eq(eventID) }
+                    .fetchOne(db)
+
+            case .stage:
+                records.stages = try OME.Stage
+                    .where { $0.id.organizerID.eq(eventID.organizerID) }
+                    .where { $0.id.eventID.eq(eventID.eventID) }
+                    .fetchAll(db)
+
+            case .contributor:
+                records.contributors = try OME.Contributor
+                    .where { $0.id.organizerID.eq(eventID.organizerID) }
+                    .where { $0.id.eventID.eq(eventID.eventID) }
+                    .fetchAll(db)
+
+            case .schedule:
+                switch projection.recordType.descriptor.id {
+                case OME.Schedule.tableName:
+                    records.schedules = try OME.Schedule
+                        .where { $0.id.organizerID.eq(eventID.organizerID) }
+                        .where { $0.id.eventID.eq(eventID.eventID) }
+                        .fetchAll(db)
+
+                case OME.Performance.tableName:
+                    records.performances = try OME.Performance
+                        .where { $0.id.organizerID.eq(eventID.organizerID) }
+                        .where { $0.id.eventID.eq(eventID.eventID) }
+                        .fetchAll(db)
+
+                default:
+                    preconditionFailure(
+                        "Unhandled schedule source projection: \(projection.recordType.descriptor.id)"
+                    )
+                }
+
+            case .channel:
+                records.channels = try OME.Channel
+                    .where { $0.id.organizerID.eq(eventID.organizerID) }
+                    .where { $0.id.eventID.eq(eventID.eventID) }
+                    .fetchAll(db)
+
+            case .poster:
+                records.posters = try OME.Poster
+                    .where { $0.id.organizerID.eq(eventID.organizerID) }
+                    .where { $0.id.eventID.eq(eventID.eventID) }
+                    .fetchAll(db)
+
+            case .calendar:
+                break
+            }
+        }
+
+        records.performanceContributors = try OME.Performance.Contributors
+            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
+            .where { $0.performanceID.eventID.eq(eventID.eventID) }
+            .fetchAll(db)
+
+        self = records
+    }
 }
 
 private struct SourceScheduleRendering {
@@ -482,6 +524,51 @@ private extension OpenMusicEventSourceEvent {
                     data: ContributorDTO(
                         contributor.sourceDraft(preservingSourceID: nil)
                     )
+                )
+            )
+        }
+
+        return files.isEmpty ? nil : files
+    }
+
+    func sourceChannelFiles(
+        from channels: [OME.Channel],
+        eventID: OME.Event.ID
+    ) throws -> [FileContent<ChannelDTO>]? {
+        let channelsByID = Dictionary(
+            uniqueKeysWithValues: channels.map { ($0.id.channelID, $0) }
+        )
+        var consumedChannelIDs: Set<OME.ID<OME.Channel>> = []
+        var files: [FileContent<ChannelDTO>] = []
+
+        for file in self.channels ?? [] {
+            let channelID = file.sourceChannelID
+            guard let channel = channelsByID[channelID] else {
+                continue
+            }
+
+            consumedChannelIDs.insert(channelID)
+            files.append(
+                try file.map { sourceChannel in
+                    channel.sourceDraft(
+                        preservingSourceID: sourceChannel.id
+                    )
+                }
+            )
+        }
+
+        let additions = channels
+            .filter { !consumedChannelIDs.contains($0.id.channelID) }
+            .sorted { lhs, rhs in
+                lhs.id.channelID.rawValue.rawValue < rhs.id.channelID.rawValue.rawValue
+            }
+
+        for channel in additions {
+            files.append(
+                try FileContent(
+                    fileName: channel.id.channelID.rawValue.rawValue,
+                    fileType: "yml",
+                    data: channel.sourceDraft(preservingSourceID: nil)
                 )
             )
         }
@@ -853,6 +940,12 @@ private extension FileContent where Component == ContributorDTO {
     }
 }
 
+private extension FileContent where Component == ChannelDTO {
+    var sourceChannelID: OME.ID<OME.Channel> {
+        data.id?.channelID ?? OME.ID<OME.Channel>(.init(fileName))
+    }
+}
+
 private extension OME.Event {
     func sourceDraft(
         preservingSourceID id: OME.Event.ID?
@@ -1102,6 +1195,23 @@ private extension OME.Contributor {
             bio: bio,
             images: images,
             links: links
+        )
+    }
+}
+
+private extension OME.Channel {
+    func sourceDraft(
+        preservingSourceID id: OME.Channel.ID?
+    ) -> OME.Channel.Draft {
+        OME.Channel.Draft(
+            id: id,
+            name: name,
+            description: description,
+            iconImageURL: iconImageURL,
+            headerImageURL: headerImageURL,
+            sortIndex: sortIndex,
+            defaultNotificationState: defaultNotificationState,
+            notificationsRequired: notificationsRequired
         )
     }
 }

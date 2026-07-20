@@ -84,11 +84,15 @@ private func openMusicEventSourceFilePaths(
     eventDirectoriesByID: inout [OME.Event.ID: String],
     in db: Database
 ) throws -> [String] {
-    switch record.tableID {
-    case OME.Calendar.tableName:
+    guard let projection = OME.sourceProjectionsByTableID[record.tableID] else {
+        return []
+    }
+
+    switch projection.fileFamily {
+    case .calendar:
         return ["calendar.yml"]
 
-    case OME.Event.tableName:
+    case .event:
         guard let event = comparedRecord(
             for: record,
             as: OME.Event.self,
@@ -101,7 +105,7 @@ private func openMusicEventSourceFilePaths(
             in: db
         )
 
-    case OME.Stage.tableName:
+    case .stage:
         guard let stage = comparedRecord(
             for: record,
             as: OME.Stage.self,
@@ -117,7 +121,7 @@ private func openMusicEventSourceFilePaths(
             in: db
         )
 
-    case OME.Contributor.tableName:
+    case .contributor:
         guard let contributor = comparedRecord(
             for: record,
             as: OME.Contributor.self,
@@ -133,7 +137,7 @@ private func openMusicEventSourceFilePaths(
             in: db
         )
 
-    case OME.Poster.tableName:
+    case .poster:
         guard let poster = comparedRecord(
             for: record,
             as: OME.Poster.self,
@@ -149,7 +153,7 @@ private func openMusicEventSourceFilePaths(
             in: db
         )
 
-    case OME.Schedule.tableName:
+    case .schedule where record.tableID == OME.Schedule.tableName:
         guard let schedule = comparedRecord(
             for: record,
             as: OME.Schedule.self,
@@ -167,7 +171,7 @@ private func openMusicEventSourceFilePaths(
             in: db
         )
 
-    case OME.Performance.tableName:
+    case .schedule where record.tableID == OME.Performance.tableName:
         guard let performance = comparedRecord(
             for: record,
             as: OME.Performance.self,
@@ -187,7 +191,7 @@ private func openMusicEventSourceFilePaths(
             in: db
         )
 
-    case OME.Channel.tableName:
+    case .channel:
         guard let channel = comparedRecord(
             for: record,
             as: OME.Channel.self,
