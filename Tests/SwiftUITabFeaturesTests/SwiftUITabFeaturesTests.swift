@@ -4,6 +4,108 @@ import Testing
 @testable import SwiftUITabFeatures
 
 struct SwiftUITabFeaturesTests {
+    @Test
+    @MainActor
+    func `feature sections and tab bar policy are declared in the feature tree`() {
+        let features = TabFeatures<DemoTab> {
+            Section("Event") {
+                TabFeature(
+                    .schedule,
+                    title: "Schedule",
+                    systemImage: "calendar"
+                ) {
+                    EmptyView()
+                }
+
+                TabFeature(
+                    .settings,
+                    title: "Settings",
+                    systemImage: "gear"
+                ) {
+                    EmptyView()
+                }
+            }
+
+            TabFeature(
+                .about,
+                title: "About",
+                systemImage: "info.circle"
+            ) {
+                EmptyView()
+            }
+            .allowedOnTabBar(false)
+        }
+
+        let resolved = features.resolve(
+            layout: .init(),
+            policy: .init(maxVisibleTabs: 1)
+        )
+
+        #expect(features.tabFeatureMetadata.map(\.value) == [.schedule, .settings, .about])
+        #expect(resolved.visibleFeatures.map(\.value) == [.schedule])
+        #expect(resolved.overflowFeatures.map(\.value) == [.settings])
+
+        let moreContent = features.moreContent(
+            for: Set(resolved.overflowFeatures.map(\.id))
+        )
+        #expect(moreContent.flatMap(\.featureMetadata).map(\.value) == [.settings, .about])
+        guard case let .section(title, content) = moreContent[0] else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(title == "Event")
+        #expect(content.flatMap(\.featureMetadata).map(\.value) == [.settings])
+    }
+
+    @Test
+    @MainActor
+    func `More modifier accepts arbitrary views and icon toolbar content`() {
+        let view = TabFeaturesView(
+            selection: .constant(DemoTab.schedule),
+            layout: .constant(.init())
+        ) {
+            TabFeature(.schedule, title: "Schedule", systemImage: "calendar") {
+                EmptyView()
+            }
+        }
+        .more {
+            Section("More") {
+                Text("Arbitrary More content")
+            }
+        } toolbar: {
+            ToolbarItem(placement: .cancellationAction) {
+                Button {} label: {
+                    Label("Close", systemImage: "close")
+                        .labelStyle(.iconOnly)
+                }
+            }
+        }
+
+        _ = view
+    }
+
+    @Test func `More remembers its destination while visiting a tab bar tab`() {
+        var state = TabFeatureSelectionState(
+            selection: DemoTab.schedule,
+            overflowSelection: DemoTab.settings,
+            isMoreSelected: true
+        )
+
+        state.select(.feature(.about))
+
+        #expect(state.selection == .about)
+        #expect(state.overflowSelection == .settings)
+        #expect(state.isMoreSelected == false)
+        #expect(state.tabSelection(showsMore: true) == .feature(.about))
+
+        state.select(.more)
+
+        #expect(state.selection == .about)
+        #expect(state.overflowSelection == .settings)
+        #expect(state.isMoreSelected)
+        #expect(state.tabSelection(showsMore: true) == .more)
+    }
+
     @Test func `builder preserves declaration order`() {
         let features = TabFeatures<DemoTab> {
             TabFeature(
@@ -508,4 +610,5 @@ private struct DemoTab: TabFeatureValue {
     static let mainStage = Self(rawValue: "stage:main")
     static let schedule = Self(rawValue: "schedule")
     static let search = Self(rawValue: "search")
+    static let settings = Self(rawValue: "settings")
 }

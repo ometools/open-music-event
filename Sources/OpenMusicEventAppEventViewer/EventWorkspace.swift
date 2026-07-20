@@ -367,6 +367,7 @@ public struct EventWorkspace {
         @DebugSnapshotIgnored
         @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
         public var isPreparingSourceProposal = false
+        public var isRefreshingSource = false
         public var isResettingEdits = false
         public var resetEditsFailure: ResetEditsFailure?
         public var sourcePatchStatus: SourcePatchStatus = .notGenerated
@@ -884,15 +885,23 @@ public struct EventWorkspace {
                 }
 
             case .refreshSourceButtonTapped:
+                guard !state.isRefreshingSource else { return }
                 switch state.target {
                 case let .calendar(_, sourceBaselineID):
                     let sourceDataRefresh = sourceDataRefresh
+                    state.isRefreshingSource = true
                     store.addTask {
-                        let _: Void? = await store.withErrorHandling(
+                        let result: Void? = await store.withErrorHandling(
                             fallbackMessage: .sourceDataRefreshFailed,
                             operation: .sourceDataRefresh
                         ) {
                             try await sourceDataRefresh.refresh(sourceBaselineID)
+                        } cleanup: {
+                            $0.isRefreshingSource = false
+                        }
+                        guard result != nil else { return }
+                        try store.modify {
+                            $0.isRefreshingSource = false
                         }
                     }
 
@@ -914,13 +923,13 @@ public struct EventWorkspace {
 
             case .resetEditsButtonTapped:
                 guard !state.isResettingEdits else { return }
-                guard case let .event(eventID) = state.target else { return }
+                let target = state.target
                 let workspaceResetter = workspaceResetter
                 state.isResettingEdits = true
                 state.resetEditsFailure = nil
                 store.addTask {
                     do {
-                        try workspaceResetter.reset(eventID)
+                        try workspaceResetter.resetSourceChanges(target)
                         try store.send(.resetEditsResponse(.success(ResetEditsSuccess())))
                     } catch {
                         try store.send(
@@ -1117,7 +1126,9 @@ public typealias SourceWorkspaceView = EventWorkspaceView
 
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var selectedTab: EventWorkspaceTab
+    @State var isResetConfirmationPresented = false
 
     public init(store: StoreOf<EventWorkspace>) {
         self.store = store
@@ -1126,11 +1137,15 @@ public struct EventWorkspaceView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            workspaceContextHeader
-            workspaceTabPicker
             workspaceTabContent
         }
         .navigationTitle(navigationTitle)
+        #if !os(macOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .safeAreaInset(edge: .top, spacing: 0) {
+            workspaceTopBarExtension
+        }
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
         .sheet(item: $store.scope(\.sourceProposal, action: \.sourceProposal)) { proposalStore in
             SourceProposalComposerView(store: proposalStore)
@@ -1142,8 +1157,20 @@ public struct EventWorkspaceView: View {
         }
         .toolbar {
             if store.canCreateEvent {
-                Button("Create Event", systemImage: "plus") {
-                    store.send(.createEventButtonTapped)
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        store.send(.createEventButtonTapped)
+                    } label: {
+                        Label("Create Event", systemImage: "plus")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+            }
+            if selectedTab == .review, store.sourceBaselineID != nil {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button("Refresh Source", systemImage: "arrow.clockwise") {
+                        store.send(.refreshSourceButtonTapped)
+                    }
                 }
             }
         }
@@ -1164,7 +1191,7 @@ public struct EventWorkspaceView: View {
     }
 
     @ViewBuilder
-    private var workspaceTopBarExtension: some View {
+    var workspaceTopBarExtension: some View {
         VStack(spacing: 0) {
             workspaceContextHeader
             workspaceTabPicker
@@ -1174,7 +1201,16 @@ public struct EventWorkspaceView: View {
                store.canReviewSourceProposal
             {
                 HStack(spacing: 12) {
-                    Button("Propose changes", systemImage: "paperplane") {
+                    Label(
+                        "Updates ready to propose",
+                        systemImage: "square.and.pencil"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                    Spacer(minLength: 8)
+
+                    Button(store.sourcePatchStatus.proposeButtonTitle, systemImage: "paperplane") {
                         store.send(.proposeChangeButtonTapped)
                     }
                     .disabled(!store.canProposeLocalChanges)
@@ -1218,7 +1254,7 @@ public struct EventWorkspaceView: View {
                 }
             }
 
-            if let sourceContext = store.sourceContext {
+            if showsTechnicalDetails, let sourceContext = store.sourceContext {
                 WorkspaceActorIdentityView(
                     label: "Workspace owner",
                     identity: store.workspaceOwnerIdentity,
@@ -1264,15 +1300,47 @@ public struct EventWorkspaceView: View {
                 let count = store.sourceWorkspaceSummary.outOfTargetCount
                 Text(
                     count == 1
-                    ? "1 change is outside this event."
-                    : "\(count) changes are outside this event."
+                        ? "1 change is outside this event."
+                        : "\(count) changes are outside this event."
                 )
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                if showsTechnicalDetails, let sourceContext = store.sourceContext {
+                    DisclosureGroup("Technical details") {
+                        WorkspaceTechnicalValueView(
+                            label: "Source address",
+                            value: sourceContext.sourceReference
+                        )
+                        WorkspaceTechnicalValueView(
+                            label: "Provider",
+                            value: sourceContext.sourceKind.rawValue
+                        )
+                        WorkspaceTechnicalValueView(
+                            label: "Branch or ref",
+                            value: sourceContext.sourceRefTitle
+                        )
+
+                        if selectedTab == .propose,
+                           case let .generated(patch) = store.sourcePatchStatus,
+                           !patch.isEmpty
+                        {
+                            Text("Files changed")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.top, 4)
+
+                            ForEach(patch.fileChanges) { change in
+                                SourcePatchFileChangeRow(change: change)
+                            }
+                        }
+                    }
+                    .font(.caption)
+                }
             }
         }
         .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
     }
 
     private var workspaceTabPicker: some View {
@@ -1283,7 +1351,7 @@ public struct EventWorkspaceView: View {
         }
         .pickerStyle(.segmented)
         .padding(.horizontal)
-        .padding(.bottom, 8)
+        .padding(.bottom, 6)
     }
 
     private var navigationTitle: Text {
@@ -1337,23 +1405,51 @@ public struct EventWorkspaceView: View {
 
     @ViewBuilder
     private var changesActionSection: some View {
-        Section {
+        Section("Your changes") {
+            HStack(alignment: .firstTextBaseline) {
+                Label(
+                    store.sourceWorkspaceSummary.totalCount == 0
+                        ? "No updates to propose"
+                        : "\(store.sourceWorkspaceSummary.totalCount) updates to propose",
+                    systemImage: store.sourceWorkspaceSummary.totalCount == 0
+                        ? "checkmark.circle"
+                        : "square.and.pencil"
+                )
+                .font(.headline)
+
+                Spacer(minLength: 12)
+            }
+
             if store.sourceWorkspaceSummary.totalCount == 0 {
-                Text("No changes yet")
+                Text("There are no updates to propose yet.")
                     .foregroundStyle(.secondary)
             } else if store.canReviewSourceProposal {
-                Button(store.sourcePatchStatus.proposeButtonTitle) {
-                    store.send(.proposeChangeButtonTapped)
+                if store.isPreparingSourceProposal {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Preparing proposal")
+                    }
+                    .foregroundStyle(.secondary)
                 }
-                .disabled(!store.canProposeLocalChanges)
 
                 SourceProposalStatusView(status: store.sourceProposalStatus)
                 if store.sourcePatchStatus.requiresAttentionInChanges {
                     SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
                 }
             } else {
-                Text("Open a shared workspace to send changes for review.")
+                Text("This workspace isn't ready to propose updates.")
                     .foregroundStyle(.secondary)
+            }
+
+            if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
+                let count = store.sourceWorkspaceSummary.outOfTargetCount
+                Text(
+                    count == 1
+                        ? "1 change is for another event and won’t be included."
+                        : "\(count) changes are for another event and won’t be included."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
     }
@@ -1362,12 +1458,6 @@ public struct EventWorkspaceView: View {
     private var semanticDiffSections: some View {
 
         SourceChangeSummarySection(groups: store.sourceWorkspaceSummary.groups)
-        ForEach(store.sourceWorkspaceSummary.groups.filter { !$0.records.isEmpty }) { group in
-            SourceChangeGroupSections(
-                group: group,
-                recordComparisons: store.sourceWorkspaceSummary.recordComparisons
-            )
-        }
     }
 
     @ViewBuilder
@@ -1379,9 +1469,16 @@ public struct EventWorkspaceView: View {
                 Button {
                     store.send(.refreshSourceButtonTapped)
                 } label: {
-                    Label("Refresh Source", systemImage: "arrow.clockwise")
+                    if store.isRefreshingSource {
+                        HStack {
+                            ProgressView()
+                            Text("Refreshing Source")
+                        }
+                    } else {
+                        Label("Refresh Source", systemImage: "arrow.clockwise")
+                    }
                 }
-                .disabled(store.sourceBaselineID == nil)
+                .disabled(store.sourceBaselineID == nil || store.isRefreshingSource)
             } else {
                 Text("Open a shared workspace to review changes.")
                     .foregroundStyle(.secondary)
@@ -1439,10 +1536,12 @@ public struct EventWorkspaceView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Label("Reviews could not be loaded", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
-                        Text(failure.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                        if showsTechnicalDetails {
+                            Text(failure.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                     }
 
                 case let .loaded(reviews):
@@ -1573,7 +1672,7 @@ public struct EventWorkspaceView: View {
                     }
                 } else {
                     Button(role: .destructive) {
-                        store.send(.resetEditsButtonTapped)
+                        isResetConfirmationPresented = true
                     } label: {
                         Label("Reset Edits", systemImage: "arrow.counterclockwise")
                     }
@@ -1583,10 +1682,12 @@ public struct EventWorkspaceView: View {
                 if let failure = store.resetEditsFailure {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Edits could not be reset")
-                        Text(failure.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                        if showsTechnicalDetails {
+                            Text(failure.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                     }
                 }
             }
@@ -1684,6 +1785,7 @@ struct TangledPullReviewRow: View {
     var closeFailure: EventWorkspace.TangledPullReviewCloseFailure?
     var deleteFailure: EventWorkspace.TangledPullReviewDeleteFailure?
     var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1746,10 +1848,12 @@ struct TangledPullReviewRow: View {
                     Text("Review could not be closed")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                    Text(closeFailure.message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    if showsTechnicalDetails {
+                        Text(closeFailure.message)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
 
@@ -1758,10 +1862,12 @@ struct TangledPullReviewRow: View {
                     Text("Changes could not be applied")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                    Text(mergeFailure.message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    if showsTechnicalDetails {
+                        Text(mergeFailure.message)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
 
@@ -1770,10 +1876,12 @@ struct TangledPullReviewRow: View {
                     Text("Review could not be deleted")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                    Text(deleteFailure.message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    if showsTechnicalDetails {
+                        Text(deleteFailure.message)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
         }
@@ -1838,6 +1946,7 @@ struct TangledPullReviewDetailView: View {
     var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
     let onLoadSemanticDiff: () -> Void
     let onMerge: () -> Void
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         List {
@@ -1866,10 +1975,12 @@ struct TangledPullReviewDetailView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Changes could not be applied")
                             .foregroundStyle(.orange)
-                        Text(mergeFailure.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                        if showsTechnicalDetails {
+                            Text(mergeFailure.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                     }
                 }
             }
@@ -1883,75 +1994,79 @@ struct TangledPullReviewDetailView: View {
 
             reviewSemanticDiffSections
 
-            Section("Technical details") {
-                WorkspaceTechnicalValueView(
-                    label: "Review URI",
-                    value: review.uri
-                )
-                WorkspaceTechnicalValueView(
-                    label: "Author ID",
-                    value: review.author
-                )
-                WorkspaceTechnicalValueView(
-                    label: "Created at",
-                    value: review.createdAt
-                )
-                WorkspaceTechnicalValueView(
-                    label: "Target branch",
-                    value: review.targetBranch
-                )
-                WorkspaceTechnicalValueView(
-                    label: "Target repository ID",
-                    value: review.targetRepositoryDID
-                )
-                if let sourceBranch = review.sourceBranch {
-                    WorkspaceTechnicalValueView(
-                        label: "Source branch",
-                        value: sourceBranch
-                    )
-                }
-                if let sourceRepositoryDID = review.sourceRepositoryDID {
-                    WorkspaceTechnicalValueView(
-                        label: "Source repository ID",
-                        value: sourceRepositoryDID
-                    )
-                }
-
-                DisclosureGroup("Patch metadata") {
-                    if review.patchBlobs.isEmpty {
-                        Text("No patch metadata")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(review.patchBlobs) { patchBlob in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Round \(patchBlob.index)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                WorkspaceTechnicalValueView(
-                                    label: "Blob ID",
-                                    value: patchBlob.cid
-                                )
-                                WorkspaceTechnicalValueView(
-                                    label: "Media type",
-                                    value: patchBlob.mimeType
-                                )
-                                if let size = patchBlob.size {
-                                    WorkspaceTechnicalValueView(
-                                        label: "Size",
-                                        value: "\(size) bytes"
-                                    )
-                                }
-                            }
-                            .padding(.vertical, 2)
+            if showsTechnicalDetails {
+                Section {
+                    DisclosureGroup("Technical details") {
+                        WorkspaceTechnicalValueView(
+                            label: "Review URI",
+                            value: review.uri
+                        )
+                        WorkspaceTechnicalValueView(
+                            label: "Author ID",
+                            value: review.author
+                        )
+                        WorkspaceTechnicalValueView(
+                            label: "Created at",
+                            value: review.createdAt
+                        )
+                        WorkspaceTechnicalValueView(
+                            label: "Target branch",
+                            value: review.targetBranch
+                        )
+                        WorkspaceTechnicalValueView(
+                            label: "Target repository ID",
+                            value: review.targetRepositoryDID
+                        )
+                        if let sourceBranch = review.sourceBranch {
+                            WorkspaceTechnicalValueView(
+                                label: "Source branch",
+                                value: sourceBranch
+                            )
+                        }
+                        if let sourceRepositoryDID = review.sourceRepositoryDID {
+                            WorkspaceTechnicalValueView(
+                                label: "Source repository ID",
+                                value: sourceRepositoryDID
+                            )
                         }
                     }
-                }
 
-                DisclosureGroup("Raw review") {
-                    Text(review.rawReviewText)
-                        .font(.caption)
-                        .monospaced()
-                        .textSelection(.enabled)
+                    DisclosureGroup("Patch metadata") {
+                        if review.patchBlobs.isEmpty {
+                            Text("No patch metadata")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(review.patchBlobs) { patchBlob in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Round \(patchBlob.index)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    WorkspaceTechnicalValueView(
+                                        label: "Blob ID",
+                                        value: patchBlob.cid
+                                    )
+                                    WorkspaceTechnicalValueView(
+                                        label: "Media type",
+                                        value: patchBlob.mimeType
+                                    )
+                                    if let size = patchBlob.size {
+                                        WorkspaceTechnicalValueView(
+                                            label: "Size",
+                                            value: "\(size) bytes"
+                                        )
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
+                        }
+                    }
+
+                    DisclosureGroup("Raw review") {
+                        Text(review.rawReviewText)
+                            .font(.caption)
+                            .monospaced()
+                            .textSelection(.enabled)
+                    }
                 }
             }
 
@@ -1966,7 +2081,8 @@ struct TangledPullReviewDetailView: View {
                 Button {
                     onMerge()
                 } label: {
-                    Text(isMerging ? "Applying" : "Approve changes")
+                    Label(isMerging ? "Merging" : "Merge", systemImage: "arrow.triangle.merge")
+                        .labelStyle(.iconOnly)
                 }
                 .disabled(isBusy)
             }
@@ -1983,10 +2099,12 @@ struct TangledPullReviewDetailView: View {
             Section("What changed") {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Review changes could not be loaded")
-                    Text(failure.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    if showsTechnicalDetails {
+                        Text(failure.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
 
                 Button("Try Again") {
@@ -2318,6 +2436,7 @@ struct SourceIndicatorView: View {
 public struct SourcePatchStatusView: View {
     let status: EventWorkspace.SourcePatchStatus
     let mode: SourceChangesReviewMode
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(
         status: EventWorkspace.SourcePatchStatus,
@@ -2331,11 +2450,17 @@ public struct SourcePatchStatusView: View {
         switch status {
         case let .failed(failure):
             VStack(alignment: .leading, spacing: 4) {
-                Text("Changes could not be checked")
-                Text(failure.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                Text(
+                    mode == .proposal
+                        ? "Couldn’t prepare this proposal"
+                        : "Changes could not be checked"
+                )
+                if showsTechnicalDetails {
+                    Text(failure.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
             }
 
         case let .generated(patch):
@@ -2370,6 +2495,7 @@ public struct SourcePatchStatusView: View {
 
 public struct SourceProposalStatusView: View {
     let status: EventWorkspace.SourceProposalStatus
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(status: EventWorkspace.SourceProposalStatus) {
         self.status = status
@@ -2393,7 +2519,7 @@ public struct SourceProposalStatusView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Label("Changes couldn't be sent", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
-                DisclosureGroup("Details") {
+                if showsTechnicalDetails {
                     Text(failure.message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -2412,6 +2538,7 @@ public struct SourceProposalStatusView: View {
 
 public struct SourceProposalComposerView: View {
     @Bindable var store: StoreOf<SourceProposalFlow>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(store: StoreOf<SourceProposalFlow>) {
         self.store = store
@@ -2445,10 +2572,12 @@ public struct SourceProposalComposerView: View {
                     recordComparisons: store.sourceRecordComparisons
                 )
 
-                Section {
-                    DisclosureGroup("Advanced") {
-                        ForEach(store.patch.fileChanges) { change in
-                            SourcePatchFileChangeRow(change: change)
+                if showsTechnicalDetails {
+                    Section {
+                        DisclosureGroup("Advanced") {
+                            ForEach(store.patch.fileChanges) { change in
+                                SourcePatchFileChangeRow(change: change)
+                            }
                         }
                     }
                 }
@@ -2457,8 +2586,11 @@ public struct SourceProposalComposerView: View {
             .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
+                    Button {
                         store.send(.doneButtonTapped)
+                    } label: {
+                        Label("Done", systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
                     }
                     .disabled(store.status.isProposing)
                 }
@@ -2565,11 +2697,13 @@ public struct SourceProposalSummarySections: View {
 
     public var body: some View {
         if groups.contains(where: { !$0.records.isEmpty }) {
-            ForEach(groups.filter { !$0.records.isEmpty }) { group in
-                SourceChangeGroupSections(
-                    group: group,
-                    recordComparisons: recordComparisons
-                )
+            Section("What will change") {
+                ForEach(groups.filter { !$0.records.isEmpty }) { group in
+                    SourceChangeGroupDisclosure(
+                        group: group,
+                        recordComparisons: recordComparisons
+                    )
+                }
             }
         } else {
             Section {
@@ -2586,20 +2720,68 @@ struct SourceChangeSummarySection: View {
     var body: some View {
         Section("What changed") {
             ForEach(groups.filter { $0.totalCount > 0 }) { group in
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(group.displayName)
-                        Text(group.totalCount, format: .number)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    SourceChangeCountBadges(group: group)
-                }
+                SourceChangeGroupDisclosure(group: group)
             }
         }
+    }
+}
+
+struct SourceChangeGroupDisclosure: View {
+    let group: SourceChangeGroup
+    let recordComparisons: SourceRecordComparisons
+
+    init(
+        group: SourceChangeGroup,
+        recordComparisons: SourceRecordComparisons = .empty
+    ) {
+        self.group = group
+        self.recordComparisons = recordComparisons
+    }
+
+    var body: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(kinds, id: \.self) { kind in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(kind.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(records(for: kind)) { record in
+                            SourceRecordChangeRow(
+                                group: group,
+                                record: record,
+                                comparison: recordComparisons[record]
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.displayName)
+                    Text(group.totalCount, format: .number)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                SourceChangeCountBadges(group: group)
+            }
+        }
+    }
+
+    private var kinds: [SourceRecordChangeKind] {
+        SourceRecordChangeKind.allCases.filter { kind in
+            group.records.contains { $0.kind == kind }
+        }
+    }
+
+    private func records(for kind: SourceRecordChangeKind) -> [SourceRecordChange] {
+        group.records.filter { $0.kind == kind }
     }
 }
 
@@ -2870,8 +3052,7 @@ private extension EventWorkspace.State {
     }
 
     var canResetEdits: Bool {
-        guard case .event = target,
-              !isResettingEdits,
+        guard !isResettingEdits,
               sourceWorkspaceSummary.totalCount > 0,
               case .available = sourceWorkspaceSummary.availability
         else { return false }
@@ -3532,6 +3713,7 @@ struct OpenMusicEventSourceChangeRowStyle: SourceChangeRowStyle {
 
 struct DefaultSourceRecordChangeRow: View {
     let record: SourceRecordChange
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -3539,20 +3721,24 @@ struct DefaultSourceRecordChangeRow: View {
                 Text(record.kind.title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(record.primaryKeySummary)
-                    .font(.caption)
-                    .monospaced()
-                    .foregroundStyle(.secondary)
+                if showsTechnicalDetails {
+                    Text(record.primaryKeySummary)
+                        .font(.caption)
+                        .monospaced()
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            if let recordDiff = record.recordDiff, !recordDiff.isEmpty {
-                Text(recordDiff)
-                    .font(.caption)
-                    .monospaced()
-                    .textSelection(.enabled)
-            } else {
-                ForEach(record.fieldChanges) { change in
-                    SourceFieldChangeRow(change: change)
+            if showsTechnicalDetails {
+                if let recordDiff = record.recordDiff, !recordDiff.isEmpty {
+                    Text(recordDiff)
+                        .font(.caption)
+                        .monospaced()
+                        .textSelection(.enabled)
+                } else {
+                    ForEach(record.fieldChanges) { change in
+                        SourceFieldChangeRow(change: change)
+                    }
                 }
             }
         }
@@ -3562,6 +3748,7 @@ struct DefaultSourceRecordChangeRow: View {
 
 struct SourceEventChangeRow: View {
     let comparison: SourceRecordComparison<OME.Event>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         SourceTypedRecordChangeRow(
@@ -3598,7 +3785,12 @@ struct SourceEventChangeRow: View {
                 .init(title: "Contact Numbers", columnName: "contactNumbers", optionalKeyPath: \.contactNumbers) {
                     $0.sourceChangeCountValue(singular: "contact number", plural: "contact numbers")
                 },
-                .init(title: "Owner", columnName: "owner", optionalKeyPath: \.owner) {
+                .init(
+                    title: "Owner",
+                    columnName: "owner",
+                    optionalKeyPath: \.owner,
+                    isTechnical: true
+                ) {
                     $0.description
                 },
             ]
@@ -3606,12 +3798,18 @@ struct SourceEventChangeRow: View {
     }
 
     private var title: String {
-        comparison.right?.name ?? comparison.left?.name ?? comparison.change.primaryKeySummary
+        comparison.right?.name
+            ?? comparison.left?.name
+            ?? comparison.change.titleFallback(
+                "Event",
+                showsTechnicalDetails: showsTechnicalDetails
+            )
     }
 }
 
 struct SourceCalendarChangeRow: View {
     let comparison: SourceRecordComparison<OME.Calendar>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         SourceTypedRecordChangeRow(
@@ -3629,12 +3827,18 @@ struct SourceCalendarChangeRow: View {
     }
 
     private var title: String {
-        comparison.right?.name ?? comparison.left?.name ?? comparison.change.primaryKeySummary
+        comparison.right?.name
+            ?? comparison.left?.name
+            ?? comparison.change.titleFallback(
+                "Calendar",
+                showsTechnicalDetails: showsTechnicalDetails
+            )
     }
 }
 
 struct SourceStageChangeRow: View {
     let comparison: SourceRecordComparison<OME.Stage>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         SourceTypedRecordChangeRow(
@@ -3665,12 +3869,18 @@ struct SourceStageChangeRow: View {
     }
 
     private var title: String {
-        comparison.right?.name ?? comparison.left?.name ?? comparison.change.primaryKeySummary
+        comparison.right?.name
+            ?? comparison.left?.name
+            ?? comparison.change.titleFallback(
+                "Stage",
+                showsTechnicalDetails: showsTechnicalDetails
+            )
     }
 }
 
 struct SourceScheduleChangeRow: View {
     let comparison: SourceRecordComparison<OME.Schedule>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         SourceTypedRecordChangeRow(
@@ -3697,12 +3907,16 @@ struct SourceScheduleChangeRow: View {
             ?? comparison.left?.customTitle
             ?? comparison.right?.date.sourceChangeDisplayValue
             ?? comparison.left?.date.sourceChangeDisplayValue
-            ?? comparison.change.primaryKeySummary
+            ?? comparison.change.titleFallback(
+                "Schedule",
+                showsTechnicalDetails: showsTechnicalDetails
+            )
     }
 }
 
 struct SourcePerformanceChangeRow: View {
     let comparison: SourceRecordComparison<OME.Performance>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -3823,7 +4037,12 @@ struct SourcePerformanceChangeRow: View {
     }
 
     private var title: String {
-        comparison.right?.title ?? comparison.left?.title ?? comparison.change.primaryKeySummary
+        comparison.right?.title
+            ?? comparison.left?.title
+            ?? comparison.change.titleFallback(
+                "Performance",
+                showsTechnicalDetails: showsTechnicalDetails
+            )
     }
 }
 
@@ -3834,6 +4053,7 @@ struct SourceContributorChangeRow: View {
     }
 
     let content: Content
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -3892,12 +4112,14 @@ struct SourceContributorChangeRow: View {
             comparison: comparison,
             keyPath: \.name
         )
-        SourceComparisonValueRow(
-            title: "DID",
-            comparison: comparison,
-            optionalKeyPath: \.did
-        ) {
-            $0.description
+        if showsTechnicalDetails {
+            SourceComparisonValueRow(
+                title: "DID",
+                comparison: comparison,
+                optionalKeyPath: \.did
+            ) {
+                $0.description
+            }
         }
         SourceComparisonValueRow(
             title: "Bio",
@@ -3931,13 +4153,15 @@ struct SourceContributorChangeRow: View {
             side: side,
             keyPath: \.name
         )
-        SourceRecordValueRow(
-            title: "DID",
-            comparison: comparison,
-            side: side,
-            optionalKeyPath: \.did
-        ) {
-            $0.description
+        if showsTechnicalDetails {
+            SourceRecordValueRow(
+                title: "DID",
+                comparison: comparison,
+                side: side,
+                optionalKeyPath: \.did
+            ) {
+                $0.description
+            }
         }
         SourceRecordValueRow(
             title: "Bio",
@@ -3972,12 +4196,14 @@ struct SourceContributorChangeRow: View {
         ) {
             $0.sourcePlainStringDisplayValue
         }
-        SourceDatabaseFieldComparisonRow(
-            title: "DID",
-            record: record,
-            columnName: "did"
-        ) {
-            $0.sourcePlainStringDisplayValue
+        if showsTechnicalDetails {
+            SourceDatabaseFieldComparisonRow(
+                title: "DID",
+                record: record,
+                columnName: "did"
+            ) {
+                $0.sourcePlainStringDisplayValue
+            }
         }
         SourceDatabaseFieldComparisonRow(
             title: "Bio",
@@ -4001,8 +4227,10 @@ struct SourceContributorChangeRow: View {
             $0.sourceArrayCountDisplayValue(singular: "link", plural: "links")
         }
 
-        ForEach(undisplayedFieldChanges(in: record)) { change in
-            SourceFieldChangeRow(change: change)
+        if showsTechnicalDetails {
+            ForEach(undisplayedFieldChanges(in: record)) { change in
+                SourceFieldChangeRow(change: change)
+            }
         }
     }
 
@@ -4019,13 +4247,15 @@ struct SourceContributorChangeRow: View {
         ) {
             $0.sourcePlainStringDisplayValue
         }
-        SourceDatabaseFieldValueRow(
-            title: "DID",
-            record: record,
-            columnName: "did",
-            side: side
-        ) {
-            $0.sourcePlainStringDisplayValue
+        if showsTechnicalDetails {
+            SourceDatabaseFieldValueRow(
+                title: "DID",
+                record: record,
+                columnName: "did",
+                side: side
+            ) {
+                $0.sourcePlainStringDisplayValue
+            }
         }
         SourceDatabaseFieldValueRow(
             title: "Bio",
@@ -4052,12 +4282,14 @@ struct SourceContributorChangeRow: View {
             $0.sourceArrayCountDisplayValue(singular: "link", plural: "links")
         }
 
-        ForEach(undisplayedFieldChanges(in: record)) { change in
-            SourceDatabaseFieldValueRow(
-                title: change.columnName,
-                change: change,
-                side: side
-            )
+        if showsTechnicalDetails {
+            ForEach(undisplayedFieldChanges(in: record)) { change in
+                SourceDatabaseFieldValueRow(
+                    title: change.columnName,
+                    change: change,
+                    side: side
+                )
+            }
         }
     }
 
@@ -4073,10 +4305,16 @@ struct SourceContributorChangeRow: View {
     private var title: String {
         switch content {
         case let .comparison(comparison):
-            comparison.right?.name ?? comparison.left?.name ?? comparison.change.contributorTitleFallback
+            comparison.right?.name
+                ?? comparison.left?.name
+                ?? comparison.change.contributorTitleFallback(
+                    showsTechnicalDetails: showsTechnicalDetails
+                )
         case let .record(record):
             record.fieldChange(named: "name")?.displayValue
-                ?? record.contributorTitleFallback
+                ?? record.contributorTitleFallback(
+                    showsTechnicalDetails: showsTechnicalDetails
+                )
         }
     }
 
@@ -4097,6 +4335,7 @@ struct SourceContributorChangeRow: View {
 
 struct SourceChannelChangeRow: View {
     let comparison: SourceRecordComparison<OME.Channel>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         SourceTypedRecordChangeRow(
@@ -4134,12 +4373,18 @@ struct SourceChannelChangeRow: View {
     }
 
     private var title: String {
-        comparison.right?.name ?? comparison.left?.name ?? comparison.change.primaryKeySummary
+        comparison.right?.name
+            ?? comparison.left?.name
+            ?? comparison.change.titleFallback(
+                "Channel",
+                showsTechnicalDetails: showsTechnicalDetails
+            )
     }
 }
 
 struct SourcePosterChangeRow: View {
     let comparison: SourceRecordComparison<OME.Poster>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         SourceTypedRecordChangeRow(
@@ -4156,7 +4401,12 @@ struct SourcePosterChangeRow: View {
     }
 
     private var title: String {
-        comparison.right?.title ?? comparison.left?.title ?? comparison.change.primaryKeySummary
+        comparison.right?.title
+            ?? comparison.left?.title
+            ?? comparison.change.titleFallback(
+                "Poster",
+                showsTechnicalDetails: showsTechnicalDetails
+            )
     }
 }
 
@@ -4210,6 +4460,7 @@ struct SourceRecordField<Record: Sendable>: Identifiable {
 
     var title: String
     var columnName: String
+    var isTechnical: Bool
     var isChanged: (SourceRecordComparison<Record>) -> Bool
     var displayValue: (SourceRecordComparison<Record>, SourceRecordValueSide) -> String?
 
@@ -4217,10 +4468,12 @@ struct SourceRecordField<Record: Sendable>: Identifiable {
         title: String,
         columnName: String,
         keyPath: KeyPath<Record, Value>,
+        isTechnical: Bool = false,
         valueTitle: @escaping (Value) -> String = { String(describing: $0) }
     ) {
         self.title = title
         self.columnName = columnName
+        self.isTechnical = isTechnical
         self.isChanged = { comparison in
             comparison.left.map { $0[keyPath: keyPath] }
                 != comparison.right.map { $0[keyPath: keyPath] }
@@ -4234,10 +4487,12 @@ struct SourceRecordField<Record: Sendable>: Identifiable {
         title: String,
         columnName: String,
         optionalKeyPath: KeyPath<Record, Value?>,
+        isTechnical: Bool = false,
         valueTitle: @escaping (Value) -> String = { String(describing: $0) }
     ) {
         self.title = title
         self.columnName = columnName
+        self.isTechnical = isTechnical
         self.isChanged = { comparison in
             comparison.left.flatMap { $0[keyPath: optionalKeyPath] }
                 != comparison.right.flatMap { $0[keyPath: optionalKeyPath] }
@@ -4251,6 +4506,7 @@ struct SourceRecordField<Record: Sendable>: Identifiable {
 struct SourceRecordFieldRows<Record: Sendable>: View {
     let comparison: SourceRecordComparison<Record>
     let fields: [SourceRecordField<Record>]
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -4267,7 +4523,7 @@ struct SourceRecordFieldRows<Record: Sendable>: View {
 
     @ViewBuilder
     private var comparisonRows: some View {
-        ForEach(fields) { field in
+        ForEach(visibleFields) { field in
             if field.isChanged(comparison) {
                 SourceComparisonDisplayRow(
                     title: field.title,
@@ -4277,14 +4533,16 @@ struct SourceRecordFieldRows<Record: Sendable>: View {
             }
         }
 
-        ForEach(undisplayedFieldChanges) { change in
-            SourceFieldChangeRow(change: change)
+        if showsTechnicalDetails {
+            ForEach(undisplayedFieldChanges) { change in
+                SourceFieldChangeRow(change: change)
+            }
         }
     }
 
     @ViewBuilder
     private func valueRows(side: SourceRecordValueSide) -> some View {
-        ForEach(fields) { field in
+        ForEach(visibleFields) { field in
             if let value = field.displayValue(comparison, side) {
                 SourceRecordDisplayValueRow(
                     title: field.title,
@@ -4294,13 +4552,19 @@ struct SourceRecordFieldRows<Record: Sendable>: View {
             }
         }
 
-        ForEach(undisplayedFieldChanges) { change in
-            SourceDatabaseFieldValueRow(
-                title: change.columnName,
-                change: change,
-                side: side
-            )
+        if showsTechnicalDetails {
+            ForEach(undisplayedFieldChanges) { change in
+                SourceDatabaseFieldValueRow(
+                    title: change.columnName,
+                    change: change,
+                    side: side
+                )
+            }
         }
+    }
+
+    private var visibleFields: [SourceRecordField<Record>] {
+        fields.filter { showsTechnicalDetails || !$0.isTechnical }
     }
 
     private var undisplayedFieldChanges: [SourceFieldChange] {
@@ -4685,8 +4949,16 @@ private extension SourceRecordChange {
             .joined(separator: ", ")
     }
 
-    var contributorTitleFallback: String {
-        primaryKeyValue(named: "contributorID")?.sourcePlainStringDisplayValue
+    func titleFallback(
+        _ genericTitle: String,
+        showsTechnicalDetails: Bool
+    ) -> String {
+        showsTechnicalDetails ? primaryKeySummary : genericTitle
+    }
+
+    func contributorTitleFallback(showsTechnicalDetails: Bool) -> String {
+        guard showsTechnicalDetails else { return "Contributor" }
+        return primaryKeyValue(named: "contributorID")?.sourcePlainStringDisplayValue
             ?? primaryKeySummary
     }
 
@@ -4957,22 +5229,28 @@ private extension String {
 
 struct SourceChangeUnavailableView: View {
     let reason: SourceChangeSummary.UnavailableReason
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         switch reason {
         case let .schemaMismatch(mismatches):
             List {
                 Section {
-                    Label("Schema Mismatch", systemImage: "exclamationmark.triangle")
+                    Label(
+                        showsTechnicalDetails ? "Schema Mismatch" : "Changes unavailable",
+                        systemImage: "exclamationmark.triangle"
+                    )
                 }
 
-                Section("Missing Columns") {
-                    ForEach(mismatches) { mismatch in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(mismatch.tableName)
-                            Text(mismatch.missingColumnNames.joined(separator: ", "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                if showsTechnicalDetails {
+                    Section("Missing Columns") {
+                        ForEach(mismatches) { mismatch in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(mismatch.tableName)
+                                Text(mismatch.missingColumnNames.joined(separator: ", "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }

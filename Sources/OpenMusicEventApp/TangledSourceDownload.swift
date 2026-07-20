@@ -61,6 +61,16 @@ public extension TangledSourceImportClient {
             if request.outputURL == nil,
                let sourceProvenance = try request.tangledSourceProvenance() {
                 @Dependency(\.uuid) var uuid
+                let storedRepositoryURL = try sourceRepositoryStorage.repositoryURL(sourceProvenance)
+                if Self.isGitRepository(storedRepositoryURL) {
+                    request.outputURL = storedRepositoryURL
+                    var result = try await OpenMusicEventSourceValidator(request)
+                        .validate()
+                    result.repositoryURL = storedRepositoryURL
+                    try await result.insertion.migrateAndInsert(into: database)
+                    return result
+                }
+
                 let temporaryOutputURL = SourceRepositoryStorageClient
                     .temporaryDownloadURL(uuid: uuid())
                 request.outputURL = temporaryOutputURL
@@ -82,6 +92,17 @@ public extension TangledSourceImportClient {
             return try await OpenMusicEventSourceValidator(request)
                 .validateAndInsertIntoDefaultDatabase()
         }
+    }
+}
+
+private extension TangledSourceImportClient {
+    static func isGitRepository(_ repositoryURL: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: repositoryURL
+                .standardizedFileURL
+                .appending(path: ".git")
+                .path(percentEncoded: false)
+        )
     }
 }
 
@@ -277,8 +298,11 @@ struct TangledSourceDownloadView: View {
         .navigationTitle("Open Shared Workspace")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {

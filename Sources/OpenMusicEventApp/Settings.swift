@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import ErrorHandling
 import OpenMusicEventAuthentication
+import OpenMusicEventComponents
 import SwiftUI
 
 @Feature
@@ -50,6 +51,8 @@ public struct SettingsFeatureView: View {
         Form {
             AccountView(store: accountStore)
 
+            TechnicalDetailsSettingsSection()
+
             Section("Error Handling") {
                 Button {
                     store.send(.testErrorButtonTapped)
@@ -58,6 +61,10 @@ public struct SettingsFeatureView: View {
                 }
             }
         }
+        #if os(macOS)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity)
+        #endif
         .accountAuthenticationSheet(store: accountStore)
         .navigationTitle("Settings")
     }

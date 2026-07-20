@@ -16,12 +16,14 @@ let skipstonePlugins: [Target.PluginUsage] = []
 
 var products: [Product] = [
     .executable(name: "ome", targets: ["OpenMusicEventCLI"]),
+    .executable(name: "ome-release-check", targets: ["OpenMusicEventReleaseCheck"]),
     .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
     .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
     .library(name: "OpenMusicEventAppViewServer", targets: ["OpenMusicEventAppViewServer"]),
     .library(name: "OpenMusicEventComponents", targets: ["OpenMusicEventComponents"]),
     .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
     .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
+    .library(name: "OpenMusicEventReleaseTools", targets: ["OpenMusicEventReleaseTools"]),
     .library(name: "OpenMusicEventRouting", targets: ["OpenMusicEventRouting"]),
     .library(name: "OpenMusicEventSource", targets: ["OpenMusicEventSource"]),
     .library(name: "OpenMusicEventSourceEditing", targets: ["OpenMusicEventSourceEditing"]),
@@ -144,6 +146,15 @@ var targets: [Target] = [
     ),
     .target(
         name: "OpenMusicEventComponents"
+    ),
+    .target(
+        name: "OpenMusicEventReleaseTools"
+    ),
+    .executableTarget(
+        name: "OpenMusicEventReleaseCheck",
+        dependencies: [
+            "OpenMusicEventReleaseTools",
+        ]
     ),
     .target(
         name: "BlueskyActorCache",
@@ -334,6 +345,13 @@ var targets: [Target] = [
             "OpenMusicEventLexicon",
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "Lexicon", package: "swift-composable-atmosphere"),
+        ]
+    ),
+    .testTarget(
+        name: "OpenMusicEventReleaseToolsTests",
+        dependencies: [
+            "OpenMusicEventReleaseTools",
+            .product(name: "CustomDump", package: "swift-custom-dump"),
         ]
     ),
     .testTarget(
@@ -587,6 +605,13 @@ targets.append(contentsOf: [
         name: "OpenMusicEventViewersTests",
         dependencies: [
             "OpenMusicEventViewers",
+        ]
+    ),
+    .testTarget(
+        name: "OpenMusicEventImagesTests",
+        dependencies: [
+            "OpenMusicEventImages",
+            .product(name: "CustomDump", package: "swift-custom-dump"),
         ]
     ),
     .testTarget(

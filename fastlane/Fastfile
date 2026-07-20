@@ -1,0 +1,15 @@
+# This file contains the repository-level fastlane checks that do not need
+# App Store Connect, Play Console, signing, or release credentials.
+
+def repo_root
+  File.expand_path("..", __dir__)
+end
+
+desc "Run credential-free release readiness checks"
+lane :check do
+  Dir.chdir(repo_root) do
+    sh("swift run ome-release-check")
+    sh("skip verify")
+    sh("skip meta index")
+  end
+end

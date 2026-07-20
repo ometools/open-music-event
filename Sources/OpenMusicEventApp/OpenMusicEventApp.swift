@@ -7,6 +7,7 @@ import SQLiteData
 import ComposableArchitecture2
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
@@ -47,7 +48,7 @@ extension OME {
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
         dependencies.sourceControl = LibGit2SourceControlClient.live
-        dependencies.tangledSourceCheckout = .archive
+        dependencies.tangledSourceCheckout = .git
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
         dependencies[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
         dependencies.sourcePatchPublisher = .openMusicEventTangled
@@ -94,6 +95,7 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 
     private let eventViewerPresentationLaunchAnimation: EventViewerPresentationLaunchAnimation
     let store: StoreOf<OpenMusicEventAppRoot>
+    @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
 
     /* SKIP @bridge */public init() {
         let store = Self.genericStore
@@ -119,6 +121,10 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
             .environment(
                 \.eventViewerPresentationLaunchAnimation,
                 eventViewerPresentationLaunchAnimation
+            )
+            .environment(
+                \.showsTechnicalDetails,
+                TechnicalDetails.isVisible(userPreference: technicalDetailsUserPreference)
             )
             .task {
                 logger.info("Skip app logs are viewable in the Xcode console for iOS; Android logs can be viewed in Studio or using adb logcat")

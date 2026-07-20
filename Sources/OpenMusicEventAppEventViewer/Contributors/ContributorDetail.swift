@@ -12,6 +12,7 @@ import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
@@ -199,6 +200,7 @@ public struct ContributorDetail {
 
 public struct ContributorDetailView: View {
     @Bindable var store: StoreOf<ContributorDetail>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let showsAuthoringControls: Bool
 
     public init(
@@ -226,11 +228,17 @@ public struct ContributorDetailView: View {
                     }
                 )
             } else {
-                ContentUnavailableView(
-                    "Contributor",
-                    systemImage: "person.crop.circle",
-                    description: Text(verbatim: store.contributorID.rawValue.rawValue)
-                )
+                Group {
+                    if showsTechnicalDetails {
+                        ContentUnavailableView(
+                            "Contributor",
+                            systemImage: "person.crop.circle",
+                            description: Text(verbatim: store.contributorID.rawValue.rawValue)
+                        )
+                    } else {
+                        ContentUnavailableView("Contributor unavailable", systemImage: "person.crop.circle")
+                    }
+                }
                 .navigationTitle("Contributor")
             }
         }

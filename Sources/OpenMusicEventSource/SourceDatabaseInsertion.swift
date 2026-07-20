@@ -929,52 +929,55 @@ public extension OME {
             parentLocalID: String,
             sourceDirectoryURL: URL?
         ) throws -> [OME.ImageAsset]? {
-            let images = try sourceImages?.normalizingIncompleteAppearancePairs().map { image in
-                let assetKey = image.assetKey
-                    ?? makeAssetKey(
-                        organizerID: organizerID,
-                        eventID: eventID,
-                        parentKind: parentKind,
-                        parentLocalID: parentLocalID,
-                        role: image.role,
-                        appearance: image.appearance
-                    )
+            let images = try sourceImages?.bundlingAppearancePairs().flatMap { image in
+                try image.payloads.map { variant in
+                    let assetKey = variant.payload.assetKey
+                        ?? makeAssetKey(
+                            organizerID: organizerID,
+                            eventID: eventID,
+                            parentKind: parentKind,
+                            parentLocalID: parentLocalID,
+                            role: image.role,
+                            appearance: variant.appearance
+                        )
 
-                let resolvedSource: OME.ImageAsset.Source
-                switch image.source {
-                case let .url(url):
-                    resolvedSource = .url(url)
+                    let resolvedSource: OME.ImageAsset.Source
+                    switch variant.payload.source {
+                    case let .url(url):
+                        resolvedSource = .url(url)
 
-                case let .file(path):
-                    guard let sourceDirectoryURL else {
-                        throw Error.missingSourceRootForFileAsset(path)
+                    case let .file(path):
+                        guard let sourceDirectoryURL else {
+                            throw Error.missingSourceRootForFileAsset(path)
+                        }
+
+                        let sourceURL = sourceDirectoryURL
+                            .appending(path: path)
+                            .standardizedFileURL
+                        let data = try Data(contentsOf: sourceURL)
+                        pendingFileImageAssets.append(
+                            PendingFileImageAsset(
+                                assetKey: assetKey,
+                                sourceURL: sourceURL,
+                                mimeType: sourceURL.inferredImageMimeType,
+                                data: data
+                            )
+                        )
+                        resolvedSource = .url(sourceURL)
                     }
 
-                    let sourceURL = sourceDirectoryURL
-                        .appending(path: path)
-                        .standardizedFileURL
-                    let data = try Data(contentsOf: sourceURL)
-                    pendingFileImageAssets.append(
-                        PendingFileImageAsset(
-                            assetKey: assetKey,
-                            sourceURL: sourceURL,
-                            mimeType: sourceURL.inferredImageMimeType,
-                            data: data
-                        )
+                    return OME.ImageAsset(
+                        assetKey: assetKey,
+                        source: resolvedSource,
+                        role: image.role,
+                        renderKind: image.renderKind,
+                        appearance: variant.appearance,
+                        materializationPolicy: image.materializationPolicy,
+                        thumbhash: variant.payload.thumbhash,
+                        dimensions: variant.payload.dimensions,
+                        focalPoint: variant.payload.focalPoint
                     )
-                    resolvedSource = .url(sourceURL)
                 }
-
-                return OME.ImageAsset(
-                    assetKey: assetKey,
-                    source: resolvedSource,
-                    role: image.role,
-                    renderKind: image.renderKind,
-                    appearance: image.appearance,
-                    materializationPolicy: image.materializationPolicy,
-                    thumbhash: image.thumbhash,
-                    focalPoint: image.focalPoint
-                )
             }
 
             guard let images, !images.isEmpty else { return nil }

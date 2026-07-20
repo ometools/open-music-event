@@ -42,7 +42,10 @@ struct ContributorDetailContentView: View {
         .toolbar {
             if showsAuthoringControls {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Edit", action: editButtonTapped)
+                    Button(action: editButtonTapped) {
+                        Label("Edit", systemImage: "pencil")
+                            .labelStyle(.iconOnly)
+                    }
                 }
             }
         }

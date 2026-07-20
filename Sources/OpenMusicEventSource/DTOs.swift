@@ -15,14 +15,14 @@ public struct CalendarDTO: Codable, Equatable, Sendable {
     ) {
         self.name = name
         self.description = description
-        self.images = images
+        self.images = images?.bundlingAppearancePairs()
     }
 
     public init(_ draft: OMERecord.Calendar.Draft) {
         self.init(
             name: draft.name,
             description: draft.description,
-            images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs()
+            images: draft.images?.sourceImageAssets()
         )
     }
 
@@ -30,7 +30,7 @@ public struct CalendarDTO: Codable, Equatable, Sendable {
         self.init(
             name: calendar.name,
             description: calendar.description,
-            images: calendar.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs()
+            images: calendar.images?.sourceImageAssets()
         )
     }
 
@@ -42,11 +42,11 @@ public struct CalendarDTO: Codable, Equatable, Sendable {
         OMERecord.Calendar.Draft(
             id: OMERecord.Calendar.ID(
                 ownerID: ownerID,
-                calendarID: OMERecord.Calendar.defaultID
+            calendarID: OMERecord.Calendar.defaultID
             ),
             name: name,
             description: description,
-            images: images?.map(\.recordValue)
+            images: images?.recordImageAssets()
         )
     }
 }
@@ -81,7 +81,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         self.locations = locations
         self.uris = uris
         self.timeZone = timeZone
-        self.images = images
+        self.images = images?.bundlingAppearancePairs()
         self.contactNumbers = contactNumbers
         self.categoryConfigs = categoryConfigs
         self.policies = policies
@@ -148,7 +148,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
             locations: draft.locations,
             uris: draft.uris,
             timeZone: draft.timeZone,
-            images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs(),
+            images: draft.images?.sourceImageAssets(),
             contactNumbers: draft.contactNumbers,
             categoryConfigs: draft.categoryConfigs,
             policies: draft.policies,
@@ -188,7 +188,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
             locations: locations,
             uris: uris,
             timeZone: timeZone,
-            images: images?.map(\.recordValue),
+            images: images?.recordImageAssets(),
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs,
             policies: policies,
@@ -336,7 +336,7 @@ public struct StageDTO: Codable, Equatable, Sendable {
         self.color = color
         self.category = category
         self.sortIndex = sortIndex
-        self.images = images
+        self.images = images?.bundlingAppearancePairs()
         self.systemIconName = systemIconName
         self.iconShortCode = iconShortCode
         self.lineup = lineup
@@ -379,7 +379,7 @@ public struct StageDTO: Codable, Equatable, Sendable {
             color: draft.color,
             category: draft.category,
             sortIndex: draft.sortIndex,
-            images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs(),
+            images: draft.images?.sourceImageAssets(),
             systemIconName: draft.systemIconName,
             iconShortCode: draft.iconShortCode,
             lineup: draft.lineup
@@ -403,7 +403,7 @@ public struct StageDTO: Codable, Equatable, Sendable {
             color: color,
             category: category,
             sortIndex: sortIndex,
-            images: images?.map(\.recordValue),
+            images: images?.recordImageAssets(),
             systemIconName: systemIconName,
             iconShortCode: iconShortCode,
             lineup: lineup
@@ -509,7 +509,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
         self.name = name
         self.did = did
         self.bio = bio
-        self.images = images
+        self.images = images?.bundlingAppearancePairs()
         self.links = links
     }
 
@@ -538,7 +538,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
             name: draft.name,
             did: draft.did,
             bio: draft.bio,
-            images: draft.images?.map(SourceImageAsset.init).normalizingIncompleteAppearancePairs(),
+            images: draft.images?.sourceImageAssets(),
             links: draft.links
         )
     }
@@ -556,7 +556,7 @@ public struct ContributorDTO: Codable, Equatable, Sendable {
             name: name,
             did: did,
             bio: bio,
-            images: images?.map(\.recordValue),
+            images: images?.recordImageAssets(),
             links: links
         )
     }
@@ -740,51 +740,5 @@ public struct PosterDTO: Codable, Equatable, Sendable {
         try container.encodeIfPresent(id, forKey: .id)
         try container.encodeIfPresent(title, forKey: .title)
         try container.encode(image, forKey: .image)
-    }
-}
-
-private extension SourceImageAsset {
-    init(_ imageAsset: OMERecord.ImageAsset) {
-        self.init(
-            assetKey: imageAsset.assetKey,
-            source: {
-                switch imageAsset.source {
-                case let .blob(blob):
-                    // Source DTOs are collaboration-level and should stay path/URL based.
-                    let url = URL(string: "atproto-blob://\(blob.ref.rawValue)")!
-                    return .url(url)
-                case let .url(url):
-                    return .url(url)
-                }
-            }(),
-            role: imageAsset.role,
-            renderKind: imageAsset.renderKind,
-            appearance: imageAsset.appearance,
-            materializationPolicy: imageAsset.materializationPolicy,
-            thumbhash: imageAsset.thumbhash,
-            focalPoint: imageAsset.focalPoint
-        )
-    }
-
-    var recordValue: OMERecord.ImageAsset {
-        OMERecord.ImageAsset(
-            assetKey: assetKey,
-            source: .url(url),
-            role: role,
-            renderKind: renderKind,
-            appearance: appearance,
-            materializationPolicy: materializationPolicy,
-            thumbhash: thumbhash,
-            focalPoint: focalPoint
-        )
-    }
-
-    var url: URL {
-        switch source {
-        case let .file(path):
-            URL(filePath: path)
-        case let .url(url):
-            url
-        }
     }
 }

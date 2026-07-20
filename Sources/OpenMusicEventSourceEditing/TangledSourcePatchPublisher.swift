@@ -33,10 +33,14 @@ public struct TangledSourcePatchPublisher: Sendable {
             throw TangledSourcePatchPublisherError.missingTitle
         }
 
-        let repository = try TangledRepositoryReference(sourceReference: remote.reference)
+        let repository = try TangledRepositoryReference(
+            sourceReference: remote.reference
+        )
         let targetRepository = try await targetRepository(repository)
         @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
-        try await authorizationBroker.authorize(TangledOAuthRequirements.proposalAuthRequirement)
+        try await authorizationBroker.authorize(
+            TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+        )
         let gitBackedPatch = try await gitBackedPreparedPatch(
             preparedPatch,
             repository: repository,

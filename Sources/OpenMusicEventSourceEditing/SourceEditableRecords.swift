@@ -162,6 +162,7 @@ private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, S
     var appearance: OME.ImageAsset.Appearance?
     var materializationPolicy: OME.ImageAsset.MaterializationPolicy
     var thumbhash: String?
+    var dimensions: OME.ImageAsset.Dimensions?
     var focalPoint: OME.ImageAsset.FocalPoint?
 
     init(_ image: OME.ImageAsset) {
@@ -175,6 +176,7 @@ private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, S
         self.appearance = image.appearance
         self.materializationPolicy = image.materializationPolicy
         self.thumbhash = image.thumbhash
+        self.dimensions = image.dimensions
         self.focalPoint = image.focalPoint
     }
 
@@ -190,6 +192,7 @@ private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, S
             && lhs.appearance == rhs.appearance
             && lhs.materializationPolicy == rhs.materializationPolicy
             && lhs.thumbhash == rhs.thumbhash
+            && lhs.dimensions == rhs.dimensions
             && lhs.focalPoint == rhs.focalPoint
     }
 

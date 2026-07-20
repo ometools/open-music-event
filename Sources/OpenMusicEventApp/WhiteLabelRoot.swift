@@ -4,6 +4,7 @@ import ErrorHandling
 import Foundation
 import OpenMusicEventAppEventViewer
 import OpenMusicEventAuthentication
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventSource
 import OpenMusicEventSourceClone
@@ -388,11 +389,10 @@ public struct WhiteLabelRootView: View {
         Group {
             if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail) {
                 NavigationStack {
-                TeamWorkspaceDetailView(
-                    store: teamWorkspaceDetailStore,
-                    isManageWorkspaceToolbarItemVisible: false,
-                    showsAuthoringControls: store.showsAuthoringControls
-                )
+                    TeamWorkspaceDetailView(
+                        store: teamWorkspaceDetailStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                     .whiteLabelRootActionsToolbar(store: store)
                 }
             } else if let organizationRootStore = store.spawn(\.organizationRoot) {
@@ -547,12 +547,20 @@ struct WhiteLabelRootAccountManagementView: View {
         NavigationStack {
             Form {
                 AccountView(store: accountStore)
+                TechnicalDetailsSettingsSection()
             }
+            #if os(macOS)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+            #endif
             .navigationTitle("Account")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
+                    Button {
                         store.send(.accountManagementDoneButtonTapped)
+                    } label: {
+                        Label("Done", systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }

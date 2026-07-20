@@ -313,6 +313,84 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func gitCheckoutUpdatesExistingRepositoryInPlace() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-existing-git-checkout-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        try FileManager.default.createDirectory(
+            at: outputURL.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        let expectedOutputURL = outputURL.standardizedFileURL
+
+        let repositoryReference = TangledRepositoryReference(
+            host: "tangled.org",
+            owner: "did:plc:owner123",
+            repository: "wicked-woods-ome"
+        )
+        let credentials = Credentials(
+            ssh: SSHCredentials(
+                publicKey: "ssh-ed25519 public-key Open Music Event",
+                privateKey: "private-key"
+            )
+        )
+        let cloneRequests = Mutex([CloneRequest]())
+        let openRequests = Mutex([URL]())
+        let fetchRequests = Mutex([FetchRequest]())
+        let checkoutRequests = Mutex([CheckoutRequest]())
+
+        let checkout = try await withDependencies {
+            $0.sourceControl = SourceControlClient(
+                clone: { request in
+                    cloneRequests.withLock { $0.append(request) }
+                    return Repository(url: request.destinationURL)
+                },
+                open: { url in
+                    openRequests.withLock { $0.append(url) }
+                    return Repository(url: url)
+                },
+                fetch: { request in
+                    fetchRequests.withLock { $0.append(request) }
+                },
+                checkout: { request in
+                    checkoutRequests.withLock { $0.append(request) }
+                },
+                createBranch: { request in Branch(name: request.name) },
+                status: { _ in [] },
+                stage: { _ in },
+                commit: { _ in Commit(id: "commit-id") },
+                formatPatch: { _ in Data() },
+                push: { _ in }
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                credentials
+            }
+        } operation: {
+            try await TangledSourceCheckoutClient.git.checkout(
+                TangledSourceCheckoutRequest(
+                    repository: repositoryReference,
+                    ref: "refs/heads/main",
+                    outputURL: outputURL
+                )
+            )
+        }
+
+        #expect(checkout.repositoryURL == expectedOutputURL)
+        #expect(cloneRequests.withLock { $0.isEmpty })
+        #expect(openRequests.withLock { $0 } == [expectedOutputURL])
+        let fetchRequest = try #require(fetchRequests.withLock { $0.first })
+        #expect(fetchRequest.repository == Repository(url: outputURL))
+        #expect(
+            fetchRequest.credentials
+                == repositoryReference.sourceControlCredentials(credentials)
+        )
+        let checkoutRequest = try #require(checkoutRequests.withLock { $0.first })
+        #expect(checkoutRequest.repository == Repository(url: outputURL))
+        #expect(checkoutRequest.ref == "origin/main")
+    }
+
+    @Test
     func explicitGitCheckoutCanUseSSHAgentCredentials() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let ownerHandle = Atmosphere.Account.Handle("woody.fm")

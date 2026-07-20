@@ -597,8 +597,11 @@ public struct StagesViewerView: View {
         .toolbar {
             if showsAuthoringControls, store.canCopyStagesFromOtherEvent && !store.stages.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("From Other Event") {
+                    Button {
                         store.send(.fromOtherEventButtonTapped)
+                    } label: {
+                        Label("From Other Event", systemImage: "square.on.square")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }
@@ -800,8 +803,11 @@ public struct CopyStagesFromEventView: View {
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
 
@@ -922,6 +928,7 @@ public struct StageDetail {
 
 public struct StageDetailView: View {
     @Bindable var store: StoreOf<StageDetail>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let showsAuthoringControls: Bool
 
     public init(
@@ -956,7 +963,7 @@ public struct StageDetailView: View {
                                 LabeledContent("Category", value: category)
                             }
 
-                            if let sortIndex = stage.sortIndex {
+                            if showsTechnicalDetails, let sortIndex = stage.sortIndex {
                                 LabeledContent("Sort Index", value: sortIndex.formatted())
                             }
                         }
@@ -973,18 +980,27 @@ public struct StageDetailView: View {
                 .toolbar {
                     if showsAuthoringControls {
                         ToolbarItem(placement: .primaryAction) {
-                            Button("Edit") {
+                            Button {
                                 store.send(.editButtonTapped)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                                    .labelStyle(.iconOnly)
                             }
                         }
                     }
                 }
             } else {
-                ContentUnavailableView(
-                    "Stage",
-                    systemImage: "square.grid.2x2",
-                    description: Text(verbatim: store.stageID.rawValue.rawValue)
-                )
+                Group {
+                    if showsTechnicalDetails {
+                        ContentUnavailableView(
+                            "Stage",
+                            systemImage: "square.grid.2x2",
+                            description: Text(verbatim: store.stageID.rawValue.rawValue)
+                        )
+                    } else {
+                        ContentUnavailableView("Stage unavailable", systemImage: "square.grid.2x2")
+                    }
+                }
                 .navigationTitle("Stage")
             }
         }
@@ -1086,8 +1102,8 @@ public struct EditStage {
                 resetImagePickers()
             }
         }
-        var destination: Destination.State?
         var errorMessage: String?
+        var destination: Destination.State?
         var form: FormFeature.State
         var hasLoadedDraft = false
         var heroImagePicker: ImageAssetPicker.State
@@ -1614,6 +1630,7 @@ private extension EditStage.FormFeature {
 
 public struct EditStageView: View {
     @Bindable var store: StoreOf<EditStage>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @FocusState var focusedField: AnyHashable?
 
     public init(store: StoreOf<EditStage>) {
@@ -1621,41 +1638,23 @@ public struct EditStageView: View {
     }
 
     public var body: some View {
-        Group {
-            if store.hasLoadedDraft {
-                loadedForm
-            } else {
-                ViewerPlaceholderView(
-                    title: store.navigationTitle,
-                    systemImage: "square.grid.2x2",
-                    description: "This event stage could not be loaded."
-                )
-            }
-        }
+        EditStageContent(
+            store: store,
+            focusedField: $focusedField
+        )
         .disabled(store.isSaving)
         .onChange(of: focusedField) { _, focusedField in
-            if store.form.focusedField != focusedField {
-                $store.form.focusedField.wrappedValue = focusedField
-            }
+            syncStoreFocusedField(focusedField)
         }
         .onChange(of: store.form.focusedField) { _, focusedField in
-            if self.focusedField != focusedField {
-                self.focusedField = focusedField
-            }
+            syncViewFocusedField(focusedField)
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    store.send(.cancelButtonTapped)
-                }
+                EditStageCancelButton(store: store)
             }
             ToolbarItem(placement: .confirmationAction) {
-                SubmitButton(
-                    isInProgress: store.isSaving,
-                    isDisabled: !store.canSubmit
-                ) {
-                    store.send(.saveButtonTapped)
-                }
+                EditStageSaveButton(store: store)
             }
         }
         .navigationTitle(store.navigationTitle)
@@ -1691,10 +1690,38 @@ public struct EditStageView: View {
         }
     }
 
-    private var loadedForm: some View {
+    private func syncStoreFocusedField(_ focusedField: AnyHashable?) {
+        if store.form.focusedField != focusedField {
+            $store.form.focusedField.wrappedValue = focusedField
+        }
+    }
+
+    private func syncViewFocusedField(_ focusedField: AnyHashable?) {
+        if self.focusedField != focusedField {
+            self.focusedField = focusedField
+        }
+    }
+}
+
+struct EditStageLoadedForm: View {
+    @Bindable var store: StoreOf<EditStage>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    let focusedField: FocusState<AnyHashable?>.Binding
+
+    init(
+        store: StoreOf<EditStage>,
+        focusedField: FocusState<AnyHashable?>.Binding
+    ) {
+        self.store = store
+        self.focusedField = focusedField
+    }
+
+    var body: some View {
         SwiftUI.Form {
             eventStageSection
-            iconSection
+            if showsTechnicalDetails {
+                iconSection
+            }
             imageSection
             errorSection
         }
@@ -1706,7 +1733,9 @@ public struct EditStageView: View {
 
             TextField("Category", text: $store.form.value.category)
 
-            sortIndexField
+            if showsTechnicalDetails {
+                sortIndexField
+            }
             colorField
         }
     }
@@ -1754,7 +1783,7 @@ public struct EditStageView: View {
     private var nameField: some View {
         VStack(alignment: .leading) {
             TextField("Name", text: $store.form.value.name)
-                .focused($focusedField, equals: EditStageFormFieldID.name)
+                .focused(focusedField, equals: EditStageFormFieldID.name)
                 .onSubmit {
                     store.send(.form(.fieldSubmitted(EditStageFormFieldID.name)))
                 }
@@ -1765,7 +1794,7 @@ public struct EditStageView: View {
     private var sortIndexField: some View {
         VStack(alignment: .leading) {
             TextField("Sort Index", text: $store.form.value.sortIndex)
-                .focused($focusedField, equals: EditStageFormFieldID.sortIndex)
+                .focused(focusedField, equals: EditStageFormFieldID.sortIndex)
                 .onSubmit {
                     store.send(.form(.fieldSubmitted(EditStageFormFieldID.sortIndex)))
                 }
@@ -1787,6 +1816,52 @@ public struct EditStageView: View {
     @ViewBuilder
     private func validationStatus(for field: AnyHashable) -> some View {
         FormFieldValidationStatus(validation: store.form.validation[field])
+    }
+}
+
+struct EditStageContent: View {
+    let store: StoreOf<EditStage>
+    let focusedField: FocusState<AnyHashable?>.Binding
+
+    var body: some View {
+        if store.hasLoadedDraft {
+            EditStageLoadedForm(
+                store: store,
+                focusedField: focusedField
+            )
+        } else {
+            ViewerPlaceholderView(
+                title: store.navigationTitle,
+                systemImage: "square.grid.2x2",
+                description: "This event stage could not be loaded."
+            )
+        }
+    }
+}
+
+struct EditStageCancelButton: View {
+    let store: StoreOf<EditStage>
+
+    var body: some View {
+        Button {
+            store.send(.cancelButtonTapped)
+        } label: {
+            Label("Cancel", systemImage: "close")
+                .labelStyle(.iconOnly)
+        }
+    }
+}
+
+struct EditStageSaveButton: View {
+    let store: StoreOf<EditStage>
+
+    var body: some View {
+        SubmitButton(
+            isInProgress: store.isSaving,
+            isDisabled: !store.canSubmit
+        ) {
+            store.send(.saveButtonTapped)
+        }
     }
 }
 

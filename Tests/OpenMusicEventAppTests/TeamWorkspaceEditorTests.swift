@@ -3,14 +3,17 @@ import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import ErrorHandling
+import FileTree
 import Foundation
 import IssueReporting
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import OpenMusicEventTimeZones
 import SourceEditing
 import SQLiteData
+import Synchronization
 import Testing
 
 @testable import OpenMusicEventApp
@@ -228,6 +231,80 @@ struct TeamWorkspaceEditorTests {
         #expect(store.state.sourceProposal?.target == .calendar(calendarID, sourceBaselineID))
         #expect(store.state.sourceProposal?.sourceChangeGroups == [])
         #expect(store.state.sourceProposal?.patch == patch)
+    }
+
+    @Test
+    func resetsCalendarSourceChangesAndClearsProposalState() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "source")
+        let resetRequests = Mutex([SourceProposalTarget]())
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "calendar.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
+        let proposalFailure = EventWorkspace.SourceProposalFailure(SourceWorkspacePatchFailure())
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.eventWorkspaceResetter = EventWorkspaceResetter(
+                reset: { eventID in
+                    Issue.record("Expected source reset request, not event reset for \(eventID).")
+                },
+                resetSourceChanges: { target in
+                    resetRequests.withLock { $0.append(target) }
+                }
+            )
+        } operation: {
+            var state = SourceWorkspace.State(
+                sourceBaselineID: sourceBaselineID,
+                calendarID: calendarID
+            )
+            state.sourcePatchStatus = .generated(patch)
+            state.sourceProposal = SourceProposalFlow.State(
+                target: .calendar(calendarID, sourceBaselineID),
+                patch: patch
+            )
+            state.sourceProposalStatus = .failed(proposalFailure)
+            return TestStore(initialState: state) {
+                SourceWorkspace()
+            }
+        }
+
+        let task = store.send(.resetEditsButtonTapped) {
+            $0.isResettingEdits = true
+        }
+        await store.receive(
+            \.resetEditsResponse,
+            .equals(
+                Result<EventWorkspace.ResetEditsSuccess, EventWorkspace.ResetEditsFailure>
+                    .success(EventWorkspace.ResetEditsSuccess())
+            ),
+            timeout: .seconds(1)
+        ) {
+            $0.isResettingEdits = false
+            $0.sourcePatchStatus = .generated(SourcePatch())
+            $0.sourceProposalStatus = .idle
+        }
+        await task?.value
+
+        #expect(store.state.sourceProposal == nil)
+        expectNoDifference(
+            resetRequests.withLock { $0 },
+            [.calendar(calendarID, sourceBaselineID)]
+        )
+        await store.dismount()
     }
 
     @Test
@@ -634,6 +711,217 @@ struct TeamWorkspaceEditorTests {
     }
 
     @Test
+    func rolloverEventCarriesDurableGroupsAndStartsFresh() async throws {
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OMERecord.Organizer.ID("did:web:wickedwoods.example"))
+        let repositoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
+        let sourceProvenance = makeSourceProvenance(
+            reference: repositoryURL.path(percentEncoded: false)
+        )
+        let sourceBaseline = SourceBaselineRecord(
+            source: sourceProvenance,
+            databaseFileName: "baseline.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let previousEventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: OMERecord.ID("2025")
+        )
+        let mainStageID = OMERecord.Stage.ID(
+            organizerID: organizerID,
+            eventID: previousEventID.eventID,
+            stageID: OMERecord.ID("main")
+        )
+        let sideStageID = OMERecord.Stage.ID(
+            organizerID: organizerID,
+            eventID: previousEventID.eventID,
+            stageID: OMERecord.ID("side")
+        )
+        let previousStartDate = try #require(LocalDate("2025-08-01"))
+        let previousEndDate = try #require(LocalDate("2025-08-03"))
+        try await seedOrganizerSourceWorkspaceDefaults(
+            database: database,
+            organizerID: organizerID,
+            calendarID: calendarID,
+            sourceBaseline: sourceBaseline
+        )
+        try await database.write { db in
+            try OMERecord.Event.insert {
+                CreateEvent.makeEventDraft(
+                    id: previousEventID,
+                    name: "Wicked Woods 2025",
+                    startDate: previousStartDate,
+                    endDate: previousEndDate,
+                    timeZone: TimeZone(identifier: "America/Denver")!
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: previousEventID,
+                    sourceBaselineID: sourceBaseline.id,
+                    sourceKind: sourceBaseline.sourceKind,
+                    sourceReference: sourceBaseline.sourceReference,
+                    ref: sourceBaseline.ref,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "2025"
+                )
+            }
+            .execute(db)
+            try OMERecord.Stage.insert {
+                OMERecord.Stage.Draft(
+                    id: mainStageID,
+                    name: "Main Stage",
+                    color: 0x00AAEE,
+                    category: nil,
+                    sortIndex: 0,
+                    images: nil,
+                    systemIconName: nil,
+                    iconShortCode: nil,
+                    lineup: nil
+                )
+            }
+            .execute(db)
+            try OMERecord.Stage.insert {
+                OMERecord.Stage.Draft(
+                    id: sideStageID,
+                    name: "Side Stage",
+                    color: 0xEEAA00,
+                    category: nil,
+                    sortIndex: 1,
+                    images: nil,
+                    systemIconName: nil,
+                    iconShortCode: nil,
+                    lineup: nil
+                )
+            }
+            .execute(db)
+        }
+        try writeRolloverSourceEvent(
+            in: repositoryURL,
+            eventID: previousEventID,
+            startDate: previousStartDate
+        )
+
+        var initialState = withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+        } operation: {
+            TeamWorkspaceCreateEvent.State(
+                sourceBaselineID: sourceBaseline.id,
+                calendarID: calendarID,
+                strategy: .rollover
+            )
+        }
+        initialState.eventName = "Wicked Woods 2026"
+        initialState.timeZone = TimeZone(identifier: "America/Denver")!
+        initialState.hasStartDate = true
+        initialState.startDateSelection = try #require(
+            LocalDate("2026-08-01")?.at(hour: 12, in: initialState.timeZone)
+        )
+        let recorder = SourceEditPreparationRecorder()
+        let store = makeCreateEventStore(
+            initialState: initialState,
+            database: database
+        ) {
+            $0.organizerSourceWorkspace = .live
+            $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+            }
+        }
+
+        await store.send(.task)?.value
+        let sourceEvent = try #require(store.state.rolloverOptions.first)
+        #expect(sourceEvent.id == previousEventID)
+        #expect(sourceEvent.stages.map(\.id) == [mainStageID, sideStageID])
+        store.send(.rolloverStageButtonTapped(sideStageID))
+        #expect(store.state.selectedRolloverStageIDs == [mainStageID])
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == true)
+        let checklist = try #require(store.state.rolloverChecklist)
+        #expect(checklist.carriedForward == [
+            "1 stage from Wicked Woods 2025",
+            "Venue and location details",
+            "Site map and theme/branding",
+            "Channel definitions without message history",
+        ])
+        #expect(checklist.startFresh.contains("Artist and contributor roster"))
+        #expect(checklist.startFresh.contains("Schedule performances"))
+        let preparedSourceBaselineIDs = await recorder.sourceBaselineIDs
+        expectNoDifference(preparedSourceBaselineIDs, [sourceBaseline.id])
+
+        let expectedLocalEventID = OMERecord.SourceDatabaseInsertion.inferredEventID(
+            eventDirectoryName: "2026",
+            sourceProvenance: sourceProvenance
+        )
+        let expectedEventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: expectedLocalEventID
+        )
+        let rows = try await database.read { db in
+            (
+                events: try OMERecord.Event.fetchAll(db),
+                stages: try OMERecord.Stage.fetchAll(db),
+                channels: try OMERecord.Channel.fetchAll(db),
+                contributors: try OMERecord.Contributor.fetchAll(db),
+                schedules: try OMERecord.Schedule.fetchAll(db),
+                performances: try OMERecord.Performance.fetchAll(db)
+            )
+        }
+        let newEvent = try #require(rows.events.first(where: { $0.id == expectedEventID }))
+        let newStage = try #require(
+            rows.stages.first(where: { $0.id.eventID == expectedLocalEventID })
+        )
+        let newChannel = try #require(
+            rows.channels.first(where: { $0.id.eventID == expectedLocalEventID })
+        )
+        #expect(rows.events.count == 2)
+        #expect(rows.stages.filter { $0.id.eventID == expectedLocalEventID }.count == 1)
+        #expect(newStage.id.stageID == OMERecord.ID("main"))
+        #expect(newStage.lineup == nil)
+        #expect(rows.channels.filter { $0.id.eventID == expectedLocalEventID }.count == 1)
+        #expect(newChannel.defaultNotificationState == .unsubscribed)
+        #expect(newChannel.notificationsRequired == false)
+        #expect(rows.contributors.filter { $0.id.eventID == expectedLocalEventID }.isEmpty)
+        #expect(rows.schedules.filter { $0.id.eventID == expectedLocalEventID }.count == 1)
+        #expect(rows.performances.filter { $0.id.eventID == expectedLocalEventID }.isEmpty)
+        #expect(newEvent.description == "The woods return for another season.")
+        #expect(newEvent.locations?.first?.address == "1 Forest Road")
+
+        let newEventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "2026", directoryHint: .isDirectory)
+        let eventYML = try String(
+            contentsOf: newEventURL.appending(path: "event.yml"),
+            encoding: .utf8
+        )
+        #expect(eventYML.contains("name: Wicked Woods 2026"))
+        #expect(eventYML.contains("description: The woods return for another season."))
+        #expect(eventYML.contains("address: 1 Forest Road"))
+        #expect(!FileManager.default.fileExists(atPath: newEventURL.appending(path: "contributors").path()))
+        #expect(!FileManager.default.fileExists(atPath: newEventURL.appending(path: "schedules").path()))
+        #expect(!FileManager.default.fileExists(atPath: newEventURL.appending(path: "communications").path()))
+        #expect(FileManager.default.fileExists(atPath: newEventURL.appending(path: "stages/main.yml").path()))
+        #expect(!FileManager.default.fileExists(atPath: newEventURL.appending(path: "stages/side.yml").path()))
+        #expect(FileManager.default.fileExists(atPath: newEventURL.appending(path: "channels/general.yml").path()))
+
+        await store.send(.saveButtonTapped)?.value
+        #expect(store.state.errorMessage == "An event already exists at that directory.")
+
+        await store.send(.rolloverChecklistDoneButtonTapped)?.value
+        #expect(store.isPresented == false)
+    }
+
+    @Test
     func createEventRejectsInvalidWorkspaceDirectoryNames() throws {
         let invalidCases = [
             (" ", "Enter an event directory."),
@@ -839,6 +1127,116 @@ private func writeExistingEventDirectory(
     timeZone: America/Denver
     """.write(
         to: eventURL.appending(path: "event.yml"),
+        atomically: true,
+        encoding: .utf8
+    )
+}
+
+private func writeRolloverSourceEvent(
+    in repositoryURL: URL,
+    eventID: OMERecord.Event.ID,
+    startDate: LocalDate
+) throws {
+    let sourceEvent = OpenMusicEventSourceEvent(
+        event: EventDTO(
+            id: eventID,
+            name: "Wicked Woods 2025",
+            description: "The woods return for another season.",
+            startDate: startDate,
+            endDate: LocalDate("2025-08-03"),
+            status: .known(.scheduled),
+            mode: .known(.inPerson),
+            locations: [OMERecord.Event.Location(address: "1 Forest Road")],
+            uris: nil,
+            timeZone: TimeZone(identifier: "America/Denver")!,
+            images: nil,
+            contactNumbers: nil,
+            categoryConfigs: nil
+        ),
+        stages: [
+            try FileContent(
+                fileName: "main",
+                fileType: "yml",
+                data: StageDTO(
+                    name: "Main Stage",
+                    color: 0x00AAEE,
+                    lineup: [OMERecord.ID("artist-one")]
+                )
+            ),
+            try FileContent(
+                fileName: "side",
+                fileType: "yml",
+                data: StageDTO(name: "Side Stage", color: 0xEEAA00)
+            ),
+        ],
+        contributors: [
+            try FileContent(
+                fileName: "artist-one",
+                fileType: "md",
+                data: ContributorDTO(name: "Artist One", bio: "A returning artist.")
+            ),
+        ],
+        schedules: [
+            try FileContent(
+                fileName: "saturday",
+                fileType: "yml",
+                data: ScheduleDTO(
+                    date: startDate,
+                    performances: [
+                        "main": [
+                            ScheduleDTO.Performance(
+                                title: "Old Set",
+                                startTime: "18:00",
+                                endTime: "19:00"
+                            ),
+                        ],
+                    ]
+                )
+            ),
+        ],
+        channels: [
+            try FileContent(
+                fileName: "general",
+                fileType: "yml",
+                data: OMERecord.Channel.Draft(
+                    id: nil,
+                    name: "General",
+                    description: "Official event updates.",
+                    iconImageURL: nil,
+                    headerImageURL: nil,
+                    sortIndex: 0,
+                    defaultNotificationState: .subscribed,
+                    notificationsRequired: false
+                )
+            ),
+        ]
+    )
+    let eventURL = repositoryURL
+        .appending(path: "events", directoryHint: .isDirectory)
+        .appending(path: "2025", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: eventURL, withIntermediateDirectories: true)
+    _ = try OpenMusicEventSourceEventFileTree().write(sourceEvent, to: eventURL)
+
+    let communicationURL = eventURL
+        .appending(path: "communications", directoryHint: .isDirectory)
+        .appending(path: "general", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: communicationURL, withIntermediateDirectories: true)
+    try """
+    name: General
+    description: Official event updates.
+    """.write(
+        to: communicationURL.appending(path: "channel-info.yaml"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try """
+    ---
+    title: Last year's update
+    ---
+
+    This message belongs to the old event.
+    """.write(
+        to: communicationURL.appending(path: "last-year.md"),
         atomically: true,
         encoding: .utf8
     )

@@ -96,6 +96,7 @@ struct ItemListView : View {
                     }
                 } label: {
                     Label("Add", systemImage: "plus")
+                        .labelStyle(.iconOnly)
                 }
             }
         }
@@ -120,8 +121,11 @@ struct ItemView : View {
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {

@@ -101,4 +101,14 @@ struct TangledOAuthScopesTests {
         )
         expectNoDifference(TangledOAuthRequirements.pullMergePermission, Scopes.RPC.merge)
     }
+
+    @Test
+    func pullRequestWorkflowAuthorizationCoversTheFullLifecycle() {
+        expectNoDifference(
+            TangledOAuthRequirements.pullRequestWorkflowAuthRequirement.permissions,
+            TangledOAuthRequirements.proposalAuthRequirement.permissions
+                .union(TangledOAuthRequirements.pullRequestSurfaceAuthRequirement.permissions)
+                .union(TangledOAuthRequirements.pullMergeAuthRequirement.permissions)
+        )
+    }
 }

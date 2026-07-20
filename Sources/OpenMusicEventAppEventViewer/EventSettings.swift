@@ -382,8 +382,11 @@ public struct EditReportingLinkView: View {
         .navigationTitle("Reporting Link")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     store.send(.cancelButtonTapped)
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {

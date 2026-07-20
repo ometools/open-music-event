@@ -153,8 +153,11 @@ public struct TangledWorkspaceUploadView: View {
         .navigationTitle("Create Shared Workspace")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {

@@ -135,16 +135,16 @@ public enum WhiteLabelError: Equatable, LocalizedError, Sendable {
         switch self {
         case .developmentSourceOverrideUnavailable:
             "Development source overrides are only available in debug and test builds."
-        case let .directSourceRequiresDevelopmentOverride(organizerID):
-            "Direct source loading for \(organizerID) must use the development source override."
+        case .directSourceRequiresDevelopmentOverride:
+            "Direct source loading must use the development source override."
         case let .missingOrganizerIdentity(displayName):
-            "\(displayName) does not have an organizer account DID yet."
+            "\(displayName) does not have an organizer account yet."
         case let .organizerIdentityResolverUnconfigured(handle):
-            "No organizer DID resolver is configured for \(handle)."
-        case let .sourceImportUnconfigured(organizerID):
-            "No white-label source importer is configured for \(organizerID)."
-        case let .sourceRegistryUnconfigured(organizerID):
-            "No white-label source is registered for \(organizerID)."
+            "No organizer account resolver is configured for \(handle)."
+        case .sourceImportUnconfigured:
+            "No white-label source importer is configured for this organizer."
+        case .sourceRegistryUnconfigured:
+            "No white-label source is registered for this organizer."
         }
     }
 }

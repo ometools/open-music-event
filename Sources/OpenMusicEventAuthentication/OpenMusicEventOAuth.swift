@@ -175,6 +175,9 @@ public enum OpenMusicEventOAuth {
     public static let tangledPullRequestSurfaceAuthRequirement =
         TangledOAuthRequirements.pullRequestSurfaceAuthRequirement
 
+    public static let tangledPullRequestWorkflowAuthRequirement =
+        TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+
     public static let tangledPullStatusAuthRequirement =
         TangledOAuthRequirements.pullStatusAuthRequirement
 
@@ -207,7 +210,7 @@ public enum OpenMusicEventOAuth {
                     id: "bsky",
                     title: "BlueSky",
                     subtitle: "bsky.social",
-                    description: "The first, and largest hosted AT Protocol entryway, with bsky.social handles.",
+                    description: "The first and largest hosted account provider, with bsky.social handles.",
                     imageURL: webMetadataClient.googleS2FaviconURL("bsky.social", 128),
                     metadataSource: "community-lexicon-enrichment",
                     availability: .available(serverHost: "bsky.social")
@@ -216,7 +219,7 @@ public enum OpenMusicEventOAuth {
                     id: "eurosky",
                     title: "Eurosky",
                     subtitle: "eurosky.social",
-                    description: "A Europe-focused AT Protocol community server using eurosky.social accounts.",
+                    description: "A Europe-focused community account provider using eurosky.social handles.",
                     imageURL: webMetadataClient.googleS2FaviconURL("eurosky.social", 128),
                     metadataSource: "community-lexicon-enrichment",
                     availability: .available(serverHost: "eurosky.social")

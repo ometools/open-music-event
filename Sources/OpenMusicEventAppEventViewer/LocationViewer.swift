@@ -132,8 +132,11 @@ public struct LocationViewerView: View {
         .toolbar {
             if showsAuthoringControls, store.event != nil {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Edit") {
+                    Button {
                         store.send(.editButtonTapped)
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }
@@ -368,8 +371,11 @@ public struct EditLocationView: View {
         .navigationTitle("Edit Location")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     store.send(.cancelButtonTapped)
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {

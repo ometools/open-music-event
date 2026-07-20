@@ -235,6 +235,7 @@ fileprivate enum EditScheduleDrafts {
 
 public struct EditScheduleView: View {
     @Environment(\.dismiss) var dismiss
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @Bindable var store: StoreOf<EditSchedule>
 
     public init(store: StoreOf<EditSchedule>) {
@@ -254,11 +255,17 @@ public struct EditScheduleView: View {
 
             Section("Details") {
                 TextField("Title", text: $store.customTitle, prompt: Text(store.inferredTitle))
-                TextField("Source File", text: $store.sourceFileName, prompt: Text(store.scheduleDate.description))
+                if showsTechnicalDetails {
+                    TextField(
+                        "Source File",
+                        text: $store.sourceFileName,
+                        prompt: Text(store.scheduleDate.description)
+                    )
                     #if !os(macOS)
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
+                }
             }
 
             if let validationMessage = store.validationMessage {
@@ -281,8 +288,11 @@ public struct EditScheduleView: View {
         .navigationTitle("New Schedule")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {

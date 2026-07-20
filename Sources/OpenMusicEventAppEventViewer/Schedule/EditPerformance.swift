@@ -441,7 +441,7 @@ public struct EditPerformance {
             if let contributorActor = contributor.contributorActor {
                 return .identityOnly(
                     actor: contributorActor,
-                    displayTitle: contributorActor.description
+                    displayTitle: nil
                 )
             }
             if let anonymousName = contributor.anonymousName {
@@ -1038,6 +1038,7 @@ private struct EditPerformanceSaveError: Error {}
 public struct EditPerformanceView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @Bindable var store: StoreOf<EditPerformance>
 
     public init(store: StoreOf<EditPerformance>) {
@@ -1055,8 +1056,11 @@ public struct EditPerformanceView: View {
         .navigationTitle(store.navigationTitle)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
@@ -1129,7 +1133,8 @@ public struct EditPerformanceView: View {
         if !contributions.isEmpty {
             ForEach(contributions) { contribution in
                 let summary = store.contributorRelationshipPicker.summary(
-                    for: contribution.selection
+                    for: contribution.selection,
+                    showsTechnicalDetails: showsTechnicalDetails
                 )
                 EditPerformanceContributionRow(
                     title: summary?.title ?? "Contributor",

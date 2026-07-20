@@ -391,7 +391,7 @@ struct ImageFocusPointEditor: View {
         .padding(.vertical, 4)
     }
 
-    var focusPointDescription: String {
+    private var focusPointDescription: String {
         guard let focalPoint = asset.focalPoint else { return "Center" }
         return "\(Int((focalPoint.x * 100).rounded()))%, \(Int((focalPoint.y * 100).rounded()))%"
     }
@@ -430,7 +430,7 @@ struct ImageFocusPointPreview: View {
         }
     }
 
-    func fittedImageRect(in size: CGSize) -> CGRect {
+    private func fittedImageRect(in size: CGSize) -> CGRect {
         guard let imageSize = asset.dimensions?.size else {
             return CGRect(origin: .zero, size: size)
         }
@@ -447,7 +447,7 @@ struct ImageFocusPointPreview: View {
         )
     }
 
-    func focusLocationChanged(_ location: CGPoint, in imageRect: CGRect) {
+    private func focusLocationChanged(_ location: CGPoint, in imageRect: CGRect) {
         guard imageRect.width > 0, imageRect.height > 0 else { return }
         asset.focalPoint = OMERecord.ImageAsset.FocalPoint(
             x: Double(((location.x - imageRect.minX) / imageRect.width).clamped(to: 0...1)),
@@ -456,7 +456,7 @@ struct ImageFocusPointPreview: View {
     }
 
     @ViewBuilder
-    func focusMarker(in imageRect: CGRect) -> some View {
+    private func focusMarker(in imageRect: CGRect) -> some View {
         let focalPoint = asset.focalPoint ?? OMERecord.ImageAsset.FocalPoint(x: 0.5, y: 0.5)
         let position = CGPoint(
             x: imageRect.minX + CGFloat(focalPoint.x) * imageRect.width,
@@ -513,7 +513,7 @@ struct ImageFocusPreviewImage: View {
         }
     }
 
-    var storedImage: some View {
+    private var storedImage: some View {
         ImageAssetAsyncImage(
             asset: asset,
             cacheContext: cacheContext,

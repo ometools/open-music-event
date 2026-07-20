@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventImages
 import OpenMusicEventLexicon
 import SQLiteData
@@ -118,12 +119,18 @@ struct MyEventsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
-            Button("Open Shared Workspace", systemImage: "arrow.down.doc") {
+            Button {
                 store.send(.didTapImportTeamWorkspace)
+            } label: {
+                Label("Open Shared Workspace", systemImage: "arrow.down.doc")
+                    .labelStyle(.iconOnly)
             }
 
-            Button("Create Event", systemImage: "plus") {
+            Button {
                 store.send(.didTapCreateEvent)
+            } label: {
+                Label("Create Event", systemImage: "plus")
+                    .labelStyle(.iconOnly)
             }
         }
     }
@@ -153,19 +160,22 @@ struct MyEventsView: View {
 
 struct FetchLoadErrorSection: View {
     let failures: [FetchLoadFailure]
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Unable to load data.")
-                ForEach(failures) { failure in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(failure.label)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text(String(describing: failure.error))
-                            .font(.caption)
-                            .textSelection(.enabled)
+                if showsTechnicalDetails {
+                    ForEach(failures) { failure in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(failure.label)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(String(describing: failure.error))
+                                .font(.caption)
+                                .textSelection(.enabled)
+                        }
                     }
                 }
             }
@@ -185,6 +195,7 @@ struct FetchLoadErrorSection: View {
 
 struct OrganizerRowView: View {
     var organizer: OMERecord.Organizer
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         HStack(spacing: 10) {
@@ -193,7 +204,7 @@ struct OrganizerRowView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 60, height: 60)
 
-            Text(organizer.id.description)
+            Text(showsTechnicalDetails ? organizer.id.description : "Organizer")
                 .lineLimit(1)
 
             Spacer()
@@ -204,6 +215,7 @@ struct OrganizerRowView: View {
 
 struct TeamWorkspaceRowView: View {
     var teamWorkspace: TeamWorkspaceRow
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         HStack(spacing: 10) {
@@ -217,8 +229,12 @@ struct TeamWorkspaceRowView: View {
                     .lineLimit(1)
                 Text(
                     teamWorkspace.eventCount == 1
-                    ? "1 event · \(teamWorkspace.refTitle)"
-                    : "\(teamWorkspace.eventCount) events · \(teamWorkspace.refTitle)"
+                        ? showsTechnicalDetails
+                            ? "1 event · \(teamWorkspace.refTitle)"
+                            : "1 event"
+                        : showsTechnicalDetails
+                            ? "\(teamWorkspace.eventCount) events · \(teamWorkspace.refTitle)"
+                            : "\(teamWorkspace.eventCount) events"
                 )
                     .lineLimit(1)
                     .font(.caption2)

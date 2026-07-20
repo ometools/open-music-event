@@ -96,7 +96,7 @@ struct TangledPullReviewClientTests {
                     repositoryURL: URL(filePath: "/tmp/wicked-woods-ome"),
                     remote: SourcePatchLocation.Remote(
                         kind: "tangled",
-                        reference: "woody.fm/wicked-woods-ome",
+                        reference: "at://did:plc:owner/sh.tangled.repo/wicked-woods-ome",
                         ref: "main"
                     )
                 )
@@ -104,26 +104,30 @@ struct TangledPullReviewClientTests {
             $0.tangledPullReviewListSource = .tangledXRPCWithConstellationBackfill
             $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
                 resolveHandle: { handle in
-                    #expect(handle.rawValue == "woody.fm")
-                    return (
-                        Atmosphere.Account(id: .init(ownerDID), handle: handle),
-                        try didDocument(
-                            did: ownerDID,
-                            handle: handle,
-                            pdsHost: "owner.pds.example"
-                        )
-                    )
+                    Issue.record("Did not expect handle resolution for \(handle.rawValue)")
+                    throw UnexpectedAccountResolution.handle(handle.rawValue)
                 },
                 resolveDID: { did in
-                    #expect(did == authorDID)
-                    return (
-                        Atmosphere.Account(id: .init(authorDID), handle: "author.example"),
-                        try didDocument(
-                            did: authorDID,
-                            handle: "author.example",
-                            pdsHost: "author.pds.example"
+                    if did == ownerDID {
+                        return (
+                            Atmosphere.Account(id: .init(ownerDID), handle: "owner.example"),
+                            try didDocument(
+                                did: ownerDID,
+                                handle: "owner.example",
+                                pdsHost: "owner.pds.example"
+                            )
                         )
-                    )
+                    } else {
+                        #expect(did == authorDID)
+                        return (
+                            Atmosphere.Account(id: .init(authorDID), handle: "author.example"),
+                            try didDocument(
+                                did: authorDID,
+                                handle: "author.example",
+                                pdsHost: "author.pds.example"
+                            )
+                        )
+                    }
                 }
             )
             $0[XRPC.Client.self] = .liveValue
@@ -451,10 +455,14 @@ struct TangledPullReviewClientTests {
             uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
         )
         let requests = Mutex([(url: URL?, body: Data?)]())
+        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
 
         try await withDependencies {
             $0.date.now = Date(timeIntervalSince1970: 1_783_453_261)
             $0[XRPC.Client.self] = .liveValue
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                authorizedRequirements.withLock { $0.append(requirement) }
+            }
             $0.pdsHost = "publisher.pds.example"
             $0.getDefaultSession = { .placeholder }
             $0.httpClient = HTTPClient { request, body in
@@ -489,6 +497,10 @@ struct TangledPullReviewClientTests {
         #expect(record["pull"] as? String == review.uri)
         #expect(record["status"] as? String == TangledPullStatus.closed.rawValue)
         #expect(record["createdAt"] != nil)
+        expectNoDifference(
+            authorizedRequirements.withLock { $0 },
+            [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
+        )
     }
 
     @Test
@@ -527,8 +539,9 @@ struct TangledPullReviewClientTests {
         )
         let session: OAuth.Session = {
             var grantedPermissions = Set([OAuth.Permission.atproto])
-            grantedPermissions.formUnion(OpenMusicEventOAuth.tangledPullMergeAuthRequirement.permissions)
-            grantedPermissions.formUnion(OpenMusicEventOAuth.tangledPullStatusAuthRequirement.permissions)
+            grantedPermissions.formUnion(
+                OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions
+            )
             var session = OAuth.Session.placeholder
             session.scope = OAuth.Scope(
                 rawValue: grantedPermissions
@@ -548,6 +561,7 @@ struct TangledPullReviewClientTests {
         }()
         let now = Date(timeIntervalSince1970: 1_783_453_261)
         let requests = Mutex([(url: URL?, body: Data?, headers: HTTPFields)]())
+        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
 
         try await withDependencies {
             $0.date = .constant(now)
@@ -612,6 +626,9 @@ struct TangledPullReviewClientTests {
                 }
             )
             $0[XRPC.Client.self] = .liveValue
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                authorizedRequirements.withLock { $0.append(requirement) }
+            }
             $0.pdsHost = "publisher.pds.example"
             $0.getDefaultSession = { session }
             $0.getOptionalDefaultSession = { session }
@@ -706,6 +723,8 @@ struct TangledPullReviewClientTests {
 
                 case ("publisher.pds.example", _)
                     where path.hasSuffix("/com.atproto.server.getServiceAuth"):
+                    #expect(request.url?.queryValue(named: "aud") == "did:web:tangled.org")
+                    #expect(request.url?.queryValue(named: "lxm") == "sh.tangled.repo.merge")
                     return ok(Data(#"{"token":"service-auth-token"}"#.utf8))
 
                 case ("tangled.org", _)
@@ -801,6 +820,10 @@ struct TangledPullReviewClientTests {
                 }
             }
         )
+        expectNoDifference(
+            authorizedRequirements.withLock { $0 },
+            [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
+        )
     }
 
     @Test
@@ -819,9 +842,13 @@ struct TangledPullReviewClientTests {
             uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
         )
         let requests = Mutex([(url: URL?, body: Data?)]())
+        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
 
         try await withDependencies {
             $0[XRPC.Client.self] = .liveValue
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                authorizedRequirements.withLock { $0.append(requirement) }
+            }
             $0.pdsHost = "publisher.pds.example"
             $0.getDefaultSession = { .placeholder }
             $0.httpClient = HTTPClient { request, body in
@@ -844,6 +871,10 @@ struct TangledPullReviewClientTests {
         #expect(json["repo"] as? String == "did:plc:author123")
         #expect(json["collection"] as? String == TangledCollection.pull.rawValue)
         #expect(json["rkey"] as? String == "3pull")
+        expectNoDifference(
+            authorizedRequirements.withLock { $0 },
+            [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
+        )
     }
 }
 
@@ -888,4 +919,8 @@ private extension URL {
             .first(where: { $0.name == name })?
             .value
     }
+}
+
+private enum UnexpectedAccountResolution: Error {
+    case handle(String)
 }

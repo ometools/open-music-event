@@ -762,7 +762,7 @@ public struct EditContributor {
 
             case let .actorIdentityTapped(identity):
                 guard let actor = OMERecord.Contributor.Actor(identity.did.description) else {
-                    state.actorSearchErrorMessage = "The selected DID is not a valid contributor actor."
+                    state.actorSearchErrorMessage = "The selected account is not a valid contributor identity."
                     return
                 }
 
@@ -1086,117 +1086,26 @@ public struct EditContributorView: View {
     }
 
     public var body: some View {
-        Group {
-            if store.hasLoadedDraft {
-                SwiftUI.Form {
-                    Section("Contributor") {
-                        nameField
-                    }
-
-                    EditContributorActorProfileSection(
-                        query: $store.actorSearchQuery,
-                        actor: store.contributorActor,
-                        sections: store.actorSearchSections,
-                        failures: store.actorSearchFailures,
-                        isLoading: store.actorSearchIsLoading,
-                        errorMessage: store.actorSearchErrorMessage,
-                        isSavingActor: store.isSavingActor,
-                        queryChanged: { query in
-                            store.send(.actorSearchQueryChanged(query))
-                        },
-                        querySubmitted: {
-                            store.send(.actorSearchSubmitted)
-                        },
-                        identityTapped: { identity in
-                            store.send(.actorIdentityTapped(identity))
-                        }
-                    )
-
-                    Section("Bio") {
-                        TextField("Bio", text: $store.form.value.bio, axis: .vertical)
-                            .lineLimit(4...8)
-                    }
-
-                    ImageAssetPickerSection(
-                        store: store.scope(\.photoImagePicker, action: \.photoImagePicker)
-                    )
-
-                    ImageAssetPickerSection(
-                        store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
-                    )
-
-                    ForEach($store.form.value.links) { $link in
-                        Section("Link") {
-                            TextField("URL", text: $link.url)
-                                #if os(iOS)
-                                .keyboardType(.URL)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                #endif
-
-                            Picker("Platform", selection: $link.platformRawValue) {
-                                Text("Auto").tag("")
-                                ForEach(ExternalPlatform.allCases, id: \.rawValue) { platform in
-                                    Text(platform.name).tag(platform.rawValue)
-                                }
-                            }
-
-                            Button("Remove Link", role: .destructive) {
-                                store.send(.removeLinkButtonTapped(link.id))
-                            }
-                        }
-                    }
-
-                    Section {
-                        Button("Add Link") {
-                            store.send(.addLinkButtonTapped)
-                        }
-                        FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.links])
-                    }
-
-                    if let errorMessage = store.errorMessage {
-                        Section {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-            } else {
-                ViewerPlaceholderView(
-                    title: store.navigationTitle,
-                    systemImage: "person.crop.circle",
-                    description: "This contributor could not be loaded."
-                )
-            }
-        }
+        EditContributorContent(
+            store: store,
+            focusedField: $focusedField
+        )
         .disabled(store.isSaving)
         .onAppear {
             store.send(.onAppear)
         }
         .onChange(of: focusedField) { _, focusedField in
-            if store.form.focusedField != focusedField {
-                $store.form.focusedField.wrappedValue = focusedField
-            }
+            syncStoreFocusedField(focusedField)
         }
         .onChange(of: store.form.focusedField) { _, focusedField in
-            if self.focusedField != focusedField {
-                self.focusedField = focusedField
-            }
+            syncViewFocusedField(focusedField)
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    store.send(.cancelButtonTapped)
-                }
+                EditContributorCancelButton(store: store)
             }
             ToolbarItem(placement: .confirmationAction) {
-                SubmitButton(
-                    isInProgress: store.isSaving,
-                    isDisabled: !store.canSubmit
-                ) {
-                    store.send(.saveButtonTapped)
-                }
+                EditContributorSaveButton(store: store)
             }
         }
         .navigationTitle(store.navigationTitle)
@@ -1222,20 +1131,150 @@ public struct EditContributorView: View {
         }
     }
 
+    private func syncStoreFocusedField(_ focusedField: AnyHashable?) {
+        if store.form.focusedField != focusedField {
+            $store.form.focusedField.wrappedValue = focusedField
+        }
+    }
+
+    private func syncViewFocusedField(_ focusedField: AnyHashable?) {
+        if self.focusedField != focusedField {
+            self.focusedField = focusedField
+        }
+    }
+}
+
+struct EditContributorContent: View {
+    let store: StoreOf<EditContributor>
+    let focusedField: FocusState<AnyHashable?>.Binding
+
+    var body: some View {
+        if store.hasLoadedDraft {
+            EditContributorLoadedForm(
+                store: store,
+                focusedField: focusedField
+            )
+        } else {
+            ViewerPlaceholderView(
+                title: store.navigationTitle,
+                systemImage: "person.crop.circle",
+                description: "This contributor could not be loaded."
+            )
+        }
+    }
+}
+
+struct EditContributorLoadedForm: View {
+    @Bindable var store: StoreOf<EditContributor>
+    let focusedField: FocusState<AnyHashable?>.Binding
+
+    init(
+        store: StoreOf<EditContributor>,
+        focusedField: FocusState<AnyHashable?>.Binding
+    ) {
+        self.store = store
+        self.focusedField = focusedField
+    }
+
+    var body: some View {
+        SwiftUI.Form {
+            Section("Contributor") {
+                nameField
+            }
+
+            EditContributorActorProfileSection(
+                query: $store.actorSearchQuery,
+                actor: store.contributorActor,
+                sections: store.actorSearchSections,
+                failures: store.actorSearchFailures,
+                isLoading: store.actorSearchIsLoading,
+                errorMessage: store.actorSearchErrorMessage,
+                isSavingActor: store.isSavingActor,
+                queryChanged: actorSearchQueryChanged,
+                querySubmitted: actorSearchSubmitted,
+                identityTapped: actorIdentityTapped
+            )
+
+            Section("Bio") {
+                TextField("Bio", text: $store.form.value.bio, axis: .vertical)
+                    .lineLimit(4...8)
+            }
+
+            ImageAssetPickerSection(
+                store: store.scope(\.photoImagePicker, action: \.photoImagePicker)
+            )
+
+            ImageAssetPickerSection(
+                store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
+            )
+
+            EditContributorLinkSections(store: store)
+
+            EditContributorAddLinkSection(store: store)
+
+            if let errorMessage = store.errorMessage {
+                Section {
+                    Text(verbatim: errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
     private var nameField: some View {
         VStack(alignment: .leading) {
             TextField("Name", text: $store.form.value.name)
-                .focused($focusedField, equals: EditContributorFormFieldID.name)
+                .focused(focusedField, equals: EditContributorFormFieldID.name)
                 .onSubmit {
                     store.send(.form(.fieldSubmitted(EditContributorFormFieldID.name)))
                 }
             FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.name])
         }
     }
+
+    private func actorSearchQueryChanged(_ query: String) {
+        store.send(.actorSearchQueryChanged(query))
+    }
+
+    private func actorSearchSubmitted() {
+        store.send(.actorSearchSubmitted)
+    }
+
+    private func actorIdentityTapped(_ identity: ActorIdentity) {
+        store.send(.actorIdentityTapped(identity))
+    }
+}
+
+struct EditContributorCancelButton: View {
+    let store: StoreOf<EditContributor>
+
+    var body: some View {
+        Button {
+            store.send(.cancelButtonTapped)
+        } label: {
+            Label("Cancel", systemImage: "close")
+                .labelStyle(.iconOnly)
+        }
+    }
+}
+
+struct EditContributorSaveButton: View {
+    let store: StoreOf<EditContributor>
+
+    var body: some View {
+        SubmitButton(
+            isInProgress: store.isSaving,
+            isDisabled: !store.canSubmit
+        ) {
+            store.send(.saveButtonTapped)
+        }
+    }
 }
 
 struct EditContributorActorProfileSection: View {
     @Binding var query: String
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let actor: OMERecord.Contributor.Actor?
     let sections: [PredictiveSearchSection<ActorIdentity>]
     let failures: [PredictiveSearchFailure]
@@ -1247,7 +1286,7 @@ struct EditContributorActorProfileSection: View {
     let identityTapped: (ActorIdentity) -> Void
 
     var body: some View {
-        Section("ATProto Identity") {
+        Section(showsTechnicalDetails ? "ATProto Identity" : "Account") {
             TextField("Search profiles", text: $query)
                 .autocorrectionDisabled()
                 #if os(iOS)
@@ -1260,7 +1299,7 @@ struct EditContributorActorProfileSection: View {
                     queryChanged(value)
                 }
 
-            if let actor {
+            if showsTechnicalDetails, let actor {
                 LabeledContent("Current DID", value: actor.description)
             }
 
@@ -1285,7 +1324,11 @@ struct EditContributorActorProfileSection: View {
             }
 
             if query.trimmedForActorSearch.count >= 2 {
-                Button("Look up exact handle or DID") {
+                Button(
+                    showsTechnicalDetails
+                        ? "Look up exact handle or DID"
+                        : "Look up exact account"
+                ) {
                     querySubmitted()
                 }
                 .disabled(isLoading || isSavingActor)
@@ -1310,23 +1353,104 @@ struct EditContributorActorProfileSection: View {
     }
 }
 
+struct ExternalPlatformPickerOptions: View {
+    var body: some View {
+        ForEach(ExternalPlatform.allCases, id: \.rawValue) { platform in
+            Text(verbatim: platform.name)
+                .tag(platform.rawValue)
+        }
+    }
+}
+
+struct EditContributorLinkSections: View {
+    @Bindable var store: StoreOf<EditContributor>
+
+    init(store: StoreOf<EditContributor>) {
+        self.store = store
+    }
+
+    var body: some View {
+        ForEach($store.form.value.links) { $link in
+            EditableContributorLinkSection(
+                link: $link,
+                removeButtonTapped: removeLinkButtonTapped
+            )
+        }
+    }
+
+    private func removeLinkButtonTapped(id: EditableContributorLink.ID) {
+        store.send(.removeLinkButtonTapped(id))
+    }
+}
+
+struct EditContributorAddLinkSection: View {
+    let store: StoreOf<EditContributor>
+
+    var body: some View {
+        Section {
+            Button("Add Link") {
+                store.send(.addLinkButtonTapped)
+            }
+            FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.links])
+        }
+    }
+}
+
+struct EditableContributorLinkSection: View {
+    @Binding var link: EditableContributorLink
+    let removeButtonTapped: (EditableContributorLink.ID) -> Void
+
+    init(
+        link: Binding<EditableContributorLink>,
+        removeButtonTapped: @escaping (EditableContributorLink.ID) -> Void
+    ) {
+        self._link = link
+        self.removeButtonTapped = removeButtonTapped
+    }
+
+    var body: some View {
+        Section("Link") {
+            TextField("URL", text: $link.url)
+                #if os(iOS)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
+
+            Picker("Platform", selection: $link.platformRawValue) {
+                Text("Auto").tag("")
+                ExternalPlatformPickerOptions()
+            }
+
+            Button("Remove Link", role: .destructive) {
+                removeButtonTapped(link.id)
+            }
+        }
+    }
+}
+
 struct ContributorActorIdentityRow: View {
     let identity: ActorIdentity
     let isSelected: Bool
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         HStack(spacing: 12) {
             ContributorActorAvatar(identity: identity)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(identity.displayTitle)
+                Text(identity.displayTitle(showsTechnicalDetails: showsTechnicalDetails))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(identity.displaySubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let subtitle = identity.displaySubtitle(
+                    showsTechnicalDetails: showsTechnicalDetails
+                ) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
@@ -1366,12 +1490,13 @@ struct ContributorActorAvatar: View {
 
 struct ContributorActorAvatarPlaceholder: View {
     let identity: ActorIdentity
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         Circle()
             .fill(.secondary.opacity(0.18))
             .overlay {
-                Text(identity.avatarInitials)
+                Text(identity.avatarInitials(showsTechnicalDetails: showsTechnicalDetails))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -1498,24 +1623,29 @@ extension OMERecord.Contributor {
 
 extension ActorIdentity {
     var displayTitle: String {
-        displayName?.trimmedForActorSearch.nilIfEmptyForActorDisplay
-            ?? handle?.rawValue
-            ?? did.description
+        displayTitle(showsTechnicalDetails: false)
     }
 
-    var displaySubtitle: String {
-        if let handle {
-            return "@\(handle.rawValue) - \(did.description)"
-        }
-
-        return did.description
+    func displayTitle(showsTechnicalDetails: Bool) -> String {
+        TechnicalDetails.identityTitle(
+            displayName: displayName,
+            handle: handle?.rawValue,
+            technicalID: did.description,
+            isVisible: showsTechnicalDetails
+        )
     }
 
-    var avatarInitials: String {
-        let source = displayName?.trimmedForActorSearch.nilIfEmptyForActorDisplay
-            ?? handle?.rawValue
-            ?? did.description
-        return String(source.prefix(2)).uppercased()
+    func displaySubtitle(showsTechnicalDetails: Bool) -> String? {
+        TechnicalDetails.identitySubtitle(
+            displayName: displayName,
+            handle: handle?.rawValue,
+            technicalID: did.description,
+            isVisible: showsTechnicalDetails
+        )
+    }
+
+    func avatarInitials(showsTechnicalDetails: Bool) -> String {
+        String(displayTitle(showsTechnicalDetails: showsTechnicalDetails).prefix(2)).uppercased()
     }
 }
 
@@ -1527,10 +1657,6 @@ private extension Array where Element == ExternalPlatform.Link {
 
 private extension String {
     var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
-
-    var nilIfEmptyForActorDisplay: String? {
         isEmpty ? nil : self
     }
 

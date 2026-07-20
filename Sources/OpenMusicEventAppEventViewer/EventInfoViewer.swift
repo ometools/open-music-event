@@ -136,8 +136,11 @@ public struct EventInfoViewerView: View {
                 .toolbar {
                     if showsAuthoringControls {
                         ToolbarItem(placement: .primaryAction) {
-                            Button("Edit") {
+                            Button {
                                 store.send(.editButtonTapped)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                                    .labelStyle(.iconOnly)
                             }
                         }
                     }

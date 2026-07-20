@@ -2,6 +2,7 @@ import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
@@ -249,6 +250,7 @@ public struct PerformanceDetail {
 
 public struct PerformanceDetailView: View {
     @Bindable var store: StoreOf<PerformanceDetail>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let showsAuthoringControls: Bool
 
     public init(
@@ -316,17 +318,24 @@ public struct PerformanceDetailView: View {
                                 store.send(.editButtonTapped)
                             } label: {
                                 Label("Edit Performance", systemImage: "pencil")
+                                    .labelStyle(.iconOnly)
                             }
                             .disabled(!store.canEditPerformance)
                         }
                     }
                 }
             } else {
-                ContentUnavailableView(
-                    "Performance",
-                    systemImage: "music.mic",
-                    description: Text(verbatim: store.performanceID.rawValue.rawValue)
-                )
+                Group {
+                    if showsTechnicalDetails {
+                        ContentUnavailableView(
+                            "Performance",
+                            systemImage: "music.mic",
+                            description: Text(verbatim: store.performanceID.rawValue.rawValue)
+                        )
+                    } else {
+                        ContentUnavailableView("Performance unavailable", systemImage: "music.mic")
+                    }
+                }
                 .navigationTitle("Performance")
             }
         }
@@ -867,6 +876,7 @@ struct PerformanceHeroPlaceholder: View {
 
 struct PerformanceRecordingRow: View {
     let recording: ExternalPlatform.Asset
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         if let url = recording.url {
@@ -874,7 +884,10 @@ struct PerformanceRecordingRow: View {
                 Label(recording.platform.name, systemImage: "link")
             }
         } else if let record = recording.record {
-            Label(record.uri.description, systemImage: "record.circle")
+            Label(
+                showsTechnicalDetails ? record.uri.description : "Recording",
+                systemImage: "record.circle"
+            )
         } else {
             Label("Recording", systemImage: "play.circle")
         }

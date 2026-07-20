@@ -155,34 +155,34 @@ public struct OpenMusicEventSourceValidator: Sendable {
     private func resolvedTangledRepositoryURL(
         _ repository: TangledRepositoryReference
     ) async throws -> (repositoryURL: URL, cleanupURL: URL?) {
-            @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+        @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
 
-            let outputURL: URL
-            let cleanupURL: URL?
-            if let requestOutputURL = request.outputURL {
-                outputURL = requestOutputURL
-                cleanupURL = nil
-            } else {
-                @Dependency(\.uuid) var uuid
-                outputURL = TangledSourceCloner.temporaryOutputURL(uuid: uuid())
-                cleanupURL = outputURL
-            }
+        let outputURL: URL
+        let cleanupURL: URL?
+        if let requestOutputURL = request.outputURL {
+            outputURL = requestOutputURL
+            cleanupURL = nil
+        } else {
+            @Dependency(\.uuid) var uuid
+            outputURL = TangledSourceCloner.temporaryOutputURL(uuid: uuid())
+            cleanupURL = outputURL
+        }
 
-            do {
-                _ = try await tangledSourceCheckout.checkout(
-                    TangledSourceCheckoutRequest(
-                        repository: repository,
-                        ref: request.resolvedRef,
-                        outputURL: outputURL
-                    )
+        do {
+            _ = try await tangledSourceCheckout.checkout(
+                TangledSourceCheckoutRequest(
+                    repository: repository,
+                    ref: request.resolvedRef,
+                    outputURL: outputURL
                 )
-            } catch {
-                if let cleanupURL {
-                    try? FileManager.default.removeItem(at: cleanupURL)
-                }
-                throw error
+            )
+        } catch {
+            if let cleanupURL {
+                try? FileManager.default.removeItem(at: cleanupURL)
             }
-            return (outputURL, cleanupURL)
+            throw error
+        }
+        return (outputURL, cleanupURL)
     }
 }
 

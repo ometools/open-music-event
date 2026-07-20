@@ -197,6 +197,8 @@ struct PosterImportTests {
         )
         var editedAsset = importedImage.asset
         editedAsset.appearance = .dark
+        editedAsset.dimensions = OMERecord.ImageAsset.Dimensions(width: 1200, height: 1800)
+        editedAsset.focalPoint = OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
 
         let store = Store(
             initialState: ImportImages.State(
@@ -221,6 +223,8 @@ struct PosterImportTests {
         let updatedImage = try #require(store.images.first)
         expectNoDifference(updatedImage.asset, editedAsset)
         expectNoDifference(updatedImage.localImageImportRequest.appearance, .dark)
+        expectNoDifference(updatedImage.localImageImportRequest.dimensions, editedAsset.dimensions)
+        expectNoDifference(updatedImage.localImageImportRequest.focalPoint, editedAsset.focalPoint)
         #expect(store.spawn(\.imageInfo) == nil)
     }
 
@@ -305,7 +309,9 @@ struct PosterImportTests {
             role: .poster,
             renderKind: .fullImage,
             appearance: .dark,
-            materializationPolicy: .lazy
+            materializationPolicy: .lazy,
+            dimensions: OMERecord.ImageAsset.Dimensions(width: 1200, height: 1800),
+            focalPoint: OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
         )
 
         let preparedImages = try withDependencies {
@@ -318,6 +324,8 @@ struct PosterImportTests {
         }
 
         expectNoDifference(preparedImages.images.map(\.appearance), [nil])
+        expectNoDifference(preparedImages.images.map(\.dimensions), [asset.dimensions])
+        expectNoDifference(preparedImages.images.map(\.focalPoint), [asset.focalPoint])
     }
 
     @Test
@@ -458,6 +466,8 @@ struct PosterImportTests {
         })
         var editedAsset = poster.image
         editedAsset.appearance = .dark
+        editedAsset.dimensions = OMERecord.ImageAsset.Dimensions(width: 1200, height: 1800)
+        editedAsset.focalPoint = OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
         var expectedAsset = editedAsset
         expectedAsset.appearance = nil
 
@@ -497,6 +507,8 @@ struct PosterImportTests {
         })
         var editedAsset = poster.image
         editedAsset.appearance = .dark
+        editedAsset.dimensions = OMERecord.ImageAsset.Dimensions(width: 1200, height: 1800)
+        editedAsset.focalPoint = OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
         var expectedAsset = editedAsset
         expectedAsset.appearance = nil
 

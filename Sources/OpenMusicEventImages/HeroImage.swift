@@ -9,6 +9,7 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
     let tint: Color
     @ViewBuilder var placeholder: () -> Placeholder
     @ViewBuilder var overlay: () -> Overlay
+    @State var bottomChromeHeight: CGFloat = 148
 
     public init(
         title: Text,
@@ -95,7 +96,8 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
         GeometryReader { geometry in
             HeroImageBackground(
                 sources: sources,
-                tint: tint
+                tint: tint,
+                focusSafeAreaInsets: focusSafeAreaInsets(for: geometry)
             ) {
                 placeholder()
             }
@@ -109,25 +111,43 @@ public struct HeroImage<Placeholder: View, Overlay: View>: View {
                     overlay: overlay
                 )
                 .frame(width: geometry.size.width, alignment: .leading)
+                .background(HeroImageBottomChromeHeightReader())
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onPreferenceChange(HeroImageBottomChromeHeightPreferenceKey.self) { height in
+            if height > 0 {
+                bottomChromeHeight = height
+            }
+        }
+    }
+
+    private func focusSafeAreaInsets(for geometry: GeometryProxy) -> EdgeInsets {
+        EdgeInsets(
+            top: geometry.safeAreaInsets.top + 72,
+            leading: 0,
+            bottom: bottomChromeHeight,
+            trailing: 0
+        )
     }
 }
 
 public struct HeroImageBackground<Placeholder: View>: View {
     let sources: [HeroImageSource]
     let tint: Color
+    let focusSafeAreaInsets: EdgeInsets
     @ViewBuilder var placeholder: () -> Placeholder
     @Environment(\.heroImageRendering) var heroImageRendering
 
     public init(
         sources: [HeroImageSource],
         tint: Color = .accentColor,
+        focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.sources = sources
         self.tint = tint
+        self.focusSafeAreaInsets = focusSafeAreaInsets
         self.placeholder = placeholder
     }
 
@@ -136,6 +156,7 @@ public struct HeroImageBackground<Placeholder: View>: View {
             sources: sources[...],
             rendering: heroImageRendering,
             tint: tint,
+            focusSafeAreaInsets: focusSafeAreaInsets,
             placeholder: placeholder
         )
     }
@@ -343,6 +364,7 @@ struct HeroImageSourceChain<Placeholder: View>: View {
     let sources: ArraySlice<HeroImageSource>
     let rendering: HeroImageRendering
     let tint: Color
+    let focusSafeAreaInsets: EdgeInsets
     @ViewBuilder var placeholder: () -> Placeholder
 
     @ViewBuilder
@@ -352,12 +374,14 @@ struct HeroImageSourceChain<Placeholder: View>: View {
             case .fullBleedImage:
                 ImageAssetAsyncImage(
                     image: source.image,
-                    contentMode: .fill
+                    contentMode: .fill,
+                    focusSafeAreaInsets: focusSafeAreaInsets
                 ) {
                     HeroImageSourceChain(
                         sources: sources.dropFirst(),
                         rendering: rendering,
                         tint: tint,
+                        focusSafeAreaInsets: focusSafeAreaInsets,
                         placeholder: placeholder
                     )
                 }
@@ -396,6 +420,7 @@ struct HeroImageSourceChain<Placeholder: View>: View {
                 sources: sources.dropFirst(),
                 rendering: rendering,
                 tint: tint,
+                focusSafeAreaInsets: focusSafeAreaInsets,
                 placeholder: placeholder
             )
         }
@@ -532,6 +557,25 @@ struct HeroImageOffsetReader: View {
 }
 
 struct HeroImageOffsetPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+struct HeroImageBottomChromeHeightReader: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(
+                key: HeroImageBottomChromeHeightPreferenceKey.self,
+                value: geometry.size.height
+            )
+        }
+    }
+}
+
+struct HeroImageBottomChromeHeightPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {

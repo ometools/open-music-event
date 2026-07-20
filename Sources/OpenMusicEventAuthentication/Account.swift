@@ -5,10 +5,12 @@ import ComposableArchitecture2
 import ComposableForms
 import Dependencies
 import IssueReporting
+import OpenMusicEventComponents
 import Sharing
 import SwiftUI
 import Tagged
 import TCATProtoAuthentication
+import XRPCClient
 
 @Feature
 public struct Account {
@@ -54,24 +56,56 @@ public struct Account {
         }
     }
 
+    public enum AccountSessionValidationStatus: Equatable, Sendable {
+        case unchecked
+        case checking
+        case accepted
+        case requiresRelog
+        case unverified
+
+        var canStartChecking: Bool {
+            self != .checking
+        }
+
+        var requiresRelog: Bool {
+            self == .requiresRelog
+        }
+    }
+
     public struct AccountRow: Equatable, Identifiable, Sendable {
         public var id: Atmosphere.Account.ID
         public var identity: ActorIdentity?
         public var isSelected: Bool
         public var pdsHost: String
+        public var sessionValidationStatus: AccountSessionValidationStatus
 
         public var title: String {
             identity?.displayName?.accountDisplayValue
                 ?? identity?.handle?.rawValue.accountDisplayValue
-                ?? "AT Protocol account"
+                ?? "Account"
         }
 
         public var subtitle: String {
+            if sessionValidationStatus.requiresRelog {
+                return "Sign in again"
+            }
             if identity?.displayName?.accountDisplayValue != nil,
                let handle = identity?.handle?.rawValue.accountDisplayValue {
                 return handle
             }
             return "Hosted by \(pdsHost)"
+        }
+
+        var requiresRelog: Bool {
+            sessionValidationStatus.requiresRelog
+        }
+
+        func visibleSubtitle(showsTechnicalDetails: Bool) -> String? {
+            if identity?.displayName?.accountDisplayValue != nil,
+               let handle = identity?.handle?.rawValue.accountDisplayValue {
+                return handle.hasPrefix("@") ? handle : "@\(handle)"
+            }
+            return showsTechnicalDetails ? "Hosted by \(pdsHost)" : nil
         }
 
         var avatarInitials: String {
@@ -207,12 +241,16 @@ public struct Account {
         public var authRequirement: OAuth.AuthRequirement
         public var isAuthenticationSheetPresented: Bool
         public var accountIdentities: [Atmosphere.Account.ID: AccountIdentityResolution] = [:]
+        public var accountSessionValidationStatuses: [Atmosphere.Account.ID: AccountSessionValidationStatus] = [:]
         public var oauth: Spawn<OAuthAccount>
         @Shared public var selectedSessionID: Atmosphere.Account.ID?
         @Shared public var recentlyUsedAccountIDs: [Atmosphere.Account.ID]
         public var selectedMode: Mode
         public var selectedSignUpServerOptionID: OAuthSignUpServerOption.ID?
         public var signUpServerConfiguration: OAuthSignUpServerConfiguration
+        public var signInActorSearchFailures: [PredictiveSearchFailure] = []
+        public var signInActorSearchIsLoading = false
+        public var signInActorSearchResults: [ActorIdentity] = []
         public var signInForm: SignInFormFeature.State
         public var signUpForm: SignUpFormFeature.State
         public var usesCustomSignUpServerHost: Bool
@@ -225,11 +263,13 @@ public struct Account {
             let recentUseRanks = accountRowRecentUseRanks
             return sessionStore.sessions.values
                 .map { session in
-                    AccountRow(
+                    let validationStatus = accountSessionValidationStatuses[session.accountID] ?? .unchecked
+                    return AccountRow(
                         id: session.accountID,
                         identity: accountIdentities[session.accountID]?.identity,
-                        isSelected: session.accountID == selectedSessionID,
-                        pdsHost: session.pdsHost.rawValue
+                        isSelected: session.accountID == selectedSessionID && !validationStatus.requiresRelog,
+                        pdsHost: session.pdsHost.rawValue,
+                        sessionValidationStatus: validationStatus
                     )
                 }
                 .sorted { lhs, rhs in
@@ -306,6 +346,15 @@ public struct Account {
             }
         }
 
+        func reloginHint(for accountID: Atmosphere.Account.ID) -> String {
+            accountIdentities[accountID]?
+                .identity?
+                .handle?
+                .rawValue
+                .accountDisplayValue
+            ?? accountID.rawValue.description
+        }
+
         mutating func syncRecentlyUsedAccountIDs(selectedAccountID: Atmosphere.Account.ID?) {
             let accountIDs = Set(sessionStore.sessions.values.map(\.accountID))
             let selectedAccountID = selectedAccountID.flatMap { accountID in
@@ -329,6 +378,12 @@ public struct Account {
             set { signInForm.value.handle = newValue }
         }
 
+        mutating func resetSignInActorSearch() {
+            signInActorSearchFailures = []
+            signInActorSearchIsLoading = false
+            signInActorSearchResults = []
+        }
+
         public var surface: Surface {
             accountRows.isEmpty ? .authentication : .accountManagement
         }
@@ -345,11 +400,19 @@ public struct Account {
         case accountLogOutButtonTapped(Atmosphere.Account.ID)
         case accountRowTapped(Atmosphere.Account.ID)
         case accountRowsAppeared
+        case accountSessionValidationResponse(
+            Atmosphere.Account.ID,
+            OpenMusicEventAccountSessionValidationClient.ValidationResult
+        )
         case authenticationSheetDismissed
         case customSignUpServerOptionTapped
         case loginResponse(Result<OAuth.Session, OAuthAccount.LoginFailure>)
         case selectedModeChanged(Mode)
         case signOutAllButtonTapped
+        case signInActorIdentityTapped(ActorIdentity)
+        case signInActorSearchQueryChanged(String)
+        case signInActorSearchResponse(PredictiveSearchResponse<ActorIdentity>)
+        case signInActorSearchSubmitted
         case signInForm(SignInFormFeature.Action)
         case signInFormSubmitted(SignInFormValue)
         case signUpForm(SignUpFormFeature.Action)
@@ -361,8 +424,10 @@ public struct Account {
 
     @Dependency(\.actorIdentityLookup) var actorIdentityLookup
     @Dependency(\.openMusicEventAccountAuthorizationClient) var accountAuthorizationClient
+    @Dependency(\.openMusicEventAccountSessionValidationClient) var accountSessionValidationClient
     @Dependency(\.openMusicEventAuthorizationRequests) var authorizationRequests
     @Dependency(\.openMusicEventSignUpServerConfiguration) var signUpServerConfiguration
+    @StoreTaskID var signInActorSearchTask
 
     public var body: some Feature {
         Features {
@@ -383,6 +448,7 @@ public struct Account {
                 case .accountButtonTapped:
                     state.selectedMode = .signIn
                     state.signInForm = SignInFormFeature.State(value: SignInFormValue())
+                    state.resetSignInActorSearch()
                     state.isAuthenticationSheetPresented = true
 
                 case .accountIdentityResponse(let accountID, let identity):
@@ -394,6 +460,7 @@ public struct Account {
                 case .accountLogOutButtonTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
                     state.accountIdentities[accountID] = nil
+                    state.accountSessionValidationStatuses[accountID] = nil
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = false
                     state.oauth.state.isSignUpInProgress = false
@@ -431,6 +498,14 @@ public struct Account {
 
                 case .accountRowTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
+                    if state.accountSessionValidationStatuses[accountID]?.requiresRelog == true {
+                        state.selectedMode = .signIn
+                        state.signInForm = SignInFormFeature.State(
+                            value: SignInFormValue(handle: state.reloginHint(for: accountID))
+                        )
+                        state.isAuthenticationSheetPresented = true
+                        return
+                    }
                     state.$selectedSessionID.withLock {
                         $0 = accountID
                     }
@@ -447,33 +522,80 @@ public struct Account {
                     state.syncRecentlyUsedAccountIDs(
                         selectedAccountID: state.selectedSessionID ?? state.sessionStore.selectedAccountID
                     )
-                    let accountIDs = Set(state.sessionStore.sessions.values.map(\.accountID))
+                    let sessions = Array(state.sessionStore.sessions.values)
+                    let accountIDs = Set(sessions.map(\.accountID))
                     state.accountIdentities = state.accountIdentities.filter {
+                        accountIDs.contains($0.key)
+                    }
+                    state.accountSessionValidationStatuses = state.accountSessionValidationStatuses.filter {
                         accountIDs.contains($0.key)
                     }
                     let accountIDsToLoad = accountIDs.filter { accountID in
                         state.accountIdentities[accountID]?.needsLoading ?? true
                     }
-                    guard !accountIDsToLoad.isEmpty else { return }
                     for accountID in accountIDsToLoad {
                         state.accountIdentities[accountID] = .loading
                     }
-                    store.addTask {
-                        for accountID in accountIDsToLoad {
-                            let identity: ActorIdentity?
-                            do {
-                                identity = try await actorIdentityLookup.resolve(
-                                    accountID.rawValue.description
-                                )
-                            } catch {
-                                identity = nil
+                    if !accountIDsToLoad.isEmpty {
+                        store.addTask {
+                            for accountID in accountIDsToLoad {
+                                let identity: ActorIdentity?
+                                do {
+                                    identity = try await actorIdentityLookup.resolve(
+                                        accountID.rawValue.description
+                                    )
+                                } catch {
+                                    identity = nil
+                                }
+                                try store.send(.accountIdentityResponse(accountID, identity))
                             }
-                            try store.send(.accountIdentityResponse(accountID, identity))
                         }
+                    }
+                    let sessionsToValidate = sessions.filter { session in
+                        (
+                            state.accountSessionValidationStatuses[session.accountID] ?? .unchecked
+                        )
+                        .canStartChecking
+                    }
+                    for session in sessionsToValidate {
+                        state.accountSessionValidationStatuses[session.accountID] = .checking
+                    }
+                    if !sessionsToValidate.isEmpty {
+                        store.addTask {
+                            for session in sessionsToValidate {
+                                let result = await accountSessionValidationClient.validate(session)
+                                try store.send(.accountSessionValidationResponse(session.accountID, result))
+                            }
+                        }
+                    }
+
+                case .accountSessionValidationResponse(let accountID, let result):
+                    guard state.sessionStore[accountID] != nil else { return }
+                    switch result {
+                    case .accepted(let session):
+                        guard session.accountID == accountID else {
+                            state.accountSessionValidationStatuses[accountID] = .unverified
+                            return
+                        }
+                        state.oauth.state.$sessionStore.withLock {
+                            $0[accountID] = session
+                        }
+                        state.accountSessionValidationStatuses[accountID] = .accepted
+                        let sessionStore = state.oauth.state.$sessionStore
+                        store.addTask {
+                            await saveOpenMusicEventSessionStore(sessionStore)
+                        }
+
+                    case .requiresRelog:
+                        state.accountSessionValidationStatuses[accountID] = .requiresRelog
+
+                    case .unverified:
+                        state.accountSessionValidationStatuses[accountID] = .unverified
                     }
 
                 case .authenticationSheetDismissed:
                     state.isAuthenticationSheetPresented = false
+                    state.resetSignInActorSearch()
 
                 case .customSignUpServerOptionTapped:
                     guard state.signUpServerConfiguration.allowsCustomServerHost else { return }
@@ -487,6 +609,7 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.upsert(session)
                     }
+                    state.accountSessionValidationStatuses[session.accountID] = .accepted
                     state.$selectedSessionID.withLock {
                         $0 = session.accountID
                     }
@@ -510,6 +633,38 @@ public struct Account {
 
                 case .selectedModeChanged(let mode):
                     state.selectedMode = mode
+
+                    if mode == .signUp {
+                        state.resetSignInActorSearch()
+                    }
+
+                case let .signInActorIdentityTapped(identity):
+                    state.signInLoginHint = identity.handle?.rawValue ?? identity.did.description
+                    state.resetSignInActorSearch()
+                    store.addTask {
+                        try store.send(.signInForm(.submittedForm))
+                    }
+
+                case let .signInActorSearchQueryChanged(query):
+                    state.signInLoginHint = query
+                    searchSignInActors(query: query, includingExactLookup: false, state: &state)
+
+                case .signInActorSearchResponse(let response):
+                    guard response.query == state.signInLoginHint.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ) else {
+                        return
+                    }
+                    state.signInActorSearchIsLoading = false
+                    state.signInActorSearchFailures = response.failures
+                    state.signInActorSearchResults = response.results
+
+                case .signInActorSearchSubmitted:
+                    searchSignInActors(
+                        query: state.signInLoginHint,
+                        includingExactLookup: true,
+                        state: &state
+                    )
 
                 case .signInForm:
                     break
@@ -567,6 +722,7 @@ public struct Account {
                     state.oauth.state.$sessionStore.withLock {
                         $0.upsert(session)
                     }
+                    state.accountSessionValidationStatuses[session.accountID] = .accepted
                     state.$selectedSessionID.withLock {
                         $0 = session.accountID
                     }
@@ -598,6 +754,7 @@ public struct Account {
 
                 case .signOutAllButtonTapped:
                     state.accountIdentities = [:]
+                    state.accountSessionValidationStatuses = [:]
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = false
                     state.oauth.state.isSignUpInProgress = false
@@ -641,6 +798,42 @@ public struct Account {
             )
         }
     }
+
+    private func searchSignInActors(
+        query: String,
+        includingExactLookup: Bool,
+        state: inout State
+    ) {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else {
+            state.resetSignInActorSearch()
+            return
+        }
+
+        state.signInActorSearchIsLoading = true
+        store.addTask(id: signInActorSearchTask) {
+            let response = await (
+                includingExactLookup ? Self.exactSignInActorSearch : Self.signInActorTypeaheadSearch
+            )
+            .search(query)
+            try Task.checkCancellation()
+            try store.send(.signInActorSearchResponse(response))
+        }
+    }
+
+    static let exactSignInActorSearch = PredictiveSearch(
+        actorIdentitySources: [
+            .exactActorIdentityLookup(title: "Exact match"),
+        ],
+        minimumQueryLength: 2
+    )
+
+    static let signInActorTypeaheadSearch = PredictiveSearch(
+        actorIdentitySources: [
+            .appBskyActorTypeahead(title: "Profiles", limit: 10),
+        ],
+        minimumQueryLength: 2
+    )
 }
 
 private extension Account.SignInFormFeature {
@@ -700,7 +893,7 @@ public struct AccountPicker: View {
                 Button {
                     store.send(.accountButtonTapped)
                 } label: {
-                    Label("Sign In", systemImage: "person-circle")
+                    Label("Sign In", systemImage: "person")
                 }
             } else {
                 ForEach(store.accountRows) { row in
@@ -713,6 +906,7 @@ public struct AccountPicker: View {
             }
         } label: {
             AccountPickerLabel(row: store.accountRows.first(where: \.isSelected))
+                .environment(\.accountPickerHandleVisibility, .hidden)
         }
         .accessibilityLabel(accessibilityLabel)
         .accountAuthenticationSheet(store: store)
@@ -743,9 +937,20 @@ struct AccountPickerLabel: View {
         if let row {
             AccountPickerRow(row: row, showsSelection: false)
         } else {
-            Image(systemName: "person-circle")
+            Image(systemName: "person")
                 .imageScale(.large)
         }
+    }
+}
+
+enum AccountPickerHandleVisibilityKey: EnvironmentKey {
+    static let defaultValue: Visibility = .automatic
+}
+
+extension EnvironmentValues {
+    var accountPickerHandleVisibility: Visibility {
+        get { self[AccountPickerHandleVisibilityKey.self] }
+        set { self[AccountPickerHandleVisibilityKey.self] = newValue }
     }
 }
 
@@ -758,6 +963,8 @@ struct AccountPickerRow: View {
         self.showsSelection = showsSelection
     }
 
+    @Environment(\.accountPickerHandleVisibility) var handleVisibility
+
     var body: some View {
         HStack(spacing: 8) {
             AccountAvatar(
@@ -765,9 +972,17 @@ struct AccountPickerRow: View {
                 initials: row.avatarInitials,
                 size: 24
             )
+            .mask(Circle())
+            .clipShape(Circle())
+            .geometryGroup()
 
-            Text(row.pickerHandle)
-                .lineLimit(1)
+            switch handleVisibility {
+            case .visible, .automatic:
+                Text(row.pickerHandle)
+                    .lineLimit(1)
+            case .hidden:
+                EmptyView()
+            }
 
             if showsSelection, row.isSelected {
                 Spacer(minLength: 4)
@@ -802,11 +1017,13 @@ struct AccountManagementSection: View {
                         select(row)
                     } label: {
                         Label(
-                            row.isSelected ? "Current Account" : "Select Account",
+                            row.requiresRelog
+                                ? "Sign In Again"
+                                : row.isSelected ? "Current Account" : "Select Account",
                             systemImage: row.isSelected ? "checkmark" : "checkmark.circle"
                         )
                     }
-                    .disabled(row.isSelected)
+                    .disabled(row.isSelected && !row.requiresRelog)
 
                     Button(role: .destructive) {
                         logOut(row)
@@ -854,26 +1071,33 @@ struct AccountManagementSection: View {
 
 struct AccountRowView: View {
     let row: Account.AccountRow
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         HStack(spacing: 12) {
             AccountAvatar(identity: row.identity, initials: row.avatarInitials)
+                .opacity(row.requiresRelog ? 0.48 : 1)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.title)
                     .font(.body.weight(row.isSelected ? .semibold : .regular))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(row.requiresRelog ? .secondary : .primary)
                     .lineLimit(1)
 
-                Text(row.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let subtitle = row.visibleSubtitle(
+                    showsTechnicalDetails: showsTechnicalDetails
+                ) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
+            .opacity(row.requiresRelog ? 0.68 : 1)
 
             Spacer(minLength: 8)
 
-            if row.isSelected {
+            if row.isSelected && !row.requiresRelog {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
                     .imageScale(.large)
@@ -883,6 +1107,7 @@ struct AccountRowView: View {
         }
         .padding(.vertical, 8)
         .animation(SwiftUI.Animation.easeInOut(duration: 0.2), value: row.isSelected)
+        .animation(SwiftUI.Animation.easeInOut(duration: 0.2), value: row.requiresRelog)
         .foregroundStyle(.primary)
     }
 }
@@ -950,9 +1175,15 @@ struct AccountAvatarPlaceholder: View {
 public extension View {
     func accountPickerToolbar(store: StoreOf<Account>) -> some View {
         toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            #if os(macOS) && !SKIP
+            ToolbarItem(placement: .automatic) {
                 AccountPicker(store: store)
             }
+            #else
+            ToolbarItem(placement: .topBarLeading) {
+                AccountPicker(store: store)
+            }
+            #endif
         }
     }
 
@@ -980,14 +1211,21 @@ struct AccountAuthenticationSheetView: View {
             SwiftUI.Form {
                 AccountAuthenticationFormSections(store: store)
             }
+            #if os(macOS)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+            #endif
             .navigationTitle("Account")
             .safeEdgeExpansion(edge: .bottom) {
                 AccountAuthenticationSafeEdgeAction(store: store)
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
+                    Button {
                         store.send(.authenticationSheetDismissed)
+                    } label: {
+                        Label("Done", systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }
@@ -997,6 +1235,7 @@ struct AccountAuthenticationSheetView: View {
 
 struct AccountAuthenticationFormSections: View {
     @Bindable var store: StoreOf<Account>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let showsIntro: Bool
 
     init(
@@ -1014,7 +1253,9 @@ struct AccountAuthenticationFormSections: View {
                     Text("Your Atmosphere account")
                         .font(.headline)
                     Text(
-                        "Use one portable social account across Open Music Event and other AT Protocol apps."
+                        showsTechnicalDetails
+                            ? "Use one portable social account across Open Music Event and other AT Protocol apps."
+                            : "Use one portable social account across Open Music Event and other compatible apps."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -1023,44 +1264,90 @@ struct AccountAuthenticationFormSections: View {
             }
         }
 
-        Section {
-            Picker("Account action", selection: $store.selectedMode) {
+        Section("Account") {
+            Picker("Action", selection: $store.selectedMode) {
                 ForEach(Account.Mode.allCases, id: \.self) { mode in
                     Text(mode.title)
                         .tag(mode)
                 }
             }
             .pickerStyle(.segmented)
+        }
 
-            switch store.selectedMode {
-            case .signIn:
+        switch store.selectedMode {
+        case .signIn:
+            Section {
                 Text(store.selectedMode.helperText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                TextField("name.atmo.social", text: $store.signInForm.value.handle)
-                    #if !os(macOS)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
+                TextField(
+                    "Search profiles",
+                    text: $store.signInForm.value.handle,
+                    prompt: Text("name.atmo.social")
+                )
+                #if os(iOS) || os(macOS)
+                .textContentType(.username)
+                #endif
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+                .autocorrectionDisabled()
+                .onSubmit {
+                    store.send(.signInActorSearchSubmitted)
+                }
+                .onChange(of: store.signInLoginHint) { _, query in
+                    store.send(.signInActorSearchQueryChanged(query))
+                }
+
+                if store.signInActorSearchIsLoading {
+                    ProgressView()
+                }
+
+                ForEach(
+                    store.signInActorSearchResults.filter {
+                        showsTechnicalDetails || $0.handle != nil
+                    }
+                ) { identity in
+                    Button {
+                        store.send(.signInActorIdentityTapped(identity))
+                    } label: {
+                        AccountActorIdentityRow(identity: identity)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(store.isWorking)
+                }
+
+                ForEach(store.signInActorSearchFailures, id: \.sourceID) { failure in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(failure.title)
+                        Text(failure.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
                 FormFieldValidationStatus(
                     validation: store.signInForm.validation[AccountFormFieldID.signInHandle]
                 )
-
-            case .signUp:
-                Text(store.selectedMode.helperText)
+            } header: {
+                Text(showsTechnicalDetails ? "ATProto Identity" : "Account")
+            } footer: {
+                Text("Already use Bluesky? Your Bluesky handle works too.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
-            if store.selectedMode == .signUp {
-                AccountSignUpServerFormView(store: store)
+        case .signUp:
+            Section {
+                Text(store.selectedMode.helperText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Account provider")
             }
-        } footer: {
-            Text("Already use Bluesky? Your Bluesky handle works too.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+
+            AccountSignUpServerFormView(store: store)
         }
 
         if let errorMessage = store.errorMessage {
@@ -1069,6 +1356,102 @@ struct AccountAuthenticationFormSections: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+struct AccountActorIdentityRow: View {
+    let identity: ActorIdentity
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AccountActorAvatar(identity: identity)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(identity.authenticationDisplayTitle(showsTechnicalDetails: showsTechnicalDetails))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                if let subtitle = identity.authenticationDisplaySubtitle(
+                    showsTechnicalDetails: showsTechnicalDetails
+                ) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct AccountActorAvatar: View {
+    let identity: ActorIdentity
+
+    var body: some View {
+        AsyncImage(url: identity.avatar) { phase in
+            switch phase {
+            case let .success(image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+
+            case .empty, .failure:
+                AccountActorAvatarPlaceholder(identity: identity)
+
+            @unknown default:
+                AccountActorAvatarPlaceholder(identity: identity)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .clipShape(Circle())
+    }
+}
+
+struct AccountActorAvatarPlaceholder: View {
+    let identity: ActorIdentity
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+
+    var body: some View {
+        Circle()
+            .fill(.secondary.opacity(0.18))
+            .overlay {
+                Text(identity.authenticationAvatarInitials(
+                    showsTechnicalDetails: showsTechnicalDetails
+                ))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+    }
+}
+
+private extension ActorIdentity {
+    func authenticationDisplayTitle(showsTechnicalDetails: Bool) -> String {
+        TechnicalDetails.identityTitle(
+            displayName: displayName,
+            handle: handle?.rawValue,
+            technicalID: did.description,
+            isVisible: showsTechnicalDetails
+        )
+    }
+
+    func authenticationDisplaySubtitle(showsTechnicalDetails: Bool) -> String? {
+        TechnicalDetails.identitySubtitle(
+            displayName: displayName,
+            handle: handle?.rawValue,
+            technicalID: did.description,
+            isVisible: showsTechnicalDetails
+        )
+    }
+
+    func authenticationAvatarInitials(showsTechnicalDetails: Bool) -> String {
+        String(
+            authenticationDisplayTitle(showsTechnicalDetails: showsTechnicalDetails).prefix(2)
+        )
+        .uppercased()
     }
 }
 
@@ -1365,7 +1748,7 @@ struct AccountCustomSignUpServerOptionRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Custom")
                     .font(.headline)
-                Text("Use another AT Protocol server")
+                Text("Use another account provider")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1430,6 +1813,16 @@ private func saveOpenMusicEventAuthenticationStorage(
     do {
         try await sessionStore.save()
         try await selectedSessionID.save()
+    } catch {
+        reportIssue(error)
+    }
+}
+
+private func saveOpenMusicEventSessionStore(
+    _ sessionStore: Shared<OAuth.SessionStore>
+) async {
+    do {
+        try await sessionStore.save()
     } catch {
         reportIssue(error)
     }

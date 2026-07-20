@@ -332,7 +332,8 @@ public extension ImportImages {
                 role: role,
                 renderKind: renderKind,
                 appearance: appearance,
-                materializationPolicy: materializationPolicy
+                materializationPolicy: materializationPolicy,
+                dimensions: OMERecord.ImageAsset.Dimensions(data: data)
             )
             return ImportedImage(
                 id: id,
@@ -403,6 +404,7 @@ public extension ImportImages {
                 appearance: asset.appearance,
                 materializationPolicy: asset.materializationPolicy,
                 thumbhash: asset.thumbhash,
+                dimensions: asset.dimensions,
                 focalPoint: asset.focalPoint
             )
         }
@@ -471,8 +473,11 @@ public struct ImportImagesView: View {
         .navigationTitle(store.configuration.title)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button {
                     store.send(.cancelButtonTapped)
+                } label: {
+                    Label("Cancel", systemImage: "close")
+                        .labelStyle(.iconOnly)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
@@ -614,8 +619,8 @@ struct ImportImageRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ImportedImageThumbnail(data: image.data)
-                .frame(width: 64, height: 64)
+            ImportedImageThumbnail(data: image.data, contentMode: .fit)
+                .frame(height: 64)
 
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Title", text: $image.title)
@@ -650,6 +655,12 @@ struct ImportImageRowView: View {
 
 struct ImportedImageThumbnail: View {
     let data: Data
+    let contentMode: ContentMode
+
+    init(data: Data, contentMode: ContentMode = .fill) {
+        self.data = data
+        self.contentMode = contentMode
+    }
 
     var body: some View {
         Group {
@@ -657,7 +668,7 @@ struct ImportedImageThumbnail: View {
             if let image = UIImage(data: data) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 placeholder
             }
@@ -665,7 +676,7 @@ struct ImportedImageThumbnail: View {
             if let image = NSImage(data: data) {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 placeholder
             }
@@ -683,6 +694,20 @@ struct ImportedImageThumbnail: View {
                 Image(systemName: "photo")
                     .foregroundStyle(.secondary)
             }
+    }
+}
+
+private extension OMERecord.ImageAsset.Dimensions {
+    init?(data: Data) {
+        #if !SKIP && canImport(UIKit)
+        guard let image = UIImage(data: data) else { return nil }
+        self.init(width: image.size.width, height: image.size.height)
+        #elseif !SKIP && canImport(AppKit)
+        guard let image = NSImage(data: data) else { return nil }
+        self.init(width: image.size.width, height: image.size.height)
+        #else
+        return nil
+        #endif
     }
 }
 

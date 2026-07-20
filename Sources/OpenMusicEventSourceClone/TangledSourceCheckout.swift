@@ -62,10 +62,28 @@ public extension TangledSourceCheckoutClient {
 
     static func git(credentials: Credentials?) -> Self {
         Self { request in
-            try TangledSourceArchiveExtractor.validateOutputDoesNotExist(request.outputURL)
-
-            let repoDID = try await request.repository.resolvedTangledRepositoryDID()
             @Dependency(\.sourceControl) var sourceControl
+            let credentials = request.repository.sourceControlCredentials(credentials)
+
+            if Self.isGitRepository(request.outputURL) {
+                let repository = try await sourceControl.open(request.outputURL)
+                try await sourceControl.fetch(
+                    request.repository.sourceControlFetchRequest(
+                        repository: repository,
+                        credentials: credentials
+                    )
+                )
+                try await sourceControl.checkout(
+                    CheckoutRequest(
+                        repository: repository,
+                        ref: request.repository.sourceControlFetchedCheckoutRef(request.ref)
+                    )
+                )
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+
+            try TangledSourceArchiveExtractor.validateOutputDoesNotExist(request.outputURL)
+            let repoDID = try await request.repository.resolvedTangledRepositoryDID()
             _ = try await sourceControl.clone(
                 request.repository.sourceControlCloneRequest(
                     repoDID: repoDID,
@@ -76,6 +94,15 @@ public extension TangledSourceCheckoutClient {
             )
             return TangledSourceCheckout(repositoryURL: request.outputURL)
         }
+    }
+
+    private static func isGitRepository(_ repositoryURL: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: repositoryURL
+                .standardizedFileURL
+                .appending(path: ".git")
+                .path(percentEncoded: false)
+        )
     }
 }
 
@@ -123,6 +150,20 @@ public extension TangledRepositoryReference {
             return RefName(rawValue: String(trimmedRef.dropFirst("refs/heads/".count)))
         }
         return RefName(rawValue: trimmedRef)
+    }
+
+    func sourceControlFetchedCheckoutRef(_ ref: String) -> RefName {
+        let trimmedRef = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRef.isEmpty, trimmedRef != "HEAD" else {
+            return RefName(rawValue: "origin/HEAD")
+        }
+        if trimmedRef.hasPrefix("refs/heads/") {
+            return RefName(rawValue: "origin/\(trimmedRef.dropFirst("refs/heads/".count))")
+        }
+        if trimmedRef.hasPrefix("refs/") {
+            return RefName(rawValue: trimmedRef)
+        }
+        return RefName(rawValue: "origin/\(trimmedRef)")
     }
 
     func resolvedTangledRepositoryDID() async throws -> String {

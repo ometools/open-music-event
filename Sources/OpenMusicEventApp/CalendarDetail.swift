@@ -2,6 +2,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
@@ -296,11 +297,17 @@ public struct CalendarDetailView: View {
             Text("This permanently deletes the selected event data from this device. Created events are not cached off device.")
         }
         .toolbar {
-            Button("Add Event", systemImage: "plus") {
+            Button {
                 store.send(.addEventButtonTapped)
+            } label: {
+                Label("Add Event", systemImage: "plus")
+                    .labelStyle(.iconOnly)
             }
-            Button("Edit Calendar", systemImage: "pencil") {
+            Button {
                 store.send(.editButtonTapped)
+            } label: {
+                Label("Edit Calendar", systemImage: "pencil")
+                    .labelStyle(.iconOnly)
             }
         }
         .whiteLabelRootActionsToolbar(store: whiteLabelRootStore)
@@ -370,6 +377,7 @@ struct CalendarEntryButton: View {
 
 struct CalendarEntryRowView: View {
     let row: CalendarDetail.EntryRow
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -384,10 +392,12 @@ struct CalendarEntryRowView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Event unavailable")
-                        Text(row.entry.event.uri.description)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        if showsTechnicalDetails {
+                            Text(row.entry.event.uri.description)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
 
                     Spacer()

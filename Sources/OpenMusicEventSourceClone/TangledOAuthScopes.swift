@@ -170,6 +170,12 @@ public enum TangledOAuthRequirements {
         ]
     )
 
+    public static let pullRequestWorkflowAuthRequirement = OAuth.AuthRequirement(
+        permissions: proposalAuthRequirement.permissions
+            .union(pullRequestSurfaceAuthRequirement.permissions)
+            .union(pullMergeAuthRequirement.permissions)
+    )
+
     public static let pullStatusAuthRequirement = OAuth.AuthRequirement(
         permissions: [
             pullStatusCreatePermission

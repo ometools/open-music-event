@@ -4,6 +4,7 @@ import ErrorHandling
 import Foundation
 import IssueReporting
 import OpenMusicEventAppEventViewer
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventSourceEditing
@@ -841,8 +842,11 @@ public struct OrganizerDetailView: View {
             Text("This permanently deletes the selected event data from this device. Created events are not cached off device.")
         }
         .toolbar {
-            Button("Add Event", systemImage: "plus") {
+            Button {
                 store.send(.addEventButtonTapped)
+            } label: {
+                Label("Add Event", systemImage: "plus")
+                    .labelStyle(.iconOnly)
             }
         }
         .whiteLabelRootActionsToolbar(store: whiteLabelRootStore)
@@ -1047,6 +1051,7 @@ public struct TeamWorkspaceDetail {
 
     public enum Action {
         case addEventButtonTapped
+        case rolloverEventButtonTapped
         case destination(Destination.Action)
         case didPullToRefresh
         case editButtonTapped
@@ -1200,6 +1205,20 @@ public struct TeamWorkspaceDetail {
                     )
                 )
 
+            case .rolloverEventButtonTapped:
+                guard let calendarID = state.editableCalendarID,
+                      let sourceBaseline = state.sourceBaseline
+                else { return }
+                state.destination = .createEvent(
+                    Spawn(
+                        TeamWorkspaceCreateEvent.State(
+                            sourceBaselineID: sourceBaseline.id,
+                            calendarID: calendarID,
+                            strategy: .rollover
+                        )
+                    )
+                )
+
             case .destination:
                 return
 
@@ -1334,6 +1353,7 @@ public struct TeamWorkspaceDetail {
 public struct TeamWorkspaceDetailView: View {
     @Bindable var store: StoreOf<TeamWorkspaceDetail>
     @Dependency(\.date.now) var now
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     let isManageWorkspaceToolbarItemVisible: Bool
     let showsAuthoringControls: Bool
 
@@ -1380,25 +1400,25 @@ public struct TeamWorkspaceDetailView: View {
                 }
             }
 
-            if let sourceBaseline = store.sourceBaseline {
+            if showsTechnicalDetails, let sourceBaseline = store.sourceBaseline {
                 DisclosureGroup("Technical details", isExpanded: $sourceSectionExpanded) {
                     WorkspaceTechnicalValueView(
                         label: "Source address",
-                        value: sourceBaseline.sourceReference
-                    )
-                    WorkspaceTechnicalValueView(
-                        label: "Provider",
-                        value: sourceBaseline.sourceKind.rawValue
-                    )
-                    WorkspaceTechnicalValueView(
-                        label: "Version",
-                        value: sourceBaseline.ref ?? "default version"
-                    )
-                    if let organizerID = store.organizer?.id.description {
-                        WorkspaceTechnicalValueView(
-                            label: "Owner actor ID",
-                            value: organizerID
-                        )
+                         value: sourceBaseline.sourceReference
+                     )
+                     WorkspaceTechnicalValueView(
+                         label: "Provider",
+                         value: sourceBaseline.sourceKind.rawValue
+                     )
+                     WorkspaceTechnicalValueView(
+                         label: "Version",
+                         value: sourceBaseline.ref ?? "default version"
+                     )
+                     if let organizerID = store.organizer?.id.description {
+                         WorkspaceTechnicalValueView(
+                             label: "Owner actor ID",
+                             value: organizerID
+                         )
                     }
                     WorkspaceTechnicalValueView(
                         label: "Imported",
@@ -1470,29 +1490,53 @@ public struct TeamWorkspaceDetailView: View {
             }
         }
         .toolbar {
+            toolbarContent
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup {
             if showsAuthoringControls, store.canEditCalendar {
-                Button("Edit Calendar", systemImage: "pencil") {
+                Button {
                     store.send(.editButtonTapped)
+                } label: {
+                    Label("Edit Calendar", systemImage: "pencil")
+                        .labelStyle(.iconOnly)
                 }
             }
             if showsAuthoringControls, store.canCreateEvent {
-                Button("Add Event", systemImage: "plus") {
-                    store.send(.addEventButtonTapped)
+                Menu {
+                    Button("Blank Event") {
+                        store.send(.addEventButtonTapped)
+                    }
+                    Button("Start from Previous Event") {
+                        store.send(.rolloverEventButtonTapped)
+                    }
+                } label: {
+                    Label("Add Event", systemImage: "plus")
+                        .labelStyle(.iconOnly)
                 }
             }
             if showsAuthoringControls, store.canUploadToTangled {
-                Button("Create Shared Workspace") {
+                Button {
                     store.send(.uploadToTangledButtonTapped)
+                } label: {
+                    Label("Upload to Tangled", systemImage: "arrow.up.doc")
+                        .labelStyle(.iconOnly)
                 }
             }
             if showsAuthoringControls, isManageWorkspaceToolbarItemVisible && store.canManageSource {
-                Button(
-                    store.isPreparingTeamWorkspaceEditor
-                        ? "Preparing Shared Workspace"
-                        : "Manage Shared Workspace",
-                    systemImage: "person.3"
-                ) {
+                Button {
                     store.send(.manageSourceButtonTapped)
+                } label: {
+                    Label(
+                        store.isPreparingTeamWorkspaceEditor
+                            ? "Preparing Team Workspace"
+                            : "Manage Team Workspace",
+                        systemImage: "tray.full"
+                    )
+                    .labelStyle(.iconOnly)
                 }
                 .disabled(store.isPreparingTeamWorkspaceEditor)
             }

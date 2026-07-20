@@ -863,40 +863,108 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func preparedDependenciesUseArchiveCheckoutForPublicTangledImports() async throws {
-        let archiveData = Data("archive".utf8)
+    func preparedDependenciesUseGitCheckoutForTangledImports() async throws {
+        let ownerDID = try #require(DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu"))
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-public-tangled-checkout-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: outputURL) }
-        let requestedPaths = Mutex<[String]>([])
-        let extractedOutputURL = Mutex<URL?>(nil)
+        let sourceControlRequests = SourceControlRequestRecorder()
+        let credentials = Credentials(
+            ssh: SSHCredentials(
+                publicKey: "ssh-ed25519 public-key Open Music Event",
+                privateKey: "private-key"
+            )
+        )
+        let repository = TangledRepositoryReference(
+            host: "tangled.org",
+            owner: ownerDID.description,
+            repository: "shambhala-ome"
+        )
 
         try await withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    Issue.record("Git checkout should resolve the DID owner directly, not handle \(handle).")
+                    throw TangledSourceDownloadFeatureTestError.unexpectedAccountResolution
+                },
+                resolveDID: { did in
+                    #expect(did == ownerDID)
+                    return (
+                        Atmosphere.Account(id: .init(did), handle: "woody.fm"),
+                        try didDocument(
+                            did: did,
+                            handle: "woody.fm",
+                            pdsHost: "owner.pds.example"
+                        )
+                    )
+                }
+            )
+            $0[XRPC.Client.self] = .liveValue
             $0.httpClient = .testClient { _, path, _ in
-                requestedPaths.withLock { $0.append(path) }
-                return archiveData
-            }
-            $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient {
-                downloadedArchiveData,
-                outputURL in
-                expectNoDifference(downloadedArchiveData, archiveData)
-                extractedOutputURL.withLock { $0 = outputURL }
+                #expect(path.contains("/com.atproto.repo.listRecords"))
+                return Data(
+                    """
+                    {
+                      "records": [
+                        {
+                          "uri": "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo/shambhala-ome",
+                          "cid": "bafyreirepo",
+                          "value": {
+                            "$type": "sh.tangled.repo",
+                            "name": "shambhala-ome",
+                            "repoDid": "did:plc:targetrepo",
+                            "knot": "tangled.org",
+                            "createdAt": "2026-07-08T12:00:00Z"
+                          }
+                        }
+                      ]
+                    }
+                    """
+                    .utf8
+                )
             }
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
-                Issue.record("Public Tangled archive checkout should not request SSH credentials.")
-                throw PublicTangledCheckoutRequestedSSHCredentials()
+                credentials
+            }
+            $0.sourceControl = SourceControlClient(
+                clone: { request in
+                    await sourceControlRequests.recordClone(request)
+                    return Repository(url: request.destinationURL)
+                },
+                open: { url in
+                    await sourceControlRequests.recordOpen(url)
+                    return Repository(url: url)
+                },
+                fetch: { request in
+                    await sourceControlRequests.recordFetch(request)
+                },
+                checkout: { request in
+                    await sourceControlRequests.recordCheckout(request)
+                },
+                createBranch: { request in Branch(name: request.name) },
+                status: { _ in [] },
+                stage: { request in
+                    await sourceControlRequests.recordStage(request)
+                },
+                commit: { request in
+                    await sourceControlRequests.recordCommit(request)
+                    return Commit(id: "abc123")
+                },
+                formatPatch: { _ in Data() },
+                push: { request in
+                    await sourceControlRequests.recordPush(request)
+                }
+            )
+            $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient { _, _ in
+                Issue.record("App Tangled checkout should use Git, not public archives.")
             }
         } operation: {
             @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
             let checkout = try await tangledSourceCheckout.checkout(
                 TangledSourceCheckoutRequest(
-                    repository: TangledRepositoryReference(
-                        host: "tangled.org",
-                        owner: "woody.fm",
-                        repository: "shambhala-ome"
-                    ),
+                    repository: repository,
                     ref: "HEAD",
                     outputURL: outputURL
                 )
@@ -905,11 +973,13 @@ struct TangledSourceDownloadFeatureTests {
             #expect(checkout.repositoryURL == outputURL.standardizedFileURL)
         }
 
-        expectNoDifference(
-            requestedPaths.withLock { $0 },
-            ["/woody.fm/shambhala-ome/archive/HEAD.tar.gz"]
-        )
-        #expect(extractedOutputURL.withLock { $0 } == outputURL.standardizedFileURL)
+        let cloneRequest = try #require(await sourceControlRequests.cloneRequests.first)
+        #expect(cloneRequest.destinationURL == outputURL.standardizedFileURL)
+        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:targetrepo")
+        #expect(cloneRequest.checkout == nil)
+        #expect(cloneRequest.credentials == repository.sourceControlCredentials(credentials))
+        #expect(await sourceControlRequests.fetchRequests.isEmpty)
+        #expect(await sourceControlRequests.checkoutRequests.isEmpty)
     }
 
     @Test
@@ -1300,6 +1370,206 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func liveImportPreservesTangledRepositoryATURIAsSourceReference() async throws {
+        let database = try makePreparedDatabase()
+
+        let targetURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-source-repository-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: targetURL) }
+
+        let uuid = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000004"))
+        let expectedTemporaryURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid)
+        defer { try? FileManager.default.removeItem(at: expectedTemporaryURL) }
+
+        let sourceReference = "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: sourceReference,
+            ref: "HEAD"
+        )
+
+        let result = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.uuid = .constant(uuid)
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                expectNoDifference(
+                    request.repository,
+                    TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: "did:plc:5df2u7ief6m6tn77jznicxob",
+                        repository: "ome-workspace"
+                    )
+                )
+                #expect(request.ref == "HEAD")
+                #expect(request.outputURL == expectedTemporaryURL)
+                try writeMinimalSourceRepository(at: request.outputURL)
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
+                repositoryURL: { provenance in
+                    #expect(provenance == sourceProvenance)
+                    return targetURL
+                },
+                store: { repositoryURL, provenance in
+                    #expect(repositoryURL == expectedTemporaryURL)
+                    #expect(provenance == sourceProvenance)
+                    try FileManager.default.moveItem(at: repositoryURL, to: targetURL)
+                    return targetURL
+                },
+                remove: { _ in }
+            )
+        } operation: {
+            try await TangledSourceImportClient.live.importSource(
+                OpenMusicEventSourceValidationRequest(source: sourceReference)
+            )
+        }
+
+        let sourceBaseline = try await database.read { db in
+            try SourceBaselineRecord.fetchOne(db)
+        }
+
+        #expect(result.repositoryURL == targetURL)
+        #expect(sourceBaseline?.sourceReference == sourceReference)
+        #expect(sourceBaseline?.ref == "HEAD")
+    }
+
+    @Test
+    func liveImportUpdatesExistingStoredGitRepository() async throws {
+        let database = try makePreparedDatabase()
+        let ownerDID = try #require(DID("did:plc:cqqtuv75m7e5s4uj6nw4czyu"))
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "at://\(ownerDID.description)/sh.tangled.repo/wicked-woods-ome",
+            ref: "main"
+        )
+        let storedRepositoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-source-git-repository-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: storedRepositoryURL) }
+        try writeMinimalSourceRepository(at: storedRepositoryURL)
+        try FileManager.default.createDirectory(
+            at: storedRepositoryURL.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+
+        let sourceControlRequests = SourceControlRequestRecorder()
+        let credentials = Credentials(
+            ssh: SSHCredentials(
+                publicKey: "ssh-ed25519 public-key Open Music Event",
+                privateKey: "private-key"
+            )
+        )
+        let repositoryReference = TangledRepositoryReference(
+            host: "tangled.org",
+            owner: ownerDID.description,
+            repository: "wicked-woods-ome"
+        )
+
+        let result = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.tangledSourceCheckout = .git
+            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
+                repositoryURL: { provenance in
+                    #expect(provenance == sourceProvenance)
+                    return storedRepositoryURL
+                },
+                store: { repositoryURL, provenance in
+                    Issue.record(
+                        "Existing Git source \(provenance) should update in place, not store \(repositoryURL)."
+                    )
+                    return repositoryURL
+                },
+                remove: { provenance in
+                    Issue.record("Refreshing source should not remove \(provenance).")
+                }
+            )
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    Issue.record("Existing stored Git source should fetch without resolving handle \(handle).")
+                    throw TangledSourceDownloadFeatureTestError.unexpectedAccountResolution
+                },
+                resolveDID: { did in
+                    Issue.record("Existing stored Git source should fetch without resolving DID \(did).")
+                    throw TangledSourceDownloadFeatureTestError.unexpectedAccountResolution
+                }
+            )
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, _ in
+                Issue.record(
+                    "Existing stored Git source should fetch without XRPC request \(request.url?.path ?? "nil")."
+                )
+                throw TangledSourceDownloadFeatureTestError.unexpectedAccountResolution
+            }
+            $0.sourceControl = SourceControlClient(
+                clone: { request in
+                    await sourceControlRequests.recordClone(request)
+                    Issue.record("Existing stored Git source should fetch, not clone \(request).")
+                    return Repository(url: request.destinationURL)
+                },
+                open: { url in
+                    await sourceControlRequests.recordOpen(url)
+                    return Repository(url: url)
+                },
+                fetch: { request in
+                    await sourceControlRequests.recordFetch(request)
+                },
+                checkout: { request in
+                    await sourceControlRequests.recordCheckout(request)
+                },
+                createBranch: { request in Branch(name: request.name) },
+                status: { _ in [] },
+                stage: { request in
+                    await sourceControlRequests.recordStage(request)
+                },
+                commit: { request in
+                    await sourceControlRequests.recordCommit(request)
+                    return Commit(id: "abc123")
+                },
+                formatPatch: { _ in Data() },
+                push: { request in
+                    await sourceControlRequests.recordPush(request)
+                }
+            )
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                credentials
+            }
+        } operation: {
+            try await TangledSourceImportClient.live.importSource(
+                OpenMusicEventSourceValidationRequest(
+                    source: sourceProvenance.reference,
+                    ref: "main"
+                )
+            )
+        }
+
+        #expect(result.repositoryURL == storedRepositoryURL)
+        #expect(await sourceControlRequests.cloneRequests.isEmpty)
+        let openRequestURLs = await sourceControlRequests.openRequests
+            .map(\.standardizedFileURL)
+        expectNoDifference(
+            openRequestURLs,
+            [storedRepositoryURL.standardizedFileURL]
+        )
+        let fetchRequest = try #require(await sourceControlRequests.fetchRequests.first)
+        #expect(fetchRequest.repository == Repository(url: storedRepositoryURL))
+        #expect(
+            fetchRequest.credentials
+                == repositoryReference.sourceControlCredentials(credentials)
+        )
+        let checkoutRequest = try #require(await sourceControlRequests.checkoutRequests.first)
+        #expect(checkoutRequest.repository == Repository(url: storedRepositoryURL))
+        #expect(checkoutRequest.ref == "origin/main")
+
+        let eventCount = try await database.read { db in
+            try OMERecord.Event.fetchCount(db)
+        }
+        #expect(eventCount == 1)
+    }
+
+    @Test
     func sourceEditModePreparationDoesNotRequestSSHForArchiveBackedTangledSource() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
@@ -1496,6 +1766,7 @@ struct TangledSourceDownloadFeatureTests {
         )
     }
 
+    @Test
     func liveStoragePreservesOpenReferenceDatabaseWhenReplacingStoredRepository() throws {
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
@@ -1900,6 +2171,8 @@ private actor TangledWorkspaceBootstrapRequestRecorder {
 private actor SourceControlRequestRecorder {
     private(set) var cloneRequests: [CloneRequest] = []
     private(set) var openRequests: [URL] = []
+    private(set) var fetchRequests: [FetchRequest] = []
+    private(set) var checkoutRequests: [CheckoutRequest] = []
     private(set) var stageRequests: [StageRequest] = []
     private(set) var commitRequests: [CommitRequest] = []
     private(set) var pushRequests: [PushRequest] = []
@@ -1910,6 +2183,14 @@ private actor SourceControlRequestRecorder {
 
     func recordOpen(_ url: URL) {
         openRequests.append(url)
+    }
+
+    func recordFetch(_ request: FetchRequest) {
+        fetchRequests.append(request)
+    }
+
+    func recordCheckout(_ request: CheckoutRequest) {
+        checkoutRequests.append(request)
     }
 
     func recordStage(_ request: StageRequest) {
@@ -2224,6 +2505,37 @@ private func fulfillAuthorizationRequest(
 
 private func localID<Record>(_ string: String) -> OMERecord.ID<Record> {
     OMERecord.ID<Record>(rawValue: ATProto.Record.Key(rawValue: string))
+}
+
+private enum TangledSourceDownloadFeatureTestError: Error {
+    case unexpectedAccountResolution
+}
+
+private func didDocument(
+    did: DID,
+    handle: Atmosphere.Account.Handle,
+    pdsHost: String
+) throws -> DID.Document {
+    try JSONDecoder().decode(
+        DID.Document.self,
+        from: Data(
+            """
+            {
+              "id": "\(did.description)",
+              "alsoKnownAs": ["at://\(handle.rawValue)"],
+              "verificationMethod": [],
+              "service": [
+                {
+                  "id": "#atproto_pds",
+                  "type": "AtprotoPersonalDataServer",
+                  "serviceEndpoint": "https://\(pdsHost)"
+                }
+              ]
+            }
+            """
+            .utf8
+        )
+    )
 }
 
 private extension URL {

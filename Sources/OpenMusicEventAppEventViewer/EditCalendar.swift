@@ -351,32 +351,15 @@ public struct EditCalendarView: View {
     }
 
     public var body: some View {
-        Group {
-            if store.hasLoadedDraft {
-                loadedForm
-            } else {
-                ViewerPlaceholderView(
-                    title: store.navigationTitle,
-                    systemImage: "calendar",
-                    description: "This calendar could not be loaded."
-                )
-            }
-        }
+        EditCalendarContent(store: store)
         .disabled(store.isSaving)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    store.send(.cancelButtonTapped)
-                }
+                EditCalendarCancelButton(store: store)
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                SubmitButton(
-                    isInProgress: store.isSaving,
-                    isDisabled: !store.canSubmit
-                ) {
-                    store.send(.saveButtonTapped)
-                }
+                EditCalendarSaveButton(store: store)
             }
         }
         .navigationTitle(store.navigationTitle)
@@ -401,8 +384,58 @@ public struct EditCalendarView: View {
             }
         }
     }
+}
 
-    private var loadedForm: some View {
+struct EditCalendarCancelButton: View {
+    let store: StoreOf<EditCalendar>
+
+    var body: some View {
+        Button {
+            store.send(.cancelButtonTapped)
+        } label: {
+            Label("Cancel", systemImage: "close")
+                .labelStyle(.iconOnly)
+        }
+    }
+}
+
+struct EditCalendarSaveButton: View {
+    let store: StoreOf<EditCalendar>
+
+    var body: some View {
+        SubmitButton(
+            isInProgress: store.isSaving,
+            isDisabled: !store.canSubmit
+        ) {
+            store.send(.saveButtonTapped)
+        }
+    }
+}
+
+struct EditCalendarContent: View {
+    let store: StoreOf<EditCalendar>
+
+    var body: some View {
+        if store.hasLoadedDraft {
+            EditCalendarLoadedForm(store: store)
+        } else {
+            ViewerPlaceholderView(
+                title: store.navigationTitle,
+                systemImage: "calendar",
+                description: "This calendar could not be loaded."
+            )
+        }
+    }
+}
+
+struct EditCalendarLoadedForm: View {
+    @Bindable var store: StoreOf<EditCalendar>
+
+    init(store: StoreOf<EditCalendar>) {
+        self.store = store
+    }
+
+    var body: some View {
         Form {
             Section("Calendar") {
                 TextField("Name", text: $store.form.value.name)
@@ -429,7 +462,7 @@ public struct EditCalendarView: View {
 
             if let errorMessage = store.errorMessage {
                 Section {
-                    Text(errorMessage)
+                    Text(verbatim: errorMessage)
                         .font(.footnote)
                         .foregroundStyle(.red)
                 }
