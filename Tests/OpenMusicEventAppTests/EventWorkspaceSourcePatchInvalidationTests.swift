@@ -117,6 +117,18 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
         #expect(expectedWorkspaceSummary.availability == .available)
         #expect(expectedWorkspaceSummary.totalCount == 1)
+        let eventRecord = try #require(
+            expectedWorkspaceSummary.groups
+                .first { $0.id == OME.Event.tableName }?
+                .records
+                .first
+        )
+        let expectedSourcePatchAttributions = [
+            SourcePatchAttribution(
+                filePath: "events/event-1/event.yml",
+                recordChangeIDs: [eventRecord.id]
+            )
+        ]
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -159,6 +171,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .success(
                     EventWorkspace.SourceProposalPreparation(
                         patch: patch,
+                        sourcePatchAttributions: expectedSourcePatchAttributions,
                         sourceWorkspaceSummary: expectedWorkspaceSummary
                     )
                 )
@@ -173,6 +186,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         #expect(store.state.sourceProposal?.eventID == eventID)
         #expect(store.state.sourceProposal?.patch == patch)
+        expectNoDifference(
+            store.state.sourceProposal?.sourcePatchAttributions,
+            expectedSourcePatchAttributions
+        )
         expectNoDifference(
             store.state.sourceProposal?.sourceChangeGroups,
             expectedWorkspaceSummary.groups
@@ -214,6 +231,18 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
         #expect(expectedWorkspaceSummary.availability == .available)
         #expect(expectedWorkspaceSummary.totalCount == 1)
+        let eventRecord = try #require(
+            expectedWorkspaceSummary.groups
+                .first { $0.id == OME.Event.tableName }?
+                .records
+                .first
+        )
+        let expectedSourcePatchAttributions = [
+            SourcePatchAttribution(
+                filePath: "events/event-1/event.yml",
+                recordChangeIDs: [eventRecord.id]
+            )
+        ]
         let staleGroup = SourceChangeGroup(
             id: OME.Contributor.tableName,
             displayName: "Contributor",
@@ -285,6 +314,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .success(
                     EventWorkspace.SourceProposalPreparation(
                         patch: currentPatch,
+                        sourcePatchAttributions: expectedSourcePatchAttributions,
                         sourceWorkspaceSummary: expectedWorkspaceSummary
                     )
                 )
@@ -299,11 +329,237 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         #expect(store.state.sourceProposal?.eventID == eventID)
         #expect(store.state.sourceProposal?.patch == currentPatch)
         expectNoDifference(
+            store.state.sourceProposal?.sourcePatchAttributions,
+            expectedSourcePatchAttributions
+        )
+        expectNoDifference(
             store.state.sourceProposal?.sourceChangeGroups,
             expectedWorkspaceSummary.groups
         )
 
         await store.dismount()
+    }
+
+    @Test
+    func proposeChangeButtonAttributesStagePatchFileToCurrentStageDiff() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let expectedSourceBaselineID = sourceBaselineID(for: eventID)
+        let stageID = OME.Stage.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            stageID: OME.ID<OME.Stage>(.init("meadow"))
+        )
+        try await seedSourceBackedEvent(eventID, in: database)
+        try await seedEditingWorkspace(for: eventID, in: database)
+        try await database.write { db in
+            try OME.Stage.insert {
+                OME.Stage.Draft(
+                    id: stageID,
+                    name: "Meadow",
+                    color: 0x00bbcc,
+                    sortIndex: 1
+                )
+            }
+            .execute(db)
+        }
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "baseline.sqlite").path()
+        )
+        try database.backup(to: baselineDatabase.database)
+        try await database.write { db in
+            try OME.Stage
+                .find(stageID)
+                .update { $0.name = "Main Meadow" }
+                .execute(db)
+        }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "session.sqlite").path(),
+            baselineDatabasePath: baselineDatabase.path
+        )
+        let expectedWorkspaceSummary = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await database.read { db in
+                try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
+            }
+        }
+        let stageRecord = try #require(
+            expectedWorkspaceSummary.groups
+                .first { $0.id == OME.Stage.tableName }?
+                .records
+                .first
+        )
+        let expectedSourcePatchAttributions = [
+            SourcePatchAttribution(
+                filePath: "events/event-1/stages/meadow.yml",
+                recordChangeIDs: [stageRecord.id]
+            )
+        ]
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/stages/meadow.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Meadow\n".utf8),
+                    newContents: Data("name: Main Meadow\n".utf8)
+                )
+            ]
+        )
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
+                #expect(
+                    request == OpenMusicEventCalendarSourcePatchRequest(
+                        calendarID: OME.Calendar.ID(
+                            ownerID: eventID.organizerID,
+                            calendarID: OME.Calendar.defaultID
+                        ),
+                        sourceBaselineID: expectedSourceBaselineID
+                    )
+                )
+                return patch
+            }
+        } operation: {
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
+            }
+        }
+
+        let task = store.send(.proposeChangeButtonTapped) {
+            $0.isPreparingSourceProposal = true
+            $0.sourcePatchStatus = .generating
+        }
+        await store.receive(
+            \.sourceProposalPreparationResponse,
+            .equals(
+                .success(
+                    EventWorkspace.SourceProposalPreparation(
+                        patch: patch,
+                        sourcePatchAttributions: expectedSourcePatchAttributions,
+                        sourceWorkspaceSummary: expectedWorkspaceSummary
+                    )
+                )
+            ),
+            timeout: .seconds(1)
+        ) {
+            $0.isPreparingSourceProposal = false
+            $0.sourcePatchStatus = .generated(patch)
+            $0.sourceProposalStatus = .composing
+        }
+        await task?.value
+
+        expectNoDifference(
+            store.state.sourceProposal?.sourcePatchAttributions,
+            expectedSourcePatchAttributions
+        )
+
+        await store.dismount()
+    }
+
+    @Test
+    func sourcePatchAttributionsCollectMultipleCurrentDiffRecordsForSameFile() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let scheduleID = OME.Schedule.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            scheduleID: OME.Schedule.singletonID
+        )
+        let scheduleDate = try #require(LocalDate("2026-08-01"))
+        try await seedSourceBackedEvent(eventID, in: database)
+        try await seedEditingWorkspace(for: eventID, in: database)
+        try await database.write { db in
+            try OME.Schedule.insert {
+                OME.Schedule.Draft(
+                    id: scheduleID,
+                    date: scheduleDate,
+                    startsAt: nil,
+                    endsAt: nil,
+                    customTitle: "Original Schedule"
+                )
+            }
+            .execute(db)
+        }
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "baseline.sqlite").path()
+        )
+        try database.backup(to: baselineDatabase.database)
+        try await database.write { db in
+            try OME.Event
+                .find(eventID)
+                .update { $0.name = "Updated Source Event" }
+                .execute(db)
+            try OME.Schedule
+                .find(scheduleID)
+                .update { $0.customTitle = #bind("Updated Schedule") }
+                .execute(db)
+        }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "session.sqlite").path(),
+            baselineDatabasePath: baselineDatabase.path
+        )
+        let workspaceSummary = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await database.read { db in
+                try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
+            }
+        }
+        let eventRecord = try #require(
+            workspaceSummary.groups
+                .first { $0.id == OME.Event.tableName }?
+                .records
+                .first
+        )
+        let scheduleRecord = try #require(
+            workspaceSummary.groups
+                .first { $0.id == OME.Schedule.tableName }?
+                .records
+                .first
+        )
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Source Event\n".utf8),
+                    newContents: Data("name: Updated Source Event\n".utf8)
+                )
+            ]
+        )
+
+        let attributions = try await database.read { db in
+            try openMusicEventSourcePatchAttributions(
+                patch: patch,
+                groups: workspaceSummary.groups,
+                recordComparisons: workspaceSummary.recordComparisons,
+                in: db
+            )
+        }
+
+        expectNoDifference(
+            attributions,
+            [
+                SourcePatchAttribution(
+                    filePath: "events/event-1/event.yml",
+                    recordChangeIDs: [
+                        eventRecord.id,
+                        scheduleRecord.id,
+                    ].sorted()
+                )
+            ]
+        )
     }
 
     @Test

@@ -187,13 +187,16 @@ public struct EventWorkspace {
 
     public struct SourceProposalPreparation: Equatable, Sendable {
         public var patch: SourcePatch
+        public var sourcePatchAttributions: [SourcePatchAttribution]
         public var sourceWorkspaceSummary: SourceWorkspaceSummary
 
         public init(
             patch: SourcePatch,
+            sourcePatchAttributions: [SourcePatchAttribution] = [],
             sourceWorkspaceSummary: SourceWorkspaceSummary
         ) {
             self.patch = patch
+            self.sourcePatchAttributions = sourcePatchAttributions
             self.sourceWorkspaceSummary = sourceWorkspaceSummary
         }
     }
@@ -674,14 +677,25 @@ public struct EventWorkspace {
                         let patch = try await calendarSourcePatchGenerator.generate(
                             sourcePatchRequest
                         )
-                        let sourceWorkspaceSummary = try await database.read { db in
-                            try sourceWorkspaceSummaryRequest.fetch(db)
+                        let (sourceWorkspaceSummary, sourcePatchAttributions) = try await database.read { db in
+                            let sourceWorkspaceSummary = try sourceWorkspaceSummaryRequest.fetch(db)
+                            let sourcePatchAttributions = try openMusicEventSourcePatchAttributions(
+                                patch: patch,
+                                groups: sourceWorkspaceSummary.groups,
+                                recordComparisons: sourceWorkspaceSummary.recordComparisons,
+                                in: db
+                            )
+                            return (
+                                sourceWorkspaceSummary,
+                                sourcePatchAttributions
+                            )
                         }
                         try store.send(
                             .sourceProposalPreparationResponse(
                                 .success(
                                     SourceProposalPreparation(
                                         patch: patch,
+                                        sourcePatchAttributions: sourcePatchAttributions,
                                         sourceWorkspaceSummary: sourceWorkspaceSummary
                                     )
                                 )
@@ -1085,6 +1099,7 @@ public struct EventWorkspace {
                 state.sourcePatchStatus = .generated(preparation.patch)
                 state.presentSourceProposal(
                     for: preparation.patch,
+                    sourcePatchAttributions: preparation.sourcePatchAttributions,
                     sourceWorkspaceSummary: preparation.sourceWorkspaceSummary
                 )
 
@@ -3234,6 +3249,7 @@ private extension EventWorkspace.State {
 
     mutating func presentSourceProposal(
         for patch: SourcePatch,
+        sourcePatchAttributions: [SourcePatchAttribution] = [],
         sourceWorkspaceSummary: SourceWorkspaceSummary
     ) {
         guard !patch.isEmpty,
@@ -3249,6 +3265,7 @@ private extension EventWorkspace.State {
             target: target,
             sourceChangeGroups: sourceWorkspaceSummary.groups,
             sourceRecordComparisons: sourceWorkspaceSummary.recordComparisons,
+            sourcePatchAttributions: sourcePatchAttributions,
             patch: patch
         )
         sourceProposalStatus = .composing

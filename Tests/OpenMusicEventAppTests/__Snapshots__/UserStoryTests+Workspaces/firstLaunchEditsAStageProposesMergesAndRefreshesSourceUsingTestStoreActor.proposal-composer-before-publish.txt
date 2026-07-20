@@ -244,6 +244,14 @@ SourceProposalFlow.State(
       records: []
     )
   ],
+  _sourcePatchAttributions: [
+    [0]: SourcePatchAttribution(
+      filePath: "events/testival-2026/stages/meadow.yml",
+      recordChangeIDs: [
+        [0]: #"stages:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#
+      ]
+    )
+  ],
   _sourceRecordComparisons: SourceRecordComparisons(
     comparisonsByChangeID: [
       #"stages:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#: AnySourceRecordComparison(

@@ -12,6 +12,21 @@ public struct SourcePatch: Codable, Equatable, Sendable {
     }
 }
 
+public struct SourcePatchAttribution: Equatable, Hashable, Identifiable, Sendable {
+    public var id: String { filePath }
+
+    public var filePath: String
+    public var recordChangeIDs: [SourceRecordChange.ID]
+
+    public init(
+        filePath: String,
+        recordChangeIDs: [SourceRecordChange.ID]
+    ) {
+        self.filePath = filePath
+        self.recordChangeIDs = recordChangeIDs
+    }
+}
+
 public struct SourcePatchFileChange: Codable, Equatable, Hashable, Identifiable, Sendable {
     public enum Kind: String, Codable, Equatable, Hashable, Sendable {
         case added
