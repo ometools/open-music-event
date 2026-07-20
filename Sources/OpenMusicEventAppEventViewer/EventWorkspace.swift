@@ -131,12 +131,11 @@ public struct SourceWorkspaceSummaryRequest: FetchKeyRequest {
                 eventSummary: try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
             )
 
-        case let .calendar(calendarID, sourceBaselineID):
+        case let .calendar(_, sourceBaselineID):
             return SourceWorkspaceSummary(
                 target: target,
                 sourceSummary: try SourceEditSummaryRequest(
-                    sourceBaselineID: sourceBaselineID,
-                    calendarID: calendarID
+                    sourceBaselineID: sourceBaselineID
                 )
                 .fetch(db)
             )
@@ -3282,17 +3281,6 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
         }
 
         let summary = try await workingDatabase.read { db in
-            let calendarID: OME.Calendar.ID
-            switch target {
-            case let .calendar(targetCalendarID, _):
-                calendarID = targetCalendarID
-
-            case let .event(eventID):
-                calendarID = OME.Calendar.ID(
-                    ownerID: eventID.organizerID,
-                    calendarID: OME.Calendar.defaultID
-                )
-            }
             let baselineSchemaName = "review_source_baseline"
             try #sql(
                 "ATTACH DATABASE \(bind: baselineDatabase.path) AS \(quote: baselineSchemaName)"
@@ -3303,9 +3291,7 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
             }
             return try openMusicEventSourceEditSummary(
                 in: db,
-                baselineSchemaName: baselineSchemaName,
-                sourceBaselineID: sourceBaselineID,
-                calendarID: calendarID
+                baselineSchemaName: baselineSchemaName
             )
         }
         switch summary.availability {

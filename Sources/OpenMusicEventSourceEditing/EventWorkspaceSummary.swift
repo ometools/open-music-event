@@ -82,25 +82,18 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             .where { $0.id.eq(eventID) }
             .fetchOne(db)
         let sourceSummary: SourceChangeSummary
-        if let sourceBaselineID = sourceProvenance?.sourceBaselineID {
+        if sourceProvenance?.sourceBaselineID != nil {
             sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
                 try openMusicEventSourceEditSummary(
                     in: db,
-                    baselineSchemaName: baselineSchemaName,
-                    sourceBaselineID: sourceBaselineID,
-                    calendarID: OME.Calendar.ID(
-                        ownerID: eventID.organizerID,
-                        calendarID: OME.Calendar.defaultID
-                    )
+                    baselineSchemaName: baselineSchemaName
                 )
             }
         } else if workspace.kind == .local {
             sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-                try SourceEditingComparer().summary(
+                try openMusicEventSourceEditSummary(
                     in: db,
-                    baselineSchemaName: baselineSchemaName,
-                    descriptors: OME.sourceTableDescriptors,
-                    scope: .openMusicEvent(eventID: eventID)
+                    baselineSchemaName: baselineSchemaName
                 )
             }
         } else {
@@ -165,15 +158,10 @@ public struct SourceEditSummary: Equatable, Sendable {
 }
 
 public struct SourceEditSummaryRequest: FetchKeyRequest {
-    public var calendarID: OME.Calendar.ID
     public var sourceBaselineID: SourceBaselineRecord.ID
 
-    public init(
-        sourceBaselineID: SourceBaselineRecord.ID,
-        calendarID: OME.Calendar.ID
-    ) {
+    public init(sourceBaselineID: SourceBaselineRecord.ID) {
         self.sourceBaselineID = sourceBaselineID
-        self.calendarID = calendarID
     }
 
     public func fetch(_ db: Database) throws -> SourceEditSummary {
@@ -201,9 +189,7 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
         let sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
             try openMusicEventSourceEditSummary(
                 in: db,
-                baselineSchemaName: baselineSchemaName,
-                sourceBaselineID: sourceBaselineID,
-                calendarID: calendarID
+                baselineSchemaName: baselineSchemaName
             )
         }
 
@@ -228,44 +214,12 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
 
 public func openMusicEventSourceEditSummary(
     in db: Database,
-    baselineSchemaName: String,
-    sourceBaselineID: SourceBaselineRecord.ID,
-    calendarID: OME.Calendar.ID
+    baselineSchemaName: String
 ) throws -> SourceChangeSummary {
-    let comparer = SourceEditingComparer()
-    let calendarSummary = try comparer.summary(
+    try SourceEditingComparer().summary(
         in: db,
         baselineSchemaName: baselineSchemaName,
-        recordTypes: OME.sourceMetadataRecordTypes,
-        scope: .openMusicEventCalendar(calendarID: calendarID)
-    )
-    guard case .available = calendarSummary.availability else {
-        return calendarSummary
-    }
-
-    var summaries = [calendarSummary]
-    for eventID in try openMusicEventSourceEventIDs(
-        in: db,
-        baselineSchemaName: baselineSchemaName,
-        sourceBaselineID: sourceBaselineID,
-        organizerID: calendarID.ownerID
-    ) {
-        let eventSummary = try comparer.summary(
-            in: db,
-            baselineSchemaName: baselineSchemaName,
-            recordTypes: OME.sourceRecordTypes,
-            scope: .openMusicEvent(eventID: eventID)
-        )
-        guard case .available = eventSummary.availability else {
-            return eventSummary
-        }
-        summaries.append(eventSummary)
-    }
-
-    return SourceChangeSummary(
-        availability: .available,
-        groups: mergedSourceChangeGroups(summaries.flatMap(\.groups)),
-        recordComparisons: mergedSourceRecordComparisons(summaries)
+        recordTypes: OME.sourceDiffRecordTypes
     )
 }
 
@@ -334,33 +288,6 @@ private func baselineSourceEventIDs(
                 eventID: OME.ID<OME.Event>(.init(eventIDString))
             )
         }
-}
-
-private func mergedSourceChangeGroups(
-    _ groups: [SourceChangeGroup]
-) -> [SourceChangeGroup] {
-    var orderedIDs: [SourceChangeGroup.ID] = []
-    var groupsByID: [SourceChangeGroup.ID: SourceChangeGroup] = [:]
-
-    for group in groups {
-        if groupsByID[group.id] == nil {
-            orderedIDs.append(group.id)
-            groupsByID[group.id] = group
-        } else {
-            groupsByID[group.id]?.added += group.added
-            groupsByID[group.id]?.modified += group.modified
-            groupsByID[group.id]?.deleted += group.deleted
-            groupsByID[group.id]?.records.append(contentsOf: group.records)
-        }
-    }
-
-    return orderedIDs.compactMap { groupsByID[$0] }
-}
-
-private func mergedSourceRecordComparisons(
-    _ summaries: [SourceChangeSummary]
-) -> SourceRecordComparisons {
-    SourceRecordComparisons(summaries.flatMap(\.recordComparisons.values))
 }
 
 public extension SourceRecordScope {

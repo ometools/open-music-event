@@ -55,6 +55,10 @@ public extension OME {
         ]
     }
 
+    static var sourceDiffRecordTypes: [AnySourceEditableRecordType] {
+        sourceMetadataRecordTypes + sourceRecordTypes
+    }
+
     static var sourceTableDescriptors: [SourceTableDescriptor] {
         sourceRecordTypes.map(\.descriptor)
     }

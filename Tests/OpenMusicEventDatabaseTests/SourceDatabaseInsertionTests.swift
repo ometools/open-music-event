@@ -1348,8 +1348,7 @@ struct SourceDatabaseInsertionTests {
         } operation: {
             try await sourceEditingSession.database.read { db in
                 try SourceEditSummaryRequest(
-                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
-                    calendarID: calendarID(organizerID: organizerID)
+                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance)
                 )
                 .fetch(db)
             }
@@ -1514,8 +1513,7 @@ struct SourceDatabaseInsertionTests {
         } operation: {
             try await sourceEditingSession.database.read { db in
                 try SourceEditSummaryRequest(
-                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance),
-                    calendarID: calendarID(organizerID: organizerID)
+                    sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance)
                 )
                 .fetch(db)
             }
@@ -1525,6 +1523,91 @@ struct SourceDatabaseInsertionTests {
         #expect(eventSummary.totalCount == 1)
         #expect(sourceSummary.availability == .available)
         #expect(sourceSummary.totalCount == 1)
+    }
+
+    @Test
+    func eventWorkspaceSummaryReportsWholeSourceTypedDiff() async throws {
+        var source = try makeSourceRepository()
+        source.events.append(
+            try makeSourceRepository(
+                eventDirectoryName: "afterparty-2026",
+                eventName: "Afterparty 2026"
+            )
+            .events[0]
+        )
+
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
+        let otherEventID = eventID("testival-source-afterparty-2026", organizerID: organizerID)
+        let sourceProvenance = tangledSourceProvenance("testival-source", ref: "main")
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: source,
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workingDatabasePath = directoryURL.appendingPathComponent("working.sqlite").path
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appendingPathComponent("baseline.sqlite").path
+        )
+        let database = try makeCoreDatabase(path: workingDatabasePath)
+
+        try await withDependencies {
+            $0.defaultBaselineDatabase = baselineDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+        } operation: {
+            try await insertion.insert(into: database)
+        }
+
+        // The user is viewing one event, but the source diff is the whole source database.
+        try await database.write { db in
+            try OME.Stage
+                .find(stageID("meadow", eventID: "testival-source-testival-2026", organizerID: organizerID))
+                .update { $0.name = "Updated Meadow" }
+                .execute(db)
+            try OME.Stage
+                .find(stageID("meadow", eventID: "testival-source-afterparty-2026", organizerID: organizerID))
+                .update { $0.name = "Updated Afterparty Meadow" }
+                .execute(db)
+        }
+
+        let summary = try await eventWorkspaceSummary(
+            eventID: openedEventID,
+            database: database,
+            baselineDatabase: baselineDatabase
+        )
+
+        #expect(summary.availability == .available)
+        #expect(summary.totalCount == 2)
+        #expect(summary.badgeCount == 2)
+        let stageGroup = try #require(
+            summary.groups.first { $0.id == OME.Stage.tableName }
+        )
+        #expect(stageGroup.modified == 2)
+        let focusedStageRecord = try #require(
+            stageGroup.records.first { $0.hasEventID(openedEventID) }
+        )
+        let otherStageRecord = try #require(
+            stageGroup.records.first { $0.hasEventID(otherEventID) }
+        )
+
+        let focusedStageComparison = try #require(
+            summary.recordComparisons[focusedStageRecord]?.as(OME.Stage.self)
+        )
+        #expect(focusedStageComparison.change.tableID == OME.Stage.tableName)
+        #expect(focusedStageComparison.left?.name == "Meadow")
+        #expect(focusedStageComparison.right?.name == "Updated Meadow")
+
+        let otherStageComparison = try #require(
+            summary.recordComparisons[otherStageRecord]?.as(OME.Stage.self)
+        )
+        #expect(otherStageComparison.change.tableID == OME.Stage.tableName)
+        #expect(otherStageComparison.left?.name == "Meadow")
+        #expect(otherStageComparison.right?.name == "Updated Afterparty Meadow")
     }
 
     @Test
@@ -3820,6 +3903,15 @@ struct SourceDatabaseInsertionTests {
     }
 }
 
+
+private extension SourceRecordChange {
+    func hasEventID(_ eventID: OME.Event.ID) -> Bool {
+        primaryKeyValues.first { $0.columnName == "organizerID" }?.value
+            == String(describing: eventID.organizerID).databaseValue
+            && primaryKeyValues.first { $0.columnName == "eventID" }?.value
+                == eventID.eventID.rawValue.rawValue.databaseValue
+    }
+}
 
 private enum TestImageCacheError: Error {
     case failed
