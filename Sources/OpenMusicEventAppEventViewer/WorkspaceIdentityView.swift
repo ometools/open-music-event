@@ -107,6 +107,65 @@ public struct WorkspaceActorIdentityView: View {
     }
 }
 
+public struct WorkspaceActorHandleView: View {
+    public let identity: WorkspaceActorIdentity
+    public let avatarSize: CGFloat
+
+    public init(
+        identity: WorkspaceActorIdentity,
+        avatarSize: CGFloat = 28
+    ) {
+        self.identity = identity
+        self.avatarSize = avatarSize
+    }
+
+    public var body: some View {
+        HStack(spacing: 8) {
+            WorkspaceActorAvatar(
+                identity: loadedIdentity,
+                initials: avatarInitials,
+                size: avatarSize
+            )
+
+            Text(handleTitle)
+                .font(.subheadline)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(handleTitle)
+    }
+
+    private var loadedIdentity: ActorIdentity? {
+        guard case let .loaded(identity) = identity else { return nil }
+        return identity
+    }
+
+    private var handleTitle: String {
+        switch identity {
+        case .loading:
+            "Loading account"
+        case let .loaded(identity):
+            identity.handle.map { "@\($0.rawValue)" }
+                ?? identity.displayName?.trimmedWorkspaceIdentity
+                ?? "Account"
+        case .unavailable:
+            "Account unavailable"
+        case .signedOut:
+            "Not signed in"
+        }
+    }
+
+    private var avatarInitials: String {
+        guard let loadedIdentity else { return "?" }
+        let source = loadedIdentity.handle?.rawValue
+            ?? loadedIdentity.displayName?.trimmedWorkspaceIdentity
+            ?? "?"
+        return String(source.prefix(2)).uppercased()
+    }
+}
+
 struct WorkspaceActorAvatar: View {
     let identity: ActorIdentity?
     let initials: String

@@ -215,7 +215,9 @@ extension UserStoryTests {
             expectNoDifference(savedStage.imageURL?.absoluteString, "https://cdn.example.com/stages/meadow-workshop-hero.png")
 
             // The user switches to the Workspace tab to inspect unpublished changes.
-            await store.send(to: \.eventViewer!, .selectedFeatureChanged(.workspace))
+            await store.modify {
+                $0.eventViewer?.selectedFeature = .workspace
+            }
 
             // The Workspace query is the seam: it shows exactly what the local edit changed.
             let workspace = try #require(

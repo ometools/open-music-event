@@ -763,7 +763,6 @@ public struct EventViewer {
         case closeButtonTapped
         case destination(Destination.Action)
         case eventSearch(EventSearch.Action)
-        case selectedFeatureChanged(EventFeature)
         case sourceDataRefreshCompleted(SourceDataRefreshRequest)
     }
 
@@ -822,13 +821,6 @@ public struct EventViewer {
             case .eventSearch:
                 break
 
-            case let .selectedFeatureChanged(feature):
-                guard feature.isEditorFeature else {
-                    state.selectedFeature = feature
-                    return
-                }
-                enterOrAuthorizeAuthoringEntry(.feature(feature), state: &state)
-
             case let .sourceDataRefreshCompleted(request):
                 guard request.eventID == state.eventID else { return }
                 var sourceWorkspaceSummary: Fetch<SourceWorkspaceSummary>?
@@ -853,6 +845,10 @@ public struct EventViewer {
                     }
                 }
             }
+        }
+        .onChange(of: store.selectedFeature) { _, feature, state in
+            guard feature.isEditorFeature else { return }
+            enterOrAuthorizeAuthoringEntry(.feature(feature), state: &state)
         }
         .onMount { state in
             let mountedAuthoringMode = state.authoringMode
@@ -1059,7 +1055,7 @@ public struct EventViewerView: View {
             let accountStore = store.spawn(\.account)
 
             TabFeaturesView(
-                selection: selectedFeature,
+                selection: $store.selectedFeature,
                 layout: $tabLayout
             ) {
                 if store.installedFeatures.contains(.search) {
@@ -1278,18 +1274,11 @@ public struct EventViewerView: View {
             }
         }
 
-        private var selectedFeature: Binding<EventViewer.EventFeature> {
-            Binding {
-                store.selectedFeature
-            } set: { feature in
-                store.send(.selectedFeatureChanged(feature))
-            }
-        }
     }
 
     #if os(iOS)
     private var legacyiOSTabView: some View {
-        TabView(selection: selectedFeature) {
+        TabView(selection: $store.selectedFeature) {
             ForEach(store.spawn(\.scheduleViewers)) { featureStore in
                 let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
                 viewerTab(feature) {
@@ -1409,7 +1398,7 @@ public struct EventViewerView: View {
     #endif
 
     private var defaultTabView: some View {
-        TabView(selection: selectedFeature) {
+        TabView(selection: $store.selectedFeature) {
             ForEach(store.spawn(\.scheduleViewers)) { featureStore in
                 let feature = EventViewer.EventFeature.schedule(featureStore.scheduleDivision)
                 viewerTab(feature) {
@@ -1552,13 +1541,6 @@ public struct EventViewerView: View {
             .badge(badgeValue ?? 0)
     }
 
-    private var selectedFeature: Binding<EventViewer.EventFeature> {
-        Binding {
-            store.selectedFeature
-        } set: { feature in
-            store.send(.selectedFeatureChanged(feature))
-        }
-    }
 }
 
 private extension EventViewer.State {

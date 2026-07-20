@@ -540,10 +540,34 @@ struct TeamWorkspaceCreateEventView: View {
     @ViewBuilder
     var formView: some View {
         SwiftUI.Form {
+            if store.strategy == .rollover {
+                previousEventSelectionSection
+            }
+
             Section {
                 Text("Start with the basics. This creates files in the active organizer workspace so the event can be edited locally.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                EventDateRangePicker(selection: $store.dateRangeSelection)
+
+                Button {
+                    isTimeZonePickerPresented = true
+                } label: {
+                    HStack {
+                        Text("Time Zone")
+                        Spacer()
+                        Text(store.timeZone.identifier)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .navigationLinkListRowStyle()
+            } header: {
+                Text(store.strategy == .rollover ? "New Dates" : "Dates")
+            } footer: {
+                Text("Dates are saved as local calendar dates in \(store.timeZone.identifier).")
             }
 
             Section("Event Name") {
@@ -576,36 +600,16 @@ struct TeamWorkspaceCreateEventView: View {
                 Text("Creates events/\(store.trimmedEventDirectoryName.isEmpty ? "directory" : store.trimmedEventDirectoryName)/event.yml in the organizer workspace.")
             }
 
-            Section {
-                EventDateRangePicker(selection: $store.dateRangeSelection)
-
-                Button {
-                    isTimeZonePickerPresented = true
-                } label: {
-                    HStack {
-                        Text("Time Zone")
-                        Spacer()
-                        Text(store.timeZone.identifier)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .navigationLinkListRowStyle()
-            } header: {
-                Text("Dates")
-            } footer: {
-                Text("Dates are saved as local calendar dates in \(store.timeZone.identifier).")
-            }
-
-            if store.strategy == .rollover {
-                rolloverSelectionSections
-            }
-
             if let validationMessage = store.validationMessage {
                 Section {
                     Text(validationMessage)
                         .font(.footnote)
                         .foregroundStyle(.red)
                 }
+            }
+
+            if store.strategy == .rollover {
+                rolloverCarryForwardSections
             }
 
             if let errorMessage = store.errorMessage {
@@ -621,7 +625,7 @@ struct TeamWorkspaceCreateEventView: View {
     }
 
     @ViewBuilder
-    var rolloverSelectionSections: some View {
+    var previousEventSelectionSection: some View {
         Section("Previous Event") {
             if store.isLoadingRolloverOptions && store.rolloverOptions.isEmpty {
                 ProgressView("Loading previous events…")
@@ -654,7 +658,10 @@ struct TeamWorkspaceCreateEventView: View {
                 }
             }
         }
+    }
 
+    @ViewBuilder
+    var rolloverCarryForwardSections: some View {
         if let sourceEvent = store.selectedRolloverEvent {
             Section {
                 ForEach(sourceEvent.stages) { stage in

@@ -744,6 +744,16 @@ struct TeamWorkspaceEditorTests {
         )
         let previousStartDate = try #require(LocalDate("2025-08-01"))
         let previousEndDate = try #require(LocalDate("2025-08-03"))
+        let olderEventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: OMERecord.ID("2024")
+        )
+        let olderStageID = OMERecord.Stage.ID(
+            organizerID: organizerID,
+            eventID: olderEventID.eventID,
+            stageID: OMERecord.ID("main")
+        )
+        let olderStartDate = try #require(LocalDate("2024-08-01"))
         try await seedOrganizerSourceWorkspaceDefaults(
             database: database,
             organizerID: organizerID,
@@ -801,6 +811,42 @@ struct TeamWorkspaceEditorTests {
                 )
             }
             .execute(db)
+            try OMERecord.Event.insert {
+                CreateEvent.makeEventDraft(
+                    id: olderEventID,
+                    name: "Wicked Woods 2024",
+                    startDate: olderStartDate,
+                    endDate: LocalDate("2024-08-03"),
+                    timeZone: TimeZone(identifier: "America/Denver")!
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: olderEventID,
+                    sourceBaselineID: sourceBaseline.id,
+                    sourceKind: sourceBaseline.sourceKind,
+                    sourceReference: sourceBaseline.sourceReference,
+                    ref: sourceBaseline.ref,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "2024"
+                )
+            }
+            .execute(db)
+            try OMERecord.Stage.insert {
+                OMERecord.Stage.Draft(
+                    id: olderStageID,
+                    name: "Main Stage",
+                    color: 0x00AAEE,
+                    category: nil,
+                    sortIndex: 0,
+                    images: nil,
+                    systemIconName: nil,
+                    iconShortCode: nil,
+                    lineup: nil
+                )
+            }
+            .execute(db)
         }
         try writeRolloverSourceEvent(
             in: repositoryURL,
@@ -838,6 +884,8 @@ struct TeamWorkspaceEditorTests {
         await store.send(.task)?.value
         let sourceEvent = try #require(store.state.rolloverOptions.first)
         #expect(sourceEvent.id == previousEventID)
+        #expect(store.state.rolloverOptions.map(\.id) == [previousEventID, olderEventID])
+        #expect(store.state.selectedRolloverEventID == previousEventID)
         #expect(sourceEvent.stages.map(\.id) == [mainStageID, sideStageID])
         store.send(.rolloverStageButtonTapped(sideStageID))
         #expect(store.state.selectedRolloverStageIDs == [mainStageID])
@@ -884,7 +932,7 @@ struct TeamWorkspaceEditorTests {
         let newChannel = try #require(
             rows.channels.first(where: { $0.id.eventID == expectedLocalEventID })
         )
-        #expect(rows.events.count == 2)
+        #expect(rows.events.count == 3)
         #expect(rows.stages.filter { $0.id.eventID == expectedLocalEventID }.count == 1)
         #expect(newStage.id.stageID == OMERecord.ID("main"))
         #expect(newStage.lineup == nil)

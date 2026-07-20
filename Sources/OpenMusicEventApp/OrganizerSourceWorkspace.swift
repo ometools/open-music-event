@@ -440,7 +440,33 @@ extension OrganizerSourceWorkspaceClient {
                             startDate: event.startDate
                         ))
                     }
-                    return rolloverEvents
+                    return rolloverEvents.sorted { lhs, rhs in
+                        if let lhsStartDate = lhs.startDate {
+                            if let rhsStartDate = rhs.startDate {
+                                if lhsStartDate != rhsStartDate {
+                                    return lhsStartDate > rhsStartDate
+                                }
+                            } else {
+                                return true
+                            }
+                        } else if rhs.startDate != nil {
+                            return false
+                        }
+
+                        if let lhsEndDate = lhs.endDate {
+                            if let rhsEndDate = rhs.endDate {
+                                if lhsEndDate != rhsEndDate {
+                                    return lhsEndDate > rhsEndDate
+                                }
+                            } else {
+                                return true
+                            }
+                        } else if rhs.endDate != nil {
+                            return false
+                        }
+
+                        return lhs.sourceEventDirectory > rhs.sourceEventDirectory
+                    }
                 }
                 return OrganizerSourceWorkspaceRolloverOptions(sourceEvents: sourceEvents)
             }

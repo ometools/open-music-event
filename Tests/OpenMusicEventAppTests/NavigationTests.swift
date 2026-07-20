@@ -1998,7 +1998,9 @@ struct NavigationTests {
             }
         }
 
-        store.send(.eventViewer(.selectedFeatureChanged(.workspace)))
+        store.modify {
+            $0.eventViewer.selectedFeature = .workspace
+        }
 
         #expect(store.state.eventViewer.authoringMode == .authoring(.all))
         #expect(store.state.eventViewer.selectedFeature == .workspace)

@@ -1602,6 +1602,8 @@ public struct EventWorkspaceView: View {
                                         ?? .notLoaded,
                                     semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                                         ?? .notLoaded,
+                                    isClosing: isClosing,
+                                    isDeleting: isDeleting,
                                     isMerging: isMerging,
                                     isBusy: isBusy,
                                     mergeFailure: mergeFailure,
@@ -1613,6 +1615,12 @@ public struct EventWorkspaceView: View {
                                     },
                                     onMerge: {
                                         store.send(.mergeTangledPullReviewButtonTapped(review))
+                                    },
+                                    onClose: {
+                                        store.send(.closeTangledPullReviewButtonTapped(review))
+                                    },
+                                    onDelete: {
+                                        store.send(.deleteTangledPullReviewForeverButtonTapped(review))
                                     }
                                 )
                             } label: {
@@ -1761,6 +1769,8 @@ public struct EventWorkspaceView: View {
                 ?? .notLoaded,
             semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                 ?? .notLoaded,
+            isClosing: isClosing,
+            isDeleting: isDeleting,
             isMerging: isMerging,
             isBusy: isBusy,
             mergeFailure: mergeFailure,
@@ -1772,6 +1782,12 @@ public struct EventWorkspaceView: View {
             },
             onMerge: {
                 store.send(.mergeTangledPullReviewButtonTapped(review))
+            },
+            onClose: {
+                store.send(.closeTangledPullReviewButtonTapped(review))
+            },
+            onDelete: {
+                store.send(.deleteTangledPullReviewForeverButtonTapped(review))
             }
         )
     }
@@ -1825,18 +1841,10 @@ struct TangledPullReviewRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            WorkspaceActorIdentityView(
-                label: "Submitted by",
+            WorkspaceActorHandleView(
                 identity: authorIdentity,
                 avatarSize: 28
             )
-
-            HStack(spacing: 8) {
-                Text(review.patchBlobCountTitle)
-                Text(review.commentCountTitle)
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
 
             if isClosing {
                 HStack(spacing: 8) {
@@ -1964,13 +1972,18 @@ struct TangledPullReviewDetailView: View {
     let authorIdentity: WorkspaceActorIdentity
     let rawDiffStatus: EventWorkspace.TangledPullReviewRawDiffStatus
     let semanticDiffStatus: EventWorkspace.TangledPullReviewSemanticDiffStatus
+    var isClosing = false
+    var isDeleting = false
     var isMerging = false
     var isBusy = false
     var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
     let onLoadRawDiff: () -> Void
     let onLoadSemanticDiff: () -> Void
     let onMerge: () -> Void
+    let onClose: () -> Void
+    let onDelete: () -> Void
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    @State var isDeleteConfirmationPresented = false
 
     var body: some View {
         List {
@@ -2111,6 +2124,40 @@ struct TangledPullReviewDetailView: View {
                 }
                 .disabled(isBusy)
             }
+            ToolbarItem(placement: .secondaryAction) {
+                Menu {
+                    Button(
+                        isClosing ? "Closing review" : "Close review",
+                        role: .destructive
+                    ) {
+                        onClose()
+                    }
+                    .disabled(isBusy)
+
+                    Button(
+                        isDeleting ? "Deleting review" : "Delete review permanently",
+                        role: .destructive
+                    ) {
+                        isDeleteConfirmationPresented = true
+                    }
+                    .disabled(isBusy)
+                } label: {
+                    Label("Review actions", systemImage: "ellipsis.circle")
+                }
+                .disabled(isBusy)
+            }
+        }
+        .confirmationDialog(
+            "Delete this review permanently?",
+            isPresented: $isDeleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Review", role: .destructive) {
+                onDelete()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone.")
         }
         .onAppear {
             onLoadSemanticDiff()
