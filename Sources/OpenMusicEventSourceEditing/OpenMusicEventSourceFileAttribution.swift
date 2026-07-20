@@ -3,47 +3,83 @@ import GRDB
 import OpenMusicEventLexicon
 import SourceEditing
 
-public func openMusicEventSourcePatchAttributions(
+public func openMusicEventSourceFileAttributions(
     patch: SourcePatch,
     groups: [SourceChangeGroup],
     recordComparisons: SourceRecordComparisons,
     in db: Database
-) throws -> [SourcePatchAttribution] {
+) throws -> [SourceFileAttribution] {
     let patchPaths = Set(patch.fileChanges.map(\.path))
     guard !patchPaths.isEmpty else { return [] }
 
-    let records = groups.flatMap(\.records)
-    var recordIDsByPath: [String: Set<SourceRecordChange.ID>] = [:]
-    var eventDirectoriesByID: [OME.Event.ID: String] = [:]
-
-    for record in records {
-        let paths = try openMusicEventSourcePatchPaths(
-            for: record,
-            patchPaths: patchPaths,
-            recordComparisons: recordComparisons,
-            eventDirectoriesByID: &eventDirectoriesByID,
-            in: db
-        )
-        for path in paths where patchPaths.contains(path) {
-            recordIDsByPath[path, default: []].insert(record.id)
-        }
-    }
+    let recordIDsByPath = try openMusicEventSourceRecordIDsByFilePath(
+        groups: groups,
+        includedFilePaths: patchPaths,
+        recordComparisons: recordComparisons,
+        in: db
+    )
 
     return patch.fileChanges.compactMap { fileChange in
         guard let recordIDs = recordIDsByPath[fileChange.path],
               !recordIDs.isEmpty
         else { return nil }
 
-        return SourcePatchAttribution(
+        return SourceFileAttribution(
             filePath: fileChange.path,
             recordChangeIDs: recordIDs.sorted()
         )
     }
 }
 
-private func openMusicEventSourcePatchPaths(
+public func openMusicEventSourceFileAttributions(
+    groups: [SourceChangeGroup],
+    recordComparisons: SourceRecordComparisons,
+    in db: Database
+) throws -> [SourceFileAttribution] {
+    try openMusicEventSourceRecordIDsByFilePath(
+        groups: groups,
+        includedFilePaths: nil,
+        recordComparisons: recordComparisons,
+        in: db
+    )
+    .map { filePath, recordIDs in
+        SourceFileAttribution(
+            filePath: filePath,
+            recordChangeIDs: recordIDs.sorted()
+        )
+    }
+    .sorted { $0.filePath < $1.filePath }
+}
+
+private func openMusicEventSourceRecordIDsByFilePath(
+    groups: [SourceChangeGroup],
+    includedFilePaths: Set<String>?,
+    recordComparisons: SourceRecordComparisons,
+    in db: Database
+) throws -> [String: Set<SourceRecordChange.ID>] {
+    let records = groups.flatMap(\.records)
+    var recordIDsByPath: [String: Set<SourceRecordChange.ID>] = [:]
+    var eventDirectoriesByID: [OME.Event.ID: String] = [:]
+
+    for record in records {
+        let paths = try openMusicEventSourceFilePaths(
+            for: record,
+            includedFilePaths: includedFilePaths,
+            recordComparisons: recordComparisons,
+            eventDirectoriesByID: &eventDirectoriesByID,
+            in: db
+        )
+        for path in paths where includedFilePaths?.contains(path) ?? true {
+            recordIDsByPath[path, default: []].insert(record.id)
+        }
+    }
+
+    return recordIDsByPath
+}
+
+private func openMusicEventSourceFilePaths(
     for record: SourceRecordChange,
-    patchPaths: Set<String>,
+    includedFilePaths: Set<String>?,
     recordComparisons: SourceRecordComparisons,
     eventDirectoriesByID: inout [OME.Event.ID: String],
     in db: Database
@@ -123,11 +159,10 @@ private func openMusicEventSourcePatchPaths(
             organizerID: schedule.id.organizerID,
             eventID: schedule.id.eventID
         )
-        let scheduleFilePath = "schedules/\(schedule.id.scheduleID.rawValue.rawValue).yml"
         return try eventScheduleSourcePaths(
             eventID: eventID,
-            scheduleFilePath: scheduleFilePath,
-            patchPaths: patchPaths,
+            scheduleID: schedule.id.scheduleID,
+            includedFilePaths: includedFilePaths,
             eventDirectoriesByID: &eventDirectoriesByID,
             in: db
         )
@@ -144,11 +179,10 @@ private func openMusicEventSourcePatchPaths(
             organizerID: performance.id.organizerID,
             eventID: performance.id.eventID
         )
-        let scheduleFilePath = "schedules/\(scheduleID.rawValue.rawValue).yml"
         return try eventScheduleSourcePaths(
             eventID: eventID,
-            scheduleFilePath: scheduleFilePath,
-            patchPaths: patchPaths,
+            scheduleID: scheduleID,
+            includedFilePaths: includedFilePaths,
             eventDirectoriesByID: &eventDirectoriesByID,
             in: db
         )
@@ -176,8 +210,8 @@ private func openMusicEventSourcePatchPaths(
 
 private func eventScheduleSourcePaths(
     eventID: OME.Event.ID,
-    scheduleFilePath: String,
-    patchPaths: Set<String>,
+    scheduleID: OME.ID<OME.Schedule>,
+    includedFilePaths: Set<String>?,
     eventDirectoriesByID: inout [OME.Event.ID: String],
     in db: Database
 ) throws -> [String] {
@@ -189,17 +223,21 @@ private func eventScheduleSourcePaths(
     )
     let schedulePath = try eventSourcePath(
         eventID: eventID,
-        filePath: scheduleFilePath,
+        filePath: "schedules/\(scheduleID.rawValue.rawValue).yml",
         eventDirectoriesByID: &eventDirectoriesByID,
         in: db
     )
-    if schedulePath.contains(where: patchPaths.contains) {
-        return schedulePath
+
+    if let includedFilePaths {
+        if schedulePath.contains(where: includedFilePaths.contains) {
+            return schedulePath
+        }
+        if eventPath.contains(where: includedFilePaths.contains) {
+            return eventPath
+        }
     }
-    if eventPath.contains(where: patchPaths.contains) {
-        return eventPath
-    }
-    return schedulePath
+
+    return scheduleID == OME.Schedule.singletonID ? eventPath : schedulePath
 }
 
 private func eventSourcePath(

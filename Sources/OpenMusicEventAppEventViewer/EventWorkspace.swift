@@ -58,6 +58,18 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
         )
     }
 
+    public init(
+        target: SourceProposalTarget,
+        changeSummary: SourceChangeSummary
+    ) {
+        self.init(
+            target: target,
+            availability: SourceChangesAvailability(changeSummary.availability),
+            groups: changeSummary.groups,
+            recordComparisons: changeSummary.recordComparisons
+        )
+    }
+
     public var totalCount: Int {
         groups.reduce(0) { $0 + $1.totalCount }
     }
@@ -187,16 +199,16 @@ public struct EventWorkspace {
 
     public struct SourceProposalPreparation: Equatable, Sendable {
         public var patch: SourcePatch
-        public var sourcePatchAttributions: [SourcePatchAttribution]
+        public var sourceFileAttributions: [SourceFileAttribution]
         public var sourceWorkspaceSummary: SourceWorkspaceSummary
 
         public init(
             patch: SourcePatch,
-            sourcePatchAttributions: [SourcePatchAttribution] = [],
+            sourceFileAttributions: [SourceFileAttribution] = [],
             sourceWorkspaceSummary: SourceWorkspaceSummary
         ) {
             self.patch = patch
-            self.sourcePatchAttributions = sourcePatchAttributions
+            self.sourceFileAttributions = sourceFileAttributions
             self.sourceWorkspaceSummary = sourceWorkspaceSummary
         }
     }
@@ -309,13 +321,16 @@ public struct EventWorkspace {
     public struct TangledPullReviewSemanticDiff: Equatable, Sendable {
         public var groups: [SourceChangeGroup]
         public var recordComparisons: SourceRecordComparisons
+        public var sourceFileAttributions: [SourceFileAttribution]
 
         public init(
             groups: [SourceChangeGroup],
-            recordComparisons: SourceRecordComparisons
+            recordComparisons: SourceRecordComparisons,
+            sourceFileAttributions: [SourceFileAttribution] = []
         ) {
             self.groups = groups
             self.recordComparisons = recordComparisons
+            self.sourceFileAttributions = sourceFileAttributions
         }
 
         public var totalCount: Int {
@@ -677,9 +692,9 @@ public struct EventWorkspace {
                         let patch = try await calendarSourcePatchGenerator.generate(
                             sourcePatchRequest
                         )
-                        let (sourceWorkspaceSummary, sourcePatchAttributions) = try await database.read { db in
+                        let (sourceWorkspaceSummary, sourceFileAttributions) = try await database.read { db in
                             let sourceWorkspaceSummary = try sourceWorkspaceSummaryRequest.fetch(db)
-                            let sourcePatchAttributions = try openMusicEventSourcePatchAttributions(
+                            let sourceFileAttributions = try openMusicEventSourceFileAttributions(
                                 patch: patch,
                                 groups: sourceWorkspaceSummary.groups,
                                 recordComparisons: sourceWorkspaceSummary.recordComparisons,
@@ -687,7 +702,7 @@ public struct EventWorkspace {
                             )
                             return (
                                 sourceWorkspaceSummary,
-                                sourcePatchAttributions
+                                sourceFileAttributions
                             )
                         }
                         try store.send(
@@ -695,7 +710,7 @@ public struct EventWorkspace {
                                 .success(
                                     SourceProposalPreparation(
                                         patch: patch,
-                                        sourcePatchAttributions: sourcePatchAttributions,
+                                        sourceFileAttributions: sourceFileAttributions,
                                         sourceWorkspaceSummary: sourceWorkspaceSummary
                                     )
                                 )
@@ -1099,7 +1114,7 @@ public struct EventWorkspace {
                 state.sourcePatchStatus = .generated(preparation.patch)
                 state.presentSourceProposal(
                     for: preparation.patch,
-                    sourcePatchAttributions: preparation.sourcePatchAttributions,
+                    sourceFileAttributions: preparation.sourceFileAttributions,
                     sourceWorkspaceSummary: preparation.sourceWorkspaceSummary
                 )
 
@@ -2417,6 +2432,15 @@ public enum SourceChangesAvailability: Equatable, Sendable {
         }
     }
 
+    public init(_ availability: SourceChangeSummary.Availability) {
+        switch availability {
+        case .available:
+            self = .available
+        case let .unavailable(reason):
+            self = .unavailable(reason)
+        }
+    }
+
     var eventWorkspaceAvailability: EventWorkspaceSummary.Availability {
         switch self {
         case .available:
@@ -3249,7 +3273,7 @@ private extension EventWorkspace.State {
 
     mutating func presentSourceProposal(
         for patch: SourcePatch,
-        sourcePatchAttributions: [SourcePatchAttribution] = [],
+        sourceFileAttributions: [SourceFileAttribution] = [],
         sourceWorkspaceSummary: SourceWorkspaceSummary
     ) {
         guard !patch.isEmpty,
@@ -3265,7 +3289,7 @@ private extension EventWorkspace.State {
             target: target,
             sourceChangeGroups: sourceWorkspaceSummary.groups,
             sourceRecordComparisons: sourceWorkspaceSummary.recordComparisons,
-            sourcePatchAttributions: sourcePatchAttributions,
+            sourceFileAttributions: sourceFileAttributions,
             patch: patch
         )
         sourceProposalStatus = .composing
@@ -3370,7 +3394,7 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
             try await insertion.insert(into: workingDatabase)
         }
 
-        let summary = try await workingDatabase.read { db in
+        let semanticDiff = try await workingDatabase.read { db in
             let baselineSchemaName = "review_source_baseline"
             try #sql(
                 "ATTACH DATABASE \(bind: baselineDatabase.path) AS \(quote: baselineSchemaName)"
@@ -3379,21 +3403,33 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
             defer {
                 try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
             }
-            return try openMusicEventSourceEditSummary(
+            let summary = try openMusicEventSourceEditSummary(
                 in: db,
                 baselineSchemaName: baselineSchemaName
             )
-        }
-        switch summary.availability {
-        case .available:
-            return Self(
-                groups: summary.groups,
-                recordComparisons: summary.recordComparisons
-            )
+            switch summary.availability {
+            case .available:
+                let workspaceSummary = SourceWorkspaceSummary(
+                    target: target,
+                    changeSummary: summary
+                )
+                let sourceFileAttributions = try openMusicEventSourceFileAttributions(
+                    groups: workspaceSummary.groups,
+                    recordComparisons: workspaceSummary.recordComparisons,
+                    in: db
+                )
+                return Self(
+                    groups: workspaceSummary.groups,
+                    recordComparisons: workspaceSummary.recordComparisons,
+                    sourceFileAttributions: sourceFileAttributions
+                )
 
-        case let .unavailable(reason):
-            throw TangledPullReviewSemanticDiffError.unavailable(reason)
+            case let .unavailable(reason):
+                throw TangledPullReviewSemanticDiffError.unavailable(reason)
+            }
         }
+
+        return semanticDiff
     }
 }
 

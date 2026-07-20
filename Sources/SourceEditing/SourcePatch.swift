@@ -12,7 +12,7 @@ public struct SourcePatch: Codable, Equatable, Sendable {
     }
 }
 
-public struct SourcePatchAttribution: Equatable, Hashable, Identifiable, Sendable {
+public struct SourceFileAttribution: Equatable, Hashable, Identifiable, Sendable {
     public var id: String { filePath }
 
     public var filePath: String

@@ -24,14 +24,14 @@ public struct SourceProposalFlow {
             target: SourceProposalTarget,
             sourceChangeGroups: [SourceChangeGroup] = [],
             sourceRecordComparisons: SourceRecordComparisons = .empty,
-            sourcePatchAttributions: [SourcePatchAttribution] = [],
+            sourceFileAttributions: [SourceFileAttribution] = [],
             patch: SourcePatch
         ) {
             self.target = target
             self.patch = patch
             self.sourceChangeGroups = sourceChangeGroups
             self.sourceRecordComparisons = sourceRecordComparisons
-            self.sourcePatchAttributions = sourcePatchAttributions
+            self.sourceFileAttributions = sourceFileAttributions
             self.form = FormFeature.State(value: FormValue())
         }
 
@@ -58,7 +58,7 @@ public struct SourceProposalFlow {
         public var form: FormFeature.State
         public let patch: SourcePatch
         public var sourceChangeGroups: [SourceChangeGroup]
-        public var sourcePatchAttributions: [SourcePatchAttribution]
+        public var sourceFileAttributions: [SourceFileAttribution]
         public var sourceRecordComparisons: SourceRecordComparisons
         public var status: EventWorkspace.SourceProposalStatus = .composing
         public let target: SourceProposalTarget

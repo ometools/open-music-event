@@ -123,8 +123,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .records
                 .first
         )
-        let expectedSourcePatchAttributions = [
-            SourcePatchAttribution(
+        let expectedSourceFileAttributions = [
+            SourceFileAttribution(
                 filePath: "events/event-1/event.yml",
                 recordChangeIDs: [eventRecord.id]
             )
@@ -171,7 +171,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .success(
                     EventWorkspace.SourceProposalPreparation(
                         patch: patch,
-                        sourcePatchAttributions: expectedSourcePatchAttributions,
+                        sourceFileAttributions: expectedSourceFileAttributions,
                         sourceWorkspaceSummary: expectedWorkspaceSummary
                     )
                 )
@@ -187,8 +187,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         #expect(store.state.sourceProposal?.eventID == eventID)
         #expect(store.state.sourceProposal?.patch == patch)
         expectNoDifference(
-            store.state.sourceProposal?.sourcePatchAttributions,
-            expectedSourcePatchAttributions
+            store.state.sourceProposal?.sourceFileAttributions,
+            expectedSourceFileAttributions
         )
         expectNoDifference(
             store.state.sourceProposal?.sourceChangeGroups,
@@ -237,8 +237,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .records
                 .first
         )
-        let expectedSourcePatchAttributions = [
-            SourcePatchAttribution(
+        let expectedSourceFileAttributions = [
+            SourceFileAttribution(
                 filePath: "events/event-1/event.yml",
                 recordChangeIDs: [eventRecord.id]
             )
@@ -314,7 +314,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .success(
                     EventWorkspace.SourceProposalPreparation(
                         patch: currentPatch,
-                        sourcePatchAttributions: expectedSourcePatchAttributions,
+                        sourceFileAttributions: expectedSourceFileAttributions,
                         sourceWorkspaceSummary: expectedWorkspaceSummary
                     )
                 )
@@ -329,8 +329,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         #expect(store.state.sourceProposal?.eventID == eventID)
         #expect(store.state.sourceProposal?.patch == currentPatch)
         expectNoDifference(
-            store.state.sourceProposal?.sourcePatchAttributions,
-            expectedSourcePatchAttributions
+            store.state.sourceProposal?.sourceFileAttributions,
+            expectedSourceFileAttributions
         )
         expectNoDifference(
             store.state.sourceProposal?.sourceChangeGroups,
@@ -394,8 +394,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .records
                 .first
         )
-        let expectedSourcePatchAttributions = [
-            SourcePatchAttribution(
+        let expectedSourceFileAttributions = [
+            SourceFileAttribution(
                 filePath: "events/event-1/stages/meadow.yml",
                 recordChangeIDs: [stageRecord.id]
             )
@@ -442,7 +442,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .success(
                     EventWorkspace.SourceProposalPreparation(
                         patch: patch,
-                        sourcePatchAttributions: expectedSourcePatchAttributions,
+                        sourceFileAttributions: expectedSourceFileAttributions,
                         sourceWorkspaceSummary: expectedWorkspaceSummary
                     )
                 )
@@ -456,15 +456,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         await task?.value
 
         expectNoDifference(
-            store.state.sourceProposal?.sourcePatchAttributions,
-            expectedSourcePatchAttributions
+            store.state.sourceProposal?.sourceFileAttributions,
+            expectedSourceFileAttributions
         )
 
         await store.dismount()
     }
 
     @Test
-    func sourcePatchAttributionsCollectMultipleCurrentDiffRecordsForSameFile() async throws {
+    func sourceFileAttributionsCollectMultipleCurrentDiffRecordsForSameFile() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let scheduleID = OME.Schedule.ID(
@@ -540,7 +540,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
 
         let attributions = try await database.read { db in
-            try openMusicEventSourcePatchAttributions(
+            try openMusicEventSourceFileAttributions(
                 patch: patch,
                 groups: workspaceSummary.groups,
                 recordComparisons: workspaceSummary.recordComparisons,
@@ -551,7 +551,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         expectNoDifference(
             attributions,
             [
-                SourcePatchAttribution(
+                SourceFileAttribution(
                     filePath: "events/event-1/event.yml",
                     recordChangeIDs: [
                         eventRecord.id,
@@ -560,6 +560,197 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 )
             ]
         )
+    }
+
+    @Test
+    func localProposalAndReviewSemanticDiffUseSameTypedSourceDiff() async throws {
+        let database = try makePreparedDatabase()
+        let baselineDatabase = try defaultBaselineDatabase()
+        let eventID = testEventID("event-1")
+        let sourceProvenance = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/wicked-woods-ome",
+            ref: "main"
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let baselineSource = try makeReviewSourceRepository(
+            eventID: eventID,
+            eventName: "Wicked Woods 2025"
+        )
+        let reviewSource = try makeReviewSourceRepository(
+            eventID: eventID,
+            eventName: "Wicked Woods 2026"
+        )
+        try await withDependencies {
+            $0.context = .test
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+        } operation: {
+            let insertion = try OME.SourceDatabaseInsertion(
+                OME.SourceDatabaseInsertion.Configuration(
+                    source: baselineSource,
+                    organizerID: eventID.organizerID,
+                    sourceProvenance: sourceProvenance
+                )
+            )
+            try await insertion.migrateAndInsert(into: database)
+        }
+        try await database.write { db in
+            try OME.Event
+                .find(eventID)
+                .update { $0.name = "Wicked Woods 2026" }
+                .execute(db)
+        }
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL
+                .appending(path: "session.sqlite")
+                .path(),
+            baselineDatabasePath: baselineDatabase.path
+        )
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Wicked Woods 2025\n".utf8),
+                    newContents: Data("name: Wicked Woods 2026\n".utf8)
+                )
+            ]
+        )
+        let review = TangledPullReview(
+            author: "did:plc:author123",
+            body: "Hydrate the 2026 event.",
+            commentCount: 0,
+            createdAt: "2026-07-03T12:01:00Z",
+            patchBlobs: [],
+            sourceBranch: "ome/proposal-2026",
+            state: "open",
+            targetBranch: "main",
+            targetRepositoryDID: "did:plc:targetrepo",
+            title: "Hydrate 2026",
+            uri: "at://did:plc:author123/sh.tangled.repo.pull/3pull"
+        )
+        let receivedLocalPreparation = Mutex<EventWorkspace.SourceProposalPreparation?>(nil)
+        let receivedReviewDiff = Mutex<EventWorkspace.TangledPullReviewSemanticDiff?>(nil)
+        let store: TestStore<EventWorkspace> = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+            $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
+                #expect(
+                    request == OpenMusicEventCalendarSourcePatchRequest(
+                        calendarID: OME.Calendar.ID(
+                            ownerID: eventID.organizerID,
+                            calendarID: OME.Calendar.defaultID
+                        ),
+                        sourceBaselineID: sourceBaselineID
+                    )
+                )
+                return patch
+            }
+            $0.tangledPullReviewSourceSnapshot = TangledPullReviewSourceSnapshotClient { request in
+                #expect(
+                    request == TangledPullReviewSourceSnapshotRequest(
+                        organizerID: eventID.organizerID,
+                        review: review,
+                        sourceProvenance: sourceProvenance
+                    )
+                )
+                return try OME.SourceDatabaseInsertion(
+                    OME.SourceDatabaseInsertion.Configuration(
+                        source: reviewSource,
+                        organizerID: request.organizerID,
+                        sourceProvenance: request.sourceProvenance
+                    )
+                )
+            }
+            $0.uuid = .incrementing
+        } operation: {
+            TestStore(initialState: EventWorkspace.State(eventID: eventID)) {
+                EventWorkspace()
+            }
+        }
+
+        let prepareProposalTask = store.send(.proposeChangeButtonTapped) {
+            $0.isPreparingSourceProposal = true
+            $0.sourcePatchStatus = .generating
+        }
+        await store.receive(
+            \.sourceProposalPreparationResponse,
+            .matching { response in
+                guard case let .success(preparation) = response else { return false }
+                receivedLocalPreparation.withLock { $0 = preparation }
+                return preparation.patch == patch
+                    && preparation.sourceWorkspaceSummary.totalCount == 1
+                    && preparation.sourceFileAttributions.count == 1
+            },
+            timeout: .seconds(5)
+        ) {
+            guard let preparation = receivedLocalPreparation.withLock({ $0 }) else {
+                Issue.record("Expected local source proposal preparation.")
+                return
+            }
+            $0.isPreparingSourceProposal = false
+            $0.sourcePatchStatus = .generated(preparation.patch)
+            $0.sourceProposalStatus = .composing
+        }
+        await prepareProposalTask?.value
+
+        let reviewDiffTask = store.send(.reviewSemanticDiffButtonTapped(review)) {
+            $0.tangledPullReviewSemanticDiffs[review.id] = .loading
+        }
+        await store.receive(
+            \.tangledPullReviewSemanticDiffResponse,
+            .matching { (
+                response: (
+                    reviewID: String,
+                    Result<
+                        EventWorkspace.TangledPullReviewSemanticDiff,
+                        EventWorkspace.TangledPullReviewSemanticDiffFailure
+                    >
+                )
+            ) in
+                guard response.reviewID == review.id,
+                      case let .success(diff) = response.1
+                else { return false }
+                receivedReviewDiff.withLock { $0 = diff }
+                return diff.totalCount == 1
+                    && diff.sourceFileAttributions.count == 1
+            },
+            timeout: .seconds(5)
+        ) {
+            guard let diff = receivedReviewDiff.withLock({ $0 }) else {
+                Issue.record("Expected review semantic diff.")
+                return
+            }
+            $0.tangledPullReviewSemanticDiffs[review.id] = .loaded(diff)
+        }
+        await reviewDiffTask?.value
+
+        let localPreparation = try #require(
+            receivedLocalPreparation.withLock { $0 }
+        )
+        let reviewDiff = try #require(
+            receivedReviewDiff.withLock { $0 }
+        )
+        expectNoDifference(
+            reviewDiff.groups,
+            localPreparation.sourceWorkspaceSummary.groups
+        )
+        expectNoDifference(
+            reviewDiff.recordComparisons,
+            localPreparation.sourceWorkspaceSummary.recordComparisons
+        )
+        expectNoDifference(
+            reviewDiff.sourceFileAttributions,
+            localPreparation.sourceFileAttributions
+        )
+
+        await store.dismount()
     }
 
     @Test
@@ -2178,6 +2369,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         #expect(nameChange.baselineValue == "Wicked Woods 2025".databaseValue)
         #expect(nameChange.workingValue == "Wicked Woods 2026".databaseValue)
         #expect(loadedDiff.recordComparisons[eventChange]?.as(OME.Event.self) != nil)
+        expectNoDifference(
+            loadedDiff.sourceFileAttributions,
+            [
+                SourceFileAttribution(
+                    filePath: "events/event-1/event.yml",
+                    recordChangeIDs: [eventChange.id]
+                )
+            ]
+        )
 
         await store.dismount()
     }
