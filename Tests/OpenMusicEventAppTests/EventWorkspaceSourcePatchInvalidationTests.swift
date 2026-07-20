@@ -89,6 +89,34 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let eventID = testEventID("event-1")
         let expectedSourceBaselineID = sourceBaselineID(for: eventID)
         try await seedSourceBackedEvent(eventID, in: database)
+        try await seedEditingWorkspace(for: eventID, in: database)
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "baseline.sqlite").path()
+        )
+        try database.backup(to: baselineDatabase.database)
+        try await database.write { db in
+            try OME.Event
+                .find(eventID)
+                .update { $0.name = "Updated Source Event" }
+                .execute(db)
+        }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "session.sqlite").path(),
+            baselineDatabasePath: baselineDatabase.path
+        )
+        let expectedWorkspaceSummary = try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await database.read { db in
+                try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
+            }
+        }
+        #expect(expectedWorkspaceSummary.availability == .available)
+        #expect(expectedWorkspaceSummary.totalCount == 1)
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -100,7 +128,9 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             ]
         )
         let store: TestStore<EventWorkspace> = withDependencies {
+            $0.context = .test
             $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
             $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
                 #expect(
                     request == OpenMusicEventCalendarSourcePatchRequest(
@@ -124,8 +154,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             $0.sourcePatchStatus = .generating
         }
         await store.receive(
-            \.sourcePatchGenerationResponse,
-            .equals(.success(patch)),
+            \.sourceProposalPreparationResponse,
+            .equals(
+                .success(
+                    EventWorkspace.SourceProposalPreparation(
+                        patch: patch,
+                        sourceWorkspaceSummary: expectedWorkspaceSummary
+                    )
+                )
+            ),
             timeout: .seconds(1)
         ) {
             $0.isPreparingSourceProposal = false
@@ -136,13 +173,18 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         #expect(store.state.sourceProposal?.eventID == eventID)
         #expect(store.state.sourceProposal?.patch == patch)
+        expectNoDifference(
+            store.state.sourceProposal?.sourceChangeGroups,
+            expectedWorkspaceSummary.groups
+        )
         await store.dismount()
     }
 
     @Test
-    func proposeChangeButtonPreparesInlineProposalForGeneratedPatch() async throws {
+    func proposeChangeButtonRegeneratesPatchAndPreparesInlineProposalFromCurrentDiff() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
+        let expectedSourceBaselineID = sourceBaselineID(for: eventID)
         try await seedSourceBackedEvent(eventID, in: database)
         try await seedEditingWorkspace(for: eventID, in: database)
         let directoryURL = try temporaryDirectoryURL()
@@ -167,7 +209,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await database.read { db in
-                try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
+                try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
             }
         }
         #expect(expectedWorkspaceSummary.availability == .available)
@@ -179,7 +221,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             modified: 0,
             deleted: 0
         )
-        let patch = SourcePatch(
+        let stalePatch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
                     path: "events/event-1/event.yml",
@@ -189,13 +231,35 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 )
             ]
         )
+        let currentPatch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Source Event\n".utf8),
+                    newContents: Data("name: Updated Source Event\n".utf8)
+                )
+            ]
+        )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.sourceEditingSession = sourceEditingSession
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = SourcePatchGenerator { request in
+                #expect(
+                    request == OpenMusicEventCalendarSourcePatchRequest(
+                        calendarID: OME.Calendar.ID(
+                            ownerID: eventID.organizerID,
+                            calendarID: OME.Calendar.defaultID
+                        ),
+                        sourceBaselineID: expectedSourceBaselineID
+                    )
+                )
+                return currentPatch
+            }
         } operation: {
             var state = EventWorkspace.State(eventID: eventID)
-            state.sourcePatchStatus = .generated(patch)
+            state.sourcePatchStatus = .generated(stalePatch)
             state.sourceProposal = SourceProposalFlow.State(
                 eventID: eventID,
                 workspaceSummary: EventWorkspaceSummary(
@@ -203,18 +267,37 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                     availability: .available,
                     groups: [staleGroup]
                 ),
-                patch: patch
+                patch: stalePatch
             )
             return TestStore(initialState: state) {
                 EventWorkspace()
             }
         }
 
-        store.send(.proposeChangeButtonTapped) {
+        let task = store.send(.proposeChangeButtonTapped) {
+            $0.isPreparingSourceProposal = true
+            $0.sourcePatchStatus = .generating
+            $0.sourceProposalStatus = .idle
+        }
+        await store.receive(
+            \.sourceProposalPreparationResponse,
+            .equals(
+                .success(
+                    EventWorkspace.SourceProposalPreparation(
+                        patch: currentPatch,
+                        sourceWorkspaceSummary: expectedWorkspaceSummary
+                    )
+                )
+            ),
+            timeout: .seconds(1)
+        ) {
+            $0.isPreparingSourceProposal = false
+            $0.sourcePatchStatus = .generated(currentPatch)
             $0.sourceProposalStatus = .composing
         }
+        await task?.value
         #expect(store.state.sourceProposal?.eventID == eventID)
-        #expect(store.state.sourceProposal?.patch == patch)
+        #expect(store.state.sourceProposal?.patch == currentPatch)
         expectNoDifference(
             store.state.sourceProposal?.sourceChangeGroups,
             expectedWorkspaceSummary.groups
@@ -456,6 +539,9 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
+            $0.actorIdentityLookup.resolve = { _ in
+                throw URLError(.badServerResponse)
+            }
         } operation: {
             var state = EventWorkspace.State(eventID: eventID)
             state.sourcePatchStatus = .generated(patch)

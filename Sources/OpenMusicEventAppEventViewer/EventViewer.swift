@@ -258,7 +258,11 @@ public struct EventViewer {
         }
 
         mutating func reloadAfterSourceDataRefresh() {
+            let mountedAuthoringMode = self.authoringMode
             self.refreshAuthoringMode()
+            if mountedAuthoringMode.isAuthoring, !self.authoringMode.isAuthoring {
+                self.authoringMode = mountedAuthoringMode
+            }
             let selectedFeature = self.selectedFeature
             self.eventTimeZone = Self.eventTimeZone(eventID: eventID)
             let features = withEventDependencies {

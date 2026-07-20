@@ -1,3 +1,4 @@
+import BlueskyActorCache
 import ATProto
 import Dependencies
 import DependenciesTestSupport
@@ -26,8 +27,20 @@ enum UserStory {
     static let meadowStageID = stageLocalID("meadow")
     static let pavilionStageID = stageLocalID("pavilion")
 
-    static func makePreparedStoryDatabase() throws -> any DatabaseWriter {
-        try withDependencies {
+    static func makePreparedStoryDatabase(
+        at databaseURL: URL? = nil
+    ) throws -> any DatabaseWriter {
+        if let databaseURL {
+            let database = try DatabasePool(path: databaseURL.path)
+            var migrator = DatabaseMigrator()
+            OMERecord.DatabaseMigrations.register(into: &migrator)
+            BlueskyActorCacheMigrations.register(into: &migrator)
+            OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
+            try migrator.migrate(database)
+            return database
+        }
+
+        return try withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
         } operation: {

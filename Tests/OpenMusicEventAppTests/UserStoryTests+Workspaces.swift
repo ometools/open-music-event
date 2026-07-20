@@ -31,7 +31,10 @@ extension UserStoryTests {
 
         @available(macOS 26, *)
         private func firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor() async throws {
-            let database = try UserStory.makePreparedStoryDatabase()
+            let workingDatabaseURL = FileManager.default.temporaryDirectory
+                .appending(path: "testival-source-working.sqlite")
+            try? FileManager.default.removeItem(at: workingDatabaseURL)
+            let database = try UserStory.makePreparedStoryDatabase(at: workingDatabaseURL)
             let backend = try TestivalPullRequestBackend(database: database)
 
             let eventID = UserStory.eventID
@@ -46,12 +49,14 @@ extension UserStoryTests {
                 $0.continuousClock = ImmediateClock()
                 $0.defaultDatabase = database
                 $0.defaultEventID = eventID
+                $0.sourceEditingWorkingDatabasePath = workingDatabaseURL.path
                 $0.actorIdentityLookup.resolve = { _ in
                     throw URLError(.badServerResponse)
                 }
                 $0.sourceDataRefresh = backend.sourceDataRefresh
                 $0.sourceReferenceDatabase = backend.sourceReferenceDatabase
                 $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+                $0.sourceWorkspaceDatabase = .live
                 $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
                     SourcePatchGenerator { request in
                         #expect(
@@ -252,9 +257,28 @@ extension UserStoryTests {
             )
 
             // The user starts a proposal from the generated patch.
-            await store.send(to: \.eventViewer!.eventWorkspace!, .proposeChangeButtonTapped) {
-                $0.eventViewer?.eventWorkspace?.sourceProposalStatus = .composing
+            let proposeChangeTask = await store.send(
+                to: \.eventViewer!.eventWorkspace!,
+                .proposeChangeButtonTapped
+            ) {
+                $0.eventViewer?.eventWorkspace?.isPreparingSourceProposal = true
+                $0.eventViewer?.eventWorkspace?.sourcePatchStatus = .generating
             }
+
+            await proposeChangeTask?.value
+            await flushNestedSpawnEffects()
+            #expect(
+                await store[dynamicMember: \.eventViewer?.eventWorkspace?.isPreparingSourceProposal]
+                == false
+            )
+            #expect(
+                await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourcePatchStatus]
+                == .generated(backend.expectedStagePatch)
+            )
+            #expect(
+                await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourceProposalStatus]
+                == .composing
+            )
 
             // The proposal composer carries the current workspace diff, not a hand-built proposal.
             let proposal = try #require(
@@ -346,6 +370,9 @@ extension UserStoryTests {
             // The merged review is removed from the review list.
             await mergePullReviewTask?.value
             await flushNestedSpawnEffects()
+            await waitUntil {
+                await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourceWorkspaceSummary.totalCount] == 0
+            }
             #expect(
                 await store[dynamicMember: \.eventViewer?.eventWorkspace?.mergingTangledPullReviewIDs]
                 == []
@@ -379,6 +406,17 @@ extension UserStoryTests {
 private func flushNestedSpawnEffects() async {
     await Task.yield()
     await Task.yield()
+}
+
+private func waitUntil(
+    _ condition: @escaping () async -> Bool,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async {
+    for _ in 0..<1_000 {
+        if await condition() { return }
+        await Task.yield()
+    }
+    Issue.record("Condition was not satisfied", sourceLocation: sourceLocation)
 }
 
 private actor TestivalFirstLaunch {

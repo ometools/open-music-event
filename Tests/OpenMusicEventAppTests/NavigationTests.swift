@@ -2026,7 +2026,10 @@ struct NavigationTests {
             EventWorkspace.Action.mergeTangledPullReviewButtonTapped(review)
         )?.value
 
-        expectNoDifference(refreshedSourceBaselineIDs.withLock { $0 }, [])
+        await waitUntil {
+            refreshedSourceBaselineIDs.withLock { $0 } == [sourceBaseline.id]
+        }
+        expectNoDifference(refreshedSourceBaselineIDs.withLock { $0 }, [sourceBaseline.id])
         expectNoDifference(
             mergeRequests.withLock { $0 },
             [
@@ -2038,6 +2041,13 @@ struct NavigationTests {
         )
         expectNoDifference(store.state.eventViewer.selectedFeature, EventViewer.EventFeature.workspace)
         #expect(store.state.eventViewer.eventWorkspace?.state.selectedTangledPullReview == nil)
+        await waitUntil {
+            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount == 0
+        }
+        expectNoDifference(
+            store.state.eventViewer.eventWorkspace?.state.sourceWorkspaceSummary.totalCount,
+            0
+        )
     }
 
     @Test

@@ -185,6 +185,19 @@ public struct EventWorkspace {
         }
     }
 
+    public struct SourceProposalPreparation: Equatable, Sendable {
+        public var patch: SourcePatch
+        public var sourceWorkspaceSummary: SourceWorkspaceSummary
+
+        public init(
+            patch: SourcePatch,
+            sourceWorkspaceSummary: SourceWorkspaceSummary
+        ) {
+            self.patch = patch
+            self.sourceWorkspaceSummary = sourceWorkspaceSummary
+        }
+    }
+
     public struct SourceProposalFailure: Equatable, Error, Sendable {
         public var message: String
 
@@ -480,6 +493,9 @@ public struct EventWorkspace {
         case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
         case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
+        case sourceProposalPreparationResponse(
+            Result<SourceProposalPreparation, SourcePatchGenerationFailure>
+        )
         case sourceProposal(SourceProposalFlow.Action)
         case tangledPullReviewTapped(TangledPullReview)
         case tangledPullReviewSemanticDiffResponse(
@@ -523,6 +539,7 @@ public struct EventWorkspace {
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
     var calendarSourcePatchGenerator
+    @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     @Dependency(\.actorIdentityLookup) var actorIdentityLookup
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
@@ -616,8 +633,7 @@ public struct EventWorkspace {
             func generateSourcePatch(
                 state: inout State
             ) {
-                guard state.canReviewSourceProposal,
-                      let sourcePatchRequest = state.workspaceSourcePatchRequest
+                guard let sourcePatchRequest = state.workspaceSourcePatchRequest
                 else { return }
                 let calendarSourcePatchGenerator = calendarSourcePatchGenerator
                 state.sourcePatchStatus = .generating
@@ -633,6 +649,85 @@ public struct EventWorkspace {
                                 .failure(SourcePatchGenerationFailure(error))
                             )
                         )
+                    }
+                }
+            }
+
+            func prepareSourceProposal(
+                state: inout State
+            ) {
+                guard !state.sourcePatchStatus.isGenerating,
+                      !state.sourceProposalStatus.isProposing,
+                      let sourcePatchRequest = state.workspaceSourcePatchRequest
+                else { return }
+                let calendarSourcePatchGenerator = calendarSourcePatchGenerator
+                let database = database
+                let sourceWorkspaceSummaryRequest = SourceWorkspaceSummaryRequest(
+                    target: state.target
+                )
+                state.isPreparingSourceProposal = true
+                state.sourcePatchStatus = .generating
+                state.sourceProposal = nil
+                state.sourceProposalStatus = .idle
+                store.addTask {
+                    do {
+                        let patch = try await calendarSourcePatchGenerator.generate(
+                            sourcePatchRequest
+                        )
+                        let sourceWorkspaceSummary = try await database.read { db in
+                            try sourceWorkspaceSummaryRequest.fetch(db)
+                        }
+                        try store.send(
+                            .sourceProposalPreparationResponse(
+                                .success(
+                                    SourceProposalPreparation(
+                                        patch: patch,
+                                        sourceWorkspaceSummary: sourceWorkspaceSummary
+                                    )
+                                )
+                            )
+                        )
+                    } catch {
+                        try store.send(
+                            .sourceProposalPreparationResponse(
+                                .failure(SourcePatchGenerationFailure(error))
+                            )
+                        )
+                    }
+                }
+            }
+
+            func refreshSource(state: inout State) {
+                guard !state.isRefreshingSource else { return }
+                switch state.target {
+                case let .calendar(_, sourceBaselineID):
+                    let sourceDataRefresh = sourceDataRefresh
+                    state.isRefreshingSource = true
+                    store.addTask {
+                        let result: Void? = await store.withErrorHandling(
+                            fallbackMessage: .sourceDataRefreshFailed,
+                            operation: .sourceDataRefresh
+                        ) {
+                            try await sourceDataRefresh.refresh(sourceBaselineID)
+                        } cleanup: {
+                            $0.isRefreshingSource = false
+                        }
+                        guard result != nil else { return }
+                        try store.modify {
+                            $0.isRefreshingSource = false
+                        }
+                    }
+
+                case let .event(eventID):
+                    guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
+                        return
+                    }
+                    let request = SourceDataRefreshRequest(
+                        eventID: eventID,
+                        sourceBaselineID: sourceBaselineID
+                    )
+                    store.addTask {
+                        try store.post(key: SourceDataRefreshRequested.self, value: request)
                     }
                 }
             }
@@ -913,38 +1008,7 @@ public struct EventWorkspace {
                 }
 
             case .refreshSourceButtonTapped:
-                guard !state.isRefreshingSource else { return }
-                switch state.target {
-                case let .calendar(_, sourceBaselineID):
-                    let sourceDataRefresh = sourceDataRefresh
-                    state.isRefreshingSource = true
-                    store.addTask {
-                        let result: Void? = await store.withErrorHandling(
-                            fallbackMessage: .sourceDataRefreshFailed,
-                            operation: .sourceDataRefresh
-                        ) {
-                            try await sourceDataRefresh.refresh(sourceBaselineID)
-                        } cleanup: {
-                            $0.isRefreshingSource = false
-                        }
-                        guard result != nil else { return }
-                        try store.modify {
-                            $0.isRefreshingSource = false
-                        }
-                    }
-
-                case let .event(eventID):
-                    guard let sourceBaselineID = state.sourceProvenance?.sourceBaselineID else {
-                        return
-                    }
-                    let request = SourceDataRefreshRequest(
-                        eventID: eventID,
-                        sourceBaselineID: sourceBaselineID
-                    )
-                    store.addTask {
-                        try store.post(key: SourceDataRefreshRequested.self, value: request)
-                    }
-                }
+                refreshSource(state: &state)
 
             case .refreshTangledPullReviewsButtonTapped:
                 refreshTangledPullReviews(target: state.target, state: &state)
@@ -997,14 +1061,7 @@ public struct EventWorkspace {
                 state.dismissSourceProposal()
 
             case .proposeChangeButtonTapped:
-                guard state.canReviewSourceProposal else { return }
-                guard case let .generated(patch) = state.sourcePatchStatus else {
-                    state.isPreparingSourceProposal = true
-                    generateSourcePatch(state: &state)
-                    return
-                }
-                guard !patch.isEmpty else { return }
-                state.presentSourceProposal(for: patch)
+                prepareSourceProposal(state: &state)
 
             case let .reviewSemanticDiffButtonTapped(review):
                 loadTangledPullReviewSemanticDiff(review: review, state: &state)
@@ -1014,15 +1071,24 @@ public struct EventWorkspace {
 
             case let .sourcePatchGenerationResponse(.success(patch)):
                 state.sourcePatchStatus = .generated(patch)
-                if state.isPreparingSourceProposal {
-                    state.isPreparingSourceProposal = false
-                    state.presentSourceProposal(for: patch)
-                } else {
-                    state.sourceProposal = nil
-                    state.sourceProposalStatus = .idle
-                }
+                state.sourceProposal = nil
+                state.sourceProposalStatus = .idle
 
             case let .sourcePatchGenerationResponse(.failure(failure)):
+                state.isPreparingSourceProposal = false
+                state.sourcePatchStatus = .failed(failure)
+                state.sourceProposal = nil
+                state.sourceProposalStatus = .idle
+
+            case let .sourceProposalPreparationResponse(.success(preparation)):
+                state.isPreparingSourceProposal = false
+                state.sourcePatchStatus = .generated(preparation.patch)
+                state.presentSourceProposal(
+                    for: preparation.patch,
+                    sourceWorkspaceSummary: preparation.sourceWorkspaceSummary
+                )
+
+            case let .sourceProposalPreparationResponse(.failure(failure)):
                 state.isPreparingSourceProposal = false
                 state.sourcePatchStatus = .failed(failure)
                 state.sourceProposal = nil
@@ -1072,6 +1138,7 @@ public struct EventWorkspace {
             case let .tangledPullReviewMergeResponse(review, .success):
                 state.mergingTangledPullReviewIDs.remove(review.id)
                 removeTangledPullReviewFromLoadedState(review, state: &state)
+                refreshSource(state: &state)
 
             case let .tangledPullReviewMergeResponse(review, .failure(failure)):
                 state.mergingTangledPullReviewIDs.remove(review.id)
@@ -3165,8 +3232,14 @@ private extension EventWorkspace.State {
         }
     }
 
-    mutating func presentSourceProposal(for patch: SourcePatch) {
-        guard !patch.isEmpty, canReviewSourceProposal else {
+    mutating func presentSourceProposal(
+        for patch: SourcePatch,
+        sourceWorkspaceSummary: SourceWorkspaceSummary
+    ) {
+        guard !patch.isEmpty,
+              sourceWorkspaceSummary.totalCount > 0,
+              case .available = sourceWorkspaceSummary.availability
+        else {
             sourceProposal = nil
             sourceProposalStatus = .idle
             return
