@@ -249,7 +249,11 @@ extension UserStoryTests {
             let sourcePatchStatus = await store[
                 dynamicMember: \.eventViewer?.eventWorkspace?.sourcePatchStatus
             ]
-            #expect(sourcePatchStatus == .generated(backend.expectedStagePatch))
+            let expectedGeneratedStageStatus: EventWorkspace.SourcePatchStatus = .generated(
+                backend.expectedStagePatch,
+                sourceFileAttributions: backend.expectedStageSourceFileAttributions
+            )
+            #expect(sourcePatchStatus == expectedGeneratedStageStatus)
             assertSnapshot(
                 of: sourcePatchStatus,
                 as: .customDump,
@@ -273,7 +277,7 @@ extension UserStoryTests {
             )
             #expect(
                 await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourcePatchStatus]
-                == .generated(backend.expectedStagePatch)
+                == expectedGeneratedStageStatus
             )
             #expect(
                 await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourceProposalStatus]
@@ -509,6 +513,7 @@ private struct TestivalPullRequestBackend {
     let createdReview: TangledPullReview
     let database: any DatabaseWriter
     let expectedStagePatch: SourcePatch
+    let expectedStageSourceFileAttributions: [SourceFileAttribution]
     let firstLaunch: TestivalFirstLaunch
     let sourceBaselineID: SourceBaselineRecord.ID
     let sourceDataRefresh: SourceDataRefreshClient
@@ -536,6 +541,14 @@ private struct TestivalPullRequestBackend {
                 )
             ]
         )
+        let expectedStageSourceFileAttributions = [
+            SourceFileAttribution(
+                filePath: "events/testival-2026/stages/meadow.yml",
+                recordChangeIDs: [
+                    #"stages:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#
+                ]
+            )
+        ]
         let createdReview = TangledPullReview(
             author: "did:plc:contributor",
             body: "Renames Meadow and updates the stage image.",
@@ -576,6 +589,7 @@ private struct TestivalPullRequestBackend {
         self.createdReview = createdReview
         self.database = database
         self.expectedStagePatch = expectedStagePatch
+        self.expectedStageSourceFileAttributions = expectedStageSourceFileAttributions
         self.firstLaunch = firstLaunch
         self.sourceBaselineID = sourceBaselineID
         self.sourceDataRefresh = SourceDataRefreshClient { _ in

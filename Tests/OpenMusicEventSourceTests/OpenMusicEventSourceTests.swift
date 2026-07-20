@@ -1064,6 +1064,41 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
+    func contributorMarkdownRewriteKeepsUnchangedSourceBytes() throws {
+        let directoryURL = try temporaryRepositoryURL()
+        let original = """
+        ---
+        name: Artist One
+        images:
+        - source:
+            url: https://example.com/artist-one.png?alt=media&token=fixture
+          role: photo
+          renderKind: fullImage
+          materializationPolicy: lazy
+        ---
+        Artist One keeps hand-wrapped markdown.
+        """
+        try original.write(
+            to: directoryURL.appending(path: "artist-one.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let tree = File.Many(withExtension: "md")
+            .map(ContributorMarkdownConversion())
+        let readResult = try tree.read(from: directoryURL)
+        let contributor = try #require(readResult.output.requiredValue.first)
+
+        _ = try tree.rewrite([contributor], at: directoryURL)
+
+        let rewritten = try String(
+            contentsOf: directoryURL.appending(path: "artist-one.md"),
+            encoding: .utf8
+        )
+        expectNoDifference(rewritten, original)
+    }
+
+    @Test
     func contributorMarkdownRewriteUpdatesBody() throws {
         let directoryURL = try temporaryRepositoryURL()
         try """

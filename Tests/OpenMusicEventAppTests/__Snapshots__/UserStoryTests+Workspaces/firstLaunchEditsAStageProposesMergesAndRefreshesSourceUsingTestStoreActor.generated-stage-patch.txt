@@ -8,5 +8,13 @@
         newContents: Data(22 bytes)
       )
     ]
-  )
+  ),
+  sourceFileAttributions: [
+    [0]: SourceFileAttribution(
+      filePath: "events/testival-2026/stages/meadow.yml",
+      recordChangeIDs: [
+        [0]: #"stages:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#
+      ]
+    )
+  ]
 )

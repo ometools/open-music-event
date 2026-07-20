@@ -74,6 +74,16 @@ public struct ContributorMarkdownConversion: Conversion {
     ) -> Conversions.Result<FileContent<Data>> {
         do {
             let rootedContext = context.rooted(at: output)
+            if let existing = try? rootedContext.rootData() {
+                let existingOutput = try FileContent(
+                    fileName: output.fileName,
+                    fileType: output.fileType,
+                    data: existing
+                )
+                if (try? apply(existingOutput)) == output {
+                    return .value(existingOutput)
+                }
+            }
             return .value(
                 try output.map { contributor in
                     try Self.markdownData(for: contributor, context: rootedContext)

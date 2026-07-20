@@ -153,6 +153,25 @@ struct TeamWorkspaceEditorTests {
                 )
             ]
         )
+        let expectedWorkspaceSummary = try await database.read { db in
+            try SourceWorkspaceSummaryRequest(
+                target: .calendar(calendarID, sourceBaselineID)
+            )
+            .fetch(db)
+        }
+        let expectedSourceFileAttributions = try await database.read { db in
+            try openMusicEventSourceFileAttributions(
+                patch: patch,
+                groups: expectedWorkspaceSummary.groups,
+                recordComparisons: expectedWorkspaceSummary.recordComparisons,
+                in: db
+            )
+        }
+        let expectedPreparation = EventWorkspace.SourceProposalPreparation(
+            patch: patch,
+            sourceFileAttributions: expectedSourceFileAttributions,
+            sourceWorkspaceSummary: expectedWorkspaceSummary
+        )
 
         let store = withDependencies {
             $0.context = .test
@@ -183,23 +202,42 @@ struct TeamWorkspaceEditorTests {
         }
         await store.receive(
             \.sourcePatchGenerationResponse,
-            .equals(.success(patch)),
+            .equals(.success(expectedPreparation)),
             timeout: .seconds(1)
         ) {
-            $0.sourcePatchStatus = .generated(patch)
+            $0.sourcePatchStatus = .generated(
+                patch,
+                sourceFileAttributions: expectedSourceFileAttributions
+            )
         }
         await task?.value
     }
 
     @Test
-    func proposesCalendarSourcePatch() throws {
-        let database = try makePreparedDatabase()
+    func proposesCalendarSourcePatch() async throws {
+        let directoryURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let workingDatabasePath = directoryURL.appending(path: "working.sqlite").path
+        let baselineDatabasePath = directoryURL.appending(path: "baseline.sqlite").path
+        let workingDatabase = try makePreparedDatabase(path: workingDatabasePath)
+        let baselineDatabase = try makePreparedDatabase(path: baselineDatabasePath)
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: workingDatabasePath,
+            baselineDatabasePath: baselineDatabasePath
+        )
         let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
         let calendarID = OMERecord.Calendar.ID(
             ownerID: organizerID,
             calendarID: OMERecord.Calendar.defaultID
         )
-        let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "source")
+        let sourceProvenance = makeSourceProvenance(
+            reference: "tangled.org/woody.fm/source-management"
+        )
+        let sourceBaseline = SourceBaselineRecord(
+            source: sourceProvenance,
+            databaseFileName: "reference.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -210,13 +248,75 @@ struct TeamWorkspaceEditorTests {
                 )
             ]
         )
+        try await seedOrganizerSourceWorkspaceDefaults(
+            database: workingDatabase,
+            organizerID: organizerID,
+            calendarID: calendarID,
+            sourceBaseline: sourceBaseline
+        )
+        try await seedOrganizerSourceWorkspaceDefaults(
+            database: baselineDatabase,
+            organizerID: organizerID,
+            calendarID: calendarID,
+            sourceBaseline: sourceBaseline
+        )
+        try await workingDatabase.write { db in
+            try db.execute(
+                sql: """
+                UPDATE "calendars"
+                SET "name" = ?
+                WHERE "ownerID" = ?
+                  AND "calendarID" = ?
+                """,
+                arguments: [
+                    "Wicked Woods 2026",
+                    String(describing: organizerID),
+                    calendarID.calendarID.rawValue.rawValue,
+                ]
+            )
+        }
+        let expectedWorkspaceSummary = try await withDependencies {
+            $0.sourceEditingSession = sourceEditingSession
+        } operation: {
+            try await sourceEditingSession.database.read { db in
+                try SourceWorkspaceSummaryRequest(
+                    target: .calendar(calendarID, sourceBaseline.id)
+                )
+                .fetch(db)
+            }
+        }
+        #expect(expectedWorkspaceSummary.totalCount == 1)
+        let expectedSourceFileAttributions = try await sourceEditingSession.database.read { db in
+            try openMusicEventSourceFileAttributions(
+                patch: patch,
+                groups: expectedWorkspaceSummary.groups,
+                recordComparisons: expectedWorkspaceSummary.recordComparisons,
+                in: db
+            )
+        }
+        let expectedPreparation = EventWorkspace.SourceProposalPreparation(
+            patch: patch,
+            sourceFileAttributions: expectedSourceFileAttributions,
+            sourceWorkspaceSummary: expectedWorkspaceSummary
+        )
 
         let store = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = database
+            $0.defaultDatabase = sourceEditingSession.database
+            $0.sourceEditingSession = sourceEditingSession
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
+                SourcePatchGenerator { request in
+                    #expect(
+                        request == OpenMusicEventCalendarSourcePatchRequest(
+                            calendarID: calendarID,
+                            sourceBaselineID: sourceBaseline.id
+                        )
+                    )
+                    return patch
+                }
         } operation: {
             var state = SourceWorkspace.State(
-                sourceBaselineID: sourceBaselineID,
+                sourceBaselineID: sourceBaseline.id,
                 calendarID: calendarID
             )
             state.sourcePatchStatus = .generated(patch)
@@ -225,12 +325,32 @@ struct TeamWorkspaceEditorTests {
             }
         }
 
-        store.send(.proposeChangeButtonTapped) {
+        let task = store.send(.proposeChangeButtonTapped) {
+            $0.isPreparingSourceProposal = true
+            $0.sourcePatchStatus = .generating
+        }
+        await store.receive(
+            \.sourceProposalPreparationResponse,
+            .equals(.success(expectedPreparation)),
+            timeout: .seconds(1)
+        ) {
+            $0.isPreparingSourceProposal = false
+            $0.sourcePatchStatus = .generated(
+                patch,
+                sourceFileAttributions: expectedSourceFileAttributions
+            )
             $0.sourceProposalStatus = .composing
         }
-        #expect(store.state.sourceProposal?.target == .calendar(calendarID, sourceBaselineID))
-        #expect(store.state.sourceProposal?.sourceChangeGroups == [])
+        await task?.value
+
+        #expect(store.state.sourceProposal?.target == .calendar(calendarID, sourceBaseline.id))
+        #expect(store.state.sourceProposal?.sourceChangeGroups == expectedWorkspaceSummary.groups)
+        #expect(
+            store.state.sourceProposal?.sourceFileAttributions
+                == expectedSourceFileAttributions
+        )
         #expect(store.state.sourceProposal?.patch == patch)
+        await store.dismount()
     }
 
     @Test

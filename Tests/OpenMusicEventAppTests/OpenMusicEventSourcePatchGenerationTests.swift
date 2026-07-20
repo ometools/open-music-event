@@ -1,4 +1,5 @@
 import ATProto
+import CustomDump
 import Dependencies
 import Foundation
 import OpenMusicEventDatabase
@@ -723,6 +724,153 @@ struct OpenMusicEventSourcePatchGenerationTests {
         )
         #expect(event2025Text.contains("name: Updated Wicked Woods 2025"))
         #expect(event2026Text.contains("name: Updated Wicked Woods 2026"))
+    }
+
+    @Test
+    func calendarGeneratorDoesNotRewriteCleanSourceRepository() async throws {
+        let fixture = try OpenMusicEventSourcePatchGenerationFixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeFile(
+            "calendar.yml",
+            contents: "name: Wicked Woods\n"
+        )
+        try fixture.writeFile(
+            "events/test-event/event.yml",
+            contents: "name: Test Event\ntimeZone: GMT\n"
+        )
+        let imageURL = try #require(
+            URL(string: "https://example.com/artist-one.png?alt=media&token=fixture")
+        )
+        try fixture.writeFile(
+            "events/test-event/contributors/artist-one.md",
+            contents: """
+            ---
+            name: Artist One
+            images:
+            - source:
+                url: \(imageURL.absoluteString)
+              role: photo
+              renderKind: fullImage
+              materializationPolicy: lazy
+            ---
+            Artist One keeps hand-wrapped markdown.
+            """
+        )
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:sourcepatch"))
+        let calendarID = OME.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        let source = localSourceProvenance(repositoryURL: fixture.repositoryURL)
+        let sourceBaseline = SourceBaselineRecord(
+            source: source,
+            databaseFileName: "baseline.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
+        let eventID = sourceBackedEventID(
+            source: source,
+            sourceEventDirectory: "test-event"
+        )
+        let contributorID = OME.Contributor.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            contributorID: localID("artist-one")
+        )
+        let workingRootURL = fixture.rootURL
+
+        try await database.write { db in
+            try OME.Organizer.insert {
+                OME.Organizer.Draft(id: organizerID)
+            }
+            .execute(db)
+            try OME.Calendar.insert {
+                OME.Calendar.Draft(
+                    id: calendarID,
+                    name: "Wicked Woods",
+                    description: nil,
+                    images: nil
+                )
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert {
+                sourceBaseline
+            }
+            .execute(db)
+            try OME.Event.insert {
+                OME.Event.Draft(
+                    id: eventID,
+                    name: "Test Event",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: TimeZone(identifier: "GMT")!,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            }
+            .execute(db)
+            try OME.Contributor.insert {
+                OME.Contributor.Draft(
+                    id: contributorID,
+                    name: "Artist One",
+                    bio: "Artist One keeps hand-wrapped markdown.",
+                    images: [
+                        OME.ImageAsset(
+                            assetKey: sourceImageAssetKey(
+                                eventID: eventID,
+                                parentKind: "contributor",
+                                parentLocalID: "artist-one",
+                                role: .photo
+                            ),
+                            source: .url(imageURL),
+                            role: .photo,
+                            renderKind: .fullImage,
+                            materializationPolicy: .lazy
+                        )
+                    ]
+                )
+            }
+            .execute(db)
+            try EventSourceProvenanceRecord.insert {
+                EventSourceProvenanceRecord(
+                    id: eventID,
+                    sourceBaselineID: sourceBaseline.id,
+                    sourceKind: source.kind,
+                    sourceReference: source.reference,
+                    ref: source.ref,
+                    eventIDOrigin: .inferred,
+                    sourceEventDirectory: "test-event"
+                )
+            }
+            .execute(db)
+        }
+
+        let patch = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.uuid = .incrementing
+            $0.sourceWorkingTreeMaterializer = .live(
+                temporaryDirectoryURL: workingRootURL
+            )
+            $0.openMusicEventSourcePatchConversion = .live
+            $0.openMusicEventCalendarSourcePatchConversion = .live
+            $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
+        } operation: {
+            @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self) var generator
+            return try await generator.generate(
+                OpenMusicEventCalendarSourcePatchRequest(
+                    calendarID: calendarID,
+                    sourceBaselineID: sourceBaseline.id
+                )
+            )
+        }
+
+        expectNoDifference(patch.fileChanges, [])
     }
 
     @Test

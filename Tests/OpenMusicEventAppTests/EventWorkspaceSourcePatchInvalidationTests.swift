@@ -36,6 +36,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let eventID = testEventID("event-1")
         let expectedSourceBaselineID = sourceBaselineID(for: eventID)
         try await seedSourceBackedEvent(eventID, in: database)
+        let expectedWorkspaceSummary = try await database.read { db in
+            try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
+        }
+        let expectedSourceFileAttributions: [SourceFileAttribution] = []
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -71,10 +75,21 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
         await store.receive(
             \.sourcePatchGenerationResponse,
-            .equals(.success(patch)),
+            .equals(
+                .success(
+                    EventWorkspace.SourceProposalPreparation(
+                        patch: patch,
+                        sourceFileAttributions: expectedSourceFileAttributions,
+                        sourceWorkspaceSummary: expectedWorkspaceSummary
+                    )
+                )
+            ),
             timeout: .seconds(1)
         ) {
-            $0.sourcePatchStatus = .generated(patch)
+            $0.sourcePatchStatus = .generated(
+                patch,
+                sourceFileAttributions: expectedSourceFileAttributions
+            )
         }
         await task?.value
 
@@ -179,7 +194,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             timeout: .seconds(1)
         ) {
             $0.isPreparingSourceProposal = false
-            $0.sourcePatchStatus = .generated(patch)
+            $0.sourcePatchStatus = .generated(
+                patch,
+                sourceFileAttributions: expectedSourceFileAttributions
+            )
             $0.sourceProposalStatus = .composing
         }
         await task?.value
@@ -322,7 +340,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             timeout: .seconds(1)
         ) {
             $0.isPreparingSourceProposal = false
-            $0.sourcePatchStatus = .generated(currentPatch)
+            $0.sourcePatchStatus = .generated(
+                currentPatch,
+                sourceFileAttributions: expectedSourceFileAttributions
+            )
             $0.sourceProposalStatus = .composing
         }
         await task?.value
@@ -450,7 +471,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             timeout: .seconds(1)
         ) {
             $0.isPreparingSourceProposal = false
-            $0.sourcePatchStatus = .generated(patch)
+            $0.sourcePatchStatus = .generated(
+                patch,
+                sourceFileAttributions: expectedSourceFileAttributions
+            )
             $0.sourceProposalStatus = .composing
         }
         await task?.value
@@ -695,7 +719,10 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 return
             }
             $0.isPreparingSourceProposal = false
-            $0.sourcePatchStatus = .generated(preparation.patch)
+            $0.sourcePatchStatus = .generated(
+                preparation.patch,
+                sourceFileAttributions: preparation.sourceFileAttributions
+            )
             $0.sourceProposalStatus = .composing
         }
         await prepareProposalTask?.value
@@ -1340,8 +1367,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        store.send(.sourcePatchGenerationResponse(.success(regeneratedPatch))) {
-            $0.sourcePatchStatus = .generated(regeneratedPatch)
+        let regeneratedPreparation = EventWorkspace.SourceProposalPreparation(
+            patch: regeneratedPatch,
+            sourceWorkspaceSummary: .initialValue(target: .event(eventID))
+        )
+        store.send(.sourcePatchGenerationResponse(.success(regeneratedPreparation))) {
+            $0.sourcePatchStatus = .generated(
+                regeneratedPatch,
+                sourceFileAttributions: regeneratedPreparation.sourceFileAttributions
+            )
             $0.sourceProposalStatus = .idle
         }
 
@@ -1377,8 +1411,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             }
         }
 
-        store.send(.sourcePatchGenerationResponse(.success(SourcePatch()))) {
-            $0.sourcePatchStatus = .generated(SourcePatch())
+        let emptyPreparation = EventWorkspace.SourceProposalPreparation(
+            patch: SourcePatch(),
+            sourceWorkspaceSummary: .initialValue(target: .event(eventID))
+        )
+        store.send(.sourcePatchGenerationResponse(.success(emptyPreparation))) {
+            $0.sourcePatchStatus = .generated(
+                SourcePatch(),
+                sourceFileAttributions: emptyPreparation.sourceFileAttributions
+            )
             $0.sourceProposalStatus = .idle
         }
 
@@ -1635,63 +1676,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 OpenMusicEventTangledPullReviewRequest(eventID: eventID)
             ]
         )
-        await store.dismount()
-    }
-
-    @Test
-    func selectedTangledPullReviewLoadsRawDiff() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID("event-1")
-        let review = testTangledPullReview()
-        let rawDiff = """
-        diff --git a/events/event-1/event.yml b/events/event-1/event.yml
-        --- a/events/event-1/event.yml
-        +++ b/events/event-1/event.yml
-        @@ -1 +1 @@
-        -name: Old
-        +name: New
-        """
-        let rawDiffRequests = Mutex([TangledPullReview]())
-        let store: TestStore<EventWorkspace> = withDependencies {
-            $0.defaultDatabase = database
-            $0.tangledPullReviewClient = TangledPullReviewClient(
-                list: { _ in [review] },
-                rawDiff: { review in
-                    rawDiffRequests.withLock { $0.append(review) }
-                    return rawDiff
-                }
-            )
-        } operation: {
-            var initialState = EventWorkspace.State(eventID: eventID)
-            initialState.selectedTangledPullReview = .loaded(review)
-            initialState.tangledPullReviewStatus = .loaded([review])
-            return TestStore(initialState: initialState) {
-                EventWorkspace()
-            }
-        }
-
-        let task = store.send(.reviewRawDiffButtonTapped(review)) {
-            $0.tangledPullReviewRawDiffs[review.id] = .loading
-        }
-        await store.receive(
-            \.tangledPullReviewRawDiffResponse,
-            .matching { (
-                response: (
-                    reviewID: String,
-                    Result<String, EventWorkspace.TangledPullReviewRawDiffFailure>
-                )
-            ) in
-                guard response.reviewID == review.id else { return false }
-                guard case let .success(loadedRawDiff) = response.1 else { return false }
-                return loadedRawDiff == rawDiff
-            },
-            timeout: .seconds(1)
-        ) {
-            $0.tangledPullReviewRawDiffs[review.id] = .loaded(rawDiff)
-        }
-        await task?.value
-
-        expectNoDifference(rawDiffRequests.withLock { $0 }, [review])
         await store.dismount()
     }
 

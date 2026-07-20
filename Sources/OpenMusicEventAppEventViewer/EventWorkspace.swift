@@ -161,7 +161,7 @@ public struct EventWorkspace {
 
     public enum SourcePatchStatus: Equatable, Sendable {
         case failed(SourcePatchGenerationFailure)
-        case generated(SourcePatch)
+        case generated(SourcePatch, sourceFileAttributions: [SourceFileAttribution] = [])
         case generating
         case needsGeneration(SourcePatchInvalidation)
         case notGenerated
@@ -338,21 +338,6 @@ public struct EventWorkspace {
         }
     }
 
-    public enum TangledPullReviewRawDiffStatus: Equatable, Sendable {
-        case failed(TangledPullReviewRawDiffFailure)
-        case loaded(String)
-        case loading
-        case notLoaded
-    }
-
-    public struct TangledPullReviewRawDiffFailure: Equatable, Error, Sendable {
-        public var message: String
-
-        public init(_ error: any Error) {
-            self.message = String(describing: error)
-        }
-    }
-
     public struct PendingDeletedTangledPullReview: Equatable, Sendable {
         public var review: TangledPullReview
         public var index: Int
@@ -428,7 +413,6 @@ public struct EventWorkspace {
         public var tangledPullReviewCloseFailures: [String: TangledPullReviewCloseFailure] = [:]
         public var tangledPullReviewDeleteFailures: [String: TangledPullReviewDeleteFailure] = [:]
         public var tangledPullReviewMergeFailures: [String: TangledPullReviewMergeFailure] = [:]
-        public var tangledPullReviewRawDiffs: [String: TangledPullReviewRawDiffStatus] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
         public var account = Spawn(Account.State())
         public var workspaceOwnerIdentity: WorkspaceActorIdentity = .unavailable
@@ -503,13 +487,12 @@ public struct EventWorkspace {
         case mergeTangledPullReviewButtonTapped(TangledPullReview)
         case onAppear
         case proposeChangeButtonTapped
-        case reviewRawDiffButtonTapped(TangledPullReview)
         case reviewSemanticDiffButtonTapped(TangledPullReview)
         case refreshTangledPullReviewsButtonTapped
         case refreshSourceButtonTapped
         case resetEditsButtonTapped
         case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
-        case sourcePatchGenerationResponse(Result<SourcePatch, SourcePatchGenerationFailure>)
+        case sourcePatchGenerationResponse(Result<SourceProposalPreparation, SourcePatchGenerationFailure>)
         case sourcePatchInvalidationReceived(SourcePatchInvalidation)
         case sourceProposalPreparationResponse(
             Result<SourceProposalPreparation, SourcePatchGenerationFailure>
@@ -519,10 +502,6 @@ public struct EventWorkspace {
         case tangledPullReviewSemanticDiffResponse(
             reviewID: String,
             Result<TangledPullReviewSemanticDiff, TangledPullReviewSemanticDiffFailure>
-        )
-        case tangledPullReviewRawDiffResponse(
-            reviewID: String,
-            Result<String, TangledPullReviewRawDiffFailure>
         )
         case tangledPullReviewCloseResponse(
             review: TangledPullReview,
@@ -648,19 +627,54 @@ public struct EventWorkspace {
     public var body: some Feature {
         let _ = Self._logChanges()
         ComposableArchitecture2.Update { state, action in
+            let calendarSourcePatchGenerator = calendarSourcePatchGenerator
+            let database = database
+
+            func prepareSourcePatch(
+                sourcePatchRequest: OpenMusicEventCalendarSourcePatchRequest,
+                target: SourceProposalTarget
+            ) async throws -> SourceProposalPreparation {
+                let patch = try await calendarSourcePatchGenerator.generate(sourcePatchRequest)
+                let sourceWorkspaceSummaryRequest = SourceWorkspaceSummaryRequest(target: target)
+                let (sourceWorkspaceSummary, sourceFileAttributions) = try await database.read { db in
+                    let sourceWorkspaceSummary = try sourceWorkspaceSummaryRequest.fetch(db)
+                    let sourceFileAttributions = try openMusicEventSourceFileAttributions(
+                        patch: patch,
+                        groups: sourceWorkspaceSummary.groups,
+                        recordComparisons: sourceWorkspaceSummary.recordComparisons,
+                        in: db
+                    )
+                    return (
+                        sourceWorkspaceSummary,
+                        sourceFileAttributions
+                    )
+                }
+                return SourceProposalPreparation(
+                    patch: patch,
+                    sourceFileAttributions: sourceFileAttributions,
+                    sourceWorkspaceSummary: sourceWorkspaceSummary
+                )
+            }
+
             func generateSourcePatch(
                 state: inout State
             ) {
                 guard let sourcePatchRequest = state.workspaceSourcePatchRequest
                 else { return }
-                let calendarSourcePatchGenerator = calendarSourcePatchGenerator
+                let target = state.target
                 state.sourcePatchStatus = .generating
                 store.addTask {
                     do {
-                        let patch = try await calendarSourcePatchGenerator.generate(
-                            sourcePatchRequest
+                        try store.send(
+                            .sourcePatchGenerationResponse(
+                                .success(
+                                    try await prepareSourcePatch(
+                                        sourcePatchRequest: sourcePatchRequest,
+                                        target: target
+                                    )
+                                )
+                            )
                         )
-                        try store.send(.sourcePatchGenerationResponse(.success(patch)))
                     } catch {
                         try store.send(
                             .sourcePatchGenerationResponse(
@@ -678,40 +692,19 @@ public struct EventWorkspace {
                       !state.sourceProposalStatus.isProposing,
                       let sourcePatchRequest = state.workspaceSourcePatchRequest
                 else { return }
-                let calendarSourcePatchGenerator = calendarSourcePatchGenerator
-                let database = database
-                let sourceWorkspaceSummaryRequest = SourceWorkspaceSummaryRequest(
-                    target: state.target
-                )
+                let target = state.target
                 state.isPreparingSourceProposal = true
                 state.sourcePatchStatus = .generating
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
                 store.addTask {
                     do {
-                        let patch = try await calendarSourcePatchGenerator.generate(
-                            sourcePatchRequest
-                        )
-                        let (sourceWorkspaceSummary, sourceFileAttributions) = try await database.read { db in
-                            let sourceWorkspaceSummary = try sourceWorkspaceSummaryRequest.fetch(db)
-                            let sourceFileAttributions = try openMusicEventSourceFileAttributions(
-                                patch: patch,
-                                groups: sourceWorkspaceSummary.groups,
-                                recordComparisons: sourceWorkspaceSummary.recordComparisons,
-                                in: db
-                            )
-                            return (
-                                sourceWorkspaceSummary,
-                                sourceFileAttributions
-                            )
-                        }
                         try store.send(
                             .sourceProposalPreparationResponse(
                                 .success(
-                                    SourceProposalPreparation(
-                                        patch: patch,
-                                        sourceFileAttributions: sourceFileAttributions,
-                                        sourceWorkspaceSummary: sourceWorkspaceSummary
+                                    try await prepareSourcePatch(
+                                        sourcePatchRequest: sourcePatchRequest,
+                                        target: target
                                     )
                                 )
                             )
@@ -797,39 +790,6 @@ public struct EventWorkspace {
                             .tangledPullReviewSemanticDiffResponse(
                                 reviewID: review.id,
                                 .failure(TangledPullReviewSemanticDiffFailure(error))
-                            )
-                        )
-                    }
-                }
-            }
-
-            func loadTangledPullReviewRawDiff(
-                review: TangledPullReview,
-                state: inout State
-            ) {
-                switch state.tangledPullReviewRawDiffs[review.id] {
-                case .loaded, .loading:
-                    return
-                case .failed, .notLoaded, nil:
-                    break
-                }
-
-                let tangledPullReviewClient = tangledPullReviewClient
-                state.tangledPullReviewRawDiffs[review.id] = .loading
-                store.addTask {
-                    do {
-                        let diff = try await tangledPullReviewClient.rawDiff(review)
-                        try store.send(
-                            .tangledPullReviewRawDiffResponse(
-                                reviewID: review.id,
-                                .success(diff)
-                            )
-                        )
-                    } catch {
-                        try store.send(
-                            .tangledPullReviewRawDiffResponse(
-                                reviewID: review.id,
-                                .failure(TangledPullReviewRawDiffFailure(error))
                             )
                         )
                     }
@@ -970,7 +930,6 @@ public struct EventWorkspace {
                 state.tangledPullReviewCloseFailures[review.id] = nil
                 state.tangledPullReviewDeleteFailures[review.id] = nil
                 state.tangledPullReviewMergeFailures[review.id] = nil
-                state.tangledPullReviewRawDiffs[review.id] = nil
                 state.tangledPullReviewSemanticDiffs[review.id] = nil
                 if state.selectedTangledPullReview?.id == review.id {
                     state.selectedTangledPullReview = nil
@@ -1095,11 +1054,11 @@ public struct EventWorkspace {
             case let .reviewSemanticDiffButtonTapped(review):
                 loadTangledPullReviewSemanticDiff(review: review, state: &state)
 
-            case let .reviewRawDiffButtonTapped(review):
-                loadTangledPullReviewRawDiff(review: review, state: &state)
-
-            case let .sourcePatchGenerationResponse(.success(patch)):
-                state.sourcePatchStatus = .generated(patch)
+            case let .sourcePatchGenerationResponse(.success(preparation)):
+                state.sourcePatchStatus = .generated(
+                    preparation.patch,
+                    sourceFileAttributions: preparation.sourceFileAttributions
+                )
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
 
@@ -1111,7 +1070,10 @@ public struct EventWorkspace {
 
             case let .sourceProposalPreparationResponse(.success(preparation)):
                 state.isPreparingSourceProposal = false
-                state.sourcePatchStatus = .generated(preparation.patch)
+                state.sourcePatchStatus = .generated(
+                    preparation.patch,
+                    sourceFileAttributions: preparation.sourceFileAttributions
+                )
                 state.presentSourceProposal(
                     for: preparation.patch,
                     sourceFileAttributions: preparation.sourceFileAttributions,
@@ -1141,12 +1103,6 @@ public struct EventWorkspace {
 
             case let .tangledPullReviewSemanticDiffResponse(reviewID, .failure(failure)):
                 state.tangledPullReviewSemanticDiffs[reviewID] = .failed(failure)
-
-            case let .tangledPullReviewRawDiffResponse(reviewID, .success(diff)):
-                state.tangledPullReviewRawDiffs[reviewID] = .loaded(diff)
-
-            case let .tangledPullReviewRawDiffResponse(reviewID, .failure(failure)):
-                state.tangledPullReviewRawDiffs[reviewID] = .failed(failure)
 
             case let .tangledPullReviewCloseResponse(review, .success):
                 state.closingTangledPullReviewIDs.remove(review.id)
@@ -1338,23 +1294,15 @@ public struct EventWorkspaceView: View {
                store.sourceWorkspaceSummary.totalCount > 0,
                store.canReviewSourceProposal
             {
-                HStack(spacing: 12) {
-                    Label(
-                        "Updates ready to propose",
-                        systemImage: "square.and.pencil"
-                    )
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-
-                    Spacer(minLength: 8)
-
-                    Button(store.sourcePatchStatus.proposeButtonTitle, systemImage: "paperplane") {
-                        store.send(.proposeChangeButtonTapped)
-                    }
-                    .disabled(!store.canProposeLocalChanges)
-                    .buttonStyle(.bordered)
-                    .tint(.blue)
+                Button {
+                    store.send(.proposeChangeButtonTapped)
+                } label: {
+                    Label(store.sourcePatchStatus.proposeButtonTitle, systemImage: "paperplane")
+                        .frame(maxWidth: .infinity)
                 }
+                .disabled(!store.canProposeLocalChanges)
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
                 .padding(.horizontal)
                 .padding(.bottom, 8)
             }
@@ -1382,10 +1330,10 @@ public struct EventWorkspaceView: View {
 
                 if let sourceContext = store.sourceContext {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(sourceContext.sourceKind.workspaceTitle)
+                        Text("Workspace")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(sourceContext.detailTitle)
+                        Text(sourceContext.sourceKind.workspaceTitle)
                             .font(.subheadline)
                             .lineLimit(1)
                     }
@@ -1453,18 +1401,6 @@ public struct EventWorkspaceView: View {
                             value: sourceContext.sourceRefTitle
                         )
 
-                        if selectedTab == .propose,
-                           case let .generated(patch) = store.sourcePatchStatus,
-                           !patch.isEmpty
-                        {
-                            Text("Files changed")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.top, 4)
-
-                            ForEach(patch.fileChanges) { change in
-                                SourcePatchFileChangeRow(change: change)
-                            }
-                        }
                     }
                     .font(.caption)
                 }
@@ -1522,7 +1458,6 @@ public struct EventWorkspaceView: View {
         List {
             semanticDiffSections
             changesActionSection
-            sourceDiffSections
             resetEditsSection
         }
     }
@@ -1537,59 +1472,55 @@ public struct EventWorkspaceView: View {
 
     @ViewBuilder
     private var changesActionSection: some View {
-        Section("Your changes") {
-            HStack(alignment: .firstTextBaseline) {
-                Label(
-                    store.sourceWorkspaceSummary.totalCount == 0
-                        ? "No updates to propose"
-                        : "\(store.sourceWorkspaceSummary.totalCount) updates to propose",
-                    systemImage: store.sourceWorkspaceSummary.totalCount == 0
-                        ? "checkmark.circle"
-                        : "square.and.pencil"
-                )
-                .font(.headline)
-
-                Spacer(minLength: 12)
-            }
-
-            if store.sourceWorkspaceSummary.totalCount == 0 {
-                Text("There are no updates to propose yet.")
-                    .foregroundStyle(.secondary)
-            } else if store.canReviewSourceProposal {
-                if store.isPreparingSourceProposal {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Preparing proposal")
+        if store.sourceWorkspaceSummary.totalCount == 0
+            || !store.canReviewSourceProposal
+            || store.isPreparingSourceProposal
+            || store.sourcePatchStatus.requiresAttentionInChanges
+            || store.sourceProposalStatus.isVisibleInWorkspace
+            || store.sourceWorkspaceSummary.outOfTargetCount > 0
+        {
+            Section("Your changes") {
+                if store.sourceWorkspaceSummary.totalCount == 0 {
+                    Text("No local changes")
+                        .foregroundStyle(.secondary)
+                } else if store.canReviewSourceProposal {
+                    if store.isPreparingSourceProposal {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Preparing proposal")
+                        }
+                        .foregroundStyle(.secondary)
                     }
-                    .foregroundStyle(.secondary)
+
+                    SourceProposalStatusView(status: store.sourceProposalStatus)
+                    if store.sourcePatchStatus.requiresAttentionInChanges {
+                        SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
+                    }
+                } else {
+                    Text("This workspace isn't ready to propose changes.")
+                        .foregroundStyle(.secondary)
                 }
 
-                SourceProposalStatusView(status: store.sourceProposalStatus)
-                if store.sourcePatchStatus.requiresAttentionInChanges {
-                    SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
-                }
-            } else {
-                Text("This workspace isn't ready to propose updates.")
+                if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
+                    let count = store.sourceWorkspaceSummary.outOfTargetCount
+                    Text(
+                        count == 1
+                            ? "1 change is for another event and won’t be included."
+                            : "\(count) changes are for another event and won’t be included."
+                    )
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
-                let count = store.sourceWorkspaceSummary.outOfTargetCount
-                Text(
-                    count == 1
-                        ? "1 change is for another event and won’t be included."
-                        : "\(count) changes are for another event and won’t be included."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                }
             }
         }
     }
 
     @ViewBuilder
     private var semanticDiffSections: some View {
-
-        SourceChangeSummarySection(groups: store.sourceWorkspaceSummary.groups)
+        SourceChangeSummarySection(
+            groups: store.sourceWorkspaceSummary.groups,
+            recordComparisons: store.sourceWorkspaceSummary.recordComparisons
+        )
     }
 
     @ViewBuilder
@@ -1620,20 +1551,25 @@ public struct EventWorkspaceView: View {
 
     @ViewBuilder
     private var sourceDiffSections: some View {
-        Section("Files changed") {
+        Section("Source patch") {
             if store.canReviewSourceProposal {
-                SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
-
-                if case let .generated(patch) = store.sourcePatchStatus {
-                    if patch.isEmpty {
-                        Text("No changes to send")
-                            .foregroundStyle(.secondary)
-                    }
+                if store.sourceWorkspaceSummary.totalCount == 0 {
+                    Text("No changes to send")
+                        .foregroundStyle(.secondary)
                 } else {
-                    Button(store.sourcePatchStatus.reviewButtonTitle) {
-                        store.send(.generateSourcePatchButtonTapped)
+                    SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
+
+                    if case let .generated(patch, _) = store.sourcePatchStatus {
+                        if patch.isEmpty {
+                            Text("No changes to send")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Button(store.sourcePatchStatus.reviewButtonTitle) {
+                            store.send(.generateSourcePatchButtonTapped)
+                        }
+                        .disabled(store.sourcePatchStatus.isGenerating)
                     }
-                    .disabled(store.sourcePatchStatus.isGenerating)
                 }
             } else {
                 Text("Open a shared workspace to check changes.")
@@ -1641,9 +1577,6 @@ public struct EventWorkspaceView: View {
             }
         }
 
-        if case let .generated(patch) = store.sourcePatchStatus, !patch.isEmpty {
-            SourcePatchFileChangesSection(patch: patch)
-        }
     }
 
     @ViewBuilder
@@ -1694,8 +1627,6 @@ public struct EventWorkspaceView: View {
                                     review: review,
                                     authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
                                         ?? .unavailable,
-                                    rawDiffStatus: store.tangledPullReviewRawDiffs[review.id]
-                                        ?? .notLoaded,
                                     semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                                         ?? .notLoaded,
                                     isClosing: isClosing,
@@ -1703,9 +1634,6 @@ public struct EventWorkspaceView: View {
                                     isMerging: isMerging,
                                     isBusy: isBusy,
                                     mergeFailure: mergeFailure,
-                                    onLoadRawDiff: {
-                                        store.send(.reviewRawDiffButtonTapped(review))
-                                    },
                                     onLoadSemanticDiff: {
                                         store.send(.reviewSemanticDiffButtonTapped(review))
                                     },
@@ -1861,8 +1789,6 @@ public struct EventWorkspaceView: View {
             review: review,
             authorIdentity: store.tangledPullReviewAuthorIdentities[review.author]
                 ?? .unavailable,
-            rawDiffStatus: store.tangledPullReviewRawDiffs[review.id]
-                ?? .notLoaded,
             semanticDiffStatus: store.tangledPullReviewSemanticDiffs[review.id]
                 ?? .notLoaded,
             isClosing: isClosing,
@@ -1870,9 +1796,6 @@ public struct EventWorkspaceView: View {
             isMerging: isMerging,
             isBusy: isBusy,
             mergeFailure: mergeFailure,
-            onLoadRawDiff: {
-                store.send(.reviewRawDiffButtonTapped(review))
-            },
             onLoadSemanticDiff: {
                 store.send(.reviewSemanticDiffButtonTapped(review))
             },
@@ -2066,14 +1989,12 @@ private extension Collection where Element == TangledPullReview {
 struct TangledPullReviewDetailView: View {
     let review: TangledPullReview
     let authorIdentity: WorkspaceActorIdentity
-    let rawDiffStatus: EventWorkspace.TangledPullReviewRawDiffStatus
     let semanticDiffStatus: EventWorkspace.TangledPullReviewSemanticDiffStatus
     var isClosing = false
     var isDeleting = false
     var isMerging = false
     var isBusy = false
     var mergeFailure: EventWorkspace.TangledPullReviewMergeFailure?
-    let onLoadRawDiff: () -> Void
     let onLoadSemanticDiff: () -> Void
     let onMerge: () -> Void
     let onClose: () -> Void
@@ -2126,7 +2047,6 @@ struct TangledPullReviewDetailView: View {
             }
 
             reviewSemanticDiffSections
-            reviewRawDiffSection
 
             if showsTechnicalDetails {
                 Section {
@@ -2257,60 +2177,6 @@ struct TangledPullReviewDetailView: View {
         }
         .onAppear {
             onLoadSemanticDiff()
-            onLoadRawDiff()
-        }
-    }
-
-    @ViewBuilder
-    private var reviewRawDiffSection: some View {
-        switch rawDiffStatus {
-        case let .failed(failure):
-            Section("Raw Diff") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Raw diff could not be loaded")
-                    if showsTechnicalDetails {
-                        Text(failure.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-                }
-
-                Button("Try Again") {
-                    onLoadRawDiff()
-                }
-            }
-
-        case let .loaded(diff):
-            Section("Raw Diff") {
-                if diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("No raw diff")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ScrollView(.horizontal) {
-                        Text(diff)
-                            .font(.caption)
-                            .monospaced()
-                            .fixedSize(horizontal: true, vertical: false)
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-
-        case .loading:
-            Section("Raw Diff") {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Loading raw diff")
-                }
-            }
-
-        case .notLoaded:
-            Section("Raw Diff") {
-                Button("Load Raw Diff") {
-                    onLoadRawDiff()
-                }
-            }
         }
     }
 
@@ -2345,6 +2211,7 @@ struct TangledPullReviewDetailView: View {
                     groups: diff.groups,
                     recordComparisons: diff.recordComparisons
                 )
+                SourceFileAttributionSection(attributions: diff.sourceFileAttributions)
             }
 
         case .loading:
@@ -2517,7 +2384,7 @@ public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: Vi
                 Section {
                     SourcePatchStatusView(status: sourcePatchStatus, mode: mode)
 
-                    if case let .generated(patch) = sourcePatchStatus {
+                    if case let .generated(patch, _) = sourcePatchStatus {
                         if patch.isEmpty {
                             Label(mode.noChangesTitle, systemImage: "checkmark.circle")
                         } else if mode == .proposal, let onProposeChange {
@@ -2547,11 +2414,14 @@ public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: Vi
 
                 auxiliarySection
 
-                if case let .generated(patch) = sourcePatchStatus, !patch.isEmpty {
+                if case let .generated(patch, sourceFileAttributions) = sourcePatchStatus,
+                   !patch.isEmpty
+                {
                     SourceProposalSummarySections(
                         groups: groups,
                         recordComparisons: recordComparisons
                     )
+                    SourceFileAttributionSection(attributions: sourceFileAttributions)
                 }
             }
 
@@ -2694,7 +2564,7 @@ public struct SourcePatchStatusView: View {
                 }
             }
 
-        case let .generated(patch):
+        case let .generated(patch, _):
             HStack {
                 Text(patch.isEmpty ? mode.noChangesTitle : mode.readyTitle)
                 Spacer()
@@ -2769,7 +2639,6 @@ public struct SourceProposalStatusView: View {
 
 public struct SourceProposalComposerView: View {
     @Bindable var store: StoreOf<SourceProposalFlow>
-    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
 
     public init(store: StoreOf<SourceProposalFlow>) {
         self.store = store
@@ -2802,16 +2671,7 @@ public struct SourceProposalComposerView: View {
                     groups: store.sourceChangeGroups,
                     recordComparisons: store.sourceRecordComparisons
                 )
-
-                if showsTechnicalDetails {
-                    Section {
-                        DisclosureGroup("Advanced") {
-                            ForEach(store.patch.fileChanges) { change in
-                                SourcePatchFileChangeRow(change: change)
-                            }
-                        }
-                    }
-                }
+                SourceFileAttributionSection(attributions: store.sourceFileAttributions)
             }
             .navigationTitle("Send changes for review")
             .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
@@ -2834,22 +2694,6 @@ public struct SourceProposalComposerView: View {
                         store.send(.createProposalButtonTapped)
                     }
                 }
-            }
-        }
-    }
-}
-
-struct SourcePatchFileChangesSection: View {
-    let patch: SourcePatch
-
-    init(patch: SourcePatch) {
-        self.patch = patch
-    }
-
-    var body: some View {
-        DisclosureGroup("Files changed") {
-            ForEach(patch.fileChanges) { change in
-                SourcePatchFileChangeRow(change: change)
             }
         }
     }
@@ -2945,13 +2789,79 @@ public struct SourceProposalSummarySections: View {
     }
 }
 
+struct SourceFileAttributionSection: View {
+    let attributions: [SourceFileAttribution]
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+
+    var body: some View {
+        if !attributions.isEmpty {
+            Section("Source files") {
+                ForEach(attributions) { attribution in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Label {
+                                Text(attribution.filePath)
+                                    .lineLimit(2)
+                                    .textSelection(.enabled)
+                            } icon: {
+                                Image(systemName: "doc.text")
+                            }
+
+                            Spacer(minLength: 8)
+
+                            Text(attribution.recordCountTitle)
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if showsTechnicalDetails {
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(attribution.recordChangeIDs, id: \.self) { recordChangeID in
+                                    Text(String(describing: recordChangeID))
+                                        .font(.caption2)
+                                        .monospaced()
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+}
+
+private extension SourceFileAttribution {
+    var recordCountTitle: String {
+        if recordChangeIDs.count == 1 {
+            return "1 record"
+        }
+        return "\(recordChangeIDs.count) records"
+    }
+}
+
 struct SourceChangeSummarySection: View {
     let groups: [SourceChangeGroup]
+    let recordComparisons: SourceRecordComparisons
+
+    init(
+        groups: [SourceChangeGroup],
+        recordComparisons: SourceRecordComparisons = .empty
+    ) {
+        self.groups = groups
+        self.recordComparisons = recordComparisons
+    }
 
     var body: some View {
         Section("What changed") {
             ForEach(groups.filter { $0.totalCount > 0 }) { group in
-                SourceChangeGroupDisclosure(group: group)
+                SourceChangeGroupDisclosure(
+                    group: group,
+                    recordComparisons: recordComparisons
+                )
             }
         }
     }
@@ -3054,56 +2964,6 @@ struct SourceChangeCountBadge: View {
     }
 }
 
-struct SourcePatchFileChangeRow: View {
-    let change: SourcePatchFileChange
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(change.kind.title, systemImage: change.kind.systemImage)
-                .font(.caption)
-                .foregroundStyle(change.kind.tint)
-
-            Text(change.path)
-                .font(.caption)
-                .monospaced()
-                .textSelection(.enabled)
-
-            if let oldContents = change.oldContents {
-                SourcePatchFileContentsPreview(
-                    title: "Old",
-                    data: oldContents
-                )
-            }
-
-            if let newContents = change.newContents {
-                SourcePatchFileContentsPreview(
-                    title: "New",
-                    data: newContents
-                )
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-struct SourcePatchFileContentsPreview: View {
-    let title: String
-    let data: Data
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(data.sourcePatchPreview)
-                .font(.caption)
-                .monospaced()
-                .lineLimit(12)
-                .textSelection(.enabled)
-        }
-    }
-}
-
 private extension SourcePatchInvalidation.Operation {
     var title: String {
         switch self {
@@ -3148,9 +3008,9 @@ private extension OMERecord.SourceDatabaseInsertion.SourceKind {
     var workspaceTitle: String {
         switch self {
         case .local:
-            "On this device"
+            "Local source"
         case .tangled:
-            "Shared workspace"
+            "Shared source"
         }
     }
 }
@@ -3205,7 +3065,7 @@ private extension EventWorkspace.State {
     var sourceContext: SourceWorkspaceSourceContext? {
         if let sourceBaseline {
             return SourceWorkspaceSourceContext(
-                detailTitle: "Shared calendar",
+                detailTitle: "Calendar source",
                 sourceKind: sourceBaseline.sourceKind,
                 sourceReference: sourceBaseline.sourceReference,
                 sourceRefTitle: sourceBaseline.ref ?? "default version",
@@ -3217,7 +3077,7 @@ private extension EventWorkspace.State {
 
         if let sourceProvenance {
             return SourceWorkspaceSourceContext(
-                detailTitle: "Event source",
+                detailTitle: "Calendar source",
                 sourceKind: sourceProvenance.sourceKind,
                 sourceReference: sourceProvenance.sourceReference,
                 sourceRefTitle: sourceProvenance.sourceRefTitle,
@@ -3304,7 +3164,7 @@ private extension EventWorkspace.State {
     }
 
     var canCreateSourceProposal: Bool {
-        guard case let .generated(patch) = sourcePatchStatus,
+        guard case let .generated(patch, _) = sourcePatchStatus,
               !patch.isEmpty,
               canReviewSourceProposal,
               sourceProposalStatus.canCreateProposal
@@ -3599,13 +3459,13 @@ private extension EventWorkspace.SourcePatchStatus {
     var proposeButtonTitle: String {
         switch self {
         case .failed:
-            "Try Sending Again"
+            "Try Again"
         case .generating:
-            "Preparing Review"
+            "Preparing"
         case .generated:
-            "Send for review"
+            "Propose"
         case .needsGeneration, .notGenerated:
-            "Send for review"
+            "Propose"
         }
     }
 
@@ -3613,7 +3473,7 @@ private extension EventWorkspace.SourcePatchStatus {
         switch self {
         case .failed, .generating:
             true
-        case let .generated(patch):
+        case let .generated(patch, _):
             patch.isEmpty
         case .needsGeneration, .notGenerated:
             false
@@ -3621,7 +3481,7 @@ private extension EventWorkspace.SourcePatchStatus {
     }
 
     var fileChangeCount: Int? {
-        guard case let .generated(patch) = self else { return nil }
+        guard case let .generated(patch, _) = self else { return nil }
         return patch.fileChanges.count
     }
 }
@@ -3674,6 +3534,15 @@ private extension SourceChangesReviewMode {
 }
 
 public extension EventWorkspace.SourceProposalStatus {
+    var isVisibleInWorkspace: Bool {
+        switch self {
+        case .created, .failed, .proposing:
+            true
+        case .composing, .idle:
+            false
+        }
+    }
+
     var canCreateProposal: Bool {
         switch self {
         case .composing, .failed, .idle:
@@ -3701,41 +3570,6 @@ private extension EventWorkspace.TangledPullReviewStatus {
             "Refresh Reviews"
         case .loading:
             "Loading Reviews"
-        }
-    }
-}
-
-private extension SourcePatchFileChange.Kind {
-    var systemImage: String {
-        switch self {
-        case .added:
-            "plus.circle"
-        case .deleted:
-            "minus.circle"
-        case .modified:
-            "pencil.circle"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .added:
-            .green
-        case .deleted:
-            .red
-        case .modified:
-            .orange
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .added:
-            "Added"
-        case .deleted:
-            "Deleted"
-        case .modified:
-            "Modified"
         }
     }
 }
@@ -3793,17 +3627,6 @@ private extension String {
         default:
             .secondary
         }
-    }
-}
-
-private extension Data {
-    var sourcePatchPreview: String {
-        guard let text = String(data: self, encoding: .utf8) else {
-            return "<binary \(count) bytes>"
-        }
-        guard !text.isEmpty else { return "<empty>" }
-        guard text.count > 1_200 else { return text }
-        return "\(String(text.prefix(1_200)))\n..."
     }
 }
 
