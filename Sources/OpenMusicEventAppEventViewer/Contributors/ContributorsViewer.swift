@@ -440,6 +440,7 @@ public struct EditContributor {
         public var actorSearchQuery = ""
         public var actorSearchSections: [PredictiveSearchSection<ActorIdentity>] = []
         public var contributorDID: DID?
+        var destination: Destination.State?
         @DebugSnapshotTracked var errorMessage: String?
         var form: FormFeature.State
         @DebugSnapshotTracked var hasLoadedDraft: Bool = false
@@ -717,6 +718,7 @@ public struct EditContributor {
         case actorSearchResponse(PredictiveSearchResponse<ActorIdentity>)
         case actorProfileResponse(BlueskyActorProfile?)
         case cancelButtonTapped
+        case destination(Destination.Action)
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case logoImagePicker(ImageAssetPicker.Action)
@@ -725,6 +727,14 @@ public struct EditContributor {
         case saveButtonTapped
         case saveFailed(String)
         case saveSucceeded
+    }
+
+    @Feature
+    public enum Destination {
+        case logoImageInfo(Spawn<ImageInfo>)
+        case logoImportImages(Spawn<ImportImages>)
+        case photoImageInfo(Spawn<ImageInfo>)
+        case photoImportImages(Spawn<ImportImages>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -811,6 +821,9 @@ public struct EditContributor {
                     try store.dismiss()
                 }
 
+            case .destination:
+                break
+
             case .form:
                 break
 
@@ -857,7 +870,32 @@ public struct EditContributor {
                     }
                 }
 
-            case .logoImagePicker, .photoImagePicker:
+            case .logoImagePicker(.addButtonTapped):
+                state.destination = .logoImportImages(
+                    Spawn(state.logoImagePicker.importImagesState())
+                )
+
+            case let .logoImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.logoImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .logoImageInfo(Spawn(imageInfoState))
+
+            case .logoImagePicker:
+                break
+
+            case .photoImagePicker(.addButtonTapped):
+                state.destination = .photoImportImages(
+                    Spawn(state.photoImagePicker.importImagesState())
+                )
+
+            case let .photoImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.photoImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .photoImageInfo(Spawn(imageInfoState))
+
+            case .photoImagePicker:
                 break
 
             case let .removeLinkButtonTapped(id):
@@ -908,6 +946,45 @@ public struct EditContributor {
                 } catch {
                     state.errorMessage = "This contributor could not be loaded."
                 }
+            }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.logoImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.logoImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.logoImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+                .ifCaseLet(\.photoImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.photoImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.photoImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+        }
+        .onEvent(ImportedImagesSubmitted.self) { images, state in
+            switch state.destination {
+            case .logoImportImages(_):
+                state.logoImagePicker.append(images)
+            case .photoImportImages(_):
+                state.photoImagePicker.append(images)
+            case .logoImageInfo(_), .photoImageInfo(_), nil:
+                break
             }
         }
         .onMount { state in
@@ -1009,148 +1086,189 @@ public struct EditContributorView: View {
     }
 
     public var body: some View {
-        Group {
-            if store.hasLoadedDraft {
-                SwiftUI.Form {
-                    Section("Contributor") {
-                        nameField
-                    }
-
-                    EditContributorActorProfileSection(
-                        query: $store.actorSearchQuery,
-                        actor: store.contributorActor,
-                        sections: store.actorSearchSections,
-                        failures: store.actorSearchFailures,
-                        isLoading: store.actorSearchIsLoading,
-                        errorMessage: store.actorSearchErrorMessage,
-                        isSavingActor: store.isSavingActor,
-                        queryChanged: { query in
-                            store.send(.actorSearchQueryChanged(query))
-                        },
-                        querySubmitted: {
-                            store.send(.actorSearchSubmitted)
-                        },
-                        identityTapped: { identity in
-                            store.send(.actorIdentityTapped(identity))
-                        }
-                    )
-
-                    Section("Bio") {
-                        TextField("Bio", text: $store.form.value.bio, axis: .vertical)
-                            .lineLimit(4...8)
-                    }
-
-                    ImageAssetPickerSection(
-                        store: store.scope(\.photoImagePicker, action: \.photoImagePicker)
-                    )
-
-                    ImageAssetPickerSection(
-                        store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
-                    )
-
-                    ForEach($store.form.value.links) { $link in
-                        Section("Link") {
-                            TextField("URL", text: $link.url)
-                                #if os(iOS)
-                                .keyboardType(.URL)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                #endif
-
-                            Picker("Platform", selection: $link.platformRawValue) {
-                                Text("Auto").tag("")
-                                ForEach(ExternalPlatform.allCases, id: \.rawValue) { platform in
-//                                    Text(platform.name).tag(platform.rawValue)
-                                }
-                            }
-
-                            Button("Remove Link", role: .destructive) {
-                                store.send(.removeLinkButtonTapped(link.id))
-                            }
-                        }
-                    }
-
-                    Section {
-                        Button("Add Link") {
-                            store.send(.addLinkButtonTapped)
-                        }
-                        FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.links])
-                    }
-
-                    if let errorMessage = store.errorMessage {
-                        Section {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-            } else {
-                ViewerPlaceholderView(
-                    title: store.navigationTitle,
-                    systemImage: "person.crop.circle",
-                    description: "This contributor could not be loaded."
-                )
-            }
-        }
+        EditContributorContent(
+            store: store,
+            focusedField: $focusedField
+        )
         .disabled(store.isSaving)
         .onAppear {
             store.send(.onAppear)
         }
         .onChange(of: focusedField) { _, focusedField in
-            if store.form.focusedField != focusedField {
-                $store.form.focusedField.wrappedValue = focusedField
-            }
+            syncStoreFocusedField(focusedField)
         }
         .onChange(of: store.form.focusedField) { _, focusedField in
-            if self.focusedField != focusedField {
-                self.focusedField = focusedField
-            }
+            syncViewFocusedField(focusedField)
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button {
-                    store.send(.cancelButtonTapped)
-                } label: {
-                    Label("Cancel", systemImage: "close")
-                        .labelStyle(.iconOnly)
-                }
+                EditContributorCancelButton(store: store)
             }
             ToolbarItem(placement: .confirmationAction) {
-                SubmitButton(
-                    isInProgress: store.isSaving,
-                    isDisabled: !store.canSubmit
-                ) {
-                    store.send(.saveButtonTapped)
-                }
+                EditContributorSaveButton(store: store)
             }
         }
         .navigationTitle(store.navigationTitle)
-        .modifier(EditContributorImagePickerSheets(store: store))
+        .sheet(item: $store.scope(\.destination, action: \.destination).photoImportImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).photoImageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).logoImportImages) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
+            }
+        }
+        .sheet(item: $store.scope(\.destination, action: \.destination).logoImageInfo) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
+            }
+        }
+    }
+
+    private func syncStoreFocusedField(_ focusedField: AnyHashable?) {
+        if store.form.focusedField != focusedField {
+            $store.form.focusedField.wrappedValue = focusedField
+        }
+    }
+
+    private func syncViewFocusedField(_ focusedField: AnyHashable?) {
+        if self.focusedField != focusedField {
+            self.focusedField = focusedField
+        }
+    }
+}
+
+struct EditContributorContent: View {
+    let store: StoreOf<EditContributor>
+    let focusedField: FocusState<AnyHashable?>.Binding
+
+    var body: some View {
+        if store.hasLoadedDraft {
+            EditContributorLoadedForm(
+                store: store,
+                focusedField: focusedField
+            )
+        } else {
+            ViewerPlaceholderView(
+                title: store.navigationTitle,
+                systemImage: "person.crop.circle",
+                description: "This contributor could not be loaded."
+            )
+        }
+    }
+}
+
+struct EditContributorLoadedForm: View {
+    @Bindable var store: StoreOf<EditContributor>
+    let focusedField: FocusState<AnyHashable?>.Binding
+
+    init(
+        store: StoreOf<EditContributor>,
+        focusedField: FocusState<AnyHashable?>.Binding
+    ) {
+        self.store = store
+        self.focusedField = focusedField
+    }
+
+    var body: some View {
+        SwiftUI.Form {
+            Section("Contributor") {
+                nameField
+            }
+
+            EditContributorActorProfileSection(
+                query: $store.actorSearchQuery,
+                actor: store.contributorActor,
+                sections: store.actorSearchSections,
+                failures: store.actorSearchFailures,
+                isLoading: store.actorSearchIsLoading,
+                errorMessage: store.actorSearchErrorMessage,
+                isSavingActor: store.isSavingActor,
+                queryChanged: actorSearchQueryChanged,
+                querySubmitted: actorSearchSubmitted,
+                identityTapped: actorIdentityTapped
+            )
+
+            Section("Bio") {
+                TextField("Bio", text: $store.form.value.bio, axis: .vertical)
+                    .lineLimit(4...8)
+            }
+
+            ImageAssetPickerSection(
+                store: store.scope(\.photoImagePicker, action: \.photoImagePicker)
+            )
+
+            ImageAssetPickerSection(
+                store: store.scope(\.logoImagePicker, action: \.logoImagePicker)
+            )
+
+            EditContributorLinkSections(store: store)
+
+            EditContributorAddLinkSection(store: store)
+
+            if let errorMessage = store.errorMessage {
+                Section {
+                    Text(verbatim: errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
     }
 
     private var nameField: some View {
         VStack(alignment: .leading) {
             TextField("Name", text: $store.form.value.name)
-                .focused($focusedField, equals: EditContributorFormFieldID.name)
+                .focused(focusedField, equals: EditContributorFormFieldID.name)
                 .onSubmit {
                     store.send(.form(.fieldSubmitted(EditContributorFormFieldID.name)))
                 }
             FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.name])
         }
     }
+
+    private func actorSearchQueryChanged(_ query: String) {
+        store.send(.actorSearchQueryChanged(query))
+    }
+
+    private func actorSearchSubmitted() {
+        store.send(.actorSearchSubmitted)
+    }
+
+    private func actorIdentityTapped(_ identity: ActorIdentity) {
+        store.send(.actorIdentityTapped(identity))
+    }
 }
 
-struct EditContributorImagePickerSheets: ViewModifier {
-    @Bindable var store: StoreOf<EditContributor>
+struct EditContributorCancelButton: View {
+    let store: StoreOf<EditContributor>
 
-    func body(content: Content) -> some View {
-        @Bindable var photoImagePicker = store.scope(\.photoImagePicker, action: \.photoImagePicker)
-        @Bindable var logoImagePicker = store.scope(\.logoImagePicker, action: \.logoImagePicker)
+    var body: some View {
+        Button {
+            store.send(.cancelButtonTapped)
+        } label: {
+            Label("Cancel", systemImage: "close")
+                .labelStyle(.iconOnly)
+        }
+    }
+}
 
-        content
-            .modifier(ImageAssetPickerPresentationSheets(store: photoImagePicker))
-            .modifier(ImageAssetPickerPresentationSheets(store: logoImagePicker))
+struct EditContributorSaveButton: View {
+    let store: StoreOf<EditContributor>
+
+    var body: some View {
+        SubmitButton(
+            isInProgress: store.isSaving,
+            isDisabled: !store.canSubmit
+        ) {
+            store.send(.saveButtonTapped)
+        }
     }
 }
 
@@ -1230,6 +1348,82 @@ struct EditContributorActorProfileSection: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+        }
+    }
+}
+
+struct ExternalPlatformPickerOptions: View {
+    var body: some View {
+        ForEach(ExternalPlatform.allCases, id: \.rawValue) { platform in
+            Text(verbatim: platform.name)
+                .tag(platform.rawValue)
+        }
+    }
+}
+
+struct EditContributorLinkSections: View {
+    @Bindable var store: StoreOf<EditContributor>
+
+    init(store: StoreOf<EditContributor>) {
+        self.store = store
+    }
+
+    var body: some View {
+        ForEach($store.form.value.links) { $link in
+            EditableContributorLinkSection(
+                link: $link,
+                removeButtonTapped: removeLinkButtonTapped
+            )
+        }
+    }
+
+    private func removeLinkButtonTapped(id: EditableContributorLink.ID) {
+        store.send(.removeLinkButtonTapped(id))
+    }
+}
+
+struct EditContributorAddLinkSection: View {
+    let store: StoreOf<EditContributor>
+
+    var body: some View {
+        Section {
+            Button("Add Link") {
+                store.send(.addLinkButtonTapped)
+            }
+            FormFieldValidationStatus(validation: store.form.validation[EditContributorFormFieldID.links])
+        }
+    }
+}
+
+struct EditableContributorLinkSection: View {
+    @Binding var link: EditableContributorLink
+    let removeButtonTapped: (EditableContributorLink.ID) -> Void
+
+    init(
+        link: Binding<EditableContributorLink>,
+        removeButtonTapped: @escaping (EditableContributorLink.ID) -> Void
+    ) {
+        self._link = link
+        self.removeButtonTapped = removeButtonTapped
+    }
+
+    var body: some View {
+        Section("Link") {
+            TextField("URL", text: $link.url)
+                #if os(iOS)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
+
+            Picker("Platform", selection: $link.platformRawValue) {
+                Text("Auto").tag("")
+                ExternalPlatformPickerOptions()
+            }
+
+            Button("Remove Link", role: .destructive) {
+                removeButtonTapped(link.id)
             }
         }
     }

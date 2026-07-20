@@ -1103,6 +1103,7 @@ public struct EditStage {
             }
         }
         var errorMessage: String?
+        var destination: Destination.State?
         var form: FormFeature.State
         var hasLoadedDraft = false
         var heroImagePicker: ImageAssetPicker.State
@@ -1376,12 +1377,23 @@ public struct EditStage {
 
     public enum Action {
         case cancelButtonTapped
+        case destination(Destination.Action)
         case form(FormFeature.Action)
         case formSubmitted(FormValue)
         case heroImagePicker(ImageAssetPicker.Action)
         case logoImagePicker(ImageAssetPicker.Action)
         case posterImagePicker(ImageAssetPicker.Action)
         case saveButtonTapped
+    }
+
+    @Feature
+    public enum Destination {
+        case heroImageInfo(Spawn<ImageInfo>)
+        case heroImportImages(Spawn<ImportImages>)
+        case logoImageInfo(Spawn<ImageInfo>)
+        case logoImportImages(Spawn<ImportImages>)
+        case posterImageInfo(Spawn<ImageInfo>)
+        case posterImportImages(Spawn<ImportImages>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -1408,6 +1420,9 @@ public struct EditStage {
                 store.addTask {
                     try store.dismiss()
                 }
+
+            case .destination:
+                break
 
             case .form:
                 break
@@ -1449,7 +1464,46 @@ public struct EditStage {
                     }
                 }
 
-            case .heroImagePicker, .logoImagePicker, .posterImagePicker:
+            case .heroImagePicker(.addButtonTapped):
+                state.destination = .heroImportImages(
+                    Spawn(state.heroImagePicker.importImagesState())
+                )
+
+            case let .heroImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.heroImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .heroImageInfo(Spawn(imageInfoState))
+
+            case .heroImagePicker:
+                break
+
+            case .logoImagePicker(.addButtonTapped):
+                state.destination = .logoImportImages(
+                    Spawn(state.logoImagePicker.importImagesState())
+                )
+
+            case let .logoImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.logoImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .logoImageInfo(Spawn(imageInfoState))
+
+            case .logoImagePicker:
+                break
+
+            case .posterImagePicker(.addButtonTapped):
+                state.destination = .posterImportImages(
+                    Spawn(state.posterImagePicker.importImagesState())
+                )
+
+            case let .posterImagePicker(.imageInfoButtonTapped(id)):
+                guard let imageInfoState = state.posterImagePicker.imageInfoState(for: id) else {
+                    return
+                }
+                state.destination = .posterImageInfo(Spawn(imageInfoState))
+
+            case .posterImagePicker:
                 break
 
             case .saveButtonTapped:
@@ -1462,6 +1516,60 @@ public struct EditStage {
                 store.addTask {
                     try store.send(.form(.submittedForm))
                 }
+            }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            EmptyFeature()
+                .ifCaseLet(\.heroImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.heroImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.heroImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+                .ifCaseLet(\.logoImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.logoImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.logoImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+                .ifCaseLet(\.posterImportImages) {
+                    ImportImages()
+                }
+                .ifCaseLet(\.posterImageInfo) {
+                    ImageInfo { imageID, asset in
+                        try store.modify {
+                            $0.posterImagePicker.updateImageInfo(
+                                imageID: imageID,
+                                asset: asset
+                            )
+                        }
+                    }
+                }
+        }
+        .onEvent(ImportedImagesSubmitted.self) { images, state in
+            switch state.destination {
+            case .heroImportImages(_):
+                state.heroImagePicker.append(images)
+            case .logoImportImages(_):
+                state.logoImagePicker.append(images)
+            case .posterImportImages(_):
+                state.posterImagePicker.append(images)
+            case .heroImageInfo(_), .logoImageInfo(_), .posterImageInfo(_), nil:
+                break
             }
         }
         .onMount { state in
@@ -1530,104 +1638,85 @@ public struct EditStageView: View {
     }
 
     public var body: some View {
-        Group {
-            if store.hasLoadedDraft {
-                loadedForm
-            } else {
-                ViewerPlaceholderView(
-                    title: store.navigationTitle,
-                    systemImage: "square.grid.2x2",
-                    description: "This event stage could not be loaded."
-                )
-            }
-        }
+        EditStageContent(
+            store: store,
+            focusedField: $focusedField
+        )
         .disabled(store.isSaving)
         .onChange(of: focusedField) { _, focusedField in
-            if store.form.focusedField != focusedField {
-                $store.form.focusedField.wrappedValue = focusedField
-            }
+            syncStoreFocusedField(focusedField)
         }
         .onChange(of: store.form.focusedField) { _, focusedField in
-            if self.focusedField != focusedField {
-                self.focusedField = focusedField
-            }
+            syncViewFocusedField(focusedField)
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button {
-                    store.send(.cancelButtonTapped)
-                } label: {
-                    Label("Cancel", systemImage: "close")
-                        .labelStyle(.iconOnly)
-                }
+                EditStageCancelButton(store: store)
             }
             ToolbarItem(placement: .confirmationAction) {
-                SubmitButton(
-                    isInProgress: store.isSaving,
-                    isDisabled: !store.canSubmit
-                ) {
-                    store.send(.saveButtonTapped)
-                }
+                EditStageSaveButton(store: store)
             }
         }
         .navigationTitle(store.navigationTitle)
-        .sheet(
-            item: $store
-                .scope(\.logoImagePicker, action: \.logoImagePicker)
-                .spawn(\.importImages)
-        ) { importStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).logoImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(
-            item: $store
-                .scope(\.logoImagePicker, action: \.logoImagePicker)
-                .spawn(\.imageInfo)
-        ) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).logoImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
         }
-        .sheet(
-            item: $store
-                .scope(\.heroImagePicker, action: \.heroImagePicker)
-                .spawn(\.importImages)
-        ) { importStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).heroImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(
-            item: $store
-                .scope(\.heroImagePicker, action: \.heroImagePicker)
-                .spawn(\.imageInfo)
-        ) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).heroImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
         }
-        .sheet(
-            item: $store
-                .scope(\.posterImagePicker, action: \.posterImagePicker)
-                .spawn(\.importImages)
-        ) { importStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).posterImportImages) { importStore in
             NavigationStack {
                 ImportImagesView(store: importStore)
             }
         }
-        .sheet(
-            item: $store
-                .scope(\.posterImagePicker, action: \.posterImagePicker)
-                .spawn(\.imageInfo)
-        ) { imageInfoStore in
+        .sheet(item: $store.scope(\.destination, action: \.destination).posterImageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
             }
         }
     }
 
-    private var loadedForm: some View {
+    private func syncStoreFocusedField(_ focusedField: AnyHashable?) {
+        if store.form.focusedField != focusedField {
+            $store.form.focusedField.wrappedValue = focusedField
+        }
+    }
+
+    private func syncViewFocusedField(_ focusedField: AnyHashable?) {
+        if self.focusedField != focusedField {
+            self.focusedField = focusedField
+        }
+    }
+}
+
+struct EditStageLoadedForm: View {
+    @Bindable var store: StoreOf<EditStage>
+    @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
+    let focusedField: FocusState<AnyHashable?>.Binding
+
+    init(
+        store: StoreOf<EditStage>,
+        focusedField: FocusState<AnyHashable?>.Binding
+    ) {
+        self.store = store
+        self.focusedField = focusedField
+    }
+
+    var body: some View {
         SwiftUI.Form {
             eventStageSection
             if showsTechnicalDetails {
@@ -1694,7 +1783,7 @@ public struct EditStageView: View {
     private var nameField: some View {
         VStack(alignment: .leading) {
             TextField("Name", text: $store.form.value.name)
-                .focused($focusedField, equals: EditStageFormFieldID.name)
+                .focused(focusedField, equals: EditStageFormFieldID.name)
                 .onSubmit {
                     store.send(.form(.fieldSubmitted(EditStageFormFieldID.name)))
                 }
@@ -1705,7 +1794,7 @@ public struct EditStageView: View {
     private var sortIndexField: some View {
         VStack(alignment: .leading) {
             TextField("Sort Index", text: $store.form.value.sortIndex)
-                .focused($focusedField, equals: EditStageFormFieldID.sortIndex)
+                .focused(focusedField, equals: EditStageFormFieldID.sortIndex)
                 .onSubmit {
                     store.send(.form(.fieldSubmitted(EditStageFormFieldID.sortIndex)))
                 }
@@ -1727,6 +1816,52 @@ public struct EditStageView: View {
     @ViewBuilder
     private func validationStatus(for field: AnyHashable) -> some View {
         FormFieldValidationStatus(validation: store.form.validation[field])
+    }
+}
+
+struct EditStageContent: View {
+    let store: StoreOf<EditStage>
+    let focusedField: FocusState<AnyHashable?>.Binding
+
+    var body: some View {
+        if store.hasLoadedDraft {
+            EditStageLoadedForm(
+                store: store,
+                focusedField: focusedField
+            )
+        } else {
+            ViewerPlaceholderView(
+                title: store.navigationTitle,
+                systemImage: "square.grid.2x2",
+                description: "This event stage could not be loaded."
+            )
+        }
+    }
+}
+
+struct EditStageCancelButton: View {
+    let store: StoreOf<EditStage>
+
+    var body: some View {
+        Button {
+            store.send(.cancelButtonTapped)
+        } label: {
+            Label("Cancel", systemImage: "close")
+                .labelStyle(.iconOnly)
+        }
+    }
+}
+
+struct EditStageSaveButton: View {
+    let store: StoreOf<EditStage>
+
+    var body: some View {
+        SubmitButton(
+            isInProgress: store.isSaving,
+            isDisabled: !store.canSubmit
+        ) {
+            store.send(.saveButtonTapped)
+        }
     }
 }
 

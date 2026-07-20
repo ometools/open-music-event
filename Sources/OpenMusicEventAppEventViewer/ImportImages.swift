@@ -23,7 +23,7 @@ import UniformTypeIdentifiers
 @Feature
 public struct ImportImages {
     public init(
-        onSave: @escaping ([ImportedImage]) async throws -> Void
+        onSave: (([ImportedImage]) async throws -> Void)? = nil
     ) {
         self.onSave = onSave
     }
@@ -98,7 +98,7 @@ public struct ImportImages {
         case imageInfo(Spawn<ImageInfo>)
     }
 
-    let onSave: ([ImportedImage]) async throws -> Void
+    let onSave: (([ImportedImage]) async throws -> Void)?
 
     public var body: some Feature {
         Update { state, action in
@@ -150,7 +150,14 @@ public struct ImportImages {
 
                 store.addTask {
                     do {
-                        try await onSave(images)
+                        if let onSave {
+                            try await onSave(images)
+                        } else if let task = try store.post(
+                            key: ImportedImagesSubmitted.self,
+                            value: images
+                        ) {
+                            await task.value
+                        }
                         try store.dismiss()
                     } catch {
                         try store.modify {
@@ -175,6 +182,10 @@ public struct ImportImages {
                 }
         }
     }
+}
+
+public enum ImportedImagesSubmitted: FeatureEventKey {
+    public typealias Value = [ImportImages.ImportedImage]
 }
 
 public extension ImportImages {

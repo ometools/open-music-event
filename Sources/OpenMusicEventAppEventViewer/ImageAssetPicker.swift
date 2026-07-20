@@ -13,16 +13,11 @@ public struct ImageAssetPicker {
         public init(
             configuration: ImportImages.Configuration,
             cacheContext: LocalImageCacheContext? = nil,
-            destination: Destination.State? = nil,
-            imageInfo: Spawn<ImageInfo>? = nil,
-            images: [ImageValue] = [],
-            importImages: Spawn<ImportImages>? = nil
+            images: [ImageValue] = []
         ) {
             self.cacheContext = cacheContext
             self.configuration = configuration
-            self.destination = destination ?? imageInfo.map(Destination.State.imageInfo)
             self.images = images
-            self.importImages = importImages
         }
 
         public init(
@@ -43,19 +38,7 @@ public struct ImageAssetPicker {
 
         public var cacheContext: LocalImageCacheContext?
         public var configuration: ImportImages.Configuration
-        public var destination: Destination.State?
         public var images: [ImageValue]
-        public var importImages: Spawn<ImportImages>?
-
-        public var imageInfo: Spawn<ImageInfo>? {
-            get {
-                guard case let .imageInfo(imageInfo) = destination else { return nil }
-                return imageInfo
-            }
-            set {
-                destination = newValue.map(Destination.State.imageInfo)
-            }
-        }
 
         var addButtonTitle: String {
             switch configuration.cardinality {
@@ -93,6 +76,36 @@ public struct ImageAssetPicker {
             case .multiple:
                 images.append(contentsOf: imageValues)
             }
+        }
+
+        func importImagesState() -> ImportImages.State {
+            ImportImages.State(configuration: configuration)
+        }
+
+        func imageInfoState(for id: ImageValue.ID) -> ImageInfo.State? {
+            guard let image = images.first(where: { $0.id == id }) else {
+                return nil
+            }
+
+            return ImageInfo.State(
+                id: image.id,
+                asset: image.asset,
+                configuration: configuration.imageInfoConfiguration,
+                sourceLabel: image.displaySource,
+                cacheContext: cacheContext,
+                previewData: image.importedImage?.data
+            )
+        }
+
+        mutating func updateImageInfo(
+            imageID: ImageValue.ID,
+            asset: OMERecord.ImageAsset
+        ) {
+            guard let index = images.firstIndex(where: { $0.id == imageID }) else {
+                return
+            }
+            images[index].asset = asset
+            images[index].importedImage?.asset = asset
         }
 
         public func materializedImages(
@@ -228,93 +241,23 @@ public struct ImageAssetPicker {
 
     public enum Action {
         case addButtonTapped
-        case destination(Destination.Action)
         case imageInfoButtonTapped(ImageValue.ID)
         case removeButtonTapped(ImageValue.ID)
-    }
-
-    @Feature
-    public enum Destination {
-        case imageInfo(Spawn<ImageInfo>)
     }
 
     public var body: some Feature {
         Update { state, action in
             switch action {
             case .addButtonTapped:
-                state.importImages = Spawn(
-                    ImportImages.State(configuration: state.configuration)
-                )
-
-            case .destination:
                 break
 
-            case let .imageInfoButtonTapped(id):
-                guard let image = state.images.first(where: { $0.id == id }) else {
-                    return
-                }
-                state.destination = .imageInfo(Spawn(
-                    ImageInfo.State(
-                        id: image.id,
-                        asset: image.asset,
-                        configuration: state.configuration.imageInfoConfiguration,
-                        sourceLabel: image.displaySource,
-                        cacheContext: state.cacheContext,
-                        previewData: image.importedImage?.data
-                    )
-                ))
+            case .imageInfoButtonTapped:
+                break
 
             case let .removeButtonTapped(id):
                 state.images.removeAll { $0.id == id }
             }
         }
-        .ifLet(\.destination, action: \.destination) {
-            EmptyFeature()
-                .ifCaseLet(\.imageInfo) {
-                    ImageInfo { imageID, asset in
-                        try store.modify {
-                            guard let index = $0.images.firstIndex(where: { $0.id == imageID }) else {
-                                return
-                            }
-                            $0.images[index].asset = asset
-                            $0.images[index].importedImage?.asset = asset
-                        }
-                    }
-                }
-        }
-        .ifLet(\.importImages) {
-            ImportImages { images in
-                try store.modify {
-                    $0.append(images)
-                }
-            }
-        }
-    }
-}
-
-public struct ImageAssetPickerPresentationSheets: ViewModifier {
-    @Bindable var store: StoreOf<ImageAssetPicker>
-
-    public init(store: StoreOf<ImageAssetPicker>) {
-        self.store = store
-    }
-
-    public func body(content: Content) -> some View {
-        content
-            .sheet(
-                item: $store.spawn(\.importImages)
-            ) { importStore in
-                NavigationStack {
-                    ImportImagesView(store: importStore)
-                }
-            }
-            .sheet(
-                item: $store.scope(\.destination, action: \.destination).imageInfo
-            ) { imageInfoStore in
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
-                }
-            }
     }
 }
 
