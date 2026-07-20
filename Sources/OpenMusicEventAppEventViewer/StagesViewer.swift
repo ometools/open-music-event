@@ -1572,93 +1572,57 @@ public struct EditStageView: View {
         }
         .navigationTitle(store.navigationTitle)
         .sheet(
-            isPresented: $store.scope(
-                \.logoImagePicker,
-                action: \.logoImagePicker
-            ).importImages.isPresented
-        ) {
-            if let importStore = store
+            item: $store
                 .scope(\.logoImagePicker, action: \.logoImagePicker)
                 .spawn(\.importImages)
-            {
-                NavigationStack {
-                    ImportImagesView(store: importStore)
-                }
+        ) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
             }
         }
         .sheet(
-            isPresented: $store.scope(
-                \.logoImagePicker,
-                action: \.logoImagePicker
-            ).imageInfo.isPresented
-        ) {
-            if let imageInfoStore = store
+            item: $store
                 .scope(\.logoImagePicker, action: \.logoImagePicker)
                 .spawn(\.imageInfo)
-            {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
-                }
+        ) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
             }
         }
         .sheet(
-            isPresented: $store.scope(
-                \.heroImagePicker,
-                action: \.heroImagePicker
-            ).importImages.isPresented
-        ) {
-            if let importStore = store
+            item: $store
                 .scope(\.heroImagePicker, action: \.heroImagePicker)
                 .spawn(\.importImages)
-            {
-                NavigationStack {
-                    ImportImagesView(store: importStore)
-                }
+        ) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
             }
         }
         .sheet(
-            isPresented: $store.scope(
-                \.heroImagePicker,
-                action: \.heroImagePicker
-            ).imageInfo.isPresented
-        ) {
-            if let imageInfoStore = store
+            item: $store
                 .scope(\.heroImagePicker, action: \.heroImagePicker)
                 .spawn(\.imageInfo)
-            {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
-                }
+        ) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
             }
         }
         .sheet(
-            isPresented: $store.scope(
-                \.posterImagePicker,
-                action: \.posterImagePicker
-            ).importImages.isPresented
-        ) {
-            if let importStore = store
+            item: $store
                 .scope(\.posterImagePicker, action: \.posterImagePicker)
                 .spawn(\.importImages)
-            {
-                NavigationStack {
-                    ImportImagesView(store: importStore)
-                }
+        ) { importStore in
+            NavigationStack {
+                ImportImagesView(store: importStore)
             }
         }
         .sheet(
-            isPresented: $store.scope(
-                \.posterImagePicker,
-                action: \.posterImagePicker
-            ).imageInfo.isPresented
-        ) {
-            if let imageInfoStore = store
+            item: $store
                 .scope(\.posterImagePicker, action: \.posterImagePicker)
                 .spawn(\.imageInfo)
-            {
-                NavigationStack {
-                    ImageInfoView(store: imageInfoStore)
-                }
+        ) { imageInfoStore in
+            NavigationStack {
+                ImageInfoView(store: imageInfoStore)
             }
         }
     }

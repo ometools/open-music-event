@@ -230,7 +230,6 @@ public struct ImageAssetPicker {
         case addButtonTapped
         case destination(Destination.Action)
         case imageInfoButtonTapped(ImageValue.ID)
-        case importImagesPresentationDismissed
         case removeButtonTapped(ImageValue.ID)
     }
 
@@ -265,9 +264,6 @@ public struct ImageAssetPicker {
                     )
                 ))
 
-            case .importImagesPresentationDismissed:
-                state.importImages = nil
-
             case let .removeButtonTapped(id):
                 state.images.removeAll { $0.id == id }
             }
@@ -296,22 +292,6 @@ public struct ImageAssetPicker {
     }
 }
 
-@MainActor
-extension Store where State == ImageAssetPicker.State, Action == ImageAssetPicker.Action {
-    var importImagesPresentation: Binding<StoreOf<ImportImages>?> {
-        Binding(
-            get: {
-                self.spawn(\.importImages)
-            },
-            set: { store in
-                if store == nil {
-                    self.send(.importImagesPresentationDismissed)
-                }
-            }
-        )
-    }
-}
-
 public struct ImageAssetPickerPresentationSheets: ViewModifier {
     @Bindable var store: StoreOf<ImageAssetPicker>
 
@@ -322,7 +302,7 @@ public struct ImageAssetPickerPresentationSheets: ViewModifier {
     public func body(content: Content) -> some View {
         content
             .sheet(
-                item: store.importImagesPresentation
+                item: $store.spawn(\.importImages)
             ) { importStore in
                 NavigationStack {
                     ImportImagesView(store: importStore)
