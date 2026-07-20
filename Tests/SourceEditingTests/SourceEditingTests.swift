@@ -34,6 +34,17 @@ private struct TypedTodo: Equatable, Sendable, Identifiable, SourceEditableTable
     @Column(as: TodoAttachment.JSONRepresentation.self) var attachment: TodoAttachment
 }
 
+@Table("todo_labels")
+private struct TodoLabel: Equatable, Sendable, Identifiable, SourceEditableTable {
+    @Column(primaryKey: true) var id: Int
+    var listID: String
+    var title: String
+
+    static var sourceDisplayName: String {
+        "Todo Label"
+    }
+}
+
 @Suite
 struct SourceEditingTests {
     @Test
@@ -75,6 +86,7 @@ struct SourceEditingTests {
                         deleted: 1,
                         records: [
                             SourceRecordChange(
+                                tableID: "todos",
                                 kind: .added,
                                 primaryKeyValues: [
                                     sourceColumnValue("id", 6.databaseValue)
@@ -86,6 +98,7 @@ struct SourceEditingTests {
                                 ]
                             ),
                             SourceRecordChange(
+                                tableID: "todos",
                                 kind: .modified,
                                 primaryKeyValues: [
                                     sourceColumnValue("id", 2.databaseValue)
@@ -99,6 +112,7 @@ struct SourceEditingTests {
                                 ]
                             ),
                             SourceRecordChange(
+                                tableID: "todos",
                                 kind: .deleted,
                                 primaryKeyValues: [
                                     sourceColumnValue("id", 3.databaseValue)
@@ -204,6 +218,48 @@ struct SourceEditingTests {
         let deletedComparison = try #require(summary.recordComparisons[deletedRecord]?.as(Todo.self))
         #expect(deletedComparison.left?.title == "Deleted candidate")
         #expect(deletedComparison.right == nil)
+    }
+
+    @Test
+    func recordComparisonsKeepTablesWithMatchingPrimaryKeysSeparate() throws {
+        let fixture = try SourceEditingFixture()
+        try fixture.createTodoLabelsTable()
+        try fixture.insertWorking(TodoLabel(id: 2, listID: "list-1", title: "New label"))
+        try fixture.insertBaseline(TodoLabel(id: 2, listID: "list-1", title: "Old label"))
+        try fixture.updateWorking(id: 2, title: "New title")
+
+        let summary = try fixture.typedSummary(
+            recordTypes: [
+                Todo.sourceRecordType,
+                TodoLabel.sourceRecordType,
+            ],
+            scope: listScope("list-1")
+        )
+
+        let todoRecord = try #require(
+            summary.groups
+                .first { $0.id == Todo.tableName }?
+                .records
+                .first
+        )
+        let labelRecord = try #require(
+            summary.groups
+                .first { $0.id == TodoLabel.tableName }?
+                .records
+                .first
+        )
+
+        #expect(todoRecord.id != labelRecord.id)
+        #expect(todoRecord.tableID == "todos")
+        #expect(labelRecord.tableID == "todo_labels")
+
+        let todoComparison = try #require(summary.recordComparisons[todoRecord]?.as(Todo.self))
+        #expect(todoComparison.left?.title == "Old title")
+        #expect(todoComparison.right?.title == "New title")
+
+        let labelComparison = try #require(summary.recordComparisons[labelRecord]?.as(TodoLabel.self))
+        #expect(labelComparison.left?.title == "Old label")
+        #expect(labelComparison.right?.title == "New label")
     }
 
     @Test
@@ -367,6 +423,7 @@ struct SourceEditingTests {
                         deleted: 0,
                         records: [
                             SourceRecordChange(
+                                tableID: "todos",
                                 kind: .modified,
                                 primaryKeyValues: [
                                     sourceColumnValue("id", 2.databaseValue)
@@ -568,6 +625,12 @@ private final class SourceEditingFixture {
         }
     }
 
+    func insertWorking(_ record: TodoLabel) throws {
+        try workingDatabase.write { db in
+            try TodoLabel.insert { record }.execute(db)
+        }
+    }
+
     func insertBaseline(_ records: [Todo]) throws {
         try baselineDatabase.write { db in
             try Todo.insert { records }.execute(db)
@@ -577,6 +640,12 @@ private final class SourceEditingFixture {
     func insertBaseline(_ record: TypedTodo) throws {
         try baselineDatabase.write { db in
             try TypedTodo.insert { record }.execute(db)
+        }
+    }
+
+    func insertBaseline(_ record: TodoLabel) throws {
+        try baselineDatabase.write { db in
+            try TodoLabel.insert { record }.execute(db)
         }
     }
 
@@ -613,6 +682,15 @@ private final class SourceEditingFixture {
         }
         try baselineDatabase.write { db in
             try createTypedTodosSQLTable(in: db)
+        }
+    }
+
+    func createTodoLabelsTable() throws {
+        try workingDatabase.write { db in
+            try createTodoLabelsSQLTable(in: db)
+        }
+        try baselineDatabase.write { db in
+            try createTodoLabelsSQLTable(in: db)
         }
     }
 
@@ -697,6 +775,17 @@ private func createTypedTodosSQLTable(in db: Database) throws {
         CREATE TABLE "typed_todos" (
           "id" INTEGER PRIMARY KEY NOT NULL,
           "attachment" TEXT NOT NULL
+        ) STRICT
+        """)
+        .execute(db)
+}
+
+private func createTodoLabelsSQLTable(in db: Database) throws {
+    try #sql("""
+        CREATE TABLE "todo_labels" (
+          "id" INTEGER PRIMARY KEY NOT NULL,
+          "listID" TEXT NOT NULL,
+          "title" TEXT NOT NULL
         ) STRICT
         """)
         .execute(db)

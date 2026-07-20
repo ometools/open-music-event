@@ -25,6 +25,7 @@
         deleted: 0,
         records: [
           [0]: SourceRecordChange(
+            tableID: "stages",
             kind: .modified,
             primaryKeyValues: [
               [0]: SourceColumnValue(
@@ -223,8 +224,9 @@
     ],
     recordComparisons: SourceRecordComparisons(
       comparisonsByChangeID: [
-        #"modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#: AnySourceRecordComparison(
+        #"stages:modified:organizerID="did:web:example.com",eventID="testival-2026",stageID="meadow""#: AnySourceRecordComparison(
           change: SourceRecordChange(
+            tableID: "stages",
             kind: .modified,
             primaryKeyValues: [
               [0]: SourceColumnValue(

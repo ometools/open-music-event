@@ -324,20 +324,23 @@ public struct SourceRecordChange: Equatable, Hashable, Sendable, Identifiable {
         let primaryKey = primaryKeyValues
             .map { "\($0.columnName)=\($0.value)" }
             .joined(separator: ",")
-        return "\(kind.rawValue):\(primaryKey)"
+        return "\(tableID):\(kind.rawValue):\(primaryKey)"
     }
 
+    public var tableID: SourceTableDescriptor.ID
     public var kind: SourceRecordChangeKind
     public var primaryKeyValues: [SourceColumnValue]
     public var fieldChanges: [SourceFieldChange]
     public var recordDiff: String?
 
     public init(
+        tableID: SourceTableDescriptor.ID,
         kind: SourceRecordChangeKind,
         primaryKeyValues: [SourceColumnValue],
         fieldChanges: [SourceFieldChange],
         recordDiff: String? = nil
     ) {
+        self.tableID = tableID
         self.kind = kind
         self.primaryKeyValues = primaryKeyValues
         self.fieldChanges = fieldChanges
@@ -949,6 +952,7 @@ public struct SourceEditingComparer: Sendable {
         )
         .map { row in
             SourceRecordChange(
+                tableID: descriptor.id,
                 kind: .added,
                 primaryKeyValues: sourceColumnValues(
                     descriptor.primaryKeyColumns,
@@ -997,6 +1001,7 @@ public struct SourceEditingComparer: Sendable {
             }
 
             return SourceRecordChange(
+                tableID: descriptor.id,
                 kind: .modified,
                 primaryKeyValues: sourceColumnValues(
                     descriptor.primaryKeyColumns,
@@ -1024,6 +1029,7 @@ public struct SourceEditingComparer: Sendable {
         )
         .map { row in
             SourceRecordChange(
+                tableID: descriptor.id,
                 kind: .deleted,
                 primaryKeyValues: sourceColumnValues(
                     descriptor.primaryKeyColumns,

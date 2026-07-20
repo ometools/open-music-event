@@ -1383,6 +1383,7 @@ private func sourceRecordChange(
     eventID: OMERecord.Event.ID
 ) -> SourceRecordChange {
     SourceRecordChange(
+        tableID: OMERecord.Contributor.tableName,
         kind: .modified,
         primaryKeyValues: [
             SourceColumnValue(
