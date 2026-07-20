@@ -551,6 +551,57 @@ struct NavigationTests {
     }
 
     @Test
+    func teamWorkspaceEventNavigationCarriesOrgAuthoringMode() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("source-workspace-authoring-navigation")
+        let sourceProvenance = sourceProvenance("source-workspace-authoring-navigation")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Source Workspace Authoring")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 1_800)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        try await withDependencies {
+            $0.context = .test
+            $0.authoringPolicy = .attendee
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            @Bindable var store = Store(
+                initialState: OpenMusicEventAppRoot.State()
+            ) {
+                OpenMusicEventAppRoot()
+            }
+            @Bindable var browserStore = store.spawn(\.browser)
+            @Bindable var myEventsStore = browserStore.spawn(\.myEvents)
+
+            myEventsStore.send(.didTapTeamWorkspace(sourceBaselineID))
+            let teamWorkspaceDetailStore = try #require(
+                myEventsStore.scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail)
+            )
+
+            await teamWorkspaceDetailStore.send(.authoringEventButtonTapped(eventID))?.value
+
+            let eventViewerStore = try #require(store.spawn(\.eventViewer))
+            #expect(eventViewerStore.eventID == eventID)
+            #expect(eventViewerStore.authoringMode == .authoring(.all))
+            #expect(eventViewerStore.installedFeatures.contains(.workspace))
+            #expect(eventViewerStore.installedFeatures.contains(.settings))
+        }
+    }
+
+    @Test
     func eventViewerConsumesContributorNavigationFromSearchDescendant() async throws {
         let contributorID = contributorLocalID("contributor-1")
         let database = try makePreparedDatabase()
@@ -1469,6 +1520,70 @@ struct NavigationTests {
     }
 
     @Test
+    func organizerDetailAuthoringEventTapPostsOrgAuthoringNavigationRequest() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("organizer-authoring-event")
+        try database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Organizer Authoring Event")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: OrganizerDetailHarness.State(organizerID: testOrganizerID)
+            ) {
+                OrganizerDetailHarness()
+            }
+        }
+
+        store.send(.organizerDetail(.authoringEventButtonTapped(eventID))) {
+            $0.lastAuthoringRequest = .event(eventID, nil)
+        }
+        #expect(store.state.lastAuthoringRequest == .event(eventID, nil))
+    }
+
+    @Test
+    func teamWorkspaceDetailAuthoringEventTapPostsOrgAuthoringNavigationRequest() throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("source-authoring-event")
+        let sourceProvenance = sourceProvenance("authoring-navigation-source")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        try database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Source Authoring Event")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 0)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: TeamWorkspaceDetailHarness.State(sourceBaselineID: sourceBaselineID)
+            ) {
+                TeamWorkspaceDetailHarness()
+            }
+        }
+
+        store.send(.teamWorkspaceDetail(.authoringEventButtonTapped(eventID))) {
+            $0.lastAuthoringRequest = .event(eventID, nil)
+        }
+        #expect(store.state.lastAuthoringRequest == .event(eventID, nil))
+    }
+
+    @Test
     func teamWorkspaceDetailPullToRefreshRefreshesSourceBaseline() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("events-page-refresh-source")
@@ -2270,6 +2385,37 @@ struct NavigationTests {
         }
         #expect(createEvent.state.organizerID == testOrganizerID)
         #expect(createEvent.state.eventOrganizerID == testOrganizerID)
+    }
+
+    @Test
+    func calendarDetailAuthoringEventTapPostsOrgAuthoringNavigationRequest() throws {
+        let database = try makePreparedDatabase()
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: testOrganizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let eventID = eventID("calendar-authoring-event")
+        try database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertCalendar(db, id: calendarID, name: "Calendar Authoring")
+            try Self.insertEvent(db, id: eventID, name: "Calendar Authoring Event")
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: CalendarDetailHarness.State(calendarID: calendarID)
+            ) {
+                CalendarDetailHarness()
+            }
+        }
+
+        store.send(.calendarDetail(.authoringEventButtonTapped(eventID))) {
+            $0.lastAuthoringRequest = .event(eventID, nil)
+        }
+        #expect(store.state.lastAuthoringRequest == .event(eventID, nil))
     }
 
     @Test
@@ -7440,12 +7586,43 @@ private struct MyEventsEventHarness {
 }
 
 @Feature
+private struct OrganizerDetailHarness {
+    struct State {
+        init(organizerID: OMERecord.Organizer.ID) {
+            self.organizerDetail = OrganizerDetail.State(organizerID: organizerID)
+        }
+
+        var lastAuthoringRequest: NavigationRequest?
+        var lastRequest: NavigationRequest?
+        @DebugSnapshotIgnored
+        var organizerDetail: OrganizerDetail.State
+    }
+
+    enum Action {
+        case organizerDetail(OrganizerDetail.Action)
+    }
+
+    var body: some Feature {
+        Scope(\.organizerDetail, action: \.organizerDetail) {
+            OrganizerDetail()
+        }
+        .onEvent(NavigationRequested.self) { request, state in
+            state.lastRequest = request
+        }
+        .onEvent(OrgAuthoringNavigationRequested.self) { request, state in
+            state.lastAuthoringRequest = request
+        }
+    }
+}
+
+@Feature
 private struct TeamWorkspaceDetailHarness {
     struct State {
         init(sourceBaselineID: SourceBaselineRecord.ID) {
             self.teamWorkspaceDetail = TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
         }
 
+        var lastAuthoringRequest: NavigationRequest?
         var lastRequest: NavigationRequest?
         @DebugSnapshotIgnored
         var teamWorkspaceDetail: TeamWorkspaceDetail.State
@@ -7461,6 +7638,39 @@ private struct TeamWorkspaceDetailHarness {
         }
         .onEvent(NavigationRequested.self) { request, state in
             state.lastRequest = request
+        }
+        .onEvent(OrgAuthoringNavigationRequested.self) { request, state in
+            state.lastAuthoringRequest = request
+        }
+    }
+}
+
+@Feature
+private struct CalendarDetailHarness {
+    struct State {
+        init(calendarID: OMERecord.Calendar.ID) {
+            self.calendarDetail = CalendarDetail.State(calendarID: calendarID)
+        }
+
+        var lastAuthoringRequest: NavigationRequest?
+        var lastRequest: NavigationRequest?
+        @DebugSnapshotIgnored
+        var calendarDetail: CalendarDetail.State
+    }
+
+    enum Action {
+        case calendarDetail(CalendarDetail.Action)
+    }
+
+    var body: some Feature {
+        Scope(\.calendarDetail, action: \.calendarDetail) {
+            CalendarDetail()
+        }
+        .onEvent(NavigationRequested.self) { request, state in
+            state.lastRequest = request
+        }
+        .onEvent(OrgAuthoringNavigationRequested.self) { request, state in
+            state.lastAuthoringRequest = request
         }
     }
 }

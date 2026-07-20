@@ -13,6 +13,10 @@ import SwiftUI
 import SafariServices
 #endif
 
+struct OrgAuthoringNavigationRequested: FeatureEventKey {
+    typealias Value = NavigationRequest
+}
+
 @Feature
 public struct OpenMusicEventAppRoot {
     public init() {}
@@ -154,6 +158,21 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
+        let handleNavigationRequest:
+            (NavigationRequest, Authoring.Mode?, inout State) -> Void = { request, authoringMode, state in
+            switch request {
+            case let .event(eventID, target):
+                if let authoringMode {
+                    openEventViewer(eventID, target, authoringMode, &state)
+                } else {
+                    openEventViewerAfterAuthorization(eventID, target, &state)
+                }
+
+            case let .externalURL(url):
+                state.openExternalURL(url)
+            }
+        }
+
         Features {
             Update { state, action in
                 switch action {
@@ -161,13 +180,7 @@ public struct OpenMusicEventAppRoot {
                     break
 
                 case .handleNavigationRequest(let request):
-                    switch request {
-                    case let .event(eventID, target):
-                        openEventViewerAfterAuthorization(eventID, target, &state)
-
-                    case let .externalURL(url):
-                        state.openExternalURL(url)
-                    }
+                    handleNavigationRequest(request, nil, &state)
 
                 case let .localEventDeletionRequested(eventID):
                     store.addTask {
@@ -232,11 +245,11 @@ public struct OpenMusicEventAppRoot {
         .onChange(of: store.authentication.directAuthorization?.error) { _, error, _ in
             reportAuthenticationError(error?.originalError)
         }
-        .onEvent(NavigationRequested.self) { request, _ in
-            store.addTask {
-                await Task.yield()
-                try store.send(.handleNavigationRequest(request))
-            }
+        .onEvent(NavigationRequested.self) { request, state in
+            handleNavigationRequest(request, nil, &state)
+        }
+        .onEvent(OrgAuthoringNavigationRequested.self) { request, state in
+            handleNavigationRequest(request, .authoring(.all), &state)
         }
         .onEvent(LocalEventDeletionRequested.self) { eventID, _ in
             store.addTask {

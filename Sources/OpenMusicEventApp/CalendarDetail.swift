@@ -46,6 +46,7 @@ public struct CalendarDetail {
 
     public enum Action {
         case addEventButtonTapped
+        case authoringEventButtonTapped(OMERecord.Event.ID)
         case deleteEventsButtonTapped([OMERecord.Event.ID])
         case deleteEventsConfirmationDeleteButtonTapped
         case deleteEventsConfirmationPresentedChanged(Bool)
@@ -159,6 +160,14 @@ public struct CalendarDetail {
                         )
                     )
                 )
+
+            case let .authoringEventButtonTapped(eventID):
+                store.addTask {
+                    try store.post(
+                        key: OrgAuthoringNavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
+                }
 
             case let .deleteEventsButtonTapped(eventIDs):
                 guard !eventIDs.isEmpty else { return }
@@ -342,7 +351,11 @@ public struct CalendarDetailView: View {
     @ViewBuilder
     private func calendarEntryRows(_ rows: [CalendarDetail.EntryRow]) -> some View {
         ForEach(rows) { row in
-            CalendarEntryButton(row: row, store: store)
+            CalendarEntryButton(
+                row: row,
+                store: store,
+                showsAuthoringControls: showsAuthoringControls
+            )
         }
         .onDelete { offsets in
             guard showsAuthoringControls else { return }
@@ -360,11 +373,16 @@ public struct CalendarDetailView: View {
 struct CalendarEntryButton: View {
     let row: CalendarDetail.EntryRow
     let store: StoreOf<CalendarDetail>
+    let showsAuthoringControls: Bool
 
     var body: some View {
         if let event = row.event {
             Button {
-                store.send(.eventButtonTapped(event.id))
+                store.send(
+                    showsAuthoringControls
+                        ? .authoringEventButtonTapped(event.id)
+                        : .eventButtonTapped(event.id)
+                )
             } label: {
                 CalendarEntryRowView(row: row)
             }

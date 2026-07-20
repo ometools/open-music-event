@@ -419,6 +419,7 @@ public struct OrganizerDetail {
 
     public enum Action {
         case addEventButtonTapped
+        case authoringEventButtonTapped(OMERecord.Event.ID)
         case calendarButtonTapped(OMERecord.Calendar.ID)
         case calendarDetail(CalendarDetail.Action)
         case deleteEventsButtonTapped([OMERecord.Event.ID])
@@ -673,6 +674,14 @@ public struct OrganizerDetail {
                     )
                 )
 
+            case let .authoringEventButtonTapped(eventID):
+                store.addTask {
+                    try store.post(
+                        key: OrgAuthoringNavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
+                }
+
             case .calendarButtonTapped(let calendarID):
                 store.withDependencies {
                     state.calendarDetail = .init(calendarID: calendarID)
@@ -897,7 +906,11 @@ public struct OrganizerDetailView: View {
         ForEach(rows) { row in
             if let event = row.event {
                 Button {
-                    store.send(.eventButtonTapped(event.id))
+                    store.send(
+                        showsAuthoringControls
+                            ? .authoringEventButtonTapped(event.id)
+                            : .eventButtonTapped(event.id)
+                    )
                 } label: {
                     CalendarEntryRowView(row: row)
                 }
@@ -1051,6 +1064,7 @@ public struct TeamWorkspaceDetail {
 
     public enum Action {
         case addEventButtonTapped
+        case authoringEventButtonTapped(OMERecord.Event.ID)
         case rolloverEventButtonTapped
         case destination(Destination.Action)
         case didPullToRefresh
@@ -1248,6 +1262,14 @@ public struct TeamWorkspaceDetail {
                 store.addTask {
                     try store.post(
                         key: NavigationRequested.self,
+                        value: .event(eventID, nil)
+                    )
+                }
+
+            case let .authoringEventButtonTapped(eventID):
+                store.addTask {
+                    try store.post(
+                        key: OrgAuthoringNavigationRequested.self,
                         value: .event(eventID, nil)
                     )
                 }
@@ -1573,7 +1595,11 @@ public struct TeamWorkspaceDetailView: View {
         ForEach(rows) { row in
             if let event = row.event {
                 Button {
-                    store.send(.eventButtonTapped(event.id))
+                    store.send(
+                        showsAuthoringControls
+                            ? .authoringEventButtonTapped(event.id)
+                            : .eventButtonTapped(event.id)
+                    )
                 } label: {
                     CalendarEntryRowView(row: row)
                 }
