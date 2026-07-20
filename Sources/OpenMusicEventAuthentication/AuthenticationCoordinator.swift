@@ -232,7 +232,7 @@ public struct OpenMusicEventAuthorizationFormView: View {
                 Button {
                     store.send(.cancel)
                 } label: {
-                    Label("Done", systemImage: "checkmark")
+                    Label("Close", systemImage: "xmark")
                         .labelStyle(.iconOnly)
                 }
             }

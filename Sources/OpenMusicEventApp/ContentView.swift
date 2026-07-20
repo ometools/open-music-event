@@ -124,7 +124,7 @@ struct ItemView : View {
                 Button {
                     dismiss()
                 } label: {
-                    Label("Cancel", systemImage: "close")
+                    Label("Cancel", systemImage: "xmark")
                         .labelStyle(.iconOnly)
                 }
             }

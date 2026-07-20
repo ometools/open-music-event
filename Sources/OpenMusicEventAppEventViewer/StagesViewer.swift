@@ -806,7 +806,7 @@ public struct CopyStagesFromEventView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Label("Cancel", systemImage: "close")
+                    Label("Cancel", systemImage: "xmark")
                         .labelStyle(.iconOnly)
                 }
             }
@@ -1846,7 +1846,7 @@ struct EditStageCancelButton: View {
         Button {
             store.send(.cancelButtonTapped)
         } label: {
-            Label("Cancel", systemImage: "close")
+            Label("Cancel", systemImage: "xmark")
                 .labelStyle(.iconOnly)
         }
     }

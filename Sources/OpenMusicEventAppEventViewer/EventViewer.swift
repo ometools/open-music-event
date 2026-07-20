@@ -1240,7 +1240,7 @@ public struct EventViewerView: View {
                                 Button {
                                     store.send(.closeButtonTapped)
                                 } label: {
-                                    Label("Close", systemImage: "close")
+                                    Label("Close", systemImage: "xmark")
                                         .labelStyle(.iconOnly)
                                 }
                             }
@@ -1532,7 +1532,7 @@ public struct EventViewerView: View {
                             Button {
                                 store.send(.closeButtonTapped)
                             } label: {
-                                Label("Close", systemImage: "close")
+                                Label("Close", systemImage: "xmark")
                                     .labelStyle(.iconOnly)
                             }
                         }

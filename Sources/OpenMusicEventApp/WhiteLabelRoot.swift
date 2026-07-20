@@ -559,7 +559,7 @@ struct WhiteLabelRootAccountManagementView: View {
                     Button {
                         store.send(.accountManagementDoneButtonTapped)
                     } label: {
-                        Label("Done", systemImage: "checkmark")
+                        Label("Close", systemImage: "xmark")
                             .labelStyle(.iconOnly)
                     }
                 }

@@ -75,7 +75,7 @@ struct SwiftUITabFeaturesTests {
         } toolbar: {
             ToolbarItem(placement: .cancellationAction) {
                 Button {} label: {
-                    Label("Close", systemImage: "close")
+                    Label("Close", systemImage: "xmark")
                         .labelStyle(.iconOnly)
                 }
             }

@@ -1225,7 +1225,7 @@ struct AccountAuthenticationSheetView: View {
                     Button {
                         store.send(.authenticationSheetDismissed)
                     } label: {
-                        Label("Done", systemImage: "checkmark")
+                        Label("Close", systemImage: "xmark")
                             .labelStyle(.iconOnly)
                     }
                 }

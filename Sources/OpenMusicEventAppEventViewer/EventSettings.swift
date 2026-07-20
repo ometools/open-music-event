@@ -385,7 +385,7 @@ public struct EditReportingLinkView: View {
                 Button {
                     store.send(.cancelButtonTapped)
                 } label: {
-                    Label("Cancel", systemImage: "close")
+                    Label("Cancel", systemImage: "xmark")
                         .labelStyle(.iconOnly)
                 }
             }

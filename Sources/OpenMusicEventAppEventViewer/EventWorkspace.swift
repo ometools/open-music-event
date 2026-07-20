@@ -2680,7 +2680,7 @@ public struct SourceProposalComposerView: View {
                     Button {
                         store.send(.doneButtonTapped)
                     } label: {
-                        Label("Done", systemImage: "checkmark")
+                        Label("Close", systemImage: "xmark")
                             .labelStyle(.iconOnly)
                     }
                     .disabled(store.status.isProposing)
