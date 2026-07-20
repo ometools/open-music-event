@@ -544,42 +544,42 @@ public struct OrganizerDetail {
 
     public struct CalendarEntrySections: Equatable, Sendable {
         public enum ScheduleSection: Hashable, Sendable {
-            case past
             case now
             case upcoming
+            case previous
             case unavailable
         }
 
         public var currentRows: [CalendarDetail.EntryRow]
+        public var upcomingRows: [CalendarDetail.EntryRow]
         public var previousRows: [CalendarDetail.EntryRow]
         public var unavailableRows: [CalendarDetail.EntryRow]
-        public var upcomingRows: [CalendarDetail.EntryRow]
 
         public init(entryRows: CalendarDetail.EntryRows, now: Date) {
             let rows = entryRows.rows
             self.currentRows = Self.sortChronologically(
                 rows.filter { Self.timing(for: $0, now: now) == .current }
             )
-            self.previousRows = Self.sortChronologically(
-                rows.filter { Self.timing(for: $0, now: now) == .previous }
-            )
-            self.unavailableRows = rows.filter { Self.timing(for: $0, now: now) == .unavailable }
             self.upcomingRows = Self.sortChronologically(
                 rows.filter { Self.timing(for: $0, now: now) == .upcoming }
             )
+            self.previousRows = Self.sortReverseChronologically(
+                rows.filter { Self.timing(for: $0, now: now) == .previous }
+            )
+            self.unavailableRows = rows.filter { Self.timing(for: $0, now: now) == .unavailable }
         }
 
         public var isEmpty: Bool {
             currentRows.isEmpty
+            && upcomingRows.isEmpty
             && previousRows.isEmpty
             && unavailableRows.isEmpty
-            && upcomingRows.isEmpty
         }
 
         public var initialSection: ScheduleSection? {
             if !currentRows.isEmpty { return .now }
             if !upcomingRows.isEmpty { return .upcoming }
-            if !previousRows.isEmpty { return .past }
+            if !previousRows.isEmpty { return .previous }
             if !unavailableRows.isEmpty { return .unavailable }
             return nil
         }
@@ -617,12 +617,28 @@ public struct OrganizerDetail {
         private static func sortChronologically(
             _ rows: [CalendarDetail.EntryRow]
         ) -> [CalendarDetail.EntryRow] {
-            rows.sorted(by: Self.comesBefore)
+            rows.sorted { lhs, rhs in
+                Self.comesBefore(lhs: lhs, rhs: rhs, order: .ascending)
+            }
+        }
+
+        private static func sortReverseChronologically(
+            _ rows: [CalendarDetail.EntryRow]
+        ) -> [CalendarDetail.EntryRow] {
+            rows.sorted { lhs, rhs in
+                Self.comesBefore(lhs: lhs, rhs: rhs, order: .descending)
+            }
+        }
+
+        private enum ChronologicalOrder {
+            case ascending
+            case descending
         }
 
         private static func comesBefore(
             lhs: CalendarDetail.EntryRow,
-            rhs: CalendarDetail.EntryRow
+            rhs: CalendarDetail.EntryRow,
+            order: ChronologicalOrder
         ) -> Bool {
             switch (
                 lhs.event.flatMap { $0.startDate ?? $0.endDate },
@@ -631,7 +647,12 @@ public struct OrganizerDetail {
             case let (.some(lhsDate), .some(rhsDate)):
                 let dateComparison = lhsDate.description.localizedStandardCompare(rhsDate.description)
                 if dateComparison != .orderedSame {
-                    return dateComparison == .orderedAscending
+                    switch order {
+                    case .ascending:
+                        return dateComparison == .orderedAscending
+                    case .descending:
+                        return dateComparison == .orderedDescending
+                    }
                 }
 
             case (.some, .none):
@@ -791,13 +812,6 @@ public struct OrganizerDetailView: View {
                 }
             }
 
-            if !sections.previousRows.isEmpty {
-                Section("Past") {
-                    calendarEntryRows(sections.previousRows)
-                }
-                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.past)
-            }
-
             if !sections.currentRows.isEmpty {
                 Section("Now") {
                     calendarEntryRows(sections.currentRows)
@@ -810,6 +824,13 @@ public struct OrganizerDetailView: View {
                     calendarEntryRows(sections.upcomingRows)
                 }
                 .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.upcoming)
+            }
+
+            if !sections.previousRows.isEmpty {
+                Section("Previous") {
+                    calendarEntryRows(sections.previousRows)
+                }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.previous)
             }
 
             if !sections.unavailableRows.isEmpty {
@@ -1452,13 +1473,6 @@ public struct TeamWorkspaceDetailView: View {
                 }
             }
 
-            if !sections.previousRows.isEmpty {
-                Section("Past") {
-                    calendarEntryRows(sections.previousRows)
-                }
-                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.past)
-            }
-
             if !sections.currentRows.isEmpty {
                 Section("Now") {
                     calendarEntryRows(sections.currentRows)
@@ -1471,6 +1485,13 @@ public struct TeamWorkspaceDetailView: View {
                     calendarEntryRows(sections.upcomingRows)
                 }
                 .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.upcoming)
+            }
+
+            if !sections.previousRows.isEmpty {
+                Section("Previous") {
+                    calendarEntryRows(sections.previousRows)
+                }
+                .id(OrganizerDetail.CalendarEntrySections.ScheduleSection.previous)
             }
 
             if !sections.unavailableRows.isEmpty {

@@ -1570,18 +1570,23 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func sourceEditModePreparationDoesNotRequestSSHForArchiveBackedTangledSource() async throws {
+    func sourceEditModePreparationStoresGitCheckoutForArchiveBackedTangledSource() async throws {
         let database = try makePreparedDatabase()
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
-            reference: "tangled.org/did:plc:owner123/wicked-woods-ome",
+            reference: "at://did:plc:owner123/sh.tangled.repo/wicked-woods-ome",
             ref: "main"
         )
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
 
-        let storedRepositoryURL = FileManager.default.temporaryDirectory
-            .appending(path: "ome-edit-mode-source-\(UUID().uuidString)")
+        let storageRootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-edit-mode-source-root-\(UUID().uuidString)")
             .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: storageRootURL) }
+        let storedRepositoryURL = SourceRepositoryStorageClient.storedRepositoryURL(
+            for: sourceProvenance,
+            rootURL: storageRootURL
+        )
         defer { try? FileManager.default.removeItem(at: storedRepositoryURL) }
 
         try writeMinimalSourceRepository(at: storedRepositoryURL)
@@ -1605,35 +1610,39 @@ struct TangledSourceDownloadFeatureTests {
             }
             .execute(db)
         }
+        let checkoutRequests = Mutex([TangledSourceCheckoutRequest]())
+        let checkoutUUID = try #require(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000005")
+        )
 
         try await withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
-                repositoryURL: { provenance in
-                    #expect(provenance == sourceProvenance)
-                    return storedRepositoryURL
-                },
-                store: { repositoryURL, provenance in
-                    Issue.record(
-                        "Preparing edit mode should not replace \(provenance) from \(repositoryURL)."
-                    )
-                    return repositoryURL
-                },
-                remove: { provenance in
-                    Issue.record("Preparing edit mode should not remove \(provenance).")
-                }
-            )
-            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
-                Issue.record("Preparing edit mode should not request SSH credentials.")
-                throw PublicTangledCheckoutRequestedSSHCredentials()
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+            $0.sourceRepositoryStorage = .live
+            $0.uuid = .constant(checkoutUUID)
+            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                checkoutRequests.withLock { $0.append(request) }
+                try writeMinimalSourceRepository(at: request.outputURL)
+                try FileManager.default.createDirectory(
+                    at: request.outputURL.appending(path: ".git"),
+                    withIntermediateDirectories: true
+                )
+                return TangledSourceCheckout(repositoryURL: request.outputURL)
             }
         } operation: {
             try await SourceEditModePreparationClient.live.prepare(sourceBaselineID)
         }
 
+        let checkoutRequest = try #require(checkoutRequests.withLock { $0.first })
+        #expect(checkoutRequest.repository == TangledRepositoryReference(
+            host: "tangled.org",
+            owner: "did:plc:owner123",
+            repository: "wicked-woods-ome"
+        ))
+        #expect(checkoutRequest.ref == "main")
         #expect(
-            !FileManager.default.fileExists(atPath: storedRepositoryURL.appending(path: ".git").path)
+            FileManager.default.fileExists(atPath: storedRepositoryURL.appending(path: ".git").path)
         )
         #expect(
             FileManager.default.fileExists(
@@ -2335,8 +2344,6 @@ private struct ImportFailure: Error {}
 private struct SourceImportFailure: CustomStringConvertible, Error, Sendable {
     var description: String
 }
-
-private struct PublicTangledCheckoutRequestedSSHCredentials: Error {}
 
 private struct BootstrapUnexpectedHTTPRequest: CustomStringConvertible, Error {
     var path: String?

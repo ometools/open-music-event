@@ -173,6 +173,7 @@ private actor SourceRefreshGate {
 
 private actor SourceEditModePreparationRecorder {
     private var recordedSourceBaselineIDs: [SourceBaselineRecord.ID] = []
+    private var waiters: [CheckedContinuation<[SourceBaselineRecord.ID], Never>] = []
 
     var sourceBaselineIDs: [SourceBaselineRecord.ID] {
         recordedSourceBaselineIDs
@@ -180,6 +181,18 @@ private actor SourceEditModePreparationRecorder {
 
     func record(_ sourceBaselineID: SourceBaselineRecord.ID) {
         recordedSourceBaselineIDs.append(sourceBaselineID)
+        let waiters = waiters
+        self.waiters.removeAll()
+        waiters.forEach { $0.resume(returning: recordedSourceBaselineIDs) }
+    }
+
+    func waitForRecords() async -> [SourceBaselineRecord.ID] {
+        if !recordedSourceBaselineIDs.isEmpty {
+            return recordedSourceBaselineIDs
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }
 
@@ -2669,8 +2682,8 @@ struct NavigationTests {
         let currentEndDate = try #require(LocalDate("2026-05-12"))
         let previousStartDate = try #require(LocalDate("2026-05-01"))
         let previousEndDate = try #require(LocalDate("2026-05-03"))
-        let previousLaterStartDate = try #require(LocalDate("2026-05-04"))
-        let previousLaterEndDate = try #require(LocalDate("2026-05-05"))
+        let previousLaterStartDate = try #require(LocalDate("2026-05-10"))
+        let previousLaterEndDate = try #require(LocalDate("2026-05-10"))
         let upcomingStartDate = try #require(LocalDate("2026-06-01"))
         let upcomingEndDate = try #require(LocalDate("2026-06-03"))
         let upcomingLaterStartDate = try #require(LocalDate("2026-06-04"))
@@ -2767,7 +2780,7 @@ struct NavigationTests {
 
         #expect(sections.currentRows.map(\.event?.id) == [currentEventID])
         #expect(sections.upcomingRows.map(\.event?.id) == [upcomingEventID, upcomingLaterEventID])
-        #expect(sections.previousRows.map(\.event?.id) == [previousEventID, previousLaterEventID])
+        #expect(sections.previousRows.map(\.event?.id) == [previousLaterEventID, previousEventID])
         #expect(sections.initialSection == .now)
     }
 
@@ -6963,6 +6976,69 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == eventID)
+    }
+
+    @Test
+    func whiteLabelEnterAuthoringPreparesSourceRepositoryInBackground() async throws {
+        let database = try makePreparedDatabase()
+        let sourceBaselineID = SourceBaselineRecord.ID(
+            source: sourceProvenance("white-label-authoring-source")
+        )
+        let recorder = SourceEditModePreparationRecorder()
+        let configuration = WhiteLabelAppConfiguration(
+            brand: WhiteLabelBrand(displayName: "Test Festival"),
+            organizerID: testOrganizerID
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.authoringPolicy = AuthoringPolicyClient(
+                authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
+                authorize: { request in
+                    #expect(request.subject == .sourceBaseline(sourceBaselineID))
+                    #expect(request.feature == .workspace)
+                    #expect(request.action == .enterAuthoring)
+                    return .all
+                },
+                mode: { _ in .attendee }
+            )
+            $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
+                await recorder.record(sourceBaselineID)
+            }
+        } operation: {
+            var state = WhiteLabelRoot.State(configuration: configuration)
+            state.authoringSubject = .sourceBaseline(sourceBaselineID)
+            state.isLoading = true
+            return TestStore(initialState: state) {
+                WhiteLabelRoot()
+            }
+        }
+
+        let preparationTask = Task {
+            await recorder.waitForRecords()
+        }
+        let authorizationTask = store.send(.enterAuthoringButtonTapped) {
+            $0.isAuthoringAuthorizationInFlight = true
+        }
+        await store.receive(
+            \.enterAuthoringAuthorized,
+            .matching { (
+                response: (
+                    Authoring.Subject,
+                    Authoring.Scope
+                )
+            ) in
+                response.0 == .sourceBaseline(sourceBaselineID)
+                    && response.1 == .all
+            },
+            timeout: .seconds(1)
+        ) {
+            $0.isAuthoringAuthorizationInFlight = false
+            $0.authoringMode = .authoring(.all)
+        }
+        await authorizationTask?.value
+        let preparedSourceBaselineIDs = await preparationTask.value
+        expectNoDifference(preparedSourceBaselineIDs, [sourceBaselineID])
     }
 
     @Test

@@ -81,6 +81,7 @@ public struct WhiteLabelRoot {
     @Dependency(\.whiteLabelOrganizerIdentityResolver) var identityResolver
     @Dependency(\.whiteLabelSourceImport) var sourceImport
     @Dependency(\.whiteLabelSourceRegistry) var sourceRegistry
+    @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
 
     public var body: some Feature {
 //        let _ = Self._logChanges()
@@ -103,6 +104,12 @@ public struct WhiteLabelRoot {
                 state.isAuthoringAuthorizationInFlight = false
                 guard state.authoringSubject == subject else { return }
                 state.authoringMode = .authoring(scope)
+                if case let .sourceBaseline(sourceBaselineID) = subject {
+                    let sourceEditModePreparation = sourceEditModePreparation
+                    store.addTask {
+                        try? await sourceEditModePreparation.prepare(sourceBaselineID)
+                    }
+                }
 
             case .enterAuthoringButtonTapped:
                 guard !state.isAuthoringAuthorizationInFlight,

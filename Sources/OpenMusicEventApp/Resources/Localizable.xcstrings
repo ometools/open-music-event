@@ -172,6 +172,9 @@
     "Channel definitions" : {
 
     },
+    "Close" : {
+
+    },
     "Connection details" : {
 
     },
@@ -551,9 +554,6 @@
     "Open Shared Workspace" : {
 
     },
-    "Past" : {
-
-    },
     "Pine Creek Lodge" : {
 
     },
@@ -590,6 +590,9 @@
 
     },
     "Preparing Workspace" : {
+
+    },
+    "Previous" : {
 
     },
     "Previous Event" : {

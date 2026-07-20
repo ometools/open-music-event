@@ -108,7 +108,9 @@ public struct EventViewer {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
     @StoreTaskID var sourceDataRefreshTask
+    @StoreTaskID var sourceEditModePreparationTask
 
     public struct State: Identifiable {
         public init(eventID: OMERecord.Event.ID) {
@@ -797,6 +799,9 @@ public struct EventViewer {
             state.reloadFeaturesForAuthoringMode()
         }
         guard !state.showsAuthoringControls else {
+            if !previousAuthoringMode.isAuthoring {
+                prepareSourceRepositoryForAuthoring(eventID: state.eventID)
+            }
             state.pendingAuthoringEntry = nil
             store.withDependencies {
                 state.enterAuthoringEntry(entry)
@@ -804,9 +809,25 @@ public struct EventViewer {
             return
         }
         state.setAuthoringMode(.authoring(.all))
+        prepareSourceRepositoryForAuthoring(eventID: state.eventID)
         state.pendingAuthoringEntry = nil
         store.withDependencies {
             state.enterAuthoringEntry(entry)
+        }
+    }
+
+    private func prepareSourceRepositoryForAuthoring(eventID: OMERecord.Event.ID) {
+        let database = database
+        let sourceEditModePreparation = sourceEditModePreparation
+        store.addTask(id: sourceEditModePreparationTask) {
+            let sourceBaselineID = try await database.read { db in
+                try EventSourceProvenanceRecord
+                    .where { $0.id.eq(eventID) }
+                    .fetchOne(db)?
+                    .sourceBaselineID
+            }
+            guard let sourceBaselineID else { return }
+            try? await sourceEditModePreparation.prepare(sourceBaselineID)
         }
     }
 
@@ -861,6 +882,9 @@ public struct EventViewer {
                 state.authoringMode = mountedAuthoringMode
             }
             state.reloadFeaturesForAuthoringMode()
+            if state.showsAuthoringControls {
+                prepareSourceRepositoryForAuthoring(eventID: state.eventID)
+            }
             guard let pendingAuthoringEntry = state.pendingAuthoringEntry else { return }
             enterOrAuthorizeAuthoringEntry(pendingAuthoringEntry, state: &state)
         }
