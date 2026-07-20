@@ -8,11 +8,7 @@ import SQLiteData
 public extension OME {
     static var sourceMetadataRecordTypes: [AnySourceEditableRecordType] {
         [
-            Calendar.sourceRecordType(
-                columnPolicies: [
-                    \.images: .imageArray
-                ]
-            ),
+            Calendar.sourceRecordType,
         ]
     }
 
@@ -30,29 +26,13 @@ public extension OME {
 
     static var sourceRecordTypes: [AnySourceEditableRecordType] {
         [
-            Event.sourceRecordType(
-                columnPolicies: [
-                    \.images: .imageArray
-                ]
-            ),
-            Stage.sourceRecordType(
-                columnPolicies: [
-                    \.images: .imageArray
-                ]
-            ),
-            Contributor.sourceRecordType(
-                columnPolicies: [
-                    \.images: .imageArray
-                ]
-            ),
+            Event.sourceRecordType,
+            Stage.sourceRecordType,
+            Contributor.sourceRecordType,
             Schedule.sourceRecordType,
             Performance.sourceRecordType,
             Channel.sourceRecordType,
-            Poster.sourceRecordType(
-                columnPolicies: [
-                    \.image: .image
-                ]
-            ),
+            Poster.sourceRecordType,
         ]
     }
 
@@ -65,14 +45,49 @@ public extension OME {
     }
 }
 
-extension OME.Calendar: SourceEditableTable {}
-extension OME.Event: SourceEditableTable {}
-extension OME.Stage: SourceEditableTable {}
-extension OME.Contributor: SourceEditableTable {}
+extension OME.Calendar: SourceEditableTable {
+    public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [
+            \.images: .imageArray
+        ]
+    }
+}
+
+extension OME.Event: SourceEditableTable {
+    public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [
+            \.images: .imageArray
+        ]
+    }
+}
+
+extension OME.Stage: SourceEditableTable {
+    public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [
+            \.images: .imageArray
+        ]
+    }
+}
+
+extension OME.Contributor: SourceEditableTable {
+    public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [
+            \.images: .imageArray
+        ]
+    }
+}
+
 extension OME.Schedule: SourceEditableTable {}
 extension OME.Performance: SourceEditableTable {}
 extension OME.Channel: SourceEditableTable {}
-extension OME.Poster: SourceEditableTable {}
+
+extension OME.Poster: SourceEditableTable {
+    public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [
+            \.image: .image
+        ]
+    }
+}
 
 private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, Sendable {
     var assetKey: String?

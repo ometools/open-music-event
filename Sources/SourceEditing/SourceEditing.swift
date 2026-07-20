@@ -6,6 +6,7 @@ import SQLiteData
 
 public protocol SourceEditableTable: PrimaryKeyedTable {
     static var sourceDisplayName: String { get }
+    static var sourceColumnPolicies: SourceColumnPolicies<Self> { get }
 }
 
 public typealias SourceColumnPolicies<Table: SourceEditableTable> = [
@@ -17,8 +18,12 @@ public extension SourceEditableTable {
         String(describing: Self.self)
     }
 
+    static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [:]
+    }
+
     static var sourceDescriptor: SourceTableDescriptor {
-        sourceDescriptor(columnPolicies: [:])
+        sourceDescriptor(columnPolicies: sourceColumnPolicies)
     }
 
     static func sourceDescriptor(
@@ -228,7 +233,7 @@ public struct AnySourceEditableRecordType {
 
 public extension SourceEditableTable where QueryOutput: Sendable {
     static var sourceRecordType: AnySourceEditableRecordType {
-        sourceRecordType(columnPolicies: [:])
+        sourceRecordType(columnPolicies: sourceColumnPolicies)
     }
 
     static func sourceRecordType(
