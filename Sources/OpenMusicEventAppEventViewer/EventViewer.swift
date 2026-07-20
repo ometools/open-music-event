@@ -128,13 +128,15 @@ public struct EventViewer {
         public init(
             eventID: OMERecord.Event.ID,
             authoringMode: Authoring.Mode = .attendee,
-            features: [EventFeature]
+            features: [EventFeature],
+            refreshesAuthoringModeOnMount: Bool = true
         ) {
             let eventTimeZone = Self.eventTimeZone(eventID: eventID)
 
             self.authoringMode = authoringMode
             self.eventID = eventID
             self.eventTimeZone = eventTimeZone
+            self.refreshesAuthoringModeOnMount = refreshesAuthoringModeOnMount
             self._eventViewerState = Shared(.eventViewerState(eventID))
             self._stages = FetchAll(ScheduleViewer.stagesQuery(eventID: eventID))
             self.installedFeatures = features
@@ -285,14 +287,23 @@ public struct EventViewer {
             target: EventTarget?,
             authoringMode: Authoring.Mode? = nil
         ) -> Self {
-            let authoringMode = authoringMode ?? Self.authoringMode(eventID: eventID)
+            let refreshesAuthoringModeOnMount: Bool
+            let resolvedAuthoringMode: Authoring.Mode
+            if let explicitAuthoringMode = authoringMode {
+                resolvedAuthoringMode = explicitAuthoringMode
+                refreshesAuthoringModeOnMount = false
+            } else {
+                resolvedAuthoringMode = Self.authoringMode(eventID: eventID)
+                refreshesAuthoringModeOnMount = true
+            }
             var state = Self(
                 eventID: eventID,
-                authoringMode: authoringMode,
+                authoringMode: resolvedAuthoringMode,
                 features: EventFeature.features(
                     eventID: eventID,
-                    authoringMode: authoringMode
-                )
+                    authoringMode: resolvedAuthoringMode
+                ),
+                refreshesAuthoringModeOnMount: refreshesAuthoringModeOnMount
             )
             if let target, target.eventFeature.isEditorFeature, !state.showsAuthoringControls {
                 state.pendingAuthoringEntry = .target(target)
@@ -305,6 +316,7 @@ public struct EventViewer {
         public var authoringMode: Authoring.Mode
         public let eventID: OMERecord.Event.ID
         public var eventTimeZone: TimeZone
+        var refreshesAuthoringModeOnMount: Bool
         @Shared public var eventViewerState: EventViewerState
         @FetchAll public var stages: [OMERecord.Stage]
         public var installedFeatures: [EventFeature]
@@ -876,10 +888,12 @@ public struct EventViewer {
             enterOrAuthorizeAuthoringEntry(.feature(feature), state: &state)
         }
         .onMount { state in
-            let mountedAuthoringMode = state.authoringMode
-            state.refreshAuthoringMode()
-            if mountedAuthoringMode.isAuthoring, !state.authoringMode.isAuthoring {
-                state.authoringMode = mountedAuthoringMode
+            if state.refreshesAuthoringModeOnMount {
+                let mountedAuthoringMode = state.authoringMode
+                state.refreshAuthoringMode()
+                if mountedAuthoringMode.isAuthoring, !state.authoringMode.isAuthoring {
+                    state.authoringMode = mountedAuthoringMode
+                }
             }
             state.reloadFeaturesForAuthoringMode()
             if state.showsAuthoringControls {

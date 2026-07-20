@@ -6979,7 +6979,7 @@ struct NavigationTests {
     }
 
     @Test
-    func whiteLabelEnterAuthoringPreparesSourceRepositoryInBackground() async throws {
+    func whiteLabelEnterAuthoringPreparesSourceRepositoryBeforeShowingAuthoringControls() async throws {
         let database = try makePreparedDatabase()
         let sourceBaselineID = SourceBaselineRecord.ID(
             source: sourceProvenance("white-label-authoring-source")
@@ -7000,7 +7000,7 @@ struct NavigationTests {
                     #expect(request.action == .enterAuthoring)
                     return .all
                 },
-                mode: { _ in .attendee }
+                mode: { _ in .authoring(.all) }
             )
             $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
                 await recorder.record(sourceBaselineID)
@@ -7042,6 +7042,39 @@ struct NavigationTests {
     }
 
     @Test
+    func whiteLabelFirstDownloadStaysInAttendeeModeWhenLoggedIn() async throws {
+        let database = try makePreparedDatabase()
+        let sourceBaselineID = SourceBaselineRecord.ID(
+            source: sourceProvenance("white-label-first-download-source")
+        )
+        let configuration = WhiteLabelAppConfiguration(
+            brand: WhiteLabelBrand(displayName: "Test Festival"),
+            organizerID: testOrganizerID
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.authoringPolicy = .authoring
+        } operation: {
+            var state = WhiteLabelRoot.State(configuration: configuration)
+            state.isLoading = true
+            return TestStore(initialState: state) {
+                WhiteLabelRoot()
+            }
+        }
+
+        store.send(.loadDataSucceeded(.init(
+            organizerID: testOrganizerID,
+            sourceBaselineIDs: [sourceBaselineID]
+        )))
+
+        #expect(store.state.authoringMode == .attendee)
+        #expect(store.state.organizerID == testOrganizerID)
+        #expect(store.state.authoringSubject == .sourceBaseline(sourceBaselineID))
+        #expect(store.state.teamWorkspaceDetail?.state.sourceBaselineID == sourceBaselineID)
+    }
+
+    @Test
     func whiteLabelLaunchRestoreMountsEventViewer() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
@@ -7066,7 +7099,7 @@ struct NavigationTests {
     }
 
     @Test
-    func whiteLabelLaunchRestoredEventViewerStartsInAuthoringMode() async throws {
+    func whiteLabelLaunchRestoredEventViewerStartsInAttendeeMode() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
 
@@ -7096,8 +7129,8 @@ struct NavigationTests {
             }
         }
 
-        #expect(store.state.root.eventViewer?.state.authoringMode == .authoring(.all))
-        #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == true)
+        #expect(store.state.root.eventViewer?.state.authoringMode == .attendee)
+        #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == false)
     }
 
     @Test

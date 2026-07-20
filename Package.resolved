@@ -1,5 +1,5 @@
 {
-  "originHash" : "8c23a00557cf04db82019567a58c855fd63ae207a2c0c6fddc293aecbe4d82ee",
+  "originHash" : "3fbf5bd877ba53ed6ca65449b4673d9b83c9fd569b2e07d4e8ee00120035bc00",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -386,15 +386,6 @@
       "state" : {
         "branch" : "26",
         "revision" : "929e0e2a83032fa50119457ae2963ac6eb313e69"
-      }
-    },
-    {
-      "identity" : "swift-dependencies-source-control-client",
-      "kind" : "remoteSourceControl",
-      "location" : "https://source.woody.fm/swift-dependencies-source-control-client",
-      "state" : {
-        "branch" : "main",
-        "revision" : "0053c750a98e05b59334ce90e14bf688b86f6302"
       }
     },
     {

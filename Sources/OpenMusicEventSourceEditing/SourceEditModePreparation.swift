@@ -24,7 +24,6 @@ public extension SourceEditModePreparationClient {
         Self { sourceBaselineID in
             @Dependency(\.defaultDatabase) var database
             @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
-            @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
             @Dependency(\.uuid) var uuid
 
             let sourceBaseline = try await database.read { db in
@@ -44,15 +43,20 @@ public extension SourceEditModePreparationClient {
                !isGitRepository(storedRepositoryURL) {
                 let checkoutURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid())
                 do {
-                    _ = try await tangledSourceCheckout.checkout(
-                        TangledSourceCheckoutRequest(
-                            repository: try TangledRepositoryReference(
-                                sourceReference: sourceProvenance.reference
-                            ),
-                            ref: sourceProvenance.ref ?? "HEAD",
-                            outputURL: checkoutURL
+                    _ = try await withDependencies {
+                        $0.tangledSourceCheckout = .git
+                    } operation: {
+                        @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+                        return try await tangledSourceCheckout.checkout(
+                            TangledSourceCheckoutRequest(
+                                repository: try TangledRepositoryReference(
+                                    sourceReference: sourceProvenance.reference
+                                ),
+                                ref: sourceProvenance.ref ?? "HEAD",
+                                outputURL: checkoutURL
+                            )
                         )
-                    )
+                    }
                     storedRepositoryURL = try sourceRepositoryStorage.store(
                         checkoutURL,
                         sourceProvenance

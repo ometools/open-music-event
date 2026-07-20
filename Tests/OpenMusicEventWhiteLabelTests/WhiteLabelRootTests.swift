@@ -316,7 +316,7 @@ struct WhiteLabelRootTests {
   }
 
   @Test
-  func enterAuthoringButtonAuthorizesSingleSourceRoot() async throws {
+  func enterAuthoringButtonPreparesSourceBeforeShowingAuthoringControls() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()
       let organizerID = organizerID("wickedwoods")
@@ -326,6 +326,7 @@ struct WhiteLabelRootTests {
       )
       let source = sourceProvenance("wicked-woods-ome")
       let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+      let preparationGate = AuthoringPreparationGate()
       let recorder = AuthoringRequestRecorder()
 
       let store = makeStore(
@@ -350,6 +351,9 @@ struct WhiteLabelRootTests {
           )
           return [selectedEventID]
         }
+        $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
+          await preparationGate.prepare(sourceBaselineID)
+        }
       }
 
       await load(store)
@@ -358,10 +362,36 @@ struct WhiteLabelRootTests {
       #expect(store.state.authoringMode == .attendee)
       #expect(!store.state.showsAuthoringControls)
 
-      await store.send(.enterAuthoringButtonTapped) {
+      let entryTask = store.send(.enterAuthoringButtonTapped) {
         $0.isAuthoringAuthorizationInFlight = true
-      }?.value
-      await waitForAuthoringAuthorization(toFinishIn: store)
+      }
+      let preparedSourceBaselineIDs = await preparationGate.waitForPreparationToStart()
+      expectNoDifference(
+        preparedSourceBaselineIDs,
+        [sourceBaselineID]
+      )
+      #expect(store.state.authoringMode == .attendee)
+      #expect(!store.state.showsAuthoringControls)
+      #expect(store.state.isAuthoringAuthorizationInFlight)
+
+      await preparationGate.finish()
+      await store.receive(
+        \.enterAuthoringAuthorized,
+        .matching { (
+          response: (
+            Authoring.Subject,
+            Authoring.Scope
+          )
+        ) in
+          response.0 == .sourceBaseline(sourceBaselineID)
+            && response.1 == .all
+        },
+        timeout: .seconds(1)
+      ) {
+        $0.isAuthoringAuthorizationInFlight = false
+        $0.authoringMode = .authoring(.all)
+      }
+      await entryTask?.value
 
       let requests = await recorder.requests()
       expectNoDifference(
@@ -699,6 +729,40 @@ private actor TangledSourceImportRecorder {
 
   func record(_ request: OpenMusicEventSourceValidationRequest) {
     values.append(request)
+  }
+}
+
+private actor AuthoringPreparationGate {
+  private var isFinished = false
+  private var sourceBaselineIDs: [SourceBaselineRecord.ID] = []
+  private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+  private var startWaiters: [CheckedContinuation<[SourceBaselineRecord.ID], Never>] = []
+
+  func finish() {
+    isFinished = true
+    let waiters = finishWaiters
+    finishWaiters.removeAll()
+    waiters.forEach { $0.resume() }
+  }
+
+  func prepare(_ sourceBaselineID: SourceBaselineRecord.ID) async {
+    sourceBaselineIDs.append(sourceBaselineID)
+    let startWaiters = startWaiters
+    self.startWaiters.removeAll()
+    startWaiters.forEach { $0.resume(returning: sourceBaselineIDs) }
+    guard !isFinished else { return }
+    await withCheckedContinuation { continuation in
+      finishWaiters.append(continuation)
+    }
+  }
+
+  func waitForPreparationToStart() async -> [SourceBaselineRecord.ID] {
+    if !sourceBaselineIDs.isEmpty {
+      return sourceBaselineIDs
+    }
+    return await withCheckedContinuation { continuation in
+      startWaiters.append(continuation)
+    }
   }
 }
 

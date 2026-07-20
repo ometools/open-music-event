@@ -64,7 +64,7 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
-    .package(url: "https://source.woody.fm/swift-dependencies-source-control-client", branch: "main"),
+    .package(path: "../swift-dependencies-source-control-client"),
     .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
     .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),

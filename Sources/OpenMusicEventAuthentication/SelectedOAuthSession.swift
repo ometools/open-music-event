@@ -147,7 +147,7 @@ public extension ErrorInterceptor {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                if isTerminalOpenMusicEventAuthenticatedSessionFailure(error) {
+                if isTerminalAuthenticatedSessionFailure(error) {
                     await selectedSession.update { $0 = nil }
                     authFailureMessage.withLock {
                         $0 = openMusicEventTerminalAuthErrorMessage(error)
@@ -166,16 +166,6 @@ private func saveOpenMusicEventSharedValue<Value>(_ value: Shared<Value>) async 
         try await value.save()
     } catch {
         reportIssue(error)
-    }
-}
-
-private func isTerminalOpenMusicEventAuthenticatedSessionFailure(_ error: Error) -> Bool {
-    guard let httpError = error as? HTTPError else { return true }
-    switch httpError {
-    case let .httpError(status, _, _):
-        return status == .unauthorized
-    default:
-        return false
     }
 }
 

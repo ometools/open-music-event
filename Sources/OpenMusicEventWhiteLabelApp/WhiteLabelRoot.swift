@@ -42,13 +42,12 @@ public extension WhiteLabelSourceImportClient {
                 cleanupURL = outputURL
 
             case let .source(source):
-                let result = try await tangledSourceImport.importSource(
-                    OpenMusicEventSourceValidationRequest(
-                        source: source,
-                        organizerID: organizerID,
-                        ref: descriptor.version ?? "HEAD"
-                    )
+                let request = OpenMusicEventSourceValidationRequest(
+                    source: source,
+                    organizerID: organizerID,
+                    ref: descriptor.version ?? "HEAD"
                 )
+                let result = try await tangledSourceImport.importSource(request)
                 return result.insertedEventIDs
             }
 

@@ -89,6 +89,7 @@ public extension TangledSourceCheckoutClient {
                     repoDID: repoDID,
                     destinationURL: request.outputURL,
                     ref: request.ref,
+                    depth: 1,
                     credentials: credentials
                 )
             )
@@ -115,12 +116,14 @@ public extension TangledRepositoryReference {
         repoDID: String,
         destinationURL: URL,
         ref: String,
+        depth: Int? = nil,
         credentials: Credentials? = nil
     ) -> CloneRequest {
         CloneRequest(
             remote: sourceControlRemote(repoDID: repoDID),
             destinationURL: destinationURL,
             checkout: sourceControlCheckoutRef(ref),
+            depth: depth,
             credentials: sourceControlCredentials(credentials)
         )
     }

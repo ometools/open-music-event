@@ -39,7 +39,9 @@ public struct MyEvents {
         var destination: Destination.State?
         var errorMessage: String?
         var isDeleteCreatedEventsConfirmationPresented = false
+        var isTeamWorkspaceAuthoringEntryInFlight = false
         var organizerDetail: OrganizerDetail.State?
+        var teamWorkspaceAuthoringMode: Authoring.Mode = .attendee
         var teamWorkspaceDetail: TeamWorkspaceDetail.State?
 
         @DebugSnapshotIgnored
@@ -57,6 +59,10 @@ public struct MyEvents {
             ]
             .compactMap { $0 }
         }
+
+        var showsTeamWorkspaceAuthoringControls: Bool {
+            teamWorkspaceAuthoringMode.isAuthoring
+        }
     }
 
     public enum Action {
@@ -70,6 +76,12 @@ public struct MyEvents {
         case didTapOrganizer(OMERecord.Organizer.ID)
         case deleteTeamWorkspaces([SourceBaselineRecord.ID])
         case destination(Destination.Action)
+        case enterTeamWorkspaceAuthoringAuthorizationFailed(SourceBaselineRecord.ID)
+        case enterTeamWorkspaceAuthoringAuthorized(
+            SourceBaselineRecord.ID,
+            Authoring.Scope
+        )
+        case enterTeamWorkspaceAuthoringButtonTapped
         case organizerDetail(OrganizerDetail.Action)
         case teamWorkspaceDetail(TeamWorkspaceDetail.Action)
     }
@@ -105,6 +117,7 @@ public struct MyEvents {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.sourceAuthoringEntry) var sourceAuthoringEntry
     @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
 
     public var body: some Feature {
@@ -136,6 +149,8 @@ public struct MyEvents {
                             if let teamWorkspaceDetail = $0.teamWorkspaceDetail,
                                sourceBaselineIDs.contains(teamWorkspaceDetail.sourceBaselineID) {
                                 $0.teamWorkspaceDetail = nil
+                                $0.teamWorkspaceAuthoringMode = .attendee
+                                $0.isTeamWorkspaceAuthoringEntryInFlight = false
                             }
                         }
                     } catch {
@@ -187,7 +202,7 @@ public struct MyEvents {
 
             case .didTapTeamWorkspace(let sourceBaselineID):
                 store.withDependencies {
-                    state.teamWorkspaceDetail = .init(sourceBaselineID: sourceBaselineID)
+                    state.openTeamWorkspace(sourceBaselineID)
                 }
 
             case .didTapOrganizer(let organizerID):
@@ -197,6 +212,50 @@ public struct MyEvents {
 
             case .destination:
                 return
+
+            case let .enterTeamWorkspaceAuthoringAuthorizationFailed(sourceBaselineID):
+                state.isTeamWorkspaceAuthoringEntryInFlight = false
+                guard state.teamWorkspaceDetail?.sourceBaselineID == sourceBaselineID else {
+                    return
+                }
+
+            case let .enterTeamWorkspaceAuthoringAuthorized(sourceBaselineID, scope):
+                state.isTeamWorkspaceAuthoringEntryInFlight = false
+                guard state.teamWorkspaceDetail?.sourceBaselineID == sourceBaselineID else {
+                    return
+                }
+                state.teamWorkspaceAuthoringMode = .authoring(scope)
+
+            case .enterTeamWorkspaceAuthoringButtonTapped:
+                guard !state.isTeamWorkspaceAuthoringEntryInFlight,
+                      !state.showsTeamWorkspaceAuthoringControls,
+                      let sourceBaselineID = state.teamWorkspaceDetail?.sourceBaselineID
+                else { return }
+
+                let request = Authoring.Request(
+                    subject: .sourceBaseline(sourceBaselineID),
+                    feature: .workspace,
+                    action: .enterAuthoring
+                )
+                let sourceAuthoringEntry = sourceAuthoringEntry
+                state.isTeamWorkspaceAuthoringEntryInFlight = true
+                store.addTask {
+                    let scope = await store.withErrorHandling(
+                        fallbackMessage: .authoringAuthorizationFailed,
+                        operation: .authoringAuthorization
+                    ) {
+                        try await sourceAuthoringEntry.enter(request)
+                    }
+                    guard let scope else {
+                        try store.send(
+                            .enterTeamWorkspaceAuthoringAuthorizationFailed(sourceBaselineID)
+                        )
+                        return
+                    }
+                    try store.send(
+                        .enterTeamWorkspaceAuthoringAuthorized(sourceBaselineID, scope)
+                    )
+                }
 
             case .organizerDetail:
                 return
@@ -218,7 +277,7 @@ public struct MyEvents {
             state.destination = nil
             store.withDependencies {
                 if let sourceBaselineID = importedSource.sourceBaselineID {
-                    state.teamWorkspaceDetail = .init(sourceBaselineID: sourceBaselineID)
+                    state.openTeamWorkspace(sourceBaselineID)
                 } else {
                     state.organizerDetail = .init(organizerID: importedSource.organizerID)
                 }
@@ -226,9 +285,17 @@ public struct MyEvents {
         }
         .onEvent(TangledWorkspaceBootstrapCompleted.self) { result, state in
             store.withDependencies {
-                state.teamWorkspaceDetail = .init(sourceBaselineID: result.sourceBaselineID)
+                state.openTeamWorkspace(result.sourceBaselineID)
             }
         }
+    }
+}
+
+private extension MyEvents.State {
+    mutating func openTeamWorkspace(_ sourceBaselineID: SourceBaselineRecord.ID) {
+        isTeamWorkspaceAuthoringEntryInFlight = false
+        teamWorkspaceAuthoringMode = .attendee
+        teamWorkspaceDetail = .init(sourceBaselineID: sourceBaselineID)
     }
 }
 

@@ -42,7 +42,27 @@ struct MyEventsView: View {
                 OrganizerDetailView(store: detailStore)
             }
             .navigationDestination(item: $store.scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail)) { detailStore in
-                TeamWorkspaceDetailView(store: detailStore)
+                TeamWorkspaceDetailView(
+                    store: detailStore,
+                    showsAuthoringControls: store.showsTeamWorkspaceAuthoringControls
+                )
+                .toolbar {
+                    if !store.showsTeamWorkspaceAuthoringControls {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                store.send(.enterTeamWorkspaceAuthoringButtonTapped)
+                            } label: {
+                                Label(
+                                    store.isTeamWorkspaceAuthoringEntryInFlight
+                                        ? "Preparing Workspace"
+                                        : "Enter Authoring",
+                                    systemImage: "square.and.pencil"
+                                )
+                            }
+                            .disabled(store.isTeamWorkspaceAuthoringEntryInFlight)
+                        }
+                    }
+                }
             }
     }
 

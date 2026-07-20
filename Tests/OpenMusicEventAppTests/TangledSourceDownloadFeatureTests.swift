@@ -49,6 +49,78 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func downloadedWorkspaceWaitsForManualAuthoringEntryBeforePreparingSource() async throws {
+        let database = try makePreparedDatabase()
+        let sourceBaselineID = SourceBaselineRecord.ID(
+            source: tangledSourceProvenance("manual-authoring-entry")
+        )
+        let authoringRequests = Mutex<[Authoring.Request]>([])
+        let preparedSourceBaselineIDs = Mutex<[SourceBaselineRecord.ID]>([])
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.authoringPolicy = AuthoringPolicyClient(
+                authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
+                authorize: { request in
+                    authoringRequests.withLock { $0.append(request) }
+                    return .all
+                },
+                mode: { _ in .authoring(.all) }
+            )
+            $0.sourceAuthoringEntry = .live
+            $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
+                preparedSourceBaselineIDs.withLock { $0.append(sourceBaselineID) }
+            }
+        } operation: {
+            TestStore(initialState: MyEvents.State()) {
+                MyEvents()
+            }
+        }
+
+        // Opening the downloaded workspace remains attendee-only even when policy allows authoring.
+        store.send(.didTapTeamWorkspace(sourceBaselineID))
+
+        #expect(store.state.teamWorkspaceDetail?.sourceBaselineID == sourceBaselineID)
+        #expect(store.state.teamWorkspaceAuthoringMode == .attendee)
+        #expect(!store.state.showsTeamWorkspaceAuthoringControls)
+        #expect(authoringRequests.withLock { $0.isEmpty })
+        #expect(preparedSourceBaselineIDs.withLock { $0.isEmpty })
+
+        // The explicit authoring action authorizes and promotes the archive to an editable source.
+        let entryTask = store.send(.enterTeamWorkspaceAuthoringButtonTapped) {
+            $0.isTeamWorkspaceAuthoringEntryInFlight = true
+        }
+        await store.receive(
+            \.enterTeamWorkspaceAuthoringAuthorized,
+            .matching { response in
+                response.0 == sourceBaselineID && response.1 == .all
+            },
+            timeout: .seconds(1)
+        ) {
+            $0.isTeamWorkspaceAuthoringEntryInFlight = false
+            $0.teamWorkspaceAuthoringMode = .authoring(.all)
+        }
+        await entryTask?.value
+
+        expectNoDifference(
+            authoringRequests.withLock { $0 },
+            [
+                Authoring.Request(
+                    subject: .sourceBaseline(sourceBaselineID),
+                    feature: .workspace,
+                    action: .enterAuthoring
+                )
+            ]
+        )
+        expectNoDifference(
+            preparedSourceBaselineIDs.withLock { $0 },
+            [sourceBaselineID]
+        )
+        #expect(store.state.showsTeamWorkspaceAuthoringControls)
+    }
+
+    @Test
     func myEventsFetchesTeamWorkspaces() async throws {
         let database = try makePreparedDatabase()
         let firstEventID = importedEventID("wicked-woods-2026")
@@ -1372,6 +1444,7 @@ struct TangledSourceDownloadFeatureTests {
     @Test
     func liveImportPreservesTangledRepositoryATURIAsSourceReference() async throws {
         let database = try makePreparedDatabase()
+        let archiveCheckoutRequests = ArchiveCheckoutRequestRecorder()
 
         let targetURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-source-repository-\(UUID().uuidString)")
@@ -1394,18 +1467,18 @@ struct TangledSourceDownloadFeatureTests {
             $0.defaultDatabase = database
             $0.uuid = .constant(uuid)
             $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-                expectNoDifference(
-                    request.repository,
-                    TangledRepositoryReference(
-                        host: "tangled.org",
-                        owner: "did:plc:5df2u7ief6m6tn77jznicxob",
-                        repository: "ome-workspace"
-                    )
-                )
-                #expect(request.ref == "HEAD")
-                #expect(request.outputURL == expectedTemporaryURL)
-                try writeMinimalSourceRepository(at: request.outputURL)
+                Issue.record("Initial source import should use the shared archive checkout, not \(request).")
                 return TangledSourceCheckout(repositoryURL: request.outputURL)
+            }
+            $0.httpClient = HTTPClient { request, _ in
+                await archiveCheckoutRequests.record(request)
+                return Data("archive".utf8)
+            }
+            $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient {
+                archiveData, outputURL in
+                #expect(archiveData == Data("archive".utf8))
+                #expect(outputURL == expectedTemporaryURL)
+                try writeMinimalSourceRepository(at: outputURL)
             }
             $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
                 repositoryURL: { provenance in
@@ -1433,6 +1506,15 @@ struct TangledSourceDownloadFeatureTests {
         #expect(result.repositoryURL == targetURL)
         #expect(sourceBaseline?.sourceReference == sourceReference)
         #expect(sourceBaseline?.ref == "HEAD")
+        let expectedArchiveURL = try TangledRepositoryReference(
+            sourceReference: sourceReference
+        )
+        .archiveURL(ref: "HEAD")
+        let archiveRequestURLs = await archiveCheckoutRequests.recordedURLs()
+        expectNoDifference(
+            archiveRequestURLs,
+            [expectedArchiveURL]
+        )
     }
 
     @Test
@@ -1572,6 +1654,7 @@ struct TangledSourceDownloadFeatureTests {
     @Test
     func sourceEditModePreparationStoresGitCheckoutForArchiveBackedTangledSource() async throws {
         let database = try makePreparedDatabase()
+        let ownerDID = try #require(DID("did:plc:owner123"))
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
             reference: "at://did:plc:owner123/sh.tangled.repo/wicked-woods-ome",
@@ -1610,7 +1693,7 @@ struct TangledSourceDownloadFeatureTests {
             }
             .execute(db)
         }
-        let checkoutRequests = Mutex([TangledSourceCheckoutRequest]())
+        let sourceControlRequests = SourceControlRequestRecorder()
         let checkoutUUID = try #require(
             UUID(uuidString: "00000000-0000-0000-0000-000000000005")
         )
@@ -1621,26 +1704,101 @@ struct TangledSourceDownloadFeatureTests {
             $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
             $0.sourceRepositoryStorage = .live
             $0.uuid = .constant(checkoutUUID)
-            $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-                checkoutRequests.withLock { $0.append(request) }
-                try writeMinimalSourceRepository(at: request.outputURL)
-                try FileManager.default.createDirectory(
-                    at: request.outputURL.appending(path: ".git"),
-                    withIntermediateDirectories: true
+            $0.tangledSourceCheckout = .archive
+            $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+                Credentials(
+                    ssh: SSHCredentials(
+                        publicKey: "ssh-ed25519 public-key Open Music Event",
+                        privateKey: "private-key"
+                    )
                 )
-                return TangledSourceCheckout(repositoryURL: request.outputURL)
             }
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    Issue.record("Authoring Git checkout should not resolve handle \(handle).")
+                    throw TangledSourceDownloadFeatureTestError.unexpectedAccountResolution
+                },
+                resolveDID: { did in
+                    #expect(did == ownerDID)
+                    return (
+                        Atmosphere.Account(id: .init(did), handle: "owner.example"),
+                        try didDocument(
+                            did: did,
+                            handle: "owner.example",
+                            pdsHost: "owner.pds.example"
+                        )
+                    )
+                }
+            )
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = .testClient { _, path, _ in
+                #expect(path.contains("/com.atproto.repo.listRecords"))
+                return Data(
+                    """
+                    {
+                      "records": [
+                        {
+                          "uri": "at://did:plc:owner123/sh.tangled.repo/wicked-woods-ome",
+                          "cid": "bafyreirepo",
+                          "value": {
+                            "$type": "sh.tangled.repo",
+                            "name": "wicked-woods-ome",
+                            "repoDid": "did:plc:workspace123",
+                            "knot": "tangled.org",
+                            "createdAt": "2026-07-21T12:00:00Z"
+                          }
+                        }
+                      ]
+                    }
+                    """
+                    .utf8
+                )
+            }
+            $0.sourceControl = SourceControlClient(
+                clone: { request in
+                    await sourceControlRequests.recordClone(request)
+                    try writeMinimalSourceRepository(at: request.destinationURL)
+                    try FileManager.default.createDirectory(
+                        at: request.destinationURL.appending(path: ".git"),
+                        withIntermediateDirectories: true
+                    )
+                    return Repository(url: request.destinationURL)
+                },
+                open: { url in
+                    await sourceControlRequests.recordOpen(url)
+                    return Repository(url: url)
+                },
+                fetch: { request in
+                    await sourceControlRequests.recordFetch(request)
+                },
+                checkout: { request in
+                    await sourceControlRequests.recordCheckout(request)
+                },
+                createBranch: { request in Branch(name: request.name) },
+                status: { _ in [] },
+                stage: { request in
+                    await sourceControlRequests.recordStage(request)
+                },
+                commit: { request in
+                    await sourceControlRequests.recordCommit(request)
+                    return Commit(id: "abc123")
+                },
+                formatPatch: { _ in Data() },
+                push: { request in
+                    await sourceControlRequests.recordPush(request)
+                }
+            )
         } operation: {
             try await SourceEditModePreparationClient.live.prepare(sourceBaselineID)
         }
 
-        let checkoutRequest = try #require(checkoutRequests.withLock { $0.first })
-        #expect(checkoutRequest.repository == TangledRepositoryReference(
-            host: "tangled.org",
-            owner: "did:plc:owner123",
-            repository: "wicked-woods-ome"
-        ))
-        #expect(checkoutRequest.ref == "main")
+        let cloneRequest = try #require(await sourceControlRequests.cloneRequests.first)
+        #expect(
+            cloneRequest.destinationURL
+                == SourceRepositoryStorageClient.temporaryDownloadURL(uuid: checkoutUUID)
+        )
+        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:workspace123")
+        #expect(cloneRequest.checkout == "main")
         #expect(
             FileManager.default.fileExists(atPath: storedRepositoryURL.appending(path: ".git").path)
         )
@@ -2199,6 +2357,20 @@ private actor SourceControlRequestRecorder {
 
     func recordPush(_ request: PushRequest) {
         pushRequests.append(request)
+    }
+}
+
+private actor ArchiveCheckoutRequestRecorder {
+    var urls: [URL] = []
+
+    func recordedURLs() -> [URL] {
+        urls
+    }
+
+    func record(_ request: HTTPRequest) {
+        if let url = request.url {
+            urls.append(url)
+        }
     }
 }
 

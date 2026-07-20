@@ -33,7 +33,8 @@ public struct OpenMusicEventAppRoot {
                 ) {
                     Spawn(.route(
                         eventID: selectedEventIDAtLaunch,
-                        target: nil
+                        target: nil,
+                        authoringMode: .attendee
                     ))
                 }
             }
@@ -141,7 +142,7 @@ public struct OpenMusicEventAppRoot {
             }
 
             guard target?.eventFeature.isEditorFeature == true else {
-                openEventViewer(eventID, target, nil, &state)
+                openEventViewer(eventID, target, .attendee, &state)
                 return
             }
 

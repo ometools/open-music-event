@@ -275,6 +275,9 @@
     "Done" : {
 
     },
+    "Downloading the editable source." : {
+
+    },
     "Durable Details" : {
 
     },
@@ -294,9 +297,6 @@
 
     },
     "Enter Authoring" : {
-
-    },
-    "Entering Authoring" : {
 
     },
     "Error Handling" : {
@@ -587,6 +587,9 @@
       }
     },
     "Preparing Team Workspace" : {
+
+    },
+    "Preparing workspace" : {
 
     },
     "Preparing Workspace" : {

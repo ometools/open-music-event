@@ -74,14 +74,13 @@ public struct WhiteLabelRoot {
         public var sourceBaselineIDs: [SourceBaselineRecord.ID]
     }
 
-    @Dependency(\.authoringPolicy) var authoringPolicy
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.openMusicEventStoredAuthentication) var storedAuthentication
+    @Dependency(\.sourceAuthoringEntry) var sourceAuthoringEntry
     @Dependency(\.whiteLabelDevelopmentSourceOverride) var developmentSourceOverride
     @Dependency(\.whiteLabelOrganizerIdentityResolver) var identityResolver
     @Dependency(\.whiteLabelSourceImport) var sourceImport
     @Dependency(\.whiteLabelSourceRegistry) var sourceRegistry
-    @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
 
     public var body: some Feature {
 //        let _ = Self._logChanges()
@@ -89,11 +88,11 @@ public struct WhiteLabelRoot {
         Update { state, action in
             switch action {
             case .accountManagementButtonTapped:
-                state.refreshAuthoringMode()
+                state.refreshAuthoringRequirement()
                 state.isAccountManagementPresented = true
 
             case .accountManagementDoneButtonTapped:
-                state.refreshAuthoringMode()
+                state.refreshAuthoringRequirement()
                 state.isAccountManagementPresented = false
 
             case let .enterAuthoringAuthorizationFailed(subject):
@@ -104,28 +103,22 @@ public struct WhiteLabelRoot {
                 state.isAuthoringAuthorizationInFlight = false
                 guard state.authoringSubject == subject else { return }
                 state.authoringMode = .authoring(scope)
-                if case let .sourceBaseline(sourceBaselineID) = subject {
-                    let sourceEditModePreparation = sourceEditModePreparation
-                    store.addTask {
-                        try? await sourceEditModePreparation.prepare(sourceBaselineID)
-                    }
-                }
 
             case .enterAuthoringButtonTapped:
                 guard !state.isAuthoringAuthorizationInFlight,
                       let authoringSubject = state.authoringSubject
                 else { return }
-                state.refreshAuthoringMode()
+                state.refreshAuthoringRequirement()
                 guard !state.showsAuthoringControls else { return }
 
-                let authoringPolicy = authoringPolicy
+                let sourceAuthoringEntry = sourceAuthoringEntry
                 state.isAuthoringAuthorizationInFlight = true
                 store.addTask {
                     let scope = await store.withErrorHandling(
                         fallbackMessage: .authoringAuthorizationFailed,
                         operation: .authoringAuthorization
                     ) {
-                        try await authoringPolicy.authorize(
+                        try await sourceAuthoringEntry.enter(
                             Authoring.Request(
                                 subject: authoringSubject,
                                 feature: .workspace,
@@ -149,7 +142,7 @@ public struct WhiteLabelRoot {
                     organizerID: loadedRoot.organizerID,
                     sourceBaselineIDs: loadedRoot.sourceBaselineIDs
                 )
-                state.refreshAuthoringMode()
+                state.refreshAuthoringRequirement()
 
             case .retryButtonTapped:
                 guard !state.isLoading else { return }
@@ -271,7 +264,7 @@ public struct WhiteLabelRoot {
                         organizerID: cachedOrganizerID,
                         sourceBaselineIDs: sourceBaselineIDs
                     )
-                    $0.refreshAuthoringMode()
+                    $0.refreshAuthoringRequirement()
                 } else {
                     $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
                 }
@@ -414,6 +407,11 @@ public struct WhiteLabelRootView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if store.isAuthoringAuthorizationInFlight {
+                AuthoringPreparationStatus()
+            }
+        }
         .sheet(isPresented: $store.isAccountManagementPresented) {
             WhiteLabelRootAccountManagementView(
                 store: store,
@@ -496,6 +494,27 @@ public struct WhiteLabelRootView: View {
             }
         }
     }
+
+    struct AuthoringPreparationStatus: View {
+        var body: some View {
+            HStack(alignment: .top, spacing: 12) {
+                ProgressView()
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Preparing workspace")
+                        .font(.footnote.weight(.semibold))
+                    Text("Downloading the editable source.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+            .background(.bar)
+            .accessibilityElement(children: .combine)
+        }
+    }
 }
 
 struct WhiteLabelRootActionsMenu: View {
@@ -510,7 +529,7 @@ struct WhiteLabelRootActionsMenu: View {
                 } label: {
                     Label(
                         store.isAuthoringAuthorizationInFlight
-                            ? "Entering Authoring"
+                            ? "Preparing Workspace"
                             : "Enter Authoring",
                         systemImage: "square.and.pencil"
                     )
@@ -593,16 +612,14 @@ extension View {
 }
 
 private extension WhiteLabelRoot.State {
-    mutating func refreshAuthoringMode() {
+    mutating func refreshAuthoringRequirement() {
         @Dependency(\.authoringPolicy) var authoringPolicy
 
         guard let authoringSubject else {
-            authoringMode = .attendee
             account.state.authRequirement = OpenMusicEventOAuth.baseAuthRequirement
             return
         }
 
-        authoringMode = (try? authoringPolicy.mode(authoringSubject)) ?? .attendee
         account.state.authRequirement = (
             try? authoringPolicy.authenticate(authoringSubject)
         ) ?? OpenMusicEventOAuth.baseAuthRequirement
