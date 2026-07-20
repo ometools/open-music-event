@@ -3,13 +3,14 @@ import Foundation
 import GRDB
 import OpenMusicEventLexicon
 import SourceEditing
+import SQLiteData
 
 public extension OME {
     static var sourceMetadataRecordTypes: [AnySourceEditableRecordType] {
         [
             Calendar.sourceRecordType(
-                semanticFields: [
-                    .imageArray(columnName: "images")
+                columnPolicies: [
+                    \.images: .imageArray
                 ]
             ),
         ]
@@ -30,26 +31,26 @@ public extension OME {
     static var sourceRecordTypes: [AnySourceEditableRecordType] {
         [
             Event.sourceRecordType(
-                semanticFields: [
-                    .imageArray(columnName: "images")
+                columnPolicies: [
+                    \.images: .imageArray
                 ]
             ),
             Stage.sourceRecordType(
-                semanticFields: [
-                    .imageArray(columnName: "images")
+                columnPolicies: [
+                    \.images: .imageArray
                 ]
             ),
             Contributor.sourceRecordType(
-                semanticFields: [
-                    .imageArray(columnName: "images")
+                columnPolicies: [
+                    \.images: .imageArray
                 ]
             ),
             Schedule.sourceRecordType,
             Performance.sourceRecordType,
             Channel.sourceRecordType,
             Poster.sourceRecordType(
-                semanticFields: [
-                    .image(columnName: "image")
+                columnPolicies: [
+                    \.image: .image
                 ]
             ),
         ]
@@ -72,91 +73,6 @@ extension OME.Schedule: SourceEditableTable {}
 extension OME.Performance: SourceEditableTable {}
 extension OME.Channel: SourceEditableTable {}
 extension OME.Poster: SourceEditableTable {}
-
-private extension SourceEditableTable where QueryOutput: Sendable {
-    static func sourceRecordType(
-        semanticFields: [SourceSemanticFieldNormalizer]
-    ) -> AnySourceEditableRecordType {
-        let genericRecordType = Self.sourceRecordType
-        let semanticFieldsByColumnName = Dictionary(
-            uniqueKeysWithValues: semanticFields.map { ($0.columnName, $0) }
-        )
-
-        return AnySourceEditableRecordType(
-            descriptor: sourceDescriptor,
-            resolveRecordChange: { change, db, baselineSchemaName in
-                var retainedFieldChanges: [SourceFieldChange] = []
-                var genericFieldChanges: [SourceFieldChange] = []
-                var semanticFieldDiffs: [String] = []
-
-                for fieldChange in change.fieldChanges {
-                    if let semanticField = semanticFieldsByColumnName[fieldChange.columnName] {
-                        guard !semanticField.valuesAreEqual(fieldChange) else { continue }
-                        retainedFieldChanges.append(fieldChange)
-                        if let fieldDiff = semanticField.diff(fieldChange), !fieldDiff.isEmpty {
-                            semanticFieldDiffs.append(fieldDiff)
-                        }
-                    } else {
-                        retainedFieldChanges.append(fieldChange)
-                        genericFieldChanges.append(fieldChange)
-                    }
-                }
-
-                guard !retainedFieldChanges.isEmpty else {
-                    return nil
-                }
-
-                var genericRecordDiff: String?
-                if !genericFieldChanges.isEmpty {
-                    var genericChange = change
-                    genericChange.fieldChanges = genericFieldChanges
-                    let resolvedGenericChange = try genericRecordType
-                        .resolveRecordChange(genericChange, db, baselineSchemaName)
-                    genericRecordDiff = resolvedGenericChange?.recordDiff
-                }
-
-                var resolvedChange = change
-                resolvedChange.fieldChanges = retainedFieldChanges
-
-                let recordDiffs = ([genericRecordDiff].compactMap(\.self) + semanticFieldDiffs)
-                    .filter { !$0.isEmpty }
-                if !recordDiffs.isEmpty {
-                    resolvedChange.recordDiff = recordDiffs.joined(separator: "\n")
-                } else if !genericFieldChanges.isEmpty {
-                    resolvedChange.recordDiff = genericRecordDiff
-                } else {
-                    resolvedChange.recordDiff = nil
-                }
-                return resolvedChange
-            },
-            recordComparison: { change, db, baselineSchemaName in
-                try genericRecordType.recordComparison(change, db, baselineSchemaName)
-            }
-        )
-    }
-}
-
-private struct SourceSemanticFieldNormalizer {
-    var columnName: String
-    var valuesAreEqual: (SourceFieldChange) -> Bool
-    var diff: (SourceFieldChange) -> String?
-
-    static func imageArray(columnName: String) -> Self {
-        Self(
-            columnName: columnName,
-            valuesAreEqual: sourceImageArraysAreEqual(columnName: columnName),
-            diff: sourceImageArrayFieldDiff(columnName: columnName)
-        )
-    }
-
-    static func image(columnName: String) -> Self {
-        Self(
-            columnName: columnName,
-            valuesAreEqual: sourceImagesAreEqual(columnName: columnName),
-            diff: sourceImageFieldDiff(columnName: columnName)
-        )
-    }
-}
 
 private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, Sendable {
     var assetKey: String?
@@ -279,82 +195,6 @@ private func sourceComparableImages(
     images?.map(\.sourceComparable)
 }
 
-private struct SourceComparableImageColumn<Value: Sendable>: CustomDumpRepresentable, Sendable {
-    var columnName: String
-    var value: Value
-
-    var customDumpValue: Any {
-        (
-            columnName: columnName,
-            value: value
-        )
-    }
-}
-
-private func sourceImageArraysAreEqual(
-    columnName: String
-) -> (SourceFieldChange) -> Bool {
-    { fieldChange in
-        guard fieldChange.columnName == columnName else { return false }
-        let baselineImages = sourceComparableImages(fieldChange.baselineValue)
-        let workingImages = sourceComparableImages(fieldChange.workingValue)
-        if baselineImages == nil, workingImages == nil {
-            return fieldChange.baselineValue == fieldChange.workingValue
-        }
-        return baselineImages == workingImages
-    }
-}
-
-private func sourceImagesAreEqual(
-    columnName: String
-) -> (SourceFieldChange) -> Bool {
-    { fieldChange in
-        guard fieldChange.columnName == columnName else { return false }
-        let baselineImage = sourceComparableImage(fieldChange.baselineValue)
-        let workingImage = sourceComparableImage(fieldChange.workingValue)
-        if baselineImage == nil, workingImage == nil {
-            return fieldChange.baselineValue == fieldChange.workingValue
-        }
-        return baselineImage == workingImage
-    }
-}
-
-private func sourceImageArrayFieldDiff(
-    columnName: String
-) -> (SourceFieldChange) -> String? {
-    { fieldChange in
-        guard fieldChange.columnName == columnName else { return nil }
-        return diff(
-            SourceComparableImageColumn(
-                columnName: columnName,
-                value: sourceComparableImages(fieldChange.baselineValue)
-            ),
-            SourceComparableImageColumn(
-                columnName: columnName,
-                value: sourceComparableImages(fieldChange.workingValue)
-            )
-        )
-    }
-}
-
-private func sourceImageFieldDiff(
-    columnName: String
-) -> (SourceFieldChange) -> String? {
-    { fieldChange in
-        guard fieldChange.columnName == columnName else { return nil }
-        return diff(
-            SourceComparableImageColumn(
-                columnName: columnName,
-                value: sourceComparableImage(fieldChange.baselineValue)
-            ),
-            SourceComparableImageColumn(
-                columnName: columnName,
-                value: sourceComparableImage(fieldChange.workingValue)
-            )
-        )
-    }
-}
-
 private func sourceComparableImages(
     _ value: DatabaseValue?
 ) -> [SourceComparableImageAsset]? {
@@ -369,6 +209,20 @@ private func sourceComparableImage(
 ) -> SourceComparableImageAsset? {
     decodeJSONValue(OME.ImageAsset.self, from: value)?
         .sourceComparable
+}
+
+private extension SourceColumnPolicy {
+    static var imageArray: Self {
+        .comparing(
+            decode: sourceComparableImages
+        )
+    }
+
+    static var image: Self {
+        .comparing(
+            decode: sourceComparableImage
+        )
+    }
 }
 
 private func decodeJSONValue<Value: Decodable>(

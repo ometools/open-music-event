@@ -5,22 +5,37 @@ import GRDB
 import SQLiteData
 
 public protocol SourceEditableTable: PrimaryKeyedTable {
-    static var sourceIgnoredColumnNames: Set<String> { get }
     static var sourceDisplayName: String { get }
 }
 
-public extension SourceEditableTable {
-    static var sourceIgnoredColumnNames: Set<String> { [] }
+public typealias SourceColumnPolicies<Table: SourceEditableTable> = [
+    PartialKeyPath<Table.TableColumns>: SourceColumnPolicy
+]
 
+public extension SourceEditableTable {
     static var sourceDisplayName: String {
         String(describing: Self.self)
     }
 
     static var sourceDescriptor: SourceTableDescriptor {
+        sourceDescriptor(columnPolicies: [:])
+    }
+
+    static func sourceDescriptor(
+        columnPolicies: SourceColumnPolicies<Self>
+    ) -> SourceTableDescriptor {
         let primaryKeyColumns = columns.primaryKey._names
         let resetColumnNames = TableColumns.writableColumns.flatMap(\._names)
 
-        let excludedColumns = Set(primaryKeyColumns).union(sourceIgnoredColumnNames)
+        let ignoredColumnNames = Set(
+            columnPolicies
+                .compactMap { column, policy in
+                    policy.ignoresColumn
+                        ? sourceColumnName(for: column)
+                        : nil
+                }
+        )
+        let excludedColumns = Set(primaryKeyColumns).union(ignoredColumnNames)
         let comparedColumns = resetColumnNames
             .filter { !excludedColumns.contains($0) }
 
@@ -31,6 +46,106 @@ public extension SourceEditableTable {
             comparedColumns: comparedColumns,
             resetColumnNames: resetColumnNames,
             displayName: sourceDisplayName
+        )
+    }
+
+    fileprivate static func sourceColumnName(
+        for column: PartialKeyPath<TableColumns>
+    ) -> String {
+        guard let columnExpression = columns[keyPath: column] as? any _TableColumnExpression else {
+            preconditionFailure(
+                "Source column policies must be keyed by table columns."
+            )
+        }
+
+        let columnNames = columnExpression._names
+        precondition(
+            columnNames.count == 1,
+            "Source column policies must reference exactly one column."
+        )
+        return columnNames[0]
+    }
+}
+
+public enum SourceColumnPolicyResolution: Sendable {
+    case ignored
+    case unchanged
+    case changed(recordDiff: String?)
+    case useRawComparison
+}
+
+public struct SourceColumnPolicy: Sendable {
+    public var ignoresColumn: Bool
+    public var resolve: @Sendable (SourceFieldChange) -> SourceColumnPolicyResolution
+
+    public init(
+        resolve: @escaping @Sendable (SourceFieldChange) -> SourceColumnPolicyResolution
+    ) {
+        self.init(
+            ignoresColumn: false,
+            resolve: resolve
+        )
+    }
+
+    public static var ignore: Self {
+        Self(
+            ignoresColumn: true
+        ) { _ in
+            .ignored
+        }
+    }
+
+    public static func comparing<Value>(
+        decode: @escaping @Sendable (DatabaseValue?) -> Value?
+    ) -> Self
+    where
+        Value: Equatable & Sendable
+    {
+        return Self(
+            ignoresColumn: false
+        ) { fieldChange in
+            let baseline = decode(fieldChange.baselineValue)
+            let working = decode(fieldChange.workingValue)
+            if baseline == nil, working == nil {
+                return .useRawComparison
+            }
+
+            guard baseline != working else {
+                return .unchanged
+            }
+
+            return .changed(
+                recordDiff: diff(
+                    SourceColumnPolicyComparisonValue(
+                        columnName: fieldChange.columnName,
+                        value: baseline
+                    ),
+                    SourceColumnPolicyComparisonValue(
+                        columnName: fieldChange.columnName,
+                        value: working
+                    )
+                )
+            )
+        }
+    }
+
+    private init(
+        ignoresColumn: Bool,
+        resolve: @escaping @Sendable (SourceFieldChange) -> SourceColumnPolicyResolution
+    ) {
+        self.ignoresColumn = ignoresColumn
+        self.resolve = resolve
+    }
+}
+
+private struct SourceColumnPolicyComparisonValue<Value: Sendable>: Sendable, CustomDumpRepresentable {
+    var columnName: String
+    var value: Value?
+
+    var customDumpValue: Any {
+        (
+            columnName: columnName,
+            value: value
         )
     }
 }
@@ -113,8 +228,92 @@ public struct AnySourceEditableRecordType {
 
 public extension SourceEditableTable where QueryOutput: Sendable {
     static var sourceRecordType: AnySourceEditableRecordType {
+        sourceRecordType(columnPolicies: [:])
+    }
+
+    static func sourceRecordType(
+        columnPolicies: SourceColumnPolicies<Self>
+    ) -> AnySourceEditableRecordType {
+        let descriptor = sourceDescriptor(columnPolicies: columnPolicies)
+        let rawRecordType = rawSourceRecordType(descriptor: descriptor)
+        let policiesByColumnName = Dictionary(
+            uniqueKeysWithValues: columnPolicies.map { column, policy in
+                (sourceColumnName(for: column), policy)
+            }
+        )
+
+        guard !policiesByColumnName.isEmpty else {
+            return rawRecordType
+        }
+
+        return AnySourceEditableRecordType(
+            descriptor: descriptor,
+            resolveRecordChange: { change, db, baselineSchemaName in
+                var retainedFieldChanges: [SourceFieldChange] = []
+                var rawFieldChanges: [SourceFieldChange] = []
+                var policyRecordDiffs: [String] = []
+
+                for fieldChange in change.fieldChanges {
+                    guard let policy = policiesByColumnName[fieldChange.columnName] else {
+                        retainedFieldChanges.append(fieldChange)
+                        rawFieldChanges.append(fieldChange)
+                        continue
+                    }
+
+                    switch policy.resolve(fieldChange) {
+                    case .ignored, .unchanged:
+                        continue
+
+                    case let .changed(recordDiff):
+                        retainedFieldChanges.append(fieldChange)
+                        if let recordDiff, !recordDiff.isEmpty {
+                            policyRecordDiffs.append(recordDiff)
+                        }
+
+                    case .useRawComparison:
+                        retainedFieldChanges.append(fieldChange)
+                        rawFieldChanges.append(fieldChange)
+                    }
+                }
+
+                guard !retainedFieldChanges.isEmpty else {
+                    return nil
+                }
+
+                var rawRecordDiff: String?
+                if !rawFieldChanges.isEmpty {
+                    var rawChange = change
+                    rawChange.fieldChanges = rawFieldChanges
+                    let resolvedRawChange = try rawRecordType
+                        .resolveRecordChange(rawChange, db, baselineSchemaName)
+                    rawRecordDiff = resolvedRawChange?.recordDiff
+                }
+
+                var resolvedChange = change
+                resolvedChange.fieldChanges = retainedFieldChanges
+
+                let recordDiffs = ([rawRecordDiff].compactMap(\.self) + policyRecordDiffs)
+                    .filter { !$0.isEmpty }
+                if !recordDiffs.isEmpty {
+                    resolvedChange.recordDiff = recordDiffs.joined(separator: "\n")
+                } else if !rawFieldChanges.isEmpty {
+                    resolvedChange.recordDiff = rawRecordDiff
+                } else {
+                    resolvedChange.recordDiff = nil
+                }
+                return resolvedChange
+            },
+            recordComparison: { change, db, baselineSchemaName in
+                try rawRecordType.recordComparison(change, db, baselineSchemaName)
+            }
+        )
+    }
+
+    private static func rawSourceRecordType(
+        descriptor: SourceTableDescriptor
+    ) -> AnySourceEditableRecordType {
         AnySourceEditableRecordType(
-            descriptor: sourceDescriptor,
+            descriptor: descriptor,
             recordDiff: { change, db, baselineSchemaName in
                 let includedColumnNames = Set(
                     change.fieldChanges.map(\.columnName)

@@ -14,12 +14,22 @@ private struct Todo: Equatable, Sendable, Identifiable, SourceEditableTable {
     var note: String?
     var localCache: String?
 
-    static var sourceIgnoredColumnNames: Set<String> {
-        ["localCache"]
-    }
-
     static var sourceDisplayName: String {
         "Todo"
+    }
+}
+
+private extension Todo {
+    static var sourceColumnPolicies: SourceColumnPolicies<Self> {
+        [\.localCache: .ignore]
+    }
+
+    static var sourceEditingDescriptor: SourceTableDescriptor {
+        sourceDescriptor(columnPolicies: sourceColumnPolicies)
+    }
+
+    static var sourceEditingRecordType: AnySourceEditableRecordType {
+        sourceRecordType(columnPolicies: sourceColumnPolicies)
     }
 }
 
@@ -50,7 +60,7 @@ struct SourceEditingTests {
     @Test
     func descriptorDerivesTableMetadata() {
         expectNoDifference(
-            Todo.sourceDescriptor,
+            Todo.sourceEditingDescriptor,
             SourceTableDescriptor(
                 id: "todos",
                 tableName: "todos",
@@ -230,7 +240,7 @@ struct SourceEditingTests {
 
         let summary = try fixture.typedSummary(
             recordTypes: [
-                Todo.sourceRecordType,
+                Todo.sourceEditingRecordType,
                 TodoLabel.sourceRecordType,
             ],
             scope: listScope("list-1")
@@ -334,7 +344,7 @@ struct SourceEditingTests {
         let summary = try fixture.typedSummary(
             recordTypes: [
                 AnySourceEditableRecordType(
-                    descriptor: Todo.sourceDescriptor,
+                    descriptor: Todo.sourceEditingDescriptor,
                     resolveRecordChange: { _, _, _ in nil }
                 )
             ],
@@ -405,7 +415,7 @@ struct SourceEditingTests {
             $0.sourceEditingSession = session
         } operation: {
             try SourceEditingComparer().summary(
-                descriptors: [Todo.sourceDescriptor],
+                descriptors: [Todo.sourceEditingDescriptor],
                 scope: listScope("list-1")
             )
         }
@@ -495,7 +505,7 @@ struct SourceEditingTests {
         )
 
         try session.reset(
-            descriptors: [Todo.sourceDescriptor],
+            descriptors: [Todo.sourceEditingDescriptor],
             scope: listScope("list-1")
         )
 
@@ -504,7 +514,7 @@ struct SourceEditingTests {
             $0.sourceEditingSession = session
         } operation: {
             try SourceEditingComparer().summary(
-                descriptors: [Todo.sourceDescriptor],
+                descriptors: [Todo.sourceEditingDescriptor],
                 scope: listScope("list-1")
             )
         }
@@ -723,14 +733,14 @@ private final class SourceEditingFixture {
             $0.defaultBaselineDatabase = baselineDatabase
         } operation: {
             try SourceEditingComparer().summary(
-                descriptors: [Todo.sourceDescriptor],
+                descriptors: [Todo.sourceEditingDescriptor],
                 scope: scope
             )
         }
     }
 
     func typedSummary(
-        recordTypes: [AnySourceEditableRecordType] = [Todo.sourceRecordType],
+        recordTypes: [AnySourceEditableRecordType] = [Todo.sourceEditingRecordType],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
         try withDependencies {
