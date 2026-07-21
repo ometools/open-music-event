@@ -707,7 +707,6 @@ struct ScheduleManyStagesStageRail: View {
     let width: CGFloat
     let laneHeight: CGFloat
 
-    @Environment(\.colorScheme) var colorScheme
     @Environment(\.showStageNameLabels) var showStageNameLabels
 
     var body: some View {
@@ -721,17 +720,7 @@ struct ScheduleManyStagesStageRail: View {
             }
         }
         .frame(width: width, alignment: .top)
-        .background(alignment: .leading) {
-            LinearGradient(
-                colors: [
-                    railBackgroundColor,
-                    railBackgroundColor.opacity(0.64),
-                    railBackgroundColor.opacity(0.0),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        }
+        .background(.regularMaterial)
     }
 
     func stageRailCell(for stage: OMERecord.Stage) -> some View {
@@ -776,14 +765,4 @@ struct ScheduleManyStagesStageRail: View {
         HourLabelsHeightPreferenceKey.defaultValue
     }
 
-    var railBackgroundColor: Color {
-        switch colorScheme {
-        case .dark:
-            return .black
-        case .light:
-            return .white
-        @unknown default:
-            return .clear
-        }
-    }
 }
