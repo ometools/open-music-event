@@ -653,14 +653,14 @@ struct ScheduleManyStagesLaneHeader: View {
             ScheduleStageIcon(stage: stage)
                 .frame(width: stageIconSize, height: stageIconSize)
                 .padding(stageIconPadding)
-                .foregroundStyle(.white)
+                .foregroundStyle(stage.color.swiftUIColor)
                 .background {
                     Circle()
-                        .fill(stage.color.swiftUIColor.opacity(0.22))
+                        .fill(stage.color.swiftUIColor.opacity(stageIconFillOpacity))
                         .overlay {
                             Circle()
                                 .stroke(
-                                    stage.color.swiftUIColor.opacity(0.38),
+                                    stage.color.swiftUIColor.opacity(stageIconStrokeOpacity),
                                     lineWidth: 1
                                 )
                         }
@@ -693,6 +693,14 @@ struct ScheduleManyStagesLaneHeader: View {
         showStageNameLabels ? 112 : 76
     }
 
+    var stageIconFillOpacity: CGFloat {
+        0.12
+    }
+
+    var stageIconStrokeOpacity: CGFloat {
+        0.28
+    }
+
     var stageLaneWidth: CGFloat {
         guard !stages.isEmpty else { return minimumStageLaneWidth }
         return max(
@@ -707,6 +715,7 @@ struct ScheduleManyStagesStageRail: View {
     let width: CGFloat
     let laneHeight: CGFloat
 
+    @Environment(\.colorScheme) var colorScheme
     @Environment(\.showStageNameLabels) var showStageNameLabels
 
     var body: some View {
@@ -720,7 +729,29 @@ struct ScheduleManyStagesStageRail: View {
             }
         }
         .frame(width: width, alignment: .top)
-        .background(.regularMaterial)
+        .background(alignment: .leading) {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        railBackgroundColor,
+                        railBackgroundColor.opacity(0.64),
+                        railBackgroundColor.opacity(0.0),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .mask {
+                        LinearGradient(
+                            colors: [.white.opacity(0.42), .white.opacity(0.14), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    }
+            }
+        }
     }
 
     func stageRailCell(for stage: OMERecord.Stage) -> some View {
@@ -728,14 +759,14 @@ struct ScheduleManyStagesStageRail: View {
             ScheduleStageIcon(stage: stage)
                 .frame(width: stageIconSize, height: stageIconSize)
                 .padding(stageIconPadding)
-                .foregroundStyle(.white)
+                .foregroundStyle(stage.color.swiftUIColor)
                 .background {
                     Circle()
-                        .fill(stage.color.swiftUIColor.opacity(0.22))
+                        .fill(stage.color.swiftUIColor.opacity(stageIconFillOpacity))
                         .overlay {
                             Circle()
                                 .stroke(
-                                    stage.color.swiftUIColor.opacity(0.38),
+                                    stage.color.swiftUIColor.opacity(stageIconStrokeOpacity),
                                     lineWidth: 1
                                 )
                         }
@@ -765,4 +796,22 @@ struct ScheduleManyStagesStageRail: View {
         HourLabelsHeightPreferenceKey.defaultValue
     }
 
+    var stageIconFillOpacity: CGFloat {
+        0.12
+    }
+
+    var stageIconStrokeOpacity: CGFloat {
+        0.28
+    }
+
+    var railBackgroundColor: Color {
+        switch colorScheme {
+        case .dark:
+            return .black
+        case .light:
+            return .white
+        @unknown default:
+            return .clear
+        }
+    }
 }

@@ -72,7 +72,6 @@ public struct WhiteLabelRoot {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.openMusicEventStoredAuthentication) var storedAuthentication
     @Dependency(\.sourceAuthoringEntry) var sourceAuthoringEntry
     @Dependency(\.whiteLabelDevelopmentSourceOverride) var developmentSourceOverride
     @Dependency(\.whiteLabelOrganizerIdentityResolver) var identityResolver
@@ -131,7 +130,6 @@ public struct WhiteLabelRoot {
                     organizerID: loadedRoot.organizerID,
                     sourceBaselineIDs: loadedRoot.sourceBaselineIDs
                 )
-                state.refreshAuthoringMode()
                 state.refreshAuthoringRequirement()
 
             case .retryButtonTapped:
@@ -246,7 +244,6 @@ public struct WhiteLabelRoot {
                         organizerID: cachedOrganizerID,
                         sourceBaselineIDs: sourceBaselineIDs
                     )
-                    $0.refreshAuthoringMode()
                     $0.refreshAuthoringRequirement()
                 } else {
                     $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
@@ -555,17 +552,6 @@ extension View {
 }
 
 private extension WhiteLabelRoot.State {
-    mutating func refreshAuthoringMode() {
-        @Dependency(\.authoringPolicy) var authoringPolicy
-
-        guard let authoringSubject else {
-            authoringMode = .attendee
-            return
-        }
-
-        authoringMode = (try? authoringPolicy.mode(authoringSubject)) ?? .attendee
-    }
-
     mutating func refreshAuthoringRequirement() {
         @Dependency(\.authoringPolicy) var authoringPolicy
 
