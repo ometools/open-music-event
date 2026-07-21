@@ -42,8 +42,14 @@ public extension TangledSourceCheckoutClient {
     static var archive: Self {
         Self { request in
             try TangledSourceArchiveExtractor.validateOutputDoesNotExist(request.outputURL)
+            var repository = request.repository
+            if let ownerDID = DID(repository.owner) {
+                @Dependency(Atmosphere.Account.Client.self) var accountClient
+                let (account, _) = try await accountClient.resolveDID(ownerDID)
+                repository.owner = account.handle.rawValue
+            }
             try await TangledSourceCloner(
-                repository: request.repository,
+                repository: repository,
                 ref: request.ref,
                 outputURL: request.outputURL
             )
