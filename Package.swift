@@ -5,11 +5,18 @@ import PackageDescription
 
 #if os(macOS)
 let skipstonePlugins: [Target.PluginUsage] = [.plugin(name: "skipstone", package: "skip")]
+let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+func packagePath(_ relativePath: String) -> String {
+    URL(fileURLWithPath: relativePath, relativeTo: packageDirectory)
+        .standardizedFileURL
+        .path
+}
 let skipSharingPath = [
     "../../swift-packages/3rd-party/skip/skip-sharing",
     "../../../swift-packages/3rd-party/skip/skip-sharing",
-].first { FileManager.default.fileExists(atPath: $0) }
-    ?? "../../swift-packages/3rd-party/skip/skip-sharing"
+].map(packagePath)
+    .first { FileManager.default.fileExists(atPath: $0) }
+    ?? packagePath("../../swift-packages/3rd-party/skip/skip-sharing")
 #else
 let skipstonePlugins: [Target.PluginUsage] = []
 #endif

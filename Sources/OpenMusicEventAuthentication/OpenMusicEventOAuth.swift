@@ -26,6 +26,11 @@ public struct OpenMusicEventStoredAuthenticationClient: Sendable {
     }
 }
 
+private enum OpenMusicEventAutomaticStoredAuthenticationRefreshKey: DependencyKey {
+    static var liveValue: Bool { true }
+    static var testValue: Bool { true }
+}
+
 private enum OpenMusicEventStoredAuthenticationClientKey: DependencyKey {
     static var liveValue: OpenMusicEventStoredAuthenticationClient {
         OpenMusicEventStoredAuthenticationClient {
@@ -39,6 +44,11 @@ private enum OpenMusicEventStoredAuthenticationClientKey: DependencyKey {
 }
 
 public extension DependencyValues {
+    var openMusicEventAutomaticallyRefreshesStoredAuthentication: Bool {
+        get { self[OpenMusicEventAutomaticStoredAuthenticationRefreshKey.self] }
+        set { self[OpenMusicEventAutomaticStoredAuthenticationRefreshKey.self] = newValue }
+    }
+
     var openMusicEventStoredAuthentication: OpenMusicEventStoredAuthenticationClient {
         get { self[OpenMusicEventStoredAuthenticationClientKey.self] }
         set { self[OpenMusicEventStoredAuthenticationClientKey.self] = newValue }

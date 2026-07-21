@@ -184,15 +184,7 @@ public struct WhiteLabelRoot {
         let identityResolver = self.identityResolver
         let sourceImport = self.sourceImport
         let sourceRegistry = self.sourceRegistry
-        let storedAuthentication = self.storedAuthentication
         store.addTask {
-            let _: Void? = await store.withErrorHandling(
-                fallbackMessage: .storedAuthenticationLoadFailed,
-                operation: .storedAuthenticationLoad
-            ) {
-                try await storedAuthentication.enforceFreshness()
-            }
-
             let loadedRoot = await store.withErrorHandling(
                 fallbackMessage: .whiteLabelLoadFailed,
                 operation: .whiteLabelLoad

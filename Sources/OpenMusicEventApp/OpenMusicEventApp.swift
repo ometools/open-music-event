@@ -209,6 +209,10 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
     }
 
     private func enforceStoredAuthenticationFreshness() {
+        @Dependency(\.openMusicEventAutomaticallyRefreshesStoredAuthentication)
+        var automaticallyRefreshesStoredAuthentication
+
+        guard automaticallyRefreshesStoredAuthentication else { return }
         Task {
             try? await OpenMusicEventOAuth.enforceStoredAuthenticationFreshness()
         }

@@ -34,14 +34,14 @@ public extension WhiteLabelSourceRegistryClient {
             }
 
             let record = try await xrpcClient.run(
-                TangledGetRecordRequest<OpenMusicEvent.SourceRecord>(
+                TangledGetRecordRequest<OME.SourceRecord>(
                     repo: did.description,
-                    collection: OpenMusicEvent.SourceRecord.nsid.rawValue,
-                    rkey: OpenMusicEvent.SourceRecord.canonicalRecordKey,
+                    collection: OME.SourceRecord.nsid.rawValue,
+                    rkey: OME.SourceRecord.canonicalRecordKey,
                     pdsHost: pdsHost
                 )
             )
-            let expectedURI = "at://\(did)/\(OpenMusicEvent.SourceRecord.nsid.rawValue)/\(OpenMusicEvent.SourceRecord.canonicalRecordKey)"
+            let expectedURI = "at://\(did)/\(OME.SourceRecord.nsid.rawValue)/\(OME.SourceRecord.canonicalRecordKey)"
             guard record.uri.description == expectedURI else {
                 throw WhiteLabelCanonicalSourceRegistryError.unexpectedRecordURI(record.uri.description)
             }
@@ -62,6 +62,7 @@ public enum OpenMusicEvent {
         ) throws {
             try OME.prepareDependencies(&dependencies)
             dependencies.authoringPolicy = .loginRequired
+            dependencies.openMusicEventAutomaticallyRefreshesStoredAuthentication = false
             dependencies.whiteLabelSourceRegistry = .canonicalSourceRecord
             dependencies.whiteLabelSourceImport = .live
         }

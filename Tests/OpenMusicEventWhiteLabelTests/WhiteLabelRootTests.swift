@@ -161,7 +161,7 @@ struct WhiteLabelRootTests {
   }
 
   @Test
-  func startupRestoresStoredAuthenticationBeforeImportingSource() async throws {
+  func startupImportsSourceWithoutRestoringStoredAuthentication() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()
       let organizerID = WickedWoodsWhiteLabel.temporaryDevelopmentOrganizerID
@@ -189,7 +189,7 @@ struct WhiteLabelRootTests {
 
       await load(store)
 
-      #expect(await recorder.events == [.storedAuthentication, .sourceImport])
+      #expect(await recorder.events == [.sourceImport])
     }
   }
 
@@ -417,18 +417,21 @@ struct WhiteLabelRootTests {
     let eventID = eventID(organizerID: organizerID, eventID: "2025")
 
     try await withDependencies {
-      OpenMusicEventWhiteLabelAppDependencies.prepareDependencies(&$0)
+      try OpenMusicEventWhiteLabelApp.OpenMusicEvent.WhiteLabel.prepareDependencies(&$0)
       $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
         await recorder.record(requirement)
       }
     } operation: {
       @Dependency(\.authoringPolicy) var authoringPolicy
+      @Dependency(\.openMusicEventAutomaticallyRefreshesStoredAuthentication)
+      var automaticallyRefreshesStoredAuthentication
 
       let request = Authoring.Request(
         subject: .event(eventID),
         feature: .workspace,
         action: .enterAuthoring
       )
+      #expect(!automaticallyRefreshesStoredAuthentication)
       #expect(try authoringPolicy.authenticate(request.subject) == OpenMusicEventOAuth.baseAuthRequirement)
       _ = try await authoringPolicy.authorize(request)
     }
