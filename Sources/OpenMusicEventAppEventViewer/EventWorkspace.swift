@@ -90,6 +90,17 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
         max(0, totalCount - focusedCount)
     }
 
+    var outOfTargetInclusionDescription: String? {
+        switch outOfTargetCount {
+        case 0:
+            nil
+        case 1:
+            "1 change from another event is included in this workspace."
+        case let count:
+            "\(count) changes from other events are included in this workspace."
+        }
+    }
+
     public var badgeCount: Int? {
         guard case .available = availability, totalCount > 0 else { return nil }
         return totalCount
@@ -659,7 +670,8 @@ public struct EventWorkspace {
             func generateSourcePatch(
                 state: inout State
             ) {
-                guard let sourcePatchRequest = state.workspaceSourcePatchRequest
+                guard state.canGenerateSourcePatch,
+                      let sourcePatchRequest = state.workspaceSourcePatchRequest
                 else { return }
                 let target = state.target
                 state.sourcePatchStatus = .generating
@@ -690,6 +702,7 @@ public struct EventWorkspace {
             ) {
                 guard !state.sourcePatchStatus.isGenerating,
                       !state.sourceProposalStatus.isProposing,
+                      state.canPublishSourceProposal,
                       let sourcePatchRequest = state.workspaceSourcePatchRequest
                 else { return }
                 let target = state.target
@@ -1049,6 +1062,7 @@ public struct EventWorkspace {
                 state.dismissSourceProposal()
 
             case .proposeChangeButtonTapped:
+                guard state.canPublishSourceProposal else { return }
                 prepareSourceProposal(state: &state)
 
             case let .reviewSemanticDiffButtonTapped(review):
@@ -1292,7 +1306,7 @@ public struct EventWorkspaceView: View {
 
             if selectedTab == .propose,
                store.sourceWorkspaceSummary.totalCount > 0,
-               store.canReviewSourceProposal
+               store.canPublishSourceProposal
             {
                 Button {
                     store.send(.proposeChangeButtonTapped)
@@ -1300,7 +1314,7 @@ public struct EventWorkspaceView: View {
                     Label(store.sourcePatchStatus.proposeButtonTitle, systemImage: "paperplane")
                         .frame(maxWidth: .infinity)
                 }
-                .disabled(!store.canProposeLocalChanges)
+                .disabled(!store.canProposeChanges)
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
                 .padding(.horizontal)
@@ -1376,13 +1390,8 @@ public struct EventWorkspaceView: View {
                 .font(.caption)
             }
 
-            if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
-                let count = store.sourceWorkspaceSummary.outOfTargetCount
-                Text(
-                    count == 1
-                        ? "1 change is outside this event."
-                        : "\(count) changes are outside this event."
-                )
+            if let description = store.sourceWorkspaceSummary.outOfTargetInclusionDescription {
+                Text(description)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -1412,14 +1421,18 @@ public struct EventWorkspaceView: View {
     }
 
     private var workspaceTabPicker: some View {
-        Picker("Workspace", selection: $selectedTab) {
-            ForEach(EventWorkspaceTab.allCases) { tab in
-                Text(tab.title(for: store.target)).tag(tab)
+        Group {
+            if store.availableWorkspaceTabs.count > 1 {
+                Picker("Workspace", selection: $selectedTab) {
+                    ForEach(store.availableWorkspaceTabs) { tab in
+                        Text(tab.title(for: store.target)).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 6)
             }
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal)
-        .padding(.bottom, 6)
     }
 
     private var navigationTitle: Text {
@@ -1473,17 +1486,16 @@ public struct EventWorkspaceView: View {
     @ViewBuilder
     private var changesActionSection: some View {
         if store.sourceWorkspaceSummary.totalCount == 0
-            || !store.canReviewSourceProposal
+            || !store.canPublishSourceProposal
             || store.isPreparingSourceProposal
             || store.sourcePatchStatus.requiresAttentionInChanges
             || store.sourceProposalStatus.isVisibleInWorkspace
-            || store.sourceWorkspaceSummary.outOfTargetCount > 0
         {
             Section("Your changes") {
                 if store.sourceWorkspaceSummary.totalCount == 0 {
                     Text("No local changes")
                         .foregroundStyle(.secondary)
-                } else if store.canReviewSourceProposal {
+                } else if store.canPublishSourceProposal {
                     if store.isPreparingSourceProposal {
                         HStack(spacing: 8) {
                             ProgressView()
@@ -1497,19 +1509,8 @@ public struct EventWorkspaceView: View {
                         SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
                     }
                 } else {
-                    Text("This workspace isn't ready to propose changes.")
+                    Text("These changes stay on this device and won’t create a proposal.")
                         .foregroundStyle(.secondary)
-                }
-
-                if store.sourceWorkspaceSummary.outOfTargetCount > 0 {
-                    let count = store.sourceWorkspaceSummary.outOfTargetCount
-                    Text(
-                        count == 1
-                            ? "1 change is for another event and won’t be included."
-                            : "\(count) changes are for another event and won’t be included."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -1552,7 +1553,7 @@ public struct EventWorkspaceView: View {
     @ViewBuilder
     private var sourceDiffSections: some View {
         Section("Source patch") {
-            if store.canReviewSourceProposal {
+            if store.canPublishSourceProposal {
                 if store.sourceWorkspaceSummary.totalCount == 0 {
                     Text("No changes to send")
                         .foregroundStyle(.secondary)
@@ -3145,7 +3146,8 @@ private extension EventWorkspace.State {
         sourceFileAttributions: [SourceFileAttribution] = [],
         sourceWorkspaceSummary: SourceWorkspaceSummary
     ) {
-        guard !patch.isEmpty,
+        guard canPublishSourceProposal,
+              !patch.isEmpty,
               sourceWorkspaceSummary.totalCount > 0,
               case .available = sourceWorkspaceSummary.availability
         else {
@@ -3175,7 +3177,7 @@ private extension EventWorkspace.State {
     var canCreateSourceProposal: Bool {
         guard case let .generated(patch, _) = sourcePatchStatus,
               !patch.isEmpty,
-              canReviewSourceProposal,
+              canPublishSourceProposal,
               sourceProposalStatus.canCreateProposal
         else { return false }
         return true
@@ -3186,13 +3188,28 @@ private extension EventWorkspace.State {
         return true
     }
 
-    var canReviewSourceProposal: Bool {
+}
+
+extension EventWorkspace.State {
+    var availableWorkspaceTabs: [EventWorkspaceTab] {
+        canReviewTangledPullRequests ? [.propose, .review] : [.propose]
+    }
+
+    var canGenerateSourcePatch: Bool {
         sourceBaselineID != nil
     }
 
-    var canProposeLocalChanges: Bool {
+    var canPublishSourceProposal: Bool {
+        sourceKind == .tangled && sourceBaselineID != nil
+    }
+
+    var canReviewTangledPullRequests: Bool {
+        sourceKind == .tangled
+    }
+
+    var canProposeChanges: Bool {
         guard sourceWorkspaceSummary.totalCount > 0,
-              canReviewSourceProposal,
+              canPublishSourceProposal,
               !sourcePatchStatus.isGenerating,
               !sourceProposalStatus.isProposing
         else { return false }
@@ -3305,9 +3322,34 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
 private extension SourceProposalTarget {
     func matches(invalidation: SourcePatchInvalidation) async -> Bool {
         @Dependency(\.defaultDatabase) var database
+        switch invalidation.target {
+        case let .calendar(invalidatedCalendarID):
+            switch self {
+            case let .calendar(calendarID, _):
+                return invalidatedCalendarID == calendarID
+
+            case let .event(eventID):
+                return invalidatedCalendarID == OME.Calendar.ID(
+                    ownerID: eventID.organizerID,
+                    calendarID: OME.Calendar.defaultID
+                )
+            }
+
+        case let .event(invalidatedEventID):
+            return await matches(
+                invalidatedEventID: invalidatedEventID,
+                database: database
+            )
+        }
+    }
+
+    func matches(
+        invalidatedEventID: OME.Event.ID,
+        database: any DatabaseReader
+    ) async -> Bool {
         switch self {
         case let .event(eventID):
-            guard invalidation.eventID.organizerID == eventID.organizerID else {
+            guard invalidatedEventID.organizerID == eventID.organizerID else {
                 return false
             }
             do {
@@ -3319,11 +3361,11 @@ private extension SourceProposalTarget {
                             .sourceBaselineID
                     )
                     else {
-                        return invalidation.eventID == eventID
+                        return invalidatedEventID == eventID
                     }
 
                     return try EventSourceProvenanceRecord
-                        .where { $0.id.eq(invalidation.eventID) }
+                        .where { $0.id.eq(invalidatedEventID) }
                         .where { $0.sourceBaselineID.eq(sourceBaselineID) }
                         .fetchOne(db) != nil
                 }
@@ -3333,13 +3375,13 @@ private extension SourceProposalTarget {
             }
 
         case let .calendar(calendarID, sourceBaselineID):
-            guard invalidation.eventID.organizerID == calendarID.ownerID else {
+            guard invalidatedEventID.organizerID == calendarID.ownerID else {
                 return false
             }
             do {
                 return try await database.read { db in
                     try EventSourceProvenanceRecord
-                        .where { $0.id.eq(invalidation.eventID) }
+                        .where { $0.id.eq(invalidatedEventID) }
                         .where { $0.sourceBaselineID.eq(sourceBaselineID) }
                         .fetchOne(db) != nil
                 }

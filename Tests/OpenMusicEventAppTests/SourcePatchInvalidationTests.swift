@@ -83,6 +83,41 @@ struct SourcePatchInvalidationTests {
     }
 
     @Test
+    func calendarUpdatePublishesCalendarInvalidation() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = try seedEvent(in: database)
+        let calendarID = OME.Calendar.ID(
+            ownerID: eventID.organizerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        try await database.write { db in
+            try OME.Calendar.insert {
+                OME.Calendar.Draft(
+                    id: calendarID,
+                    name: "Original calendar"
+                )
+            }
+            .execute(db)
+        }
+        let invalidations = try installSourcePatchInvalidations(in: database)
+        let invalidationTask = nextInvalidationTask(from: invalidations.stream())
+
+        try await database.write { db in
+            try OME.Calendar
+                .find(calendarID)
+                .update { $0.name = #bind("Updated calendar") }
+                .execute(db)
+        }
+
+        let invalidation = try await nextInvalidation(from: invalidationTask)
+        #expect(invalidation == SourcePatchInvalidation(
+            calendarID: calendarID,
+            operation: .update,
+            tableName: OME.Calendar.tableName
+        ))
+    }
+
+    @Test
     func blueskyActorCacheWritesDoNotPublishSourceInvalidations() async throws {
         let database = try makePreparedDatabase()
         let invalidations = try installSourcePatchInvalidations(in: database)

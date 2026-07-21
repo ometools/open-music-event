@@ -5,13 +5,18 @@ import SQLiteData
 import SourceEditing
 
 public struct SourcePatchInvalidation: Equatable, Sendable {
+    public enum Target: Equatable, Sendable {
+        case calendar(OME.Calendar.ID)
+        case event(OME.Event.ID)
+    }
+
     public enum Operation: String, Equatable, Sendable {
         case delete
         case insert
         case update
     }
 
-    public var eventID: OME.Event.ID
+    public var target: Target
     public var operation: Operation
     public var tableName: String
 
@@ -20,7 +25,17 @@ public struct SourcePatchInvalidation: Equatable, Sendable {
         operation: Operation,
         tableName: String
     ) {
-        self.eventID = eventID
+        self.target = .event(eventID)
+        self.operation = operation
+        self.tableName = tableName
+    }
+
+    public init(
+        calendarID: OME.Calendar.ID,
+        operation: Operation,
+        tableName: String
+    ) {
+        self.target = .calendar(calendarID)
         self.operation = operation
         self.tableName = tableName
     }
@@ -47,7 +62,7 @@ public extension SourcePatchInvalidations {
 
     static func live(
         descriptors: @escaping @Sendable () -> [SourceTableDescriptor] = {
-            OME.sourceTableDescriptors
+            OME.sourceMetadataRecordTypes.map(\.descriptor) + OME.sourceTableDescriptors
         }
     ) -> Self {
         let center = SourcePatchInvalidationCenter()
@@ -121,29 +136,43 @@ private final class SourcePatchInvalidationDatabaseFunction: @unchecked Sendable
 
     @DatabaseFunction(
         "ome_source_patch_invalidated",
-        as: ((String, String, String, String) -> Void).self
+        as: ((String, String, String, String, String) -> Void).self
     )
     func sendSourcePatchInvalidation(
-        organizerID: String,
-        eventID: String,
+        targetKind: String,
+        ownerID: String,
+        recordID: String,
         tableName: String,
         operation: String
     ) {
         guard
-            let organizerID = OME.Organizer.ID(organizerID),
+            let ownerID = OME.Organizer.ID(ownerID),
+            let targetKind = SourcePatchInvalidationTargetKind(rawValue: targetKind),
             let operation = SourcePatchInvalidation.Operation(rawValue: operation)
         else { return }
 
-        center.yield(
+        let invalidation = switch targetKind {
+        case .calendar:
             SourcePatchInvalidation(
-                eventID: OME.Event.ID(
-                    organizerID: organizerID,
-                    eventID: OME.ID<OME.Event>(.init(eventID))
+                calendarID: OME.Calendar.ID(
+                    ownerID: ownerID,
+                    calendarID: OME.ID<OME.Calendar>(.init(recordID))
                 ),
                 operation: operation,
                 tableName: tableName
             )
-        )
+
+        case .event:
+            SourcePatchInvalidation(
+                eventID: OME.Event.ID(
+                    organizerID: ownerID,
+                    eventID: OME.ID<OME.Event>(.init(recordID))
+                ),
+                operation: operation,
+                tableName: tableName
+            )
+        }
+        center.yield(invalidation)
     }
 }
 
@@ -152,15 +181,28 @@ private func installSourcePatchInvalidationTriggers(
     descriptors: [SourceTableDescriptor]
 ) throws {
     for descriptor in descriptors {
-        try validateEventScopedDescriptor(descriptor)
-        try createSourcePatchInvalidationInsertTrigger(for: descriptor, in: db)
-        try createSourcePatchInvalidationUpdateTrigger(for: descriptor, in: db)
-        try createSourcePatchInvalidationDeleteTrigger(for: descriptor, in: db)
+        let target = try SourcePatchInvalidationTriggerTarget(descriptor: descriptor)
+        try createSourcePatchInvalidationInsertTrigger(
+            for: descriptor,
+            target: target,
+            in: db
+        )
+        try createSourcePatchInvalidationUpdateTrigger(
+            for: descriptor,
+            target: target,
+            in: db
+        )
+        try createSourcePatchInvalidationDeleteTrigger(
+            for: descriptor,
+            target: target,
+            in: db
+        )
     }
 }
 
 private func createSourcePatchInvalidationInsertTrigger(
     for descriptor: SourceTableDescriptor,
+    target: SourcePatchInvalidationTriggerTarget,
     in db: Database
 ) throws {
     try #sql(
@@ -170,8 +212,9 @@ private func createSourcePatchInvalidationInsertTrigger(
         FOR EACH ROW
         BEGIN
           SELECT "ome_source_patch_invalidated"(
-            "new"."organizerID",
-            "new"."eventID",
+            \(quote: target.kind.rawValue, delimiter: .text),
+            "new".\(quote: target.ownerIDColumnName),
+            "new".\(quote: target.recordIDColumnName),
             \(quote: descriptor.tableName, delimiter: .text),
             \(quote: SourcePatchInvalidation.Operation.insert.rawValue, delimiter: .text)
           );
@@ -183,6 +226,7 @@ private func createSourcePatchInvalidationInsertTrigger(
 
 private func createSourcePatchInvalidationUpdateTrigger(
     for descriptor: SourceTableDescriptor,
+    target: SourcePatchInvalidationTriggerTarget,
     in db: Database
 ) throws {
     try #sql(
@@ -192,8 +236,9 @@ private func createSourcePatchInvalidationUpdateTrigger(
         FOR EACH ROW
         BEGIN
           SELECT "ome_source_patch_invalidated"(
-            "new"."organizerID",
-            "new"."eventID",
+            \(quote: target.kind.rawValue, delimiter: .text),
+            "new".\(quote: target.ownerIDColumnName),
+            "new".\(quote: target.recordIDColumnName),
             \(quote: descriptor.tableName, delimiter: .text),
             \(quote: SourcePatchInvalidation.Operation.update.rawValue, delimiter: .text)
           );
@@ -205,6 +250,7 @@ private func createSourcePatchInvalidationUpdateTrigger(
 
 private func createSourcePatchInvalidationDeleteTrigger(
     for descriptor: SourceTableDescriptor,
+    target: SourcePatchInvalidationTriggerTarget,
     in db: Database
 ) throws {
     try #sql(
@@ -214,8 +260,9 @@ private func createSourcePatchInvalidationDeleteTrigger(
         FOR EACH ROW
         BEGIN
           SELECT "ome_source_patch_invalidated"(
-            "old"."organizerID",
-            "old"."eventID",
+            \(quote: target.kind.rawValue, delimiter: .text),
+            "old".\(quote: target.ownerIDColumnName),
+            "old".\(quote: target.recordIDColumnName),
             \(quote: descriptor.tableName, delimiter: .text),
             \(quote: SourcePatchInvalidation.Operation.delete.rawValue, delimiter: .text)
           );
@@ -232,11 +279,32 @@ private func triggerName(
     "ome_source_patch_invalidated_\(descriptor.tableName)_\(operation.rawValue)"
 }
 
-private func validateEventScopedDescriptor(_ descriptor: SourceTableDescriptor) throws {
-    guard descriptor.primaryKeyColumns.contains("organizerID"),
-          descriptor.primaryKeyColumns.contains("eventID")
-    else {
-        throw SourcePatchInvalidationTriggerError(tableName: descriptor.tableName)
+private enum SourcePatchInvalidationTargetKind: String {
+    case calendar
+    case event
+}
+
+private struct SourcePatchInvalidationTriggerTarget {
+    var kind: SourcePatchInvalidationTargetKind
+    var ownerIDColumnName: String
+    var recordIDColumnName: String
+
+    init(descriptor: SourceTableDescriptor) throws {
+        if descriptor.primaryKeyColumns.contains("organizerID"),
+           descriptor.primaryKeyColumns.contains("eventID")
+        {
+            self.kind = .event
+            self.ownerIDColumnName = "organizerID"
+            self.recordIDColumnName = "eventID"
+        } else if descriptor.primaryKeyColumns.contains("ownerID"),
+                  descriptor.primaryKeyColumns.contains("calendarID")
+        {
+            self.kind = .calendar
+            self.ownerIDColumnName = "ownerID"
+            self.recordIDColumnName = "calendarID"
+        } else {
+            throw SourcePatchInvalidationTriggerError(tableName: descriptor.tableName)
+        }
     }
 }
 

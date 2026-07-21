@@ -100,7 +100,7 @@ struct TeamWorkspaceEditorTests {
     }
 
     @Test
-    func eventWorkspaceSummaryPrioritizesFocusedEventChanges() throws {
+    func eventWorkspaceSummaryKeepsChangesOutsideTheFocusedEvent() throws {
         let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
         let eventID = OMERecord.Event.ID(
             organizerID: organizerID,
@@ -131,7 +131,53 @@ struct TeamWorkspaceEditorTests {
         #expect(summary.totalCount == 2)
         #expect(summary.focusedCount == 1)
         #expect(summary.outOfTargetCount == 1)
+        #expect(
+            summary.outOfTargetInclusionDescription
+                == "1 change from another event is included in this workspace."
+        )
         expectNoDifference(summary.groups.first?.records, [focusedRecord, otherRecord])
+    }
+
+    @Test
+    func draftSummarySectionCarriesSemanticRecordComparisons() throws {
+        let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
+        let eventID = OMERecord.Event.ID(
+            organizerID: organizerID,
+            eventID: OMERecord.ID("source-event")
+        )
+        let record = sourceRecordChange(eventID: eventID)
+        let comparisons = SourceRecordComparisons([
+            AnySourceRecordComparison(
+                SourceRecordComparison(
+                    change: record,
+                    left: "Old contributor",
+                    right: "Updated contributor"
+                )
+            ),
+        ])
+        let summary = SourceWorkspaceSummary(
+            target: .event(eventID),
+            availability: .available,
+            groups: [
+                SourceChangeGroup(
+                    id: OMERecord.Contributor.tableName,
+                    displayName: "Contributor",
+                    added: 0,
+                    modified: 1,
+                    deleted: 0,
+                    records: [record]
+                ),
+            ],
+            recordComparisons: comparisons
+        )
+
+        let section = SourceChangeSummarySection(
+            groups: summary.groups,
+            recordComparisons: summary.recordComparisons
+        )
+
+        expectNoDifference(section.groups, summary.groups)
+        expectNoDifference(section.recordComparisons, comparisons)
     }
 
     @Test
@@ -230,8 +276,10 @@ struct TeamWorkspaceEditorTests {
             ownerID: organizerID,
             calendarID: OMERecord.Calendar.defaultID
         )
-        let sourceProvenance = makeSourceProvenance(
-            reference: "tangled.org/woody.fm/source-management"
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/woody.fm/source-management",
+            ref: "main"
         )
         let sourceBaseline = SourceBaselineRecord(
             source: sourceProvenance,
@@ -343,6 +391,9 @@ struct TeamWorkspaceEditorTests {
         }
         await task?.value
 
+        #expect(store.state.canGenerateSourcePatch)
+        #expect(store.state.canPublishSourceProposal)
+        expectNoDifference(store.state.availableWorkspaceTabs, [.propose, .review])
         #expect(store.state.sourceProposal?.target == .calendar(calendarID, sourceBaseline.id))
         #expect(store.state.sourceProposal?.sourceChangeGroups == expectedWorkspaceSummary.groups)
         #expect(
@@ -351,6 +402,62 @@ struct TeamWorkspaceEditorTests {
         )
         #expect(store.state.sourceProposal?.patch == patch)
         await store.dismount()
+    }
+
+    @Test
+    func localCalendarWorkspaceDoesNotPresentProposalOrReviewControls() throws {
+        let database = try makePreparedDatabase()
+        let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
+        let calendarID = OMERecord.Calendar.ID(
+            ownerID: organizerID,
+            calendarID: OMERecord.Calendar.defaultID
+        )
+        let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "local-source")
+        try database.write { db in
+            try SourceBaselineRecord.insert {
+                SourceBaselineRecord(
+                    id: sourceBaselineID,
+                    sourceKind: .local,
+                    sourceReference: "/tmp/source-management",
+                    ref: nil,
+                    databaseFileName: "reference.sqlite",
+                    importedAt: Date(timeIntervalSince1970: 1)
+                )
+            }
+            .execute(db)
+        }
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "calendar.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: New\n".utf8)
+                )
+            ]
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            var state = SourceWorkspace.State(
+                sourceBaselineID: sourceBaselineID,
+                calendarID: calendarID
+            )
+            state.sourcePatchStatus = .generated(patch)
+            return TestStore(initialState: state) {
+                SourceWorkspace()
+            }
+        }
+
+        #expect(store.state.canGenerateSourcePatch)
+        #expect(!store.state.canPublishSourceProposal)
+        expectNoDifference(store.state.availableWorkspaceTabs, [.propose])
+
+        store.send(.proposeChangeButtonTapped)
+
+        #expect(store.state.sourceProposal == nil)
+        expectNoDifference(store.state.sourceProposalStatus, .idle)
     }
 
     @Test

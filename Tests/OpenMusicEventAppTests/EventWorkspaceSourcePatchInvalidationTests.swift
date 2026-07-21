@@ -103,7 +103,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let expectedSourceBaselineID = sourceBaselineID(for: eventID)
-        try await seedSourceBackedEvent(eventID, in: database)
+        try await seedSourceBackedEvent(eventID, sourceKind: .tangled, in: database)
         try await seedEditingWorkspace(for: eventID, in: database)
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -220,7 +220,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let expectedSourceBaselineID = sourceBaselineID(for: eventID)
-        try await seedSourceBackedEvent(eventID, in: database)
+        try await seedSourceBackedEvent(eventID, sourceKind: .tangled, in: database)
         try await seedEditingWorkspace(for: eventID, in: database)
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -371,7 +371,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             eventID: eventID.eventID,
             stageID: OME.ID<OME.Stage>(.init("meadow"))
         )
-        try await seedSourceBackedEvent(eventID, in: database)
+        try await seedSourceBackedEvent(eventID, sourceKind: .tangled, in: database)
         try await seedEditingWorkspace(for: eventID, in: database)
         try await database.write { db in
             try OME.Stage.insert {
@@ -1516,6 +1516,58 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
+    func calendarInvalidationMarksGeneratedSourcePatchStale() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        try await seedSourceBackedEvent(eventID, in: database)
+        let calendarID = OME.Calendar.ID(
+            ownerID: eventID.organizerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        let invalidation = SourcePatchInvalidation(
+            calendarID: calendarID,
+            operation: .update,
+            tableName: OME.Calendar.tableName
+        )
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "calendar.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old calendar\n".utf8),
+                    newContents: Data("name: New calendar\n".utf8)
+                ),
+            ]
+        )
+        let stream = AsyncStream.makeStream(of: SourcePatchInvalidation.self)
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0.sourcePatchInvalidations = SourcePatchInvalidations(
+                installTriggers: { _ in },
+                stream: { stream.stream }
+            )
+        } operation: {
+            var state = EventWorkspace.State(eventID: eventID)
+            state.sourcePatchStatus = .generated(patch)
+            return TestStore(initialState: state) {
+                EventWorkspace()
+            }
+        }
+
+        stream.continuation.yield(invalidation)
+        await store.receive(
+            \.sourcePatchInvalidationReceived,
+            .equals(invalidation),
+            timeout: .seconds(1)
+        ) {
+            $0.sourcePatchStatus = .needsGeneration(invalidation)
+        }
+
+        stream.continuation.finish()
+        await store.dismount()
+    }
+
+    @Test
     func marksSourcePatchNeedsGenerationWhenSourceWorkspaceEventInvalidates() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
@@ -2435,9 +2487,17 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
     private func seedSourceBackedEvent(
         _ eventID: OME.Event.ID,
+        sourceKind: OME.SourceDatabaseInsertion.SourceKind = .local,
         in database: any DatabaseWriter
     ) async throws {
         let sourceBaselineID = sourceBaselineID(for: eventID)
+        let sourceReference = switch sourceKind {
+        case .local:
+            "/tmp/source-repository"
+        case .tangled:
+            "tangled.org/woody.fm/source-repository"
+        }
+        let ref = sourceKind == .tangled ? "main" : nil
         try await database.write { db in
             try OME.Organizer.insert {
                 OME.Organizer.Draft(id: eventID.organizerID)
@@ -2464,9 +2524,9 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             try SourceBaselineRecord.insert {
                 SourceBaselineRecord(
                     id: sourceBaselineID,
-                    sourceKind: .local,
-                    sourceReference: "/tmp/source-repository",
-                    ref: nil,
+                    sourceKind: sourceKind,
+                    sourceReference: sourceReference,
+                    ref: ref,
                     databaseFileName: "reference.sqlite",
                     importedAt: Date(timeIntervalSince1970: 0)
                 )
@@ -2476,9 +2536,9 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 EventSourceProvenanceRecord(
                     id: eventID,
                     sourceBaselineID: sourceBaselineID,
-                    sourceKind: .local,
-                    sourceReference: "/tmp/source-repository",
-                    ref: nil,
+                    sourceKind: sourceKind,
+                    sourceReference: sourceReference,
+                    ref: ref,
                     eventIDOrigin: .inferred,
                     sourceEventDirectory: eventID.eventID.rawValue.rawValue
                 )
