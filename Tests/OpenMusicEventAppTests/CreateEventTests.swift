@@ -187,6 +187,41 @@ struct CreateEventTests {
     }
 
     @Test
+    func createdEventRequestsAuthoringNavigation() async throws {
+        let database = try makePreparedDatabase()
+        let workspaceReferenceDirectory = try temporaryDirectoryURL()
+        let createdEventID = OMERecord.Event.ID(
+            organizerID: testOrganizerID,
+            eventID: CreateEvent.makeLocalEventID(from: UUID(1))
+        )
+        let createEventState = makeState {
+            $0.eventName = "Testival 2026"
+            $0.hasStartDate = true
+            $0.startDateSelection = makeLocalDate(year: 1970, month: 1, day: 2)
+        }
+        let store = withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.defaultDatabase = database
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            $0.uuid = .constant(UUID(1))
+            $0.workspaceReferenceDatabase = .fileBacked(
+                localReferenceDirectory: workspaceReferenceDirectory
+            )
+        } operation: {
+            TestStore(
+                initialState: CreateEventNavigationHarness.State(createEvent: createEventState)
+            ) {
+                CreateEventNavigationHarness()
+            }
+        }
+
+        await store.send(.createEvent(.saveButtonTapped))?.value
+
+        #expect(store.state.navigationRequest == .event(createdEventID, .workspace))
+    }
+
+    @Test
     func localEventStartsWithNoUnpublishedChanges() async throws {
         let fixture = try await createLocalEvent(
             name: "Testival 2026",
@@ -517,4 +552,25 @@ struct CreateEventTests {
         return url
     }
 
+}
+
+@Feature
+private struct CreateEventNavigationHarness {
+    struct State {
+        var navigationRequest: NavigationRequest?
+        var createEvent: CreateEvent.State
+    }
+
+    enum Action {
+        case createEvent(CreateEvent.Action)
+    }
+
+    var body: some Feature {
+        Scope(\.createEvent, action: \.createEvent) {
+            CreateEvent()
+        }
+        .onEvent(NavigationRequested.self) { request, state in
+            state.navigationRequest = request
+        }
+    }
 }

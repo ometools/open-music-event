@@ -269,7 +269,7 @@ public struct CreateEvent {
                             }
                             try store.post(
                                 key: NavigationRequested.self,
-                                value: .event(eventID, nil)
+                                value: .event(eventID, .workspace)
                             )
                             try store.dismiss()
                         } catch {
