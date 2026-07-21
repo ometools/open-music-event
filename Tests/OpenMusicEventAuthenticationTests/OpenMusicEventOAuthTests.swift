@@ -4,6 +4,8 @@ import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import Foundation
+import HTTPClient
+import HTTPTypes
 import Sharing
 import TCATProtoAuthentication
 import Testing
@@ -215,6 +217,52 @@ struct OpenMusicEventOAuthTests {
         #expect(message.contains("error: use_dpop_nonce"))
         #expect(message.contains("cache-control: no-store"))
         #expect(message.contains("DPoP-Nonce: server-nonce"))
+    }
+
+    @Test
+    func `HTML archive failure remains an HTTP error`() async {
+        let archiveURL = URL(
+            string: "https://tangled.org/wickedwoods.ca/ome-workspace/archive/ome%2Fproposal-2026.tar.gz"
+        )!
+        let responseBody = Data(
+            "\n    <html><body>Tangled is temporarily unavailable.</body></html>"
+                .utf8
+        )
+        let authFailureMessage = Shared<ErrorMessage?>(value: nil)
+
+        do {
+            let _: Data = try await withDependencies {
+                $0.httpClient = .liveValue
+                $0.requestInterceptors = []
+                $0.responseInterceptors = []
+                $0.dataForURL = { request, _ in
+                    expectNoDifference(request.url, archiveURL)
+                    return (
+                        responseBody,
+                        HTTPResponse(status: .serviceUnavailable)
+                    )
+                }
+                $0.errorInterceptors = [
+                    .openMusicEventTokenRefresh(
+                        selectedSession: .none,
+                        authFailureMessage: authFailureMessage
+                    )
+                ]
+            } operation: {
+                @Dependency(\.httpClient) var httpClient
+
+                // The white-label review requests its source branch archive.
+                return try await httpClient.get(archiveURL, decodingTo: Data.self)
+            }
+
+            Issue.record("Expected the archive request to fail.")
+        } catch let HTTPError.httpError(status, body, _) {
+            // A public archive outage remains an HTTP failure with its original response intact.
+            expectNoDifference(status, .serviceUnavailable)
+            expectNoDifference(body, responseBody)
+        } catch {
+            Issue.record("Expected an HTTP error, but received: \(error)")
+        }
     }
 
     @Test

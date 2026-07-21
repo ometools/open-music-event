@@ -122,14 +122,23 @@ public extension ErrorInterceptor {
         authFailureMessage: Shared<ErrorMessage?>
     ) -> ErrorInterceptor {
         ErrorInterceptor { failedRequest, failureCode, _, failureBody, retry in
+            guard failureCode == .unauthorized,
+                  let failureBody
+            else { return nil }
+
             @Dependency(\.jsonDecoder) var jsonDecoder
-            let error = try failureBody.map {
-                try jsonDecoder.decode(OAuth.DPOP.ErrorBody.self, from: $0).error
+            let error: String
+            do {
+                error = try jsonDecoder.decode(
+                    OAuth.DPOP.ErrorBody.self,
+                    from: failureBody
+                )
+                .error
+            } catch {
+                return nil
             }
 
-            guard failureCode == .unauthorized,
-                  error == "invalid_token"
-            else { return nil }
+            guard error == "invalid_token" else { return nil }
 
             @Dependency(OAuth.Client.self) var client
 
