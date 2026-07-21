@@ -8,12 +8,14 @@ import Foundation
 import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import OpenMusicEventWhiteLabel
 import SourceEditing
 import SnapshotTesting
 import SnapshotTestingCustomDump
 import SQLiteData
+import Synchronization
 import Testing
 
 @testable import OpenMusicEventApp
@@ -22,6 +24,178 @@ import Testing
 extension UserStoryTests {
     @Suite
     struct Workspaces {
+        @MainActor
+        @Test
+        func wickedWoodsLoadsAdd2026ReviewFromCanonicalSource() async throws {
+            let database = try UserStory.makePreparedStoryDatabase()
+            let baselineDatabase = try defaultBaselineDatabase()
+            let organizerID = try #require(
+                OMERecord.Organizer.ID("did:plc:5df2u7ief6m6tn77jznicxob")
+            )
+            let calendarID = OMERecord.Calendar.ID(
+                ownerID: organizerID,
+                calendarID: OMERecord.Calendar.defaultID
+            )
+            let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+                kind: .tangled,
+                reference: "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace",
+                ref: "HEAD"
+            )
+            let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+            let baselineSource = try wickedWoodsSourceRepository(
+                organizerID: organizerID,
+                includes2026: false
+            )
+            let reviewSource = try wickedWoodsSourceRepository(
+                organizerID: organizerID,
+                includes2026: true
+            )
+
+            try await withDependencies {
+                $0.context = .test
+                $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+                $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+            } operation: {
+                let insertion = try OMERecord.SourceDatabaseInsertion(
+                    OMERecord.SourceDatabaseInsertion.Configuration(
+                        source: baselineSource,
+                        organizerID: organizerID,
+                        sourceProvenance: sourceProvenance
+                    )
+                )
+                try await insertion.migrateAndInsert(into: database)
+            }
+
+            let review = TangledPullReview(
+                author: "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
+                body: nil,
+                commentCount: 0,
+                createdAt: "2026-07-21T04:38:21Z",
+                patchBlobs: [
+                    TangledPullReview.PatchBlob(
+                        cid: "bafkreidc6g4goorlyfjuhghxzjjjrzsjnmtcgtwvuco72l27snmkc2kip4",
+                        createdAt: "2026-07-21T04:38:21Z",
+                        index: 1,
+                        mimeType: "application/gzip",
+                        size: 2_404
+                    )
+                ],
+                sourceBranch: "ome/proposal-9ada21bf-9319-4997-824b-8de5e16d9d42",
+                state: "open",
+                targetBranch: "main",
+                targetRepositoryDID: "did:plc:7kigfdsk33g7pctdgkyldhwc",
+                title: "Add 2026",
+                uri: "at://did:plc:cqqtuv75m7e5s4uj6nw4czyu/sh.tangled.repo.pull/3mr4yfvvfhb2p"
+            )
+            let checkoutRequests = Mutex([TangledSourceCheckoutRequest]())
+            let receivedDiff = Mutex<EventWorkspace.TangledPullReviewSemanticDiff?>(nil)
+            let store: TestStore<EventWorkspace> = withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+                $0.sourceReferenceDatabase = .test(database: baselineDatabase)
+                $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+                $0.tangledPullReviewSourceSnapshot = .openMusicEvent
+                $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+                    checkoutRequests.withLock { $0.append(request) }
+                    try FileManager.default.createDirectory(
+                        at: request.outputURL,
+                        withIntermediateDirectories: true
+                    )
+                    _ = try OpenMusicEventSourceRepositoryFileTree()
+                        .write(reviewSource, to: request.outputURL)
+                    return TangledSourceCheckout(repositoryURL: request.outputURL)
+                }
+            } operation: {
+                TestStore(
+                    initialState: EventWorkspace.State(
+                        sourceBaselineID: sourceBaselineID,
+                        calendarID: calendarID
+                    )
+                ) {
+                    EventWorkspace()
+                }
+            }
+
+            // The Wicked Woods workspace opens the concrete Tangled review seen in the app.
+            let task = store.send(.reviewSemanticDiffButtonTapped(review)) {
+                $0.tangledPullReviewSemanticDiffs[review.id] = .loading
+            }
+
+            // The real snapshot client checks out the review branch and compares it to HEAD.
+            await store.receive(
+                \.tangledPullReviewSemanticDiffResponse,
+                .matching { response in
+                    guard response.reviewID == review.id,
+                          case let .success(diff) = response.1
+                    else { return false }
+                    receivedDiff.withLock { $0 = diff }
+                    return diff.totalCount == 2
+                        && diff.groups.contains { group in
+                            group.id == "events" && group.added == 1
+                        }
+                        && diff.groups.contains { group in
+                            group.id == "stages" && group.added == 1
+                        }
+                },
+                timeout: .seconds(5)
+            ) {
+                guard let diff = receivedDiff.withLock({ $0 }) else {
+                    Issue.record("Expected Wicked Woods semantic diff response.")
+                    return
+                }
+                $0.tangledPullReviewSemanticDiffs[review.id] = .loaded(diff)
+            }
+            await task?.value
+
+            #expect(checkoutRequests.withLock { $0.count } == 1)
+            let checkoutRequest = try #require(
+                checkoutRequests.withLock { $0.first }
+            )
+            expectNoDifference(
+                checkoutRequest.repository,
+                TangledRepositoryReference(
+                    host: "tangled.org",
+                    owner: "did:plc:5df2u7ief6m6tn77jznicxob",
+                    repository: "ome-workspace"
+                )
+            )
+            expectNoDifference(
+                checkoutRequest.ref,
+                "ome/proposal-9ada21bf-9319-4997-824b-8de5e16d9d42"
+            )
+            #expect(checkoutRequest.outputURL.lastPathComponent.hasPrefix("ome-source-clone-"))
+            let semanticDiff = try #require(receivedDiff.withLock { $0 })
+            let eventGroup = try #require(
+                semanticDiff.groups.first { $0.id == "events" }
+            )
+            let stageGroup = try #require(
+                semanticDiff.groups.first { $0.id == "stages" }
+            )
+            let eventChange = try #require(eventGroup.records.first)
+            let stageChange = try #require(stageGroup.records.first)
+            #expect(
+                semanticDiff.recordComparisons[eventChange]?.as(OMERecord.Event.self) != nil
+            )
+            #expect(
+                semanticDiff.recordComparisons[stageChange]?.as(OMERecord.Stage.self) != nil
+            )
+            expectNoDifference(
+                semanticDiff.sourceFileAttributions,
+                [
+                    SourceFileAttribution(
+                        filePath: "events/2026/event.yml",
+                        recordChangeIDs: [eventChange.id]
+                    ),
+                    SourceFileAttribution(
+                        filePath: "events/2026/stages/stage.yml",
+                        recordChangeIDs: [stageChange.id]
+                    )
+                ]
+            )
+
+            await store.dismount()
+        }
+
         @Test
         func firstLaunchEditsAStageProposesMergesAndRefreshesSource() async throws {
             if #available(macOS 26, *) {
@@ -405,6 +579,66 @@ extension UserStoryTests {
             }
         }
     }
+}
+
+private func wickedWoodsSourceRepository(
+    organizerID: OMERecord.Organizer.ID,
+    includes2026: Bool
+) throws -> OpenMusicEventSourceRepository {
+    let timeZone = try #require(TimeZone(identifier: "America/Edmonton"))
+    var events = [
+        DirectoryContent(
+            directoryName: "2025",
+            components: OpenMusicEventSourceEvent(
+                event: EventDTO(
+                    id: OMERecord.Event.ID(
+                        organizerID: organizerID,
+                        eventID: OMERecord.ID("2025")
+                    ),
+                    name: "Wicked Woods 2025",
+                    description: nil,
+                    startDate: nil,
+                    endDate: nil,
+                    status: nil,
+                    mode: nil,
+                    locations: nil,
+                    uris: nil,
+                    timeZone: timeZone,
+                    images: nil,
+                    contactNumbers: nil,
+                    categoryConfigs: nil
+                )
+            )
+        )
+    ]
+    if includes2026 {
+        events.append(
+            DirectoryContent(
+                directoryName: "2026",
+                components: OpenMusicEventSourceEvent(
+                    event: EventDTO(
+                        id: OMERecord.Event.ID(
+                            organizerID: organizerID,
+                            eventID: OMERecord.ID("2026")
+                        ),
+                        name: "Wicked Woods 2026",
+                        description: nil,
+                        startDate: nil,
+                        endDate: nil,
+                        status: nil,
+                        mode: nil,
+                        locations: nil,
+                        uris: nil,
+                        timeZone: timeZone,
+                        images: nil,
+                        contactNumbers: nil,
+                        categoryConfigs: nil
+                    )
+                )
+            )
+        )
+    }
+    return OpenMusicEventSourceRepository(events: events)
 }
 
 private func flushNestedSpawnEffects() async {

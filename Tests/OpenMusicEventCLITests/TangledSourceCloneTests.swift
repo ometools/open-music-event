@@ -870,6 +870,72 @@ struct TangledSourceCloneTests {
     }
 
     @Test
+    func archiveCheckoutResolvesWickedWoodsDIDBeforeDownloadingProposalBranch() async throws {
+        let wickedWoodsDID = try #require(
+            DID("did:plc:5df2u7ief6m6tn77jznicxob")
+        )
+        let wickedWoodsHandle = Atmosphere.Account.Handle("wickedwoods.ca")
+        let proposalBranch = "ome/proposal-9ada21bf-9319-4997-824b-8de5e16d9d42"
+        let outputURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-wicked-woods-review-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+        let resolvedDIDs = Mutex([DID]())
+        let requestedURLs = Mutex([URL]())
+
+        _ = try await withDependencies {
+            $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+                resolveHandle: { handle in
+                    Issue.record("Did not expect handle resolution: \(handle)")
+                    return (
+                        Atmosphere.Account(id: .init(wickedWoodsDID), handle: wickedWoodsHandle),
+                        try didDocument(did: wickedWoodsDID, handle: wickedWoodsHandle)
+                    )
+                },
+                resolveDID: { did in
+                    resolvedDIDs.withLock { $0.append(did) }
+                    return (
+                        Atmosphere.Account(id: .init(did), handle: wickedWoodsHandle),
+                        try didDocument(did: did, handle: wickedWoodsHandle)
+                    )
+                }
+            )
+            $0.httpClient = HTTPClient { request, _ in
+                if let url = request.url {
+                    requestedURLs.withLock { $0.append(url) }
+                }
+                return Data("archive".utf8)
+            }
+            $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient { archiveData, output in
+                expectNoDifference(archiveData, Data("archive".utf8))
+                expectNoDifference(output, outputURL)
+            }
+        } operation: {
+            try await TangledSourceCheckoutClient.archive.checkout(
+                TangledSourceCheckoutRequest(
+                    repository: TangledRepositoryReference(
+                        host: "tangled.org",
+                        owner: wickedWoodsDID.description,
+                        repository: "ome-workspace"
+                    ),
+                    ref: proposalBranch,
+                    outputURL: outputURL
+                )
+            )
+        }
+
+        expectNoDifference(resolvedDIDs.withLock { $0 }, [wickedWoodsDID])
+        expectNoDifference(
+            requestedURLs.withLock { $0.map(\.absoluteString) },
+            [
+                "https://tangled.org/wickedwoods.ca/ome-workspace/archive/ome%2Fproposal-9ada21bf-9319-4997-824b-8de5e16d9d42.tar.gz"
+            ]
+        )
+    }
+
+    @Test
     func cloneCommandDownloadsBinaryArchiveWithoutBodyLogging() async throws {
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-cli-source-clone-\(UUID().uuidString)")
