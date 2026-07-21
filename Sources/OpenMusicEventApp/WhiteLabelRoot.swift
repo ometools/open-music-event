@@ -28,7 +28,6 @@ public struct WhiteLabelRoot {
         public var authoringSubject: Authoring.Subject?
         public var configuration: WhiteLabelAppConfiguration
         public var errorMessage: String?
-        public var isAccountManagementPresented = false
         public var isAuthoringAuthorizationInFlight = false
         public var isLoading = false
         public var loadingPhase: LoadingPhase = .idle
@@ -51,8 +50,6 @@ public struct WhiteLabelRoot {
     }
 
     public enum Action {
-        case accountManagementButtonTapped
-        case accountManagementDoneButtonTapped
         case enterAuthoringAuthorizationFailed(Authoring.Subject)
         case enterAuthoringAuthorized(Authoring.Subject, Authoring.Scope)
         case enterAuthoringButtonTapped
@@ -87,14 +84,6 @@ public struct WhiteLabelRoot {
 
         Update { state, action in
             switch action {
-            case .accountManagementButtonTapped:
-                state.refreshAuthoringRequirement()
-                state.isAccountManagementPresented = true
-
-            case .accountManagementDoneButtonTapped:
-                state.refreshAuthoringRequirement()
-                state.isAccountManagementPresented = false
-
             case let .enterAuthoringAuthorizationFailed(subject):
                 state.isAuthoringAuthorizationInFlight = false
                 guard state.authoringSubject == subject else { return }
@@ -142,6 +131,7 @@ public struct WhiteLabelRoot {
                     organizerID: loadedRoot.organizerID,
                     sourceBaselineIDs: loadedRoot.sourceBaselineIDs
                 )
+                state.refreshAuthoringMode()
                 state.refreshAuthoringRequirement()
 
             case .retryButtonTapped:
@@ -256,6 +246,7 @@ public struct WhiteLabelRoot {
                         organizerID: cachedOrganizerID,
                         sourceBaselineIDs: sourceBaselineIDs
                     )
+                    $0.refreshAuthoringMode()
                     $0.refreshAuthoringRequirement()
                 } else {
                     $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
@@ -404,12 +395,7 @@ public struct WhiteLabelRootView: View {
                 AuthoringPreparationStatus()
             }
         }
-        .sheet(isPresented: $store.isAccountManagementPresented) {
-            WhiteLabelRootAccountManagementView(
-                store: store,
-                accountStore: accountStore
-            )
-        }
+        .accountPickerToolbar(store: accountStore)
     }
 
     struct LoadingView: View {
@@ -545,45 +531,10 @@ struct WhiteLabelRootActionsMenu: View {
                 .disabled(teamWorkspaceDetailStore.isPreparingTeamWorkspaceEditor)
             }
 
-            Button {
-                store.send(.accountManagementButtonTapped)
-            } label: {
-                Label("Account", systemImage: "person.crop.circle")
-            }
         } label: {
             Label("Actions", systemImage: "gearshape")
                 .labelStyle(.iconOnly)
         }
-    }
-}
-
-struct WhiteLabelRootAccountManagementView: View {
-    let store: StoreOf<WhiteLabelRoot>
-    let accountStore: StoreOf<Account>
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                AccountView(store: accountStore)
-                TechnicalDetailsSettingsSection()
-            }
-            #if os(macOS)
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-            #endif
-            .navigationTitle("Account")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        store.send(.accountManagementDoneButtonTapped)
-                    } label: {
-                        Label("Close", systemImage: "xmark")
-                            .labelStyle(.iconOnly)
-                    }
-                }
-            }
-        }
-        .accountAuthenticationSheet(store: accountStore)
     }
 }
 
@@ -604,6 +555,17 @@ extension View {
 }
 
 private extension WhiteLabelRoot.State {
+    mutating func refreshAuthoringMode() {
+        @Dependency(\.authoringPolicy) var authoringPolicy
+
+        guard let authoringSubject else {
+            authoringMode = .attendee
+            return
+        }
+
+        authoringMode = (try? authoringPolicy.mode(authoringSubject)) ?? .attendee
+    }
+
     mutating func refreshAuthoringRequirement() {
         @Dependency(\.authoringPolicy) var authoringPolicy
 

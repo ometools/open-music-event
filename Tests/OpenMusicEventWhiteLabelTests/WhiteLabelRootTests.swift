@@ -316,6 +316,51 @@ struct WhiteLabelRootTests {
   }
 
   @Test
+  func sourceBackedLaunchRestoresAuthoringModeFromStoredSession() async throws {
+    try await withNonExhaustiveTest {
+      let database = try makePreparedDatabase()
+      let organizerID = organizerID("wickedwoods")
+      let selectedEventID = eventID(organizerID: organizerID, eventID: "2025")
+      let descriptor = WhiteLabelSourceDescriptor(
+        reference: .source("https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome")
+      )
+      let source = sourceProvenance("wicked-woods-ome")
+      let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+
+      let store = makeStore(
+        configuration: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
+        database: database
+      ) {
+        $0.authoringPolicy = AuthoringPolicyClient(
+          authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
+          authorize: { _ in .all },
+          mode: { subject in
+            #expect(subject == .sourceBaseline(sourceBaselineID))
+            return .authoring(.all)
+          }
+        )
+        $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
+        $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { importedOrganizerID, _ in
+          #expect(importedOrganizerID == organizerID)
+          try await insertSourceBackedEvent(
+            selectedEventID,
+            source: source,
+            into: database
+          )
+          return [selectedEventID]
+        }
+      }
+
+      // The selected account already satisfies the authoring requirement at launch.
+      await load(store)
+
+      #expect(store.state.authoringSubject == .sourceBaseline(sourceBaselineID))
+      #expect(store.state.authoringMode == .authoring(.all))
+      #expect(store.state.showsAuthoringControls)
+    }
+  }
+
+  @Test
   func enterAuthoringButtonPreparesSourceBeforeShowingAuthoringControls() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()

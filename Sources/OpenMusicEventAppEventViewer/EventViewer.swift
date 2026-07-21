@@ -1308,7 +1308,7 @@ public struct EventViewerView: View {
                 }
                 #else
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Exit") {
+                    Button("Exit", systemImage: "xmark") {
                         store.send(.closeButtonTapped)
                     }
                 }
