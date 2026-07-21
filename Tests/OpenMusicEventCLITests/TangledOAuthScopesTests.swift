@@ -1,6 +1,7 @@
 import ATProto
 import ATProtoOAuth
 import CustomDump
+import Foundation
 import OpenMusicEventSourceClone
 import Testing
 
@@ -111,4 +112,78 @@ struct TangledOAuthScopesTests {
                 .union(TangledOAuthRequirements.pullMergeAuthRequirement.permissions)
         )
     }
+
+    @Test
+    func proposalTokenMustUpgradeBeforeThePullRequestWorkflowCanMergeThroughAKnot() {
+        let manifest = OAuth.AppManifest(
+            appID: OAuth.App.ID(
+                URL(string: "https://openmusicevent.app/oauth-client-metadata.json")!
+            ),
+            redirectURIs: [
+                OAuth.App.RedirectURI(URL(string: "app.openmusicevent:/oauth/callback")!)
+            ],
+            registeredRequirements: [
+                TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+            ]
+        )
+        let proposalSession = tangledScopeTestSession(
+            permissions: TangledOAuthRequirements.proposalAuthRequirement.permissions
+        )
+        let missingWorkflowPermissions: Set<OAuth.Permission> = [
+            TangledOAuthRequirements.pullUpdatePermission,
+            TangledOAuthRequirements.pullDeletePermission,
+            TangledOAuthRequirements.pullStatusCreatePermission,
+            TangledOAuthRequirements.pullStatusUpdatePermission,
+            TangledOAuthRequirements.pullStatusDeletePermission,
+            TangledOAuthRequirements.pullMergePermission,
+        ]
+
+        // A token that can create a proposal is not authorized to hit the knot merge
+        // endpoint or to write the merged pull-status record.
+        expectNoDifference(
+            proposalSession.grantedPermissions.missing(
+                TangledOAuthRequirements.pullRequestWorkflowAuthRequirement.permissions
+            ),
+            missingWorkflowPermissions
+        )
+        expectNoDifference(
+            OAuth.authorizationStatus(
+                for: TangledOAuthRequirements.pullRequestWorkflowAuthRequirement,
+                session: proposalSession,
+                manifest: manifest
+            ),
+            .upgradeAvailable(
+                missing: missingWorkflowPermissions,
+                requirement: TangledOAuthRequirements.pullRequestWorkflowAuthRequirement
+            )
+        )
+
+        // Once the workflow permission set is granted, the same request is satisfied.
+        let workflowSession = tangledScopeTestSession(
+            permissions: TangledOAuthRequirements.pullRequestWorkflowAuthRequirement.permissions
+        )
+        expectNoDifference(
+            OAuth.authorizationStatus(
+                for: TangledOAuthRequirements.pullRequestWorkflowAuthRequirement,
+                session: workflowSession,
+                manifest: manifest
+            ),
+            .satisfied(workflowSession)
+        )
+    }
+}
+
+private func tangledScopeTestSession(
+    permissions: Set<OAuth.Permission>
+) -> OAuth.Session {
+    var session = OAuth.Session.placeholder
+    var grantedPermissions = Set([OAuth.Permission.atproto])
+    grantedPermissions.formUnion(permissions)
+    session.scope = OAuth.Scope(
+        rawValue: grantedPermissions
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: " ")
+    )
+    return session
 }

@@ -504,7 +504,7 @@ struct TangledPullReviewClientTests {
     }
 
     @Test
-    func mergeFetchesPatchFromPullRecordThenWritesMergedStatus() async throws {
+    func mergeUpgradesTheInitialProposalTokenBeforeRequestingKnotServiceAuth() async throws {
         let eventID = testEventID("wicked-woods-2026")
         let ownerDID = try #require(DID("did:plc:owner"))
         let authorDID = try #require(DID("did:plc:author"))
@@ -537,28 +537,39 @@ struct TangledPullReviewClientTests {
             title: "Add Excision",
             uri: "at://did:plc:author/sh.tangled.repo.pull/3pull"
         )
-        let session: OAuth.Session = {
-            var grantedPermissions = Set([OAuth.Permission.atproto])
-            grantedPermissions.formUnion(
-                OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions
+        // The user created the pull request earlier, so the selected token can publish a
+        // proposal but cannot yet merge through the knot or write the merged status.
+        let initialSession = tangledMergeStorySession(
+            permissions: OpenMusicEventOAuth.proposalAuthRequirement.permissions,
+            accessToken: "proposal-only-access-token",
+            refreshToken: "proposal-only-refresh-token"
+        )
+        let upgradedSession = tangledMergeStorySession(
+            permissions: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions,
+            accessToken: "workflow-upgraded-access-token",
+            refreshToken: "workflow-upgraded-refresh-token"
+        )
+        let selectedSession = Mutex(initialSession)
+        expectNoDifference(
+            OAuth.authorizationStatus(
+                for: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement,
+                session: initialSession,
+                manifest: OpenMusicEventOAuth.appManifest
+            ),
+            .upgradeAvailable(
+                missing: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions
+                    .subtracting(OpenMusicEventOAuth.proposalAuthRequirement.permissions),
+                requirement: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
             )
-            var session = OAuth.Session.placeholder
-            session.scope = OAuth.Scope(
-                rawValue: grantedPermissions
-                    .map(\.rawValue)
-                    .sorted()
-                    .joined(separator: " ")
-            )
-            return OAuth.Session(
-                accountID: session.accountID,
-                pdsHost: "publisher.pds.example",
-                tokenEndpoint: session.tokenEndpoint,
-                scope: session.scope,
-                accessToken: session.accessToken,
-                refreshToken: session.refreshToken,
-                dpopKey: session.dpopKey
-            )
-        }()
+        )
+        expectNoDifference(
+            OAuth.authorizationStatus(
+                for: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement,
+                session: upgradedSession,
+                manifest: OpenMusicEventOAuth.appManifest
+            ),
+            .satisfied(upgradedSession)
+        )
         let now = Date(timeIntervalSince1970: 1_783_453_261)
         let requests = Mutex([(url: URL?, body: Data?, headers: HTTPFields)]())
         let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
@@ -627,11 +638,27 @@ struct TangledPullReviewClientTests {
             )
             $0[XRPC.Client.self] = .liveValue
             $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                // Merge asks for the whole pull-request workflow before any network operation
+                // can use the proposal-only token against the PDS or knot.
+                #expect(requests.withLock { $0.isEmpty })
+                expectNoDifference(
+                    OAuth.authorizationStatus(
+                        for: requirement,
+                        session: selectedSession.withLock { $0 },
+                        manifest: OpenMusicEventOAuth.appManifest
+                    ),
+                    .upgradeAvailable(
+                        missing: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement.permissions
+                            .subtracting(OpenMusicEventOAuth.proposalAuthRequirement.permissions),
+                        requirement: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
+                    )
+                )
                 authorizedRequirements.withLock { $0.append(requirement) }
+                selectedSession.withLock { $0 = upgradedSession }
             }
             $0.pdsHost = "publisher.pds.example"
-            $0.getDefaultSession = { session }
-            $0.getOptionalDefaultSession = { session }
+            $0.getDefaultSession = { selectedSession.withLock { $0 } }
+            $0.getOptionalDefaultSession = { selectedSession.withLock { $0 } }
             $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
             $0.p256Sign = { _, _ in Data(repeating: 0xAB, count: 64) }
             $0.uuid = .constant(UUID(uuidString: "12345678-1234-1234-1234-123456789abc")!)
@@ -644,6 +671,10 @@ struct TangledPullReviewClientTests {
                 requests.withLock {
                     $0.append((url: request.url, body: body, headers: request.headerFields))
                 }
+                #expect(
+                    request.headerFields[.authorization]
+                        != "DPoP \(initialSession.accessToken.rawValue)"
+                )
                 let host = request.url?.host
                 let path = request.url?.path ?? ""
                 let collection = request.url?.queryValue(named: "collection")
@@ -725,14 +756,26 @@ struct TangledPullReviewClientTests {
                     where path.hasSuffix("/com.atproto.server.getServiceAuth"):
                     #expect(request.url?.queryValue(named: "aud") == "did:web:tangled.org")
                     #expect(request.url?.queryValue(named: "lxm") == "sh.tangled.repo.merge")
+                    #expect(
+                        request.headerFields[.authorization]
+                            == "DPoP \(upgradedSession.accessToken.rawValue)"
+                    )
+                    #expect(request.headerFields[HTTPField.Name("DPoP")!] != nil)
                     return ok(Data(#"{"token":"service-auth-token"}"#.utf8))
 
                 case ("tangled.org", _)
                     where path.hasSuffix("/sh.tangled.repo.merge"):
+                    #expect(request.headerFields[.authorization] == "Bearer service-auth-token")
+                    #expect(request.headerFields[HTTPField.Name("DPoP")!] == nil)
                     return ok(Data("{}".utf8))
 
                 case ("publisher.pds.example", _)
                     where path.hasSuffix("/com.atproto.repo.createRecord"):
+                    #expect(
+                        request.headerFields[.authorization]
+                            == "DPoP \(upgradedSession.accessToken.rawValue)"
+                    )
+                    #expect(request.headerFields[HTTPField.Name("DPoP")!] != nil)
                     return ok(Data(
                         """
                         {
@@ -767,7 +810,10 @@ struct TangledPullReviewClientTests {
         )
         #expect(serviceAuthRequest.url?.queryValue(named: "aud") == "did:web:tangled.org")
         #expect(serviceAuthRequest.url?.queryValue(named: "lxm") == "sh.tangled.repo.merge")
-        #expect(serviceAuthRequest.headers[.authorization] == "DPoP \(session.accessToken.rawValue)")
+        #expect(
+            serviceAuthRequest.headers[.authorization]
+                == "DPoP \(upgradedSession.accessToken.rawValue)"
+        )
         #expect(serviceAuthRequest.headers[HTTPField.Name("DPoP")!] != nil)
 
         let mergeRequest = try #require(
@@ -824,6 +870,81 @@ struct TangledPullReviewClientTests {
             authorizedRequirements.withLock { $0 },
             [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
         )
+        #expect(selectedSession.withLock { $0 } == upgradedSession)
+    }
+
+    @Test
+    func mergeDoesNotContactTheKnotWhenTheWorkflowUpgradeIsCancelled() async throws {
+        let eventID = testEventID("wicked-woods-2026")
+        let review = TangledPullReview(
+            author: "did:plc:author",
+            body: "Proposed from OME.",
+            commentCount: 0,
+            createdAt: "2026-07-08T12:02:00Z",
+            patchBlobs: [],
+            state: "open",
+            targetBranch: "main",
+            targetRepositoryDID: "did:plc:targetrepo",
+            title: "Add Excision",
+            uri: "at://did:plc:author/sh.tangled.repo.pull/3pull"
+        )
+        let initialSession = tangledMergeStorySession(
+            permissions: OpenMusicEventOAuth.proposalAuthRequirement.permissions,
+            accessToken: "proposal-only-access-token",
+            refreshToken: "proposal-only-refresh-token"
+        )
+        let requests = Mutex([(url: URL?, body: Data?, headers: HTTPFields)]())
+        let authorizedRequirements = Mutex([OAuth.AuthRequirement]())
+
+        await #expect(throws: CancellationError.self) {
+            try await withDependencies {
+                $0.openMusicEventSourcePatchLocationResolver =
+                    OpenMusicEventSourcePatchLocationResolver { request in
+                        #expect(request.eventID == eventID)
+                        return SourcePatchLocation(
+                            repositoryURL: URL(filePath: "/tmp/wicked-woods-ome"),
+                            remote: SourcePatchLocation.Remote(
+                                kind: "tangled",
+                                reference: "woody.fm/wicked-woods-ome",
+                                ref: "main"
+                            )
+                        )
+                    }
+                $0[XRPC.Client.self] = .liveValue
+                $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                    authorizedRequirements.withLock { $0.append(requirement) }
+                    throw CancellationError()
+                }
+                $0.pdsHost = "publisher.pds.example"
+                $0.getDefaultSession = { initialSession }
+                $0.getOptionalDefaultSession = { initialSession }
+                $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
+                $0.xrpcAuthorizationGate = .defaultSessionAuthorization
+                $0.httpClient = .liveValue
+                $0.requestInterceptors = []
+                $0.responseInterceptors = []
+                $0.errorInterceptors = []
+                $0.dataForURL = { request, body in
+                    requests.withLock {
+                        $0.append((url: request.url, body: body, headers: request.headerFields))
+                    }
+                    return (Data("{}".utf8), HTTPResponse(status: .ok))
+                }
+            } operation: {
+                try await TangledPullReviewClient.openMusicEvent.merge(
+                    OpenMusicEventTangledPullReviewMergeRequest(
+                        eventID: eventID,
+                        review: review
+                    )
+                )
+            }
+        }
+
+        expectNoDifference(
+            authorizedRequirements.withLock { $0 },
+            [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
+        )
+        #expect(requests.withLock { $0.isEmpty })
     }
 
     @Test
@@ -1018,6 +1139,31 @@ private func testEventID(_ string: String) -> OME.Event.ID {
     OME.Event.ID(
         organizerID: OME.Organizer.ID("did:web:example.com")!,
         eventID: OME.ID<OME.Event>(.init(string))
+    )
+}
+
+private func tangledMergeStorySession(
+    permissions: Set<OAuth.Permission>,
+    accessToken: String,
+    refreshToken: String
+) -> OAuth.Session {
+    var grantedPermissions = Set([OAuth.Permission.atproto])
+    grantedPermissions.formUnion(permissions)
+    return OAuth.Session(
+        accountID: OAuth.Session.placeholder.accountID,
+        pdsHost: "publisher.pds.example",
+        tokenEndpoint: OAuth.AuthorizationServer.TokenEndpoint(
+            URL(string: "https://publisher.pds.example/oauth/token")!
+        ),
+        scope: OAuth.Scope(
+            rawValue: grantedPermissions
+                .map(\.rawValue)
+                .sorted()
+                .joined(separator: " ")
+        ),
+        accessToken: OAuth.AccessToken(rawValue: accessToken),
+        refreshToken: OAuth.RefreshToken(rawValue: refreshToken),
+        dpopKey: OAuth.DPOP.Key()
     )
 }
 
