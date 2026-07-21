@@ -555,6 +555,129 @@ struct WhiteLabelRootTests {
     ])
   }
 
+  @Test
+  func liveSourceImportUsesArchiveCheckoutForInitialSourceImport() async throws {
+    let database = try makePreparedDatabase()
+    let organizerID = organizerID("wickedwoods")
+    let importedEventID = eventID(organizerID: organizerID, eventID: "2025")
+    let source = "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
+    let recorder = ArchiveCheckoutRecorder()
+    let checkoutURL = FileManager.default.temporaryDirectory
+      .appending(path: "white-label-initial-archive-\(UUID().uuidString)")
+      .standardizedFileURL
+    defer { try? FileManager.default.removeItem(at: checkoutURL) }
+    let repository = TangledRepositoryReference(
+      host: "tangled.org",
+      owner: "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
+      repository: "wicked-woods-ome"
+    )
+
+    let importedEventIDs = try await withDependencies {
+      $0.context = .test
+      $0.defaultDatabase = database
+      $0.httpClient = HTTPClient { request, _ in
+        await recorder.recordArchiveRequest(request)
+        return Data("archive".utf8)
+      }
+      $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient {
+        archiveData, outputURL in
+        await recorder.recordExtraction(archiveData: archiveData, outputURL: outputURL)
+      }
+      $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+        Issue.record(
+          "White-label initial source import should use archive checkout, not the app checkout dependency."
+        )
+        return TangledSourceCheckout(repositoryURL: request.outputURL)
+      }
+      $0.tangledSourceImport = TangledSourceImportClient { request in
+        @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+        await recorder.recordImport(request)
+        _ = try await tangledSourceCheckout.checkout(
+          TangledSourceCheckoutRequest(
+            repository: repository,
+            ref: request.ref,
+            outputURL: checkoutURL
+          )
+        )
+        return try validationResult(eventID: importedEventID)
+      }
+    } operation: {
+      try await WhiteLabelSourceImportClient.live.ensureImported(
+        organizerID,
+        WhiteLabelSourceDescriptor(reference: .source(source), version: "main")
+      )
+    }
+
+    #expect(importedEventIDs == [importedEventID])
+    let importRequests = await recorder.importRequests()
+    expectNoDifference(
+      importRequests,
+      [
+        OpenMusicEventSourceValidationRequest(
+          source: source,
+          organizerID: organizerID,
+          ref: "main"
+        )
+      ]
+    )
+    let archiveRequestURLs = await recorder.archiveRequestURLs()
+    expectNoDifference(
+      archiveRequestURLs,
+      [try repository.archiveURL(ref: "main")]
+    )
+    let extractions = await recorder.extractions()
+    expectNoDifference(
+      extractions,
+      [.init(archiveData: Data("archive".utf8), outputURL: checkoutURL)]
+    )
+  }
+
+  @Test
+  func liveSourceImportUsesArchiveCheckoutEvenWhenAppCheckoutIsGit() async throws {
+    let database = try makePreparedDatabase()
+    let organizerID = organizerID("wickedwoods")
+    let source = "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
+    let importedEventID = eventID(organizerID: organizerID, eventID: "2025")
+    let recorder = ArchiveCheckoutRecorder()
+
+    let importedEventIDs = try await withDependencies {
+      $0.context = .test
+      $0.defaultDatabase = database
+      $0.tangledSourceCheckout = .git
+      $0.tangledSourceImport = TangledSourceImportClient { request in
+        @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+        _ = try await tangledSourceCheckout.checkout(
+          TangledSourceCheckoutRequest(
+            repository: try TangledRepositoryReference(sourceReference: request.source),
+            ref: request.ref,
+            outputURL: FileManager.default.temporaryDirectory
+              .appending(path: "white-label-launch-\(UUID().uuidString)")
+          )
+        )
+        return try validationResult(eventID: importedEventID)
+      }
+      $0.tangledSSHCredentials = TangledSSHCredentialsClient {
+        Issue.record("White-label launch import should not request SSH credentials.")
+        throw PublicWhiteLabelImportRequestedSSHCredentials()
+      }
+      $0.httpClient = HTTPClient { _, _ in
+        Data("archive".utf8)
+      }
+      $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient {
+        archiveData, outputURL in
+        await recorder.recordExtraction(archiveData: archiveData, outputURL: outputURL)
+      }
+    } operation: {
+      try await WhiteLabelSourceImportClient.live.ensureImported(
+        organizerID,
+        WhiteLabelSourceDescriptor(reference: .source(source), version: "main")
+      )
+    }
+
+    #expect(importedEventIDs == [importedEventID])
+    let extractions = await recorder.extractions()
+    #expect(extractions.map(\.archiveData) == [Data("archive".utf8)])
+  }
   private func makeStore(
     configuration: WhiteLabelAppConfiguration,
     database: any DatabaseWriter,
@@ -732,6 +855,44 @@ private actor TangledSourceImportRecorder {
   }
 }
 
+private actor ArchiveCheckoutRecorder {
+  struct Extraction: Equatable, Sendable {
+    var archiveData: Data
+    var outputURL: URL
+  }
+
+  private var archiveRequests: [URL] = []
+  private var extractionValues: [Extraction] = []
+  private var imports: [OpenMusicEventSourceValidationRequest] = []
+
+  func archiveRequestURLs() -> [URL] {
+    archiveRequests
+  }
+
+  func extractions() -> [Extraction] {
+    extractionValues
+  }
+
+  func importRequests() -> [OpenMusicEventSourceValidationRequest] {
+    imports
+  }
+
+  func recordArchiveRequest(_ request: HTTPRequest) {
+    if let url = request.url {
+      archiveRequests.append(url)
+    }
+  }
+
+  func recordExtraction(archiveData: Data, outputURL: URL) {
+    extractionValues.append(Extraction(archiveData: archiveData, outputURL: outputURL))
+  }
+
+  func recordImport(_ request: OpenMusicEventSourceValidationRequest) {
+    imports.append(request)
+  }
+}
+
+private struct PublicWhiteLabelImportRequestedSSHCredentials: Error {}
 private actor AuthoringPreparationGate {
   private var isFinished = false
   private var sourceBaselineIDs: [SourceBaselineRecord.ID] = []
@@ -765,7 +926,6 @@ private actor AuthoringPreparationGate {
     }
   }
 }
-
 private func validationResult(
   eventID: OMERecord.Event.ID
 ) throws -> OpenMusicEventSourceValidationResult {

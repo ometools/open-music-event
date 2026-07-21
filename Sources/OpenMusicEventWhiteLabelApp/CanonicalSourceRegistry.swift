@@ -54,12 +54,16 @@ public extension WhiteLabelSourceRegistryClient {
     }
 }
 
-public enum OpenMusicEventWhiteLabelAppDependencies {
-    public static func prepareDependencies(
-        _ dependencies: inout DependencyValues
-    ) {
-        dependencies.authoringPolicy = .loginRequired
-        dependencies.whiteLabelSourceRegistry = .canonicalSourceRecord
-        dependencies.whiteLabelSourceImport = .live
+public enum OpenMusicEvent {
+    public enum WhiteLabel {
+
+        public static func prepareDependencies(
+            _ dependencies: inout DependencyValues
+        ) throws {
+            try OME.prepareDependencies(&dependencies)
+            dependencies.authoringPolicy = .loginRequired
+            dependencies.whiteLabelSourceRegistry = .canonicalSourceRecord
+            dependencies.whiteLabelSourceImport = .live
+        }
     }
 }
