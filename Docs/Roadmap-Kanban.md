@@ -22,6 +22,7 @@ kanban-plugin: board
 - [ ] [[roadmap/OME-071-schedule-authoring-workflow|OME-071: Schedule Authoring Workflow]]
 - [ ] [[roadmap/OME-027-real-atproto-record-publishing|OME-027: Org-Owned OME Record Publishing]]
 - [ ] [[roadmap/OME-028-appview-indexing-service|OME-028: AppView / Indexing Service]]
+- [ ] [[roadmap/OME-067-appview-push-notification-delivery|OME-067: AppView Push Notification Delivery]]
 - [ ] [[roadmap/OME-029-organizer-collaboration-workflows|OME-029: Organizer Collaboration Workflows]]
 - [ ] [[roadmap/OME-030-attendee-facing-polish|OME-030: Attendee-Facing Polish]]
 - [ ] [[roadmap/OME-062-site-map-and-wayfinding|OME-062: Site Map and Wayfinding]]
