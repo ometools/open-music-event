@@ -175,6 +175,13 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         legacyManyStagesOrientation = scheduleKind.legacyManyStagesOrientation
     }
 
+    static func all(
+        eventID: OMERecord.Event.ID
+    ) -> some SelectStatementOf<ScheduleViewerState> {
+        Self
+            .where { $0.id.eventID.eq(eventID) }
+    }
+
     static func rows(
         eventID: OMERecord.Event.ID,
         scheduleDivision: ScheduleViewer.ScheduleDivision

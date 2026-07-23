@@ -3,13 +3,14 @@ import SwiftUI
 
 struct TimeIndicatorView: View {
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.calendar) var calendar
     @Environment(\.scheduleHeight) var scheduleHeight
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
     @Environment(\.shouldShowTimeIndicator) var shouldShowTimeIndicator
 
     let gradientHeight: CGFloat = 30
-    let textWidth: CGFloat = 62
+    let textWidth: CGFloat = 43
     let horizontalLabelHeight = HourLabelsHeightPreferenceKey.defaultValue
 
     var backgroundColor: Color {
@@ -32,7 +33,7 @@ struct TimeIndicatorView: View {
                 {
                     switch scheduleTimelineOrientation {
                     case .verticalTime:
-                        verticalTimeIndicator()
+                        verticalTimeIndicator(at: context.date)
                             .position(
                                 x: geometry.size.width / 2,
                                 y: context.date.toY(
@@ -42,7 +43,7 @@ struct TimeIndicatorView: View {
                             )
 
                     case .horizontalTime:
-                        horizontalTimeIndicator(height: geometry.size.height)
+                        horizontalTimeIndicator(at: context.date, height: geometry.size.height)
                             .position(
                                 x: context.date.toX(
                                     containerWidth: geometry.size.width,
@@ -56,9 +57,9 @@ struct TimeIndicatorView: View {
         }
     }
 
-    func verticalTimeIndicator() -> some View {
+    func verticalTimeIndicator(at date: Date) -> some View {
         ZStack(alignment: .leading) {
-            Text("Right Now")
+            Text(currentTime(at: date))
                 .foregroundStyle(Color.accentColor)
                 .font(.caption)
                 .fontWeight(.semibold)
@@ -86,7 +87,7 @@ struct TimeIndicatorView: View {
         }
     }
 
-    func horizontalTimeIndicator(height: CGFloat) -> some View {
+    func horizontalTimeIndicator(at date: Date, height: CGFloat) -> some View {
         ZStack(alignment: .top) {
             Rectangle()
                 .fill(Color.accentColor)
@@ -98,7 +99,7 @@ struct TimeIndicatorView: View {
                 .frame(width: 5, height: 5)
                 .offset(y: horizontalLabelHeight - 2)
 
-            Text("Right Now")
+            Text(currentTime(at: date))
                 .foregroundStyle(Color.accentColor)
                 .font(.caption)
                 .fontWeight(.semibold)
@@ -115,5 +116,14 @@ struct TimeIndicatorView: View {
                 }
         }
         .frame(width: textWidth + 16, height: height, alignment: .top)
+    }
+
+    func currentTime(at date: Date) -> String {
+        Date.FormatStyle.dateTime
+            .hour(.defaultDigits(amPM: .narrow))
+            .minute()
+            .format(date)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
     }
 }

@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import Foundation
 import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUITabFeatures
@@ -26,8 +27,14 @@ public struct EventSearch {
             _contributors = FetchAll(
                 ContributorProfile.all(eventID: eventID, hydration: .none)
             )
+            _event = FetchOne(
+                OMERecord.Event.where { $0.id.eq(eventID) }
+            )
             _performanceContributors = FetchAll(
                 EventSearch.performanceContributorsQuery(eventID: eventID)
+            )
+            _scheduleViewerStates = FetchAll(
+                ScheduleViewerState.all(eventID: eventID)
             )
         }
 
@@ -36,7 +43,9 @@ public struct EventSearch {
         public var content: EventSearchContent
 
         @FetchAll var contributors: [ContributorProfile]
+        @FetchOne var event: OMERecord.Event?
         @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
+        @FetchAll var scheduleViewerStates: [ScheduleViewerState]
 
         public var query = ""
 
@@ -221,7 +230,9 @@ public struct EventSearchView: View {
                     content: store.content,
                     now: context.date,
                     contributors: store.contributors,
+                    event: store.event,
                     performanceContributors: store.performanceContributors,
+                    scheduleViewerStates: store.scheduleViewerStates,
                     openTarget: { store.send(.openTarget($0)) }
                 )
                 .task(id: context.date) {
@@ -247,7 +258,9 @@ struct EventSearchContentView: View {
     let content: EventSearchContent
     let now: Date
     let contributors: [ContributorProfile]
+    let event: OMERecord.Event?
     let performanceContributors: [OMERecord.Performance.Contributors]
+    let scheduleViewerStates: [ScheduleViewerState]
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
@@ -257,7 +270,9 @@ struct EventSearchContentView: View {
                 dashboard: dashboard,
                 now: now,
                 contributors: contributors,
+                event: event,
                 performanceContributors: performanceContributors,
+                scheduleViewerStates: scheduleViewerStates,
                 openTarget: openTarget
             )
 
@@ -285,7 +300,9 @@ struct EventSearchDashboardView: View {
     let dashboard: EventSearchDashboard
     let now: Date
     let contributors: [ContributorProfile]
+    let event: OMERecord.Event?
     let performanceContributors: [OMERecord.Performance.Contributors]
+    let scheduleViewerStates: [ScheduleViewerState]
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
@@ -307,6 +324,8 @@ struct EventSearchDashboardView: View {
                                 row: row,
                                 now: now,
                                 leadContributors: leadContributors,
+                                showStageNameLabels: showStageNameLabels(for: row.stage),
+                                timeZone: event?.timeZone ?? .current,
                                 openTarget: openTarget
                             )
                         }
@@ -362,22 +381,36 @@ struct EventSearchDashboardView: View {
             uniquingKeysWith: { first, _ in first }
         )
     }
+
+    func showStageNameLabels(for stage: OMERecord.Stage) -> Bool {
+        let division = ScheduleViewer.ScheduleDivision(category: stage.category)
+        if let state = scheduleViewerStates.first(where: { $0.id.category == division.id }) {
+            return state.showStageNameLabels
+        }
+        guard let category = stage.category else { return false }
+        return event?.categoryConfigs?[category]?.showStageNameLabels ?? false
+    }
 }
 
 struct EventSearchStageCard: View {
     let row: StageDashboardRow
     let now: Date
     let leadContributors: [OMERecord.ID<OMERecord.Performance>: ContributorProfile]
+    let showStageNameLabels: Bool
+    let timeZone: TimeZone
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 PerformanceStageBubbleView(stage: row.stage, tint: stageColor)
-                    .frame(width: 52, height: 52)
-                Text(row.stage.name)
-                    .font(.headline)
-                    .lineLimit(2)
+                    .scaleEffect(46 / PerformanceContextIdentity.bubbleSize)
+                    .frame(width: 46, height: 46)
+                if showStageNameLabels {
+                    Text(row.stage.name)
+                        .font(.headline)
+                        .lineLimit(2)
+                }
                 Spacer(minLength: 0)
             }
 
@@ -387,11 +420,12 @@ struct EventSearchStageCard: View {
 
             performanceSection(
                 title: "Up next",
-                performance: row.comingNextRows.first
+                performance: row.comingNextRows.first,
+                showsStartTime: true
             )
         }
-        .frame(maxWidth: .infinity, minHeight: 230, alignment: .topLeading)
-        .padding()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(14)
         .background {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(stageColor.opacity(0.10))
@@ -401,6 +435,7 @@ struct EventSearchStageCard: View {
                 .stroke(stageColor.opacity(0.22))
         }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityLabel(row.stage.name)
         .onTapGesture {
             openTarget(.stage(row.stage.id.stageID))
         }
@@ -409,7 +444,8 @@ struct EventSearchStageCard: View {
     @ViewBuilder
     func performanceSection(
         title: String,
-        performance: PerformanceDashboardRow?
+        performance: PerformanceDashboardRow?,
+        showsStartTime: Bool = false
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title.uppercased())
@@ -431,6 +467,11 @@ struct EventSearchStageCard: View {
                         Text(performance.title)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(2)
+                        if showsStartTime {
+                            Text("Starts \(startTimeText(for: performance.performance.startTime))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         PerformanceTimingChip(
                             status: PerformanceTimingStatus(
                                 startTime: performance.performance.startTime,
@@ -451,6 +492,14 @@ struct EventSearchStageCard: View {
 
     var stageColor: Color {
         row.stage.color.swiftUIColor
+    }
+
+    func startTimeText(for startTime: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "h:mm a"
+        return formatter.string(from: startTime).lowercased()
     }
 }
 
