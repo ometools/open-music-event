@@ -373,37 +373,32 @@ struct EventSearchStageCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
-                EventSearchChromeIcon(
-                    systemImage: "square.grid.2x2",
-                    tint: .indigo
-                )
+                PerformanceStageBubbleView(stage: row.stage, tint: stageColor)
+                    .frame(width: 52, height: 52)
                 Text(row.stage.name)
                     .font(.headline)
                     .lineLimit(2)
                 Spacer(minLength: 0)
             }
 
-            performanceSection(
-                title: "Now",
-                performance: row.nowPlayingRows.first,
-                emptyTitle: "Nothing on now"
-            )
+            if let performance = row.nowPlayingRows.first {
+                performanceSection(title: "Now", performance: performance)
+            }
 
             performanceSection(
                 title: "Up next",
-                performance: row.comingNextRows.first,
-                emptyTitle: "No next set announced"
+                performance: row.comingNextRows.first
             )
         }
         .frame(maxWidth: .infinity, minHeight: 230, alignment: .topLeading)
         .padding()
         .background {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.regularMaterial)
+                .fill(stageColor.opacity(0.10))
         }
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(.indigo.opacity(0.16))
+                .stroke(stageColor.opacity(0.22))
         }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onTapGesture {
@@ -414,8 +409,7 @@ struct EventSearchStageCard: View {
     @ViewBuilder
     func performanceSection(
         title: String,
-        performance: PerformanceDashboardRow?,
-        emptyTitle: String
+        performance: PerformanceDashboardRow?
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title.uppercased())
@@ -424,10 +418,14 @@ struct EventSearchStageCard: View {
 
             if let performance {
                 HStack(spacing: 10) {
-                    EventSearchArtistArtwork(
-                        contributor: leadContributors[performance.performanceID],
-                        fallbackTitle: performance.title
-                    )
+                    if let contributor = leadContributors[performance.performanceID],
+                       let asset = contributor.artworkAsset {
+                        ContributorArtworkView(
+                            asset: asset,
+                            cacheContext: contributor.artworkCacheContext,
+                            size: 54
+                        )
+                    }
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(performance.title)
@@ -444,44 +442,15 @@ struct EventSearchStageCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                Text(emptyTitle)
+                Text("No next set announced")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
     }
-}
 
-struct EventSearchArtistArtwork: View {
-    let contributor: ContributorProfile?
-    let fallbackTitle: String
-
-    var body: some View {
-        if let contributor {
-            ContributorArtworkView(
-                asset: contributor.artworkAsset,
-                cacheContext: contributor.artworkCacheContext,
-                size: 54
-            )
-        } else {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.pink.opacity(0.14))
-                Text(initials)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.pink)
-            }
-            .frame(width: 54, height: 54)
-        }
-    }
-
-    var initials: String {
-        fallbackTitle
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap(\.first)
-            .map(String.init)
-            .joined()
+    var stageColor: Color {
+        row.stage.color.swiftUIColor
     }
 }
 
