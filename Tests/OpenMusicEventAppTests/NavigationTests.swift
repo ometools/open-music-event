@@ -615,6 +615,47 @@ struct NavigationTests {
     }
 
     @Test
+    func browseEventTapResolvesAuthoringMode() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("source-event-list-authoring")
+        let sourceProvenance = sourceProvenance("source-event-list-authoring")
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Source Event List Authoring")
+            try Self.insertSourceBaseline(
+                db,
+                sourceProvenance: sourceProvenance,
+                importedAt: Date(timeIntervalSince1970: 1_900)
+            )
+            try Self.insertEventSourceProvenance(
+                db,
+                eventID: eventID,
+                sourceProvenance: sourceProvenance
+            )
+        }
+
+        try await withDependencies {
+            $0.context = .test
+            $0.authoringPolicy = .authoring
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            @Bindable var store = Store(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
+            }
+            @Bindable var browseStore = store.spawn(\.browser).spawn(\.browse)
+
+            await browseStore.send(.eventButtonTapped(eventID))?.value
+
+            let eventViewerStore = try #require(store.spawn(\.eventViewer))
+            #expect(eventViewerStore.eventID == eventID)
+            #expect(eventViewerStore.authoringMode == .authoring(.all))
+            #expect(eventViewerStore.installedFeatures.contains(.workspace))
+        }
+    }
+
+    @Test
     func eventViewerConsumesContributorNavigationFromSearchDescendant() async throws {
         let contributorID = contributorLocalID("contributor-1")
         let database = try makePreparedDatabase()
@@ -7099,7 +7140,7 @@ struct NavigationTests {
     }
 
     @Test
-    func whiteLabelLaunchRestoredEventViewerStartsInAttendeeMode() async throws {
+    func whiteLabelLaunchRestoredEventViewerResolvesAuthoringMode() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
 
@@ -7129,8 +7170,8 @@ struct NavigationTests {
             }
         }
 
-        #expect(store.state.root.eventViewer?.state.authoringMode == .attendee)
-        #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace) == false)
+        #expect(store.state.root.eventViewer?.state.authoringMode == .authoring(.all))
+        #expect(store.state.root.eventViewer?.state.installedFeatures.contains(.workspace))
     }
 
     @Test
