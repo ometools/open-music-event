@@ -681,6 +681,102 @@ struct DatabaseMigrationTests {
     }
 
     @Test
+    func eventSearchSourcesKeepArtistPerformanceAndChannelDiscoveryCurrent() async throws {
+        let database = try migratedDatabase()
+        let eventID = try await seedSearchEvent(in: database)
+        let now = Date(timeIntervalSince1970: 1_800_038_700)
+
+        try await database.write { db in
+            try EventSearchTextTriggers.install(in: db)
+            try EventSearchSources.installTriggers(in: db)
+
+            try insertStage(
+                eventID: eventID,
+                stageID: "meadow",
+                name: "Meadow Stage",
+                in: db
+            )
+            try insertChannel(
+                eventID: eventID,
+                channelID: "camp-radio",
+                name: "Camp Radio",
+                sortIndex: 1,
+                in: db
+            )
+            try insertContributor(
+                eventID: eventID,
+                contributorID: "luna-harbor",
+                name: "Luna Harbor",
+                bio: "Ambient artist and late-night performer.",
+                in: db
+            )
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "night-tide",
+                title: "Night Tide",
+                stageID: "meadow",
+                startTime: now,
+                endTime: now.addingTimeInterval(60 * 60),
+                in: db
+            )
+
+            let artistTerm = try #require(EventSearchTerm(rawValue: "luna"))
+            let artistResults = try EventSearchIndex.results(
+                matching: artistTerm,
+                in: eventID,
+                db: db
+            )
+            expectNoDifference(artistResults.map(\.document.target), [
+                .contributor(localID("luna-harbor")),
+            ])
+
+            let performanceTerm = try #require(EventSearchTerm(rawValue: "night"))
+            let performanceResults = try EventSearchIndex.results(
+                matching: performanceTerm,
+                in: eventID,
+                db: db
+            )
+            expectNoDifference(performanceResults.map(\.document.target), [
+                .performance(localID("night-tide")),
+            ])
+
+            let channelTerm = try #require(EventSearchTerm(rawValue: "radio"))
+            let channelResults = try EventSearchIndex.results(
+                matching: channelTerm,
+                in: eventID,
+                db: db
+            )
+            expectNoDifference(channelResults.map(\.document.target), [
+                .channel(localID("camp-radio")),
+            ])
+
+            try OME.Performance
+                .find(makePerformanceID("night-tide", eventID: eventID))
+                .update {
+                    $0.title = "Sunrise Tide"
+                }
+                .execute(db)
+
+            let oldPerformanceResults = try EventSearchIndex.results(
+                matching: performanceTerm,
+                in: eventID,
+                db: db
+            )
+            expectNoDifference(oldPerformanceResults, [])
+
+            let updatedPerformanceTerm = try #require(EventSearchTerm(rawValue: "sunrise"))
+            let updatedPerformanceResults = try EventSearchIndex.results(
+                matching: updatedPerformanceTerm,
+                in: eventID,
+                db: db
+            )
+            expectNoDifference(updatedPerformanceResults.map(\.document.target), [
+                .performance(localID("night-tide")),
+            ])
+        }
+    }
+
+    @Test
     func stageSearchSourceRebuildIndexesExistingStages() async throws {
         let database = try migratedDatabase()
         let eventID = try await seedSearchEvent(in: database)
@@ -1009,6 +1105,26 @@ private func insertChannel(
     .execute(db)
 }
 
+private func insertContributor(
+    eventID: OME.Event.ID,
+    contributorID: String,
+    name: String,
+    bio: String?,
+    in db: Database
+) throws {
+    try OME.Contributor.insert {
+        OME.Contributor.Draft(
+            id: makeContributorID(contributorID, eventID: eventID),
+            name: name,
+            did: nil,
+            bio: bio,
+            images: nil,
+            links: nil
+        )
+    }
+    .execute(db)
+}
+
 private func insertPerformance(
     eventID: OME.Event.ID,
     performanceID: String,
@@ -1095,6 +1211,17 @@ private func makeChannelID(
         organizerID: eventID.organizerID,
         eventID: eventID.eventID,
         channelID: localID(channelID)
+    )
+}
+
+private func makeContributorID(
+    _ contributorID: String,
+    eventID: OME.Event.ID
+) -> OME.Contributor.ID {
+    OME.Contributor.ID(
+        organizerID: eventID.organizerID,
+        eventID: eventID.eventID,
+        contributorID: localID(contributorID)
     )
 }
 
