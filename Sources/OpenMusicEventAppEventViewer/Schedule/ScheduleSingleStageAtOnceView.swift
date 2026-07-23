@@ -325,10 +325,11 @@ struct ScheduleStageTimelinePager: View {
             ScrollView {
                 HorizontalPageView(page: $selectedStageID) {
                     ForEach(stages) { stage in
-                        ScheduleStageTimelinePage(
+                        ScheduleFixedStageTimeline(
                             stage: stage,
                             performances: performances(for: stage),
                             timeRange: timeRange,
+                            pageHeight: pageHeight,
                             showsAuthoringControls: showsAuthoringControls,
                             onEditPerformanceTapped: { performanceID in
                                 onEditPerformanceTapped(performanceID)
@@ -346,15 +347,39 @@ struct ScheduleStageTimelinePager: View {
                     }
                 }
                 .frame(height: pageHeight)
-                .environment(\.scheduleHeight, pageHeight)
-                .environment(\.scheduleTimeRange, timeRange)
-                .environment(\.shouldShowTimeIndicator, true)
             }
         }
     }
 
     func performances(for stage: OMERecord.Stage) -> [OMERecord.Performance] {
         performances.filter { $0.stageID == stage.id.stageID }
+    }
+}
+
+struct ScheduleFixedStageTimeline: View {
+    let stage: OMERecord.Stage
+    let performances: [OMERecord.Performance]
+    let timeRange: DateInterval
+    let pageHeight: CGFloat
+    let showsAuthoringControls: Bool
+    let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+
+    var body: some View {
+        ScheduleStageTimelinePage(
+            stage: stage,
+            performances: performances,
+            timeRange: timeRange,
+            showsAuthoringControls: showsAuthoringControls,
+            onEditPerformanceTapped: onEditPerformanceTapped,
+            onDeletePerformanceTapped: onDeletePerformanceTapped,
+            onPerformanceTapped: onPerformanceTapped
+        )
+        .frame(height: pageHeight)
+        .environment(\.scheduleHeight, pageHeight)
+        .environment(\.scheduleTimeRange, timeRange)
+        .environment(\.shouldShowTimeIndicator, true)
     }
 }
 

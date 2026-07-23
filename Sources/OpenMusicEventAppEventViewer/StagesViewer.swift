@@ -12,6 +12,8 @@ import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
+import ScheduleComponents
+import Sharing
 import SQLiteData
 import SwiftUITabFeatures
 import SwiftUI
@@ -831,8 +833,12 @@ public struct StageDetail {
         public let stageID: OMERecord.ID<OMERecord.Stage>
         public let eventID: OMERecord.Event.ID
 
+        public var destination: Destination.State?
+        @Shared public var eventViewerState: EventViewerState
         @FetchOne public var stage: OMERecord.Stage?
         @FetchAll var contributors: [ContributorProfile]
+        @FetchAll public var performanceRows: [PerformanceRow]
+        @FetchAll public var schedules: [OMERecord.Schedule]
 
         public init(
             stageID: OMERecord.ID<OMERecord.Stage>,
@@ -842,6 +848,7 @@ public struct StageDetail {
 
             self.stageID = stageID
             self.eventID = eventID ?? defaultEventID
+            _eventViewerState = Shared(.eventViewerState(self.eventID))
             _stage = FetchOne(
                 StageDetail.stageQuery(
                     stageID: stageID,
@@ -854,6 +861,8 @@ public struct StageDetail {
                     hydration: .bskyActorProfile
                 )
             )
+            _performanceRows = FetchAll(PerformanceRow.all(eventID: self.eventID))
+            _schedules = FetchAll(ScheduleViewer.schedulesQuery(eventID: self.eventID))
         }
 
         public var id: OMERecord.ID<OMERecord.Stage> { stageID }
@@ -869,10 +878,34 @@ public struct StageDetail {
         var actorProfileLoadRequests: [ContributorProfile.ActorProfileLoadRequest] {
             lineupContributors.actorProfileLoadRequests
         }
+
+        var resolvedSelectedScheduleID: OMERecord.ID<OMERecord.Schedule>? {
+            ScheduleViewer.resolvedSelectedScheduleID(
+                eventViewerState.selectedScheduleID,
+                schedules: schedules
+            )
+        }
+
+        var selectedSchedulePerformances: [OMERecord.Performance] {
+            guard let selectedScheduleID = resolvedSelectedScheduleID else { return [] }
+            return performanceRows
+                .map(\.performance)
+                .filter {
+                    $0.scheduleID == selectedScheduleID
+                        && $0.stageID == stageID
+                }
+        }
     }
 
     public enum Action {
+        case destination(Destination.Action)
         case editButtonTapped
+        case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+    }
+
+    @Feature
+    public enum Destination {
+        case performanceDetail(Spawn<PerformanceDetail>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -890,6 +923,9 @@ public struct StageDetail {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case .destination:
+                break
+
             case .editButtonTapped:
                 let eventID = state.eventID
                 let stageID = state.stageID
@@ -903,7 +939,26 @@ public struct StageDetail {
                     )
                     await task?.value
                 }
+
+            case let .performanceButtonTapped(performanceID):
+                guard state.selectedSchedulePerformances.contains(where: {
+                    $0.id.performanceID == performanceID
+                }) else { return }
+                let eventID = state.eventID
+                store.withDependencies {
+                    state.destination = .performanceDetail(
+                        Spawn(
+                            PerformanceDetail.State(
+                                performanceID: performanceID,
+                                eventID: eventID
+                            )
+                        )
+                    )
+                }
             }
+        }
+        .ifLet(\.destination, action: \.destination) {
+            Destination.body
         }
         .onChange(of: store.actorProfileLoadRequests, initial: true) { _, requests, _ in
             guard !requests.isEmpty else { return }
@@ -957,6 +1012,16 @@ public struct StageDetailView: View {
                         StageIconFallback(stage: stage, size: 150)
                     }
                 } content: {
+                    if !store.schedules.isEmpty {
+                        Section("Schedule") {
+                            StageScheduleView(
+                                stage: stage,
+                                store: store,
+                                selectedScheduleID: store.state.$eventViewerState.selectedScheduleID
+                            )
+                        }
+                    }
+
                     if stage.hasDisplayDetails {
                         Section("Details") {
                             if let category = stage.category?.displayName {
@@ -989,6 +1054,12 @@ public struct StageDetailView: View {
                         }
                     }
                 }
+                .navigationDestination(item: $store.scope(\.destination, action: \.destination).performanceDetail) { detailStore in
+                    PerformanceDetailView(
+                        store: detailStore,
+                        showsAuthoringControls: false
+                    )
+                }
             } else {
                 Group {
                     if showsTechnicalDetails {
@@ -1003,6 +1074,142 @@ public struct StageDetailView: View {
                 }
                 .navigationTitle("Stage")
             }
+        }
+    }
+}
+
+struct StageScheduleView: View {
+    let stage: OMERecord.Stage
+    @Bindable var store: StoreOf<StageDetail>
+    @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+
+    @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
+    @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
+
+    init(
+        stage: OMERecord.Stage,
+        store: StoreOf<StageDetail>,
+        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>
+    ) {
+        self.stage = stage
+        self.store = store
+        self._selectedScheduleID = selectedScheduleID
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if store.schedules.count > 1 {
+                StageScheduleDaySelector(
+                    schedules: store.schedules,
+                    selectedScheduleID: _selectedScheduleID
+                )
+            }
+
+            if let timeRange {
+                ScheduleFixedStageTimeline(
+                    stage: stage,
+                    performances: store.selectedSchedulePerformances,
+                    timeRange: timeRange,
+                    pageHeight: scheduleHeight(for: timeRange),
+                    showsAuthoringControls: false,
+                    onEditPerformanceTapped: { _ in },
+                    onDeletePerformanceTapped: { _ in },
+                    onPerformanceTapped: { performanceID in
+                        store.send(.performanceButtonTapped(performanceID))
+                    }
+                )
+            } else {
+                ContentUnavailableView(
+                    stage.name,
+                    systemImage: "calendar.day.timeline.leading",
+                    description: Text("No performances have been added to this stage for this day yet.")
+                )
+            }
+        }
+    }
+
+    var timeRange: DateInterval? {
+        ScheduleStageTimelinePage.timeRange(
+            for: store.selectedSchedulePerformances,
+            buffer: scheduleTimeBuffer
+        )
+    }
+
+    func scheduleHeight(for timeRange: DateInterval) -> CGFloat {
+        max(
+            CGFloat(timeRange.duration / 3600) * schedulePointsPerHour,
+            420
+        )
+    }
+}
+
+struct StageScheduleDaySelector: View {
+    let schedules: [OMERecord.Schedule]
+    @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+
+    init(
+        schedules: [OMERecord.Schedule],
+        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>
+    ) {
+        self.schedules = schedules
+        self._selectedScheduleID = selectedScheduleID
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(schedules) { schedule in
+                    Button {
+                        $selectedScheduleID.withLock {
+                            $0 = schedule.id.scheduleID
+                        }
+                    } label: {
+                        Text(ScheduleViewer.scheduleTitle(schedule))
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .foregroundStyle(
+                                resolvedSelectedScheduleID == schedule.id.scheduleID
+                                    ? Color.white
+                                    : Color.primary
+                            )
+                            .background {
+                                Capsule()
+                                    .fill(
+                                        resolvedSelectedScheduleID == schedule.id.scheduleID
+                                            ? stageSelectionColor
+                                            : Color.secondary.opacity(0.12)
+                                    )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .onAppear {
+            resolveSelectedSchedule()
+        }
+        .onChange(of: resolvedSelectedScheduleID) { _, _ in
+            resolveSelectedSchedule()
+        }
+    }
+
+    var resolvedSelectedScheduleID: OMERecord.ID<OMERecord.Schedule>? {
+        ScheduleViewer.resolvedSelectedScheduleID(
+            selectedScheduleID,
+            schedules: schedules
+        )
+    }
+
+    var stageSelectionColor: Color {
+        .accentColor
+    }
+
+    func resolveSelectedSchedule() {
+        guard selectedScheduleID != resolvedSelectedScheduleID else { return }
+        $selectedScheduleID.withLock {
+            $0 = resolvedSelectedScheduleID
         }
     }
 }

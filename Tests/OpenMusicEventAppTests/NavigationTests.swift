@@ -3665,6 +3665,119 @@ struct NavigationTests {
     }
 
     @Test
+    func stageDetailFiltersItsScheduleToTheSharedSelectedDay() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let friday = try #require(LocalDate("2026-08-07"))
+        let saturday = try #require(LocalDate("2026-08-08"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertStage(db, eventID: eventID, stageID: "forest", name: "Forest")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: friday)
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "saturday", date: saturday)
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "meadow-friday",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(friday.at(hour: 18, in: timeZone)),
+                endTime: try #require(friday.at(hour: 19, in: timeZone)),
+                title: "Meadow Friday"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "forest-friday",
+                stageID: "forest",
+                scheduleID: "friday",
+                startTime: try #require(friday.at(hour: 18, in: timeZone)),
+                endTime: try #require(friday.at(hour: 19, in: timeZone)),
+                title: "Forest Friday"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "meadow-saturday",
+                stageID: "meadow",
+                scheduleID: "saturday",
+                startTime: try #require(saturday.at(hour: 18, in: timeZone)),
+                endTime: try #require(saturday.at(hour: 19, in: timeZone)),
+                title: "Meadow Saturday"
+            )
+        }
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            StageDetail.State(stageID: stageLocalID("meadow"), eventID: eventID)
+        }
+
+        state.$eventViewerState.withLock {
+            $0.selectedScheduleID = scheduleLocalID("friday")
+        }
+
+        #expect(state.resolvedSelectedScheduleID == scheduleLocalID("friday"))
+        #expect(state.selectedSchedulePerformances.map(\.title) == ["Meadow Friday"])
+
+        state.$eventViewerState.withLock {
+            $0.selectedScheduleID = scheduleLocalID("saturday")
+        }
+
+        #expect(state.selectedSchedulePerformances.map(\.title) == ["Meadow Saturday"])
+
+        state.$eventViewerState.withLock {
+            $0.selectedScheduleID = scheduleLocalID("missing")
+        }
+
+        #expect(state.resolvedSelectedScheduleID == scheduleLocalID("friday"))
+    }
+
+    @Test
+    func stageDetailPerformanceTapPresentsPerformanceDetail() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let performanceID = performanceLocalID("meadow-friday")
+        let friday = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One", timeZone: timeZone)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: friday)
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "meadow-friday",
+                stageID: "meadow",
+                scheduleID: "friday",
+                startTime: try #require(friday.at(hour: 18, in: timeZone)),
+                endTime: try #require(friday.at(hour: 19, in: timeZone)),
+                title: "Meadow Friday"
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: StageDetail.State(stageID: stageLocalID("meadow"), eventID: eventID)) {
+                StageDetail()
+            }
+        }
+
+        await store.send(.performanceButtonTapped(performanceID))?.value
+
+        #expect(store.destination?.performanceDetail?.performanceID == performanceID)
+    }
+
+    @Test
     func scheduleViewerFetchesSchedulesForEventInOrder() async throws {
         let database = try makePreparedDatabase()
         let selectedEventID = eventID("event-1")
