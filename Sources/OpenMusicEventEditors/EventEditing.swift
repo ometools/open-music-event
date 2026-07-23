@@ -52,6 +52,7 @@ extension EventFeature {
              .posters,
              .notifications,
              .search,
+             .share,
              .about:
             false
         }

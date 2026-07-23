@@ -14,6 +14,11 @@ import SwiftUI
 import SwiftUITabFeatures
 import Tagged
 
+#if !SKIP
+import CoreImage
+import CoreImage.CIFilterBuiltins
+#endif
+
 private enum DefaultEventIDKey: DependencyKey {
     static var liveValue: OMERecord.Event.ID {
         unimplemented(
@@ -230,6 +235,8 @@ public struct EventViewer {
                     case .about:
                         self.eventInfoViewer = existingEventInfoViewer
                             ?? Spawn(EventInfoViewer.State(eventID: eventID))
+                    case .share:
+                        break
                     }
                 }
             }
@@ -1286,6 +1293,19 @@ public struct EventViewerView: View {
                     }
                 }
 
+                if store.installedFeatures.contains(.share) {
+                    TabFeature(
+                        .share,
+                        title: EventViewer.EventFeature.share.title,
+                        systemImage: EventViewer.EventFeature.share.systemImage,
+                        labelTint: EventViewer.EventFeature.share.labelTint,
+                        navigation: .stack
+                    ) {
+                        TestFlightShareView()
+                    }
+                    .allowedOnTabBar(false)
+                }
+
             }
             .more {
                 EmptyView()
@@ -1623,7 +1643,9 @@ private extension EventViewer.State {
              .schedule,
              .search,
              .siteMap,
+             .share,
              .stages:
+
             break
         }
     }
@@ -1674,6 +1696,44 @@ struct ViewerPlaceholderView: View {
         )
         .navigationTitle(title)
     }
+}
+
+struct TestFlightShareView: View {
+    static let testFlightURL = URL(string: "https://testflight.apple.com/join/s8N5G6jf")!
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                #if !SKIP
+                Image(decorative: qrCode, scale: 1, orientation: .up)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 280)
+                #endif
+
+                Text("Scan to join the TestFlight")
+                    .font(.headline)
+
+                Link(Self.testFlightURL.absoluteString, destination: Self.testFlightURL)
+                    .multilineTextAlignment(.center)
+            }
+            .padding()
+        }
+        .navigationTitle("Share")
+    }
+
+    #if !SKIP
+    var qrCode: CGImage {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(Self.testFlightURL.absoluteString.utf8)
+        filter.correctionLevel = "H"
+        return CIContext().createCGImage(
+            filter.outputImage!,
+            from: filter.outputImage!.extent
+        )!
+    }
+    #endif
 }
 
 #Preview {
