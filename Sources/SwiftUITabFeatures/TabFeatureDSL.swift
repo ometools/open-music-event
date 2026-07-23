@@ -368,6 +368,10 @@ extension TabFeatureMetadata {
     var isSearchTab: Bool {
         self.role == .search
     }
+
+    var wrapsContentInNavigationStack: Bool {
+        self.navigation == .stack && !self.isSearchTab
+    }
 }
 
 indirect enum AnyTabFeatureMoreContent<Value: TabFeatureValue> {
@@ -588,9 +592,12 @@ let features = TabFeatures<DemoTab> {
             .navigationTitle("Schedule")
     }
 
-    TabFeature(.search, role: .search, navigation: .stack) {
-        Text("Search View")
-            .navigationTitle("Search")
+    TabFeature(.search, role: .search) {
+        NavigationStack {
+            Text("Search View")
+                .navigationTitle("Search")
+        }
+        .searchable(text: .constant(""))
     }
 
     TabFeature(.init(rawValue: "stage1"), title: "Stage1", systemImage: "square", navigation: .stack) {
@@ -829,12 +836,11 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
     @ViewBuilder
     private func primaryFeatureDestination(for feature: TabFeatureMetadata<Value>) -> some View {
         if let body = features.featureBody(for: feature.id) {
-            switch feature.navigation {
-            case .stack:
+            if feature.wrapsContentInNavigationStack {
                 NavigationStack {
                     body
                 }
-            case .none:
+            } else {
                 body
             }
         } else {

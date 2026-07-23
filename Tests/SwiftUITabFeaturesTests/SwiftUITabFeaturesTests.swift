@@ -168,6 +168,18 @@ struct SwiftUITabFeaturesTests {
         #expect(feature.item.systemImage == symbol("magnifyingglass"))
     }
 
+    @Test func `search role keeps its searchable navigation surface at the tab root`() {
+        let feature = TabFeature(
+            DemoTab.search,
+            role: .search,
+            navigation: .stack
+        ) {
+            EmptyView()
+        }
+
+        #expect(!feature.metadata.wrapsContentInNavigationStack)
+    }
+
     @Test func `navigation metadata records stack when present`() {
         let stacked = TabFeature(
             DemoTab.schedule,

@@ -1108,7 +1108,7 @@ public struct EventViewerView: View {
                 layout: $tabLayout
             ) {
                 if store.installedFeatures.contains(.search) {
-                    TabFeature(.search, role: .search, navigation: .stack) {
+                    TabFeature(.search, role: .search) {
                         EventSearchView(store: store.spawn(\.eventSearch))
                     }
                 }

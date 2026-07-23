@@ -143,7 +143,7 @@ public struct OpenMusicEventBrowserView: View {
                 SettingsFeatureView(store: store.spawn(\.settings))
             }
 
-            TabFeature(.search, role: .search, navigation: .stack) {
+            TabFeature(.search, role: .search) {
                 SearchView(store: store.spawn(\.search))
             }
         }
