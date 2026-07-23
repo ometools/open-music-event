@@ -78,8 +78,35 @@ public struct EventSearchDashboard: Equatable, Sendable {
             comingNextRows = []
         }
 
+        let stageRows = stages.map { stage in
+            guard let now else {
+                return StageDashboardRow(stage: stage)
+            }
+
+            let performances = performanceRows.filter {
+                $0.performance.stageID == stage.id.stageID
+            }
+            let nowPlayingRows = performances.filter {
+                $0.performance.startTime <= now && now < $0.performance.endTime
+            }
+            let nextStartTime = performances
+                .lazy
+                .map(\.performance.startTime)
+                .filter { now < $0 }
+                .min()
+            let comingNextRows = nextStartTime.map { startTime in
+                performances.filter { $0.performance.startTime == startTime }
+            } ?? []
+
+            return StageDashboardRow(
+                stage: stage,
+                nowPlayingRows: nowPlayingRows,
+                comingNextRows: comingNextRows
+            )
+        }
+
         return Self(
-            stageRows: stages.map(StageDashboardRow.init(stage:)),
+            stageRows: stageRows,
             featureRows: EventSearchFeature.indexedFeatures.map(FeatureShortcutRow.init(feature:)),
             channelRows: channels.map(ChannelShortcutRow.init(channel:)),
             nowPlayingRows: nowPlayingRows,
@@ -131,12 +158,20 @@ extension PerformanceDashboardRow {
 }
 
 public struct StageDashboardRow: Equatable, Identifiable, Sendable {
-    public init(stage: OME.Stage) {
+    public init(
+        stage: OME.Stage,
+        nowPlayingRows: [PerformanceDashboardRow] = [],
+        comingNextRows: [PerformanceDashboardRow] = []
+    ) {
         self.stage = stage
+        self.nowPlayingRows = nowPlayingRows
+        self.comingNextRows = comingNextRows
     }
 
     public var id: OME.Stage.ID { stage.id }
     public var stage: OME.Stage
+    public var nowPlayingRows: [PerformanceDashboardRow]
+    public var comingNextRows: [PerformanceDashboardRow]
 }
 
 public struct FeatureShortcutRow: Equatable, Identifiable, Sendable {

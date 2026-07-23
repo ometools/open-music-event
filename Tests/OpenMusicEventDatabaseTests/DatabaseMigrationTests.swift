@@ -539,6 +539,22 @@ struct DatabaseMigrationTests {
                 localID("meadow"),
                 localID("forest"),
             ])
+            expectNoDifference(dashboard.stageRows.map(\.stage.id.stageID), [
+                localID("meadow"),
+                localID("forest"),
+            ])
+            expectNoDifference(dashboard.stageRows[0].nowPlayingRows.map(\.performanceID), [
+                localID("active-early"),
+            ])
+            expectNoDifference(dashboard.stageRows[0].comingNextRows.map(\.performanceID), [
+                localID("next-a"),
+            ])
+            expectNoDifference(dashboard.stageRows[1].nowPlayingRows.map(\.performanceID), [
+                localID("active-late"),
+            ])
+            expectNoDifference(dashboard.stageRows[1].comingNextRows.map(\.performanceID), [
+                localID("next-b"),
+            ])
         }
     }
 

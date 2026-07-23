@@ -64,21 +64,18 @@ public enum ChannelEventSearchSource: EventSearchSource {
             .delete()
             .execute(db)
 
-        try EventSearchDocument.insert {
-            (
-                $0.stableID,
-                $0.organizerID,
-                $0.eventID,
-                $0.kind,
-                $0.title,
-                $0.subtitle,
-                $0.body,
-                $0.keywords,
-                $0.target,
-                $0.baseRank
+        try #sql("""
+            INSERT INTO "eventSearchDocuments" (
+              "stableID", "organizerID", "eventID", "kind", "title", "subtitle", "body", "keywords", "target", "baseRank"
             )
-        } select: { OME.Channel.select(columns(for: $0)) }
-        .execute(db)
+            SELECT
+              'channel:' || "organizerID" || ':' || "eventID" || ':' || "channelID",
+              "organizerID", "eventID", 'channel', "name", 'Comms', NULLIF("description", ''),
+              'channel announcements updates communications',
+              json_object('channel', json_object('_0', "channelID")),
+              700
+            FROM "channels"
+            """).execute(db)
     }
 
     private static func deleteDocument(
@@ -92,33 +89,31 @@ public enum ChannelEventSearchSource: EventSearchSource {
     private static func insertDocument(
         for channel: TemporaryTrigger<OME.Channel>.Operation.New
     ) -> some Statement<Void> {
-        EventSearchDocument.insert {
-            (
-                $0.stableID,
-                $0.organizerID,
-                $0.eventID,
-                $0.kind,
-                $0.title,
-                $0.subtitle,
-                $0.body,
-                $0.keywords,
-                $0.target,
-                $0.baseRank
+        #sql("""
+            INSERT INTO "eventSearchDocuments" (
+              "stableID", "organizerID", "eventID", "kind", "title", "subtitle", "body", "keywords", "target", "baseRank"
+            ) VALUES (
+              'channel:' || \(channel.id.organizerID) || ':' || \(channel.id.eventID) || ':' || \(channel.id.channelID),
+              \(channel.id.organizerID), \(channel.id.eventID), 'channel', \(channel.name), 'Comms', NULLIF(\(channel.description), ''),
+              'channel announcements updates communications',
+              json_object('channel', json_object('_0', \(channel.id.channelID))),
+              700
             )
-        } values: { columns(for: channel) }
+            """)
     }
 
     private static func columns(
         for channel: OME.Channel.TableColumns
     ) -> EventSearchDocument.Columns {
         EventSearchDocument.Columns(
+            id: #sql("NULL", as: EventSearchDocument.ID.self),
             stableID: stableID(for: channel),
             organizerID: channel.id.organizerID,
             eventID: channel.id.eventID,
             kind: #sql("'channel'", as: EventSearchDocument.Kind.self),
             title: channel.name,
             subtitle: #sql("'Comms'", as: String?.self),
-            body: channel.description,
+            body: #sql("NULLIF(\(channel.description), '')", as: String?.self),
             keywords: #sql("'channel announcements updates communications'", as: String.self),
             target: target(for: channel),
             baseRank: #sql("700", as: Int.self)
@@ -129,13 +124,14 @@ public enum ChannelEventSearchSource: EventSearchSource {
         for channel: TemporaryTrigger<OME.Channel>.Operation.New
     ) -> EventSearchDocument.Columns {
         EventSearchDocument.Columns(
+            id: #sql("NULL", as: EventSearchDocument.ID.self),
             stableID: stableID(for: channel),
             organizerID: channel.id.organizerID,
             eventID: channel.id.eventID,
             kind: #sql("'channel'", as: EventSearchDocument.Kind.self),
             title: channel.name,
             subtitle: #sql("'Comms'", as: String?.self),
-            body: channel.description,
+            body: #sql("NULLIF(\(channel.description), '')", as: String?.self),
             keywords: #sql("'channel announcements updates communications'", as: String.self),
             target: target(for: channel),
             baseRank: #sql("700", as: Int.self)
@@ -228,21 +224,18 @@ public enum ContributorEventSearchSource: EventSearchSource {
             .delete()
             .execute(db)
 
-        try EventSearchDocument.insert {
-            (
-                $0.stableID,
-                $0.organizerID,
-                $0.eventID,
-                $0.kind,
-                $0.title,
-                $0.subtitle,
-                $0.body,
-                $0.keywords,
-                $0.target,
-                $0.baseRank
+        try #sql("""
+            INSERT INTO "eventSearchDocuments" (
+              "stableID", "organizerID", "eventID", "kind", "title", "subtitle", "body", "keywords", "target", "baseRank"
             )
-        } select: { OME.Contributor.select(columns(for: $0)) }
-        .execute(db)
+            SELECT
+              'contributor:' || "organizerID" || ':' || "eventID" || ':' || "contributorID",
+              "organizerID", "eventID", 'contributor', "name", 'Artist', "bio",
+              'artist contributor performer lineup',
+              json_object('contributor', json_object('_0', "contributorID")),
+              850
+            FROM "contributors"
+            """).execute(db)
     }
 
     private static func deleteDocument(
@@ -256,26 +249,24 @@ public enum ContributorEventSearchSource: EventSearchSource {
     private static func insertDocument(
         for contributor: TemporaryTrigger<OME.Contributor>.Operation.New
     ) -> some Statement<Void> {
-        EventSearchDocument.insert {
-            (
-                $0.stableID,
-                $0.organizerID,
-                $0.eventID,
-                $0.kind,
-                $0.title,
-                $0.subtitle,
-                $0.body,
-                $0.keywords,
-                $0.target,
-                $0.baseRank
+        #sql("""
+            INSERT INTO "eventSearchDocuments" (
+              "stableID", "organizerID", "eventID", "kind", "title", "subtitle", "body", "keywords", "target", "baseRank"
+            ) VALUES (
+              'contributor:' || \(contributor.id.organizerID) || ':' || \(contributor.id.eventID) || ':' || \(contributor.id.contributorID),
+              \(contributor.id.organizerID), \(contributor.id.eventID), 'contributor', \(contributor.name), 'Artist', \(contributor.bio),
+              'artist contributor performer lineup',
+              json_object('contributor', json_object('_0', \(contributor.id.contributorID))),
+              850
             )
-        } values: { columns(for: contributor) }
+            """)
     }
 
     private static func columns(
         for contributor: OME.Contributor.TableColumns
     ) -> EventSearchDocument.Columns {
         EventSearchDocument.Columns(
+            id: #sql("NULL", as: EventSearchDocument.ID.self),
             stableID: stableID(for: contributor),
             organizerID: contributor.id.organizerID,
             eventID: contributor.id.eventID,
@@ -293,6 +284,7 @@ public enum ContributorEventSearchSource: EventSearchSource {
         for contributor: TemporaryTrigger<OME.Contributor>.Operation.New
     ) -> EventSearchDocument.Columns {
         EventSearchDocument.Columns(
+            id: #sql("NULL", as: EventSearchDocument.ID.self),
             stableID: stableID(for: contributor),
             organizerID: contributor.id.organizerID,
             eventID: contributor.id.eventID,
@@ -580,21 +572,18 @@ public enum PerformanceEventSearchSource: EventSearchSource {
             .delete()
             .execute(db)
 
-        try EventSearchDocument.insert {
-            (
-                $0.stableID,
-                $0.organizerID,
-                $0.eventID,
-                $0.kind,
-                $0.title,
-                $0.subtitle,
-                $0.body,
-                $0.keywords,
-                $0.target,
-                $0.baseRank
+        try #sql("""
+            INSERT INTO "eventSearchDocuments" (
+              "stableID", "organizerID", "eventID", "kind", "title", "subtitle", "body", "keywords", "target", "baseRank"
             )
-        } select: { OME.Performance.select(columns(for: $0)) }
-        .execute(db)
+            SELECT
+              'performance:' || "organizerID" || ':' || "eventID" || ':' || "performanceID",
+              "organizerID", "eventID", 'performance', "title", 'Performance', "description",
+              'performance set show music lineup',
+              json_object('performance', json_object('_0', "performanceID")),
+              950
+            FROM "performances"
+            """).execute(db)
     }
 
     private static func deleteDocument(
@@ -608,26 +597,24 @@ public enum PerformanceEventSearchSource: EventSearchSource {
     private static func insertDocument(
         for performance: TemporaryTrigger<OME.Performance>.Operation.New
     ) -> some Statement<Void> {
-        EventSearchDocument.insert {
-            (
-                $0.stableID,
-                $0.organizerID,
-                $0.eventID,
-                $0.kind,
-                $0.title,
-                $0.subtitle,
-                $0.body,
-                $0.keywords,
-                $0.target,
-                $0.baseRank
+        #sql("""
+            INSERT INTO "eventSearchDocuments" (
+              "stableID", "organizerID", "eventID", "kind", "title", "subtitle", "body", "keywords", "target", "baseRank"
+            ) VALUES (
+              'performance:' || \(performance.id.organizerID) || ':' || \(performance.id.eventID) || ':' || \(performance.id.performanceID),
+              \(performance.id.organizerID), \(performance.id.eventID), 'performance', \(performance.title), 'Performance', \(performance.description),
+              'performance set show music lineup',
+              json_object('performance', json_object('_0', \(performance.id.performanceID))),
+              950
             )
-        } values: { columns(for: performance) }
+            """)
     }
 
     private static func columns(
         for performance: OME.Performance.TableColumns
     ) -> EventSearchDocument.Columns {
         EventSearchDocument.Columns(
+            id: #sql("NULL", as: EventSearchDocument.ID.self),
             stableID: stableID(for: performance),
             organizerID: performance.id.organizerID,
             eventID: performance.id.eventID,
@@ -645,6 +632,7 @@ public enum PerformanceEventSearchSource: EventSearchSource {
         for performance: TemporaryTrigger<OME.Performance>.Operation.New
     ) -> EventSearchDocument.Columns {
         EventSearchDocument.Columns(
+            id: #sql("NULL", as: EventSearchDocument.ID.self),
             stableID: stableID(for: performance),
             organizerID: performance.id.organizerID,
             eventID: performance.id.eventID,

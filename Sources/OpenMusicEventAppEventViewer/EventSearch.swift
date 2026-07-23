@@ -23,11 +23,20 @@ public struct EventSearch {
             self.eventID = eventID
             self.destination = destination
             self.content = .dashboard(Self.emptyDashboard)
+            _contributors = FetchAll(
+                ContributorProfile.all(eventID: eventID, hydration: .none)
+            )
+            _performanceContributors = FetchAll(
+                EventSearch.performanceContributorsQuery(eventID: eventID)
+            )
         }
 
         public let eventID: OMERecord.Event.ID
 
         public var content: EventSearchContent
+
+        @FetchAll var contributors: [ContributorProfile]
+        @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
 
         public var query = ""
 
@@ -96,6 +105,15 @@ public struct EventSearch {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.date.now) var now
     @StoreTaskID var searchTask
+
+    static func performanceContributorsQuery(
+        eventID: OMERecord.Event.ID
+    ) -> some SelectStatementOf<OMERecord.Performance.Contributors> {
+        OMERecord.Performance.Contributors
+            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
+            .where { $0.performanceID.eventID.eq(eventID.eventID) }
+            .order { ($0.performanceID.performanceID, $0.sortIndex) }
+    }
 
     public var body: some Feature {
         Update { state, action in
@@ -202,6 +220,8 @@ public struct EventSearchView: View {
                 EventSearchContentView(
                     content: store.content,
                     now: context.date,
+                    contributors: store.contributors,
+                    performanceContributors: store.performanceContributors,
                     openTarget: { store.send(.openTarget($0)) }
                 )
                 .task(id: context.date) {
@@ -226,12 +246,20 @@ public struct EventSearchView: View {
 struct EventSearchContentView: View {
     let content: EventSearchContent
     let now: Date
+    let contributors: [ContributorProfile]
+    let performanceContributors: [OMERecord.Performance.Contributors]
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
         switch content {
         case let .dashboard(dashboard):
-            EventSearchDashboardView(dashboard: dashboard, now: now, openTarget: openTarget)
+            EventSearchDashboardView(
+                dashboard: dashboard,
+                now: now,
+                contributors: contributors,
+                performanceContributors: performanceContributors,
+                openTarget: openTarget
+            )
 
         case .noResults:
             ContentUnavailableView(
@@ -254,91 +282,242 @@ struct EventSearchContentView: View {
 }
 
 struct EventSearchDashboardView: View {
-    @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let dashboard: EventSearchDashboard
     let now: Date
+    let contributors: [ContributorProfile]
+    let performanceContributors: [OMERecord.Performance.Contributors]
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
-        List {
-            if !dashboard.nowPlayingRows.isEmpty {
-                Section("Now Playing") {
-                    ForEach(dashboard.nowPlayingRows) { row in
-                        Button {
-                            openTarget(.performance(row.performanceID))
-                        } label: {
-                            EventSearchPerformanceRow(row: row, now: now)
-                        }
-                        .navigationLinkListRowStyle()
-                    }
-                }
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if !dashboard.stageRows.isEmpty {
+                    Text("At the stages")
+                        .font(.title2.weight(.bold))
 
-            if !dashboard.comingNextRows.isEmpty {
-                Section("Coming Next") {
-                    ForEach(dashboard.comingNextRows) { row in
-                        Button {
-                            openTarget(.performance(row.performanceID))
-                        } label: {
-                            EventSearchPerformanceRow(row: row, now: now)
-                        }
-                        .navigationLinkListRowStyle()
-                    }
-                }
-            }
-
-            if needsStageDisambiguation, !dashboard.stageRows.isEmpty {
-                Section("Stages") {
-                    ForEach(dashboard.stageRows) { row in
-                        Button {
-                            openTarget(.stage(row.stage.id.stageID))
-                        } label: {
-                            EventSearchRow(
-                                title: row.stage.name,
-                                subtitle: "Stage",
-                                systemImage: "square.grid.2x2"
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 16),
+                            GridItem(.flexible(), spacing: 16),
+                        ],
+                        spacing: 16
+                    ) {
+                        ForEach(dashboard.stageRows) { row in
+                            EventSearchStageCard(
+                                row: row,
+                                now: now,
+                                leadContributors: leadContributors,
+                                openTarget: openTarget
                             )
                         }
-                        .navigationLinkListRowStyle()
+                    }
+                }
+
+                if !dashboard.featureRows.isEmpty {
+                    Text("Explore")
+                        .font(.title2.weight(.bold))
+
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12),
+                        ],
+                        spacing: 12
+                    ) {
+                        ForEach(dashboard.featureRows) { row in
+                            Button {
+                                openTarget(.feature(row.feature.id))
+                            } label: {
+                                EventSearchFeatureCard(feature: row.feature)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
+            .padding()
+        }
+        .background(Color.secondary.opacity(0.04))
+    }
 
-            if !dashboard.featureRows.isEmpty {
-                Section("Features") {
-                    ForEach(dashboard.featureRows) { row in
-                        Button {
-                            openTarget(.feature(row.feature.id))
-                        } label: {
-                            EventSearchRow(
-                                title: row.feature.title,
-                                subtitle: row.feature.subtitle,
-                                systemImage: row.feature.systemImage
-                            )
-                        }
-                        .navigationLinkListRowStyle()
-                    }
+    var leadContributors: [OMERecord.ID<OMERecord.Performance>: ContributorProfile] {
+        let contributorsByID = Dictionary(
+            uniqueKeysWithValues: contributors.map { ($0.contributorID, $0) }
+        )
+        let primaryContributors = performanceContributors
+            .filter { $0.billing == .primary }
+            .sorted { lhs, rhs in
+                if lhs.performanceID.performanceID == rhs.performanceID.performanceID {
+                    return lhs.sortIndex < rhs.sortIndex
                 }
+                return lhs.performanceID.performanceID < rhs.performanceID.performanceID
             }
 
-            if !dashboard.channelRows.isEmpty {
-                Section("Channels") {
-                    ForEach(dashboard.channelRows) { row in
-                        Button {
-                            openTarget(.channel(row.channel.id.channelID))
-                        } label: {
-                            EventSearchRow(
-                                title: row.channel.name,
-                                subtitle: "Comms",
-                                systemImage: "megaphone"
-                            )
-                        }
-                        .navigationLinkListRowStyle()
-                    }
+        return Dictionary(
+            primaryContributors.compactMap { contribution in
+                contribution.contributorID.flatMap { contributorID in
+                    contributorsByID[contributorID].map { (contribution.performanceID.performanceID, $0) }
                 }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+}
+
+struct EventSearchStageCard: View {
+    let row: StageDashboardRow
+    let now: Date
+    let leadContributors: [OMERecord.ID<OMERecord.Performance>: ContributorProfile]
+    let openTarget: (EventSearchDocument.Target) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                EventSearchChromeIcon(
+                    systemImage: "square.grid.2x2",
+                    tint: .indigo
+                )
+                Text(row.stage.name)
+                    .font(.headline)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+            }
+
+            performanceSection(
+                title: "Now",
+                performance: row.nowPlayingRows.first,
+                emptyTitle: "Nothing on now"
+            )
+
+            performanceSection(
+                title: "Up next",
+                performance: row.comingNextRows.first,
+                emptyTitle: "No next set announced"
+            )
+        }
+        .frame(maxWidth: .infinity, minHeight: 230, alignment: .topLeading)
+        .padding()
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.regularMaterial)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.indigo.opacity(0.16))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onTapGesture {
+            openTarget(.stage(row.stage.id.stageID))
+        }
+    }
+
+    @ViewBuilder
+    func performanceSection(
+        title: String,
+        performance: PerformanceDashboardRow?,
+        emptyTitle: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            if let performance {
+                HStack(spacing: 10) {
+                    EventSearchArtistArtwork(
+                        contributor: leadContributors[performance.performanceID],
+                        fallbackTitle: performance.title
+                    )
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(performance.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                        PerformanceTimingChip(
+                            status: PerformanceTimingStatus(
+                                startTime: performance.performance.startTime,
+                                endTime: performance.performance.endTime,
+                                now: now
+                            )
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Text(emptyTitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
-        .listStyle(.plain)
+    }
+}
+
+struct EventSearchArtistArtwork: View {
+    let contributor: ContributorProfile?
+    let fallbackTitle: String
+
+    var body: some View {
+        if let contributor {
+            ContributorArtworkView(
+                asset: contributor.artworkAsset,
+                cacheContext: contributor.artworkCacheContext,
+                size: 54
+            )
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.pink.opacity(0.14))
+                Text(initials)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.pink)
+            }
+            .frame(width: 54, height: 54)
+        }
+    }
+
+    var initials: String {
+        fallbackTitle
+            .split(separator: " ")
+            .prefix(2)
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+    }
+}
+
+struct EventSearchFeatureCard: View {
+    let feature: EventSearchFeature
+
+    var body: some View {
+        HStack(spacing: 10) {
+            EventSearchChromeIcon(systemImage: feature.systemImage, tint: feature.tint)
+            Text(feature.title)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+        .padding(.horizontal, 12)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.regularMaterial)
+        }
+    }
+}
+
+struct EventSearchChromeIcon: View {
+    let systemImage: String
+    let tint: Color?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(tint ?? .accentColor)
+                .frame(width: 28, height: 28)
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+        }
     }
 }
 
@@ -434,6 +613,21 @@ private extension EventSearchDocument.Kind {
 }
 
 private extension EventSearchFeature {
+    var tint: Color? {
+        switch id {
+        case KnownID.schedule: .green
+        case KnownID.contributors: .pink
+        case KnownID.stages: .indigo
+        case KnownID.communications: .orange
+        case KnownID.location: .blue
+        case KnownID.contact: .green
+        case KnownID.posters: .purple
+        case KnownID.alerts: .red
+        case KnownID.about: .gray
+        default: nil
+        }
+    }
+
     var systemImage: String {
         switch id {
         case KnownID.schedule: "calendar"
