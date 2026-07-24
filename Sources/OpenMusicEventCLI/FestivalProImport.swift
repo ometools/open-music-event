@@ -61,20 +61,25 @@ struct FestivalProContributorImporter {
     func contributors(
         from export: FestivalProExport
     ) throws -> [FileContent<ContributorDTO>] {
-        try export.contacts
-            .sorted { lhs, rhs in lhs.key < rhs.key }
-            .reduce(into: [String: [FestivalProArtist]]()) { profiles, contact in
-                guard let name = contact.value.companyName.nonEmpty else { return }
-                profiles[name, default: []].append(contact.value)
-            }
-            .map { name, profiles in
+        var profilesByName: [String: [FestivalProArtist]] = [:]
+        for contact in export.contacts.sorted(by: { $0.key < $1.key }) {
+            guard let name = contact.value.companyName.nonEmpty else { continue }
+            profilesByName[name, default: []].append(contact.value)
+        }
+
+        var contributors: [FileContent<ContributorDTO>] = []
+        for (name, profiles) in profilesByName {
+            contributors.append(
                 try FileContent(
                     fileName: sourceFileName(for: name, profiles: profiles),
                     fileType: "md",
                     data: contributor(name: name, profiles: profiles)
                 )
-            }
-            .sorted { $0.fileName.localizedStandardCompare($1.fileName) == .orderedAscending }
+            )
+        }
+        return contributors.sorted {
+            $0.fileName.localizedStandardCompare($1.fileName) == .orderedAscending
+        }
     }
 
     func summary(
@@ -90,27 +95,26 @@ struct FestivalProContributorImporter {
 
     private func contributor(name: String, profiles: [FestivalProArtist]) -> ContributorDTO {
         let profiles = profiles.sorted(by: FestivalProArtist.contactOrder)
+        let photo = firstURL(\.artistPressPhotoID, in: profiles).map {
+            SourceImageAsset(
+                source: .url($0),
+                role: .photo,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy
+            )
+        }
+        let logo = firstURL(\.artistLogoID, in: profiles).map {
+            SourceImageAsset(
+                source: .url($0),
+                role: .logo,
+                renderKind: .transparent,
+                materializationPolicy: .lazy
+            )
+        }
         return ContributorDTO(
             name: name,
-            bio: firstNonEmpty(\\.artistBio, in: profiles),
-            images: [
-                firstURL(\\.artistPressPhotoID, in: profiles).map {
-                    SourceImageAsset(
-                        source: .url($0),
-                        role: .photo,
-                        renderKind: .fullImage,
-                        materializationPolicy: .lazy
-                    )
-                },
-                firstURL(\\.artistLogoID, in: profiles).map {
-                    SourceImageAsset(
-                        source: .url($0),
-                        role: .logo,
-                        renderKind: .transparent,
-                        materializationPolicy: .lazy
-                    )
-                },
-            ].compactMap { $0 },
+            bio: firstNonEmpty(\.artistBio, in: profiles),
+            images: [photo, logo].compactMap { $0 },
             links: links(in: profiles)
         )
     }
@@ -119,7 +123,12 @@ struct FestivalProContributorImporter {
         _ keyPath: KeyPath<FestivalProArtist, String?>,
         in profiles: [FestivalProArtist]
     ) -> String? {
-        profiles.lazy.map(keyPath).compactMap(\\.nonEmpty).first
+        for profile in profiles {
+            if let value = profile[keyPath: keyPath].nonEmpty {
+                return value
+            }
+        }
+        return nil
     }
 
     private func firstURL(
@@ -130,29 +139,40 @@ struct FestivalProContributorImporter {
     }
 
     private func links(in profiles: [FestivalProArtist]) -> [ExternalPlatform.Link]? {
-        let links = profiles
-            .flatMap { profile in
-                [
-                    (profile.soundcloud, ExternalPlatform.soundcloud),
-                    (profile.youtube, .youtube),
-                    (profile.facebook, .facebook),
-                    (profile.instagram, .instagram),
-                    (profile.spotify, .spotify),
-                    (profile.website, .website),
-                ]
-            }
-            .compactMap { value, platform in
-                value.nonEmpty.flatMap(URL.init(string:)).map { ExternalPlatform.Link(url: $0, platform: platform) }
-            }
+        var links: [ExternalPlatform.Link] = []
+        for profile in profiles {
+            appendLink(profile.soundcloud, platform: .soundcloud, to: &links)
+            appendLink(profile.youtube, platform: .youtube, to: &links)
+            appendLink(profile.facebook, platform: .facebook, to: &links)
+            appendLink(profile.instagram, platform: .instagram, to: &links)
+            appendLink(profile.spotify, platform: .spotify, to: &links)
+            appendLink(profile.website, platform: .website, to: &links)
+        }
 
-        let uniqueLinks = Dictionary(grouping: links, by: { "\($0.platform?.rawValue ?? "")|\($0.url.absoluteString)" })
-            .compactMap(\\.value.first)
-            .sorted { lhs, rhs in
-                lhs.url.absoluteString == rhs.url.absoluteString
-                    ? (lhs.platform?.rawValue ?? "") < (rhs.platform?.rawValue ?? "")
-                    : lhs.url.absoluteString < rhs.url.absoluteString
+        var uniqueLinksByKey: [String: ExternalPlatform.Link] = [:]
+        for link in links {
+            let key = "\(link.platform?.rawValue ?? "")|\(link.url.absoluteString)"
+            if uniqueLinksByKey[key] == nil {
+                uniqueLinksByKey[key] = link
             }
+        }
+        let uniqueLinks = uniqueLinksByKey.values.sorted { lhs, rhs in
+            lhs.url.absoluteString == rhs.url.absoluteString
+                ? (lhs.platform?.rawValue ?? "") < (rhs.platform?.rawValue ?? "")
+                : lhs.url.absoluteString < rhs.url.absoluteString
+        }
         return uniqueLinks.isEmpty ? nil : uniqueLinks
+    }
+
+    private func appendLink(
+        _ value: String?,
+        platform: ExternalPlatform,
+        to links: inout [ExternalPlatform.Link]
+    ) {
+        guard let value = value.nonEmpty,
+              let url = URL(string: value)
+        else { return }
+        links.append(ExternalPlatform.Link(url: url, platform: platform))
     }
 
     private func sourceFileName(for name: String, profiles: [FestivalProArtist]) -> String {
