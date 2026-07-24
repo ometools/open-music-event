@@ -15,7 +15,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
     case workspace
     case search
     case about
-    case share
+//    case share
 
     public static let defaultReadOnlyFeatures: [Self] = [
         .schedule(.schedule),
@@ -29,7 +29,7 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
         .stages,
         .search,
         .about,
-        .share,
+//        .share,
     ]
 
     public init?(_ description: String) {
@@ -66,8 +66,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             self = .search
         case "about":
             self = .about
-        case "share":
-            self = .share
+//        case "share":
+//            self = .share
         default:
             return nil
         }
@@ -104,8 +104,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             return "search"
         case .about:
             return "about"
-        case .share:
-            return "share"
+//        case .share:
+//            return "share"
         }
     }
 
@@ -140,8 +140,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             return "openMusicEvent.eventViewer.search"
         case .about:
             return "openMusicEvent.eventViewer.about"
-        case .share:
-            return "openMusicEvent.eventViewer.share"
+//        case .share:
+//            return "openMusicEvent.eventViewer.share"
         }
     }
 
@@ -173,8 +173,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             nil
         case .about:
             .gray
-        case .share:
-            .blue
+//        case .share:
+//            .blue
         }
     }
 
@@ -211,8 +211,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             "magnifyingglass"
         case .about:
             "info.circle"
-        case .share:
-            "qrcode"
+//        case .share:
+//            "qrcode"
         }
     }
 
@@ -244,8 +244,8 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
             "Search"
         case .about:
             "About"
-        case .share:
-            "Share"
+//        case .share:
+//            "Share"
         }
     }
 

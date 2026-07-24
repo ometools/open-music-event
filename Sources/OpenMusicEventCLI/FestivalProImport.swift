@@ -63,7 +63,9 @@ struct FestivalProContributorImporter {
     ) throws -> [FileContent<ContributorDTO>] {
         var profilesByName: [String: [FestivalProArtist]] = [:]
         for contact in export.contacts.sorted(by: { $0.key < $1.key }) {
-            guard let name = contact.value.companyName.nonEmpty else { continue }
+            guard let name = contact.value.companyName,
+                  !name.isEmpty
+            else { continue }
             profilesByName[name, default: []].append(contact.value)
         }
 
@@ -89,7 +91,11 @@ struct FestivalProContributorImporter {
         FestivalProImportSummary(
             contactCount: export.contacts.count,
             contributorCount: contributors.count,
-            contributorNamesWithoutProfiles: export.contacts.values.filter { $0.companyName.nonEmpty == nil }.count
+            contributorNamesWithoutProfiles: export.contacts.values.filter { artist in
+                guard let name = artist.companyName else { return true }
+                return name.isEmpty
+            }
+            .count
         )
     }
 
@@ -124,9 +130,10 @@ struct FestivalProContributorImporter {
         in profiles: [FestivalProArtist]
     ) -> String? {
         for profile in profiles {
-            if let value = profile[keyPath: keyPath].nonEmpty {
-                return value
-            }
+            guard let value = profile[keyPath: keyPath],
+                  !value.isEmpty
+            else { continue }
+            return value
         }
         return nil
     }
@@ -169,7 +176,8 @@ struct FestivalProContributorImporter {
         platform: ExternalPlatform,
         to links: inout [ExternalPlatform.Link]
     ) {
-        guard let value = value.nonEmpty,
+        guard let value,
+              !value.isEmpty,
               let url = URL(string: value)
         else { return }
         links.append(ExternalPlatform.Link(url: url, platform: platform))
@@ -242,11 +250,5 @@ struct FestivalProArtist: Decodable {
         case (nil, .some): false
         case (nil, nil): (lhs.contactID ?? "") < (rhs.contactID ?? "")
         }
-    }
-}
-
-private extension String {
-    var nonEmpty: String? {
-        isEmpty ? nil : self
     }
 }

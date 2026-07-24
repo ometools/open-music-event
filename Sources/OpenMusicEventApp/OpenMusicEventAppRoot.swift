@@ -13,10 +13,6 @@ import SwiftUI
 import SafariServices
 #endif
 
-struct OrgAuthoringNavigationRequested: FeatureEventKey {
-    typealias Value = NavigationRequest
-}
-
 @Feature
 public struct OpenMusicEventAppRoot {
     public init() {}

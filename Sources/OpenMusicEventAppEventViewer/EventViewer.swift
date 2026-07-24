@@ -235,8 +235,8 @@ public struct EventViewer {
                     case .about:
                         self.eventInfoViewer = existingEventInfoViewer
                             ?? Spawn(EventInfoViewer.State(eventID: eventID))
-                    case .share:
-                        break
+//                    case .share:
+//                        break
                     }
                 }
             }
@@ -1293,18 +1293,18 @@ public struct EventViewerView: View {
                     }
                 }
 
-                if store.installedFeatures.contains(.share) {
-                    TabFeature(
-                        .share,
-                        title: EventViewer.EventFeature.share.title,
-                        systemImage: EventViewer.EventFeature.share.systemImage,
-                        labelTint: EventViewer.EventFeature.share.labelTint,
-                        navigation: .stack
-                    ) {
-                        TestFlightShareView()
-                    }
-                    .allowedOnTabBar(false)
-                }
+//                if store.installedFeatures.contains(.share) {
+//                    TabFeature(
+//                        .share,
+//                        title: EventViewer.EventFeature.share.title,
+//                        systemImage: EventViewer.EventFeature.share.systemImage,
+//                        labelTint: EventViewer.EventFeature.share.labelTint,
+//                        navigation: .stack
+//                    ) {
+//                        TestFlightShareView()
+//                    }
+//                    .allowedOnTabBar(false)
+//                }
 
             }
             .more {
@@ -1643,7 +1643,7 @@ private extension EventViewer.State {
              .schedule,
              .search,
              .siteMap,
-             .share,
+//             .share,
              .stages:
 
             break

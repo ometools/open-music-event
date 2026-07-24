@@ -1,6 +1,11 @@
 import ComposableArchitecture2
 import Foundation
 
+
+public struct OrgAuthoringNavigationRequested: FeatureEventKey {
+    public typealias Value = NavigationRequest
+}
+
 public enum EventTarget: Equatable, Sendable {
     case schedule
     case performance(OMERecord.ID<OMERecord.Performance>)

@@ -44,17 +44,24 @@ public enum OpenMusicEventAppDependencyProfile: Sendable {
 extension OME {
     public static func prepareDependencies(_ dependencies: inout DependencyValues) throws {
         try dependencies.bootstrapDatabase()
+
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
         OpenMusicEventActorTypeahead.prepareDependencies(&dependencies)
         BlueskyActorCacheDependencies.prepareDependencies(&dependencies)
+
         dependencies.sourceControl = LibGit2SourceControlClient.live
         dependencies.tangledSourceCheckout = .git
+
         dependencies[SourcePatchGeneratorKey<OpenMusicEventSourcePatchRequest>.self] = .openMusicEvent
         dependencies[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] = .openMusicEventCalendar
+
         dependencies.sourcePatchPublisher = .openMusicEventTangled
+
         dependencies.tangledPullReviewListSource = .constellationBackfill
         dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
+
         let baseDatabase = dependencies.defaultDatabase
+
         dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
             try await withDependencies {
                 $0.defaultDatabase = baseDatabase

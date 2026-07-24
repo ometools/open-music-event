@@ -52,7 +52,7 @@ extension EventFeature {
              .posters,
              .notifications,
              .search,
-             .share,
+//             .share,
              .about:
             false
         }
