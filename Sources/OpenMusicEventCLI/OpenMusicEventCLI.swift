@@ -31,6 +31,7 @@ extension OpenMusicEventCommand {
             abstract: "Work with organizer-owned OpenMusicEvent source repositories.",
             subcommands: [
                 Rewrite.self,
+                FestivalProImport.self,
                 TangledPullIndexingRepro.self,
                 TangledSourceCloneCommand.self,
                 NormalizeActors.self,
