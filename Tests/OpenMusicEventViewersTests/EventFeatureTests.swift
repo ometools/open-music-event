@@ -50,13 +50,4 @@ struct EventFeatureTests {
         #expect(EventFeature("edit") == .workspace)
         #expect(EventFeature("workspace") == .workspace)
     }
-
-    @Test
-    func shareFeatureHasAStableMoreDestinationIdentity() {
-        #expect(EventFeature("share") == .share)
-        #expect(EventFeature.share.description == "share")
-        #expect(EventFeature.share.customizationID == "openMusicEvent.eventViewer.share")
-        #expect(EventFeature.share.title == "Share")
-        #expect(EventFeature.share.systemImage == "qrcode")
-    }
 }

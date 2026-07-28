@@ -3,6 +3,7 @@ import Clocks
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
+import DebugSnapshots
 import FileTree
 import Foundation
 import OpenMusicEventAuthentication
@@ -218,7 +219,7 @@ extension UserStoryTests {
             ))
 
             try await withDependencies {
-                $0.authoringPolicy = backend.authoringPolicy
+                $0[AuthoringPolicyClient.self] = backend.authoringPolicy
                 $0.context = .test
                 $0.continuousClock = ImmediateClock()
                 $0.defaultDatabase = database
@@ -291,26 +292,27 @@ extension UserStoryTests {
                 )),
                 timeout: .seconds(1)
             ) {
-                $0.whiteLabelRoot?.authoringSubject =
-                    .sourceBaseline(backend.sourceBaselineID)
                 $0.whiteLabelRoot?.isLoading = false
                 $0.whiteLabelRoot?.loadingPhase = .idle
                 $0.whiteLabelRoot?.organizerID = UserStory.organizerID
-                $0.whiteLabelRoot?.teamWorkspaceDetail?.sourceBaselineID =
-                    backend.sourceBaselineID
+                $0.whiteLabelRoot?.teamWorkspaceDetail = snap(
+                    WhiteLabelRoot.TeamWorkspace.State(
+                        workspaceID: EditingWorkspaceRecord.ID(
+                            sourceBaselineID: backend.sourceBaselineID
+                        )
+                    ) {
+                        TeamWorkspaceDetail.State(sourceBaselineID: backend.sourceBaselineID)
+                    }
+                )
             }
             #expect(
-                await store[dynamicMember: \.whiteLabelRoot?.authoringSubject]
-                == .sourceBaseline(backend.sourceBaselineID)
-            )
-            #expect(
-                await store[dynamicMember: \.whiteLabelRoot?.teamWorkspaceDetail?.sourceBaselineID]
+                await store[dynamicMember: \.whiteLabelRoot?.teamWorkspaceDetail?.content.sourceBaselineID]
                 == backend.sourceBaselineID
             )
 
             // The downloaded team workspace is hydrated from the imported source.
             let teamWorkspace = try #require(
-                await store[dynamicMember: \.whiteLabelRoot?.teamWorkspaceDetail?.state]
+                await store[dynamicMember: \.whiteLabelRoot?.teamWorkspaceDetail?.content]
             )
             assertSnapshot(
                 of: teamWorkspace,
@@ -320,18 +322,19 @@ extension UserStoryTests {
 
             // The user enters authoring mode for the downloaded source workspace.
             let enterAuthoringTask = await store.send(
-                to: \.whiteLabelRoot!,
-                .enterAuthoringButtonTapped
-            ) {
-                $0.whiteLabelRoot?.isAuthoringAuthorizationInFlight = true
-            }
+                to: \.whiteLabelRoot!.teamWorkspaceDetail!,
+                .enterButtonTapped
+            )
 
-            // The white-label root receives the authorization result and shows editing controls.
+            // The workspace wrapper grants authoring only after authorization and preparation finish.
             await enterAuthoringTask?.value
+            let authoringGrant = try #require(
+                await store[dynamicMember: \.whiteLabelRoot?.teamWorkspaceDetail?.grant]
+            )
             await store.expect {
-                $0.whiteLabelRoot?.authoringMode = .authoring(.all)
-                $0.whiteLabelRoot?.isAuthoringAuthorizationInFlight = false
+                $0.whiteLabelRoot?.teamWorkspaceDetail?.grant = authoringGrant
             }
+            expectNoDifference(authoringGrant.capabilities, [.editContent])
 
             // The user opens Meadow from a Testival stage link.
             await store.send(.openURL(stageURL))
@@ -344,25 +347,25 @@ extension UserStoryTests {
             )
 
             #expect(
-                await store[dynamicMember: \.eventViewer?.authoringMode]
-                == .authoring(.all)
+                await store[dynamicMember: \.eventViewer?.access]
+                == .authoring([.editContent])
             )
-            #expect(await store[dynamicMember: \.eventViewer?.selectedFeature] == .stages)
+            #expect(await store[dynamicMember: \.eventViewer?.content.selectedFeature] == .stages)
             #expect(
-                await store[dynamicMember: \.eventViewer?.stagesViewer?.destination?.stageDetail?.stageID]
+                await store[dynamicMember: \.eventViewer?.content.stagesViewer?.destination?.stageDetail?.stageID]
                 == stageID
             )
 
             // The user edits Meadow through the mounted stage detail.
             let editTask = await store.send(
-                to: \.eventViewer!.stagesViewer!.destination!.stageDetail!,
+                to: \.eventViewer!.content.stagesViewer!.destination!.stageDetail!,
                 .editButtonTapped
             )
             await editTask?.value
 
             // Meadow's form opens with the source-backed draft.
             let stageForm = try #require(
-                await store[dynamicMember: \.eventViewer?.destination?.stageForm?.state]
+                await store[dynamicMember: \.eventViewer?.content.destination?.stageForm?.state]
             )
             #expect(stageForm.hasLoadedDraft)
             assertSnapshot(
@@ -373,7 +376,7 @@ extension UserStoryTests {
 
             // The user changes public stage data that should become the pull request.
             await store.modify {
-                $0.eventViewer?.destination.modify(\.stageForm) {
+                $0.eventViewer?.content.destination.modify(\.stageForm) {
                     $0.form.value.name = "Meadow Workshop"
                     $0.form.value.category = "workshop"
                     $0.form.value.sortIndex = "7"
@@ -383,7 +386,7 @@ extension UserStoryTests {
 
             // The user saves the edit into the local workspace database.
             await store.send(
-                to: \.eventViewer!.destination!.stageForm!,
+                to: \.eventViewer!.content.destination!.stageForm!,
                 .saveButtonTapped
             )?.value
 
@@ -395,12 +398,12 @@ extension UserStoryTests {
 
             // The user switches to the Workspace tab to inspect unpublished changes.
             await store.modify {
-                $0.eventViewer?.selectedFeature = .workspace
+                $0.eventViewer?.content.selectedFeature = .workspace
             }
 
             // The Workspace query is the seam: it shows exactly what the local edit changed.
             let workspace = try #require(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.state]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.state]
             )
             assertSnapshot(
                 of: workspace.sourceWorkspaceSummary,
@@ -410,10 +413,10 @@ extension UserStoryTests {
 
             // The user checks the generated source patch before proposing it.
             let generateSourcePatchTask = await store.send(
-                to: \.eventViewer!.eventWorkspace!,
+                to: \.eventViewer!.content.eventWorkspace!,
                 .generateSourcePatchButtonTapped
             ) {
-                $0.eventViewer?.eventWorkspace?.sourcePatchStatus = .generating
+                $0.eventViewer?.content.eventWorkspace?.sourcePatchStatus = .generating
             }
 
             await generateSourcePatchTask?.value
@@ -421,7 +424,7 @@ extension UserStoryTests {
 
             // The generated patch is the source-level view of the same workspace diff.
             let sourcePatchStatus = await store[
-                dynamicMember: \.eventViewer?.eventWorkspace?.sourcePatchStatus
+                dynamicMember: \.eventViewer?.content.eventWorkspace?.sourcePatchStatus
             ]
             let expectedGeneratedStageStatus: EventWorkspace.SourcePatchStatus = .generated(
                 backend.expectedStagePatch,
@@ -436,31 +439,31 @@ extension UserStoryTests {
 
             // The user starts a proposal from the generated patch.
             let proposeChangeTask = await store.send(
-                to: \.eventViewer!.eventWorkspace!,
+                to: \.eventViewer!.content.eventWorkspace!,
                 .proposeChangeButtonTapped
             ) {
-                $0.eventViewer?.eventWorkspace?.isPreparingSourceProposal = true
-                $0.eventViewer?.eventWorkspace?.sourcePatchStatus = .generating
+                $0.eventViewer?.content.eventWorkspace?.isPreparingSourceProposal = true
+                $0.eventViewer?.content.eventWorkspace?.sourcePatchStatus = .generating
             }
 
             await proposeChangeTask?.value
             await flushNestedSpawnEffects()
             #expect(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.isPreparingSourceProposal]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.isPreparingSourceProposal]
                 == false
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourcePatchStatus]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.sourcePatchStatus]
                 == expectedGeneratedStageStatus
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourceProposalStatus]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.sourceProposalStatus]
                 == .composing
             )
 
             // The proposal composer carries the current workspace diff, not a hand-built proposal.
             let proposal = try #require(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourceProposal]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.sourceProposal]
             )
             assertSnapshot(
                 of: proposal,
@@ -470,24 +473,24 @@ extension UserStoryTests {
 
             // The user writes a clear PR title and description.
             await store.modify {
-                $0.eventViewer?.eventWorkspace?.sourceProposal?.form.value.title =
+                $0.eventViewer?.content.eventWorkspace?.sourceProposal?.form.value.title =
                     "Update Meadow stage details"
-                $0.eventViewer?.eventWorkspace?.sourceProposal?.form.value.description =
+                $0.eventViewer?.content.eventWorkspace?.sourceProposal?.form.value.description =
                     "Renames Meadow and updates the stage image."
             }
 
             let proposalFormValue = try #require(
                 await store[
-                    dynamicMember: \.eventViewer?.eventWorkspace?.sourceProposal?.form.value
+                    dynamicMember: \.eventViewer?.content.eventWorkspace?.sourceProposal?.form.value
                 ]
             )
 
             // The user publishes the proposal.
             let publishProposalTask = await store.send(
-                to: \.eventViewer!.eventWorkspace!,
+                to: \.eventViewer!.content.eventWorkspace!,
                 .sourceProposal(.formSubmitted(proposalFormValue))
             ) {
-                $0.eventViewer?.eventWorkspace?.sourceProposalStatus = .proposing
+                $0.eventViewer?.content.eventWorkspace?.sourceProposalStatus = .proposing
             }
 
             // Tangled creates a pull request from the generated source patch.
@@ -496,24 +499,24 @@ extension UserStoryTests {
 
             // The Workspace reloads reviews and lands on the newly created pull request.
             #expect(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.pendingCreatedTangledPullReviewID]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.pendingCreatedTangledPullReviewID]
                 == nil
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.selectedTangledPullReview]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.selectedTangledPullReview]
                 == .loaded(backend.createdReview)
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.tangledPullReviewStatus]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.tangledPullReviewStatus]
                 == .loaded([backend.createdReview])
             )
 
             // The user opens the semantic review diff for the created pull request.
             let reviewSemanticDiffTask = await store.send(
-                to: \.eventViewer!.eventWorkspace!,
+                to: \.eventViewer!.content.eventWorkspace!,
                 .reviewSemanticDiffButtonTapped(backend.createdReview)
             ) {
-                $0.eventViewer?.eventWorkspace?
+                $0.eventViewer?.content.eventWorkspace?
                     .tangledPullReviewSemanticDiffs[backend.createdReview.id] = .loading
             }
 
@@ -522,7 +525,7 @@ extension UserStoryTests {
 
             // The review diff shows the same stage change that came from the local edit.
             let semanticDiffStatus = await store[
-                dynamicMember: \.eventViewer?.eventWorkspace?
+                dynamicMember: \.eventViewer?.content.eventWorkspace?
                     .tangledPullReviewSemanticDiffs[backend.createdReview.id]
             ]
             guard case let .loaded(semanticDiff) = try #require(semanticDiffStatus) else {
@@ -538,10 +541,10 @@ extension UserStoryTests {
 
             // The user merges the pull request.
             let mergePullReviewTask = await store.send(
-                to: \.eventViewer!.eventWorkspace!,
+                to: \.eventViewer!.content.eventWorkspace!,
                 .mergeTangledPullReviewButtonTapped(backend.createdReview)
             ) {
-                $0.eventViewer?.eventWorkspace?.mergingTangledPullReviewIDs =
+                $0.eventViewer?.content.eventWorkspace?.mergingTangledPullReviewIDs =
                     [backend.createdReview.id]
             }
 
@@ -549,14 +552,14 @@ extension UserStoryTests {
             await mergePullReviewTask?.value
             await flushNestedSpawnEffects()
             await waitUntil {
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.sourceWorkspaceSummary.totalCount] == 0
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.sourceWorkspaceSummary.totalCount] == 0
             }
             #expect(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.mergingTangledPullReviewIDs]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.mergingTangledPullReviewIDs]
                 == []
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.selectedTangledPullReview]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.selectedTangledPullReview]
                 == nil
             )
 
@@ -567,7 +570,7 @@ extension UserStoryTests {
 
             // The Workspace no longer has unpublished local changes after the source refresh.
             let refreshedWorkspace = try #require(
-                await store[dynamicMember: \.eventViewer?.eventWorkspace?.state]
+                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.state]
             )
             assertSnapshot(
                 of: refreshedWorkspace.sourceWorkspaceSummary,
@@ -814,11 +817,7 @@ private struct TestivalPullRequestBackend {
             brand: WhiteLabelBrand(displayName: "Testival"),
             organizerID: UserStory.organizerID
         )
-        self.authoringPolicy = AuthoringPolicyClient(
-            authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
-            authorize: { _ in .all },
-            mode: { _ in .attendee }
-        )
+        self.authoringPolicy = AuthoringPolicyClient { _ in [.editContent] }
         self.createdPublication = createdPublication
         self.createdReview = createdReview
         self.database = database

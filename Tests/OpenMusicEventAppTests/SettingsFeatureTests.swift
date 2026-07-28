@@ -285,13 +285,8 @@ struct SettingsFeatureTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            var initialState = OpenMusicEventAppRoot.State()
-            initialState.eventViewer = Spawn(
-                EventViewer.State(
-                    eventID: eventID,
-                    authoringMode: .authoring(.all),
-                    features: [.settings]
-                )
+            let initialState = OpenMusicEventAppRoot.State(
+                selectedEventIDAtLaunch: eventID
             )
             return TestStore(initialState: initialState) {
                 OpenMusicEventAppRoot()

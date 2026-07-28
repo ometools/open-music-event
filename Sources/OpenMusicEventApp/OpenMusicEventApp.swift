@@ -59,6 +59,7 @@ extension OME {
 
         dependencies.tangledPullReviewListSource = .constellationBackfill
         dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
+        dependencies[OpenMusicEventSourceEditing.AuthoringPolicyClient.self] = .openMusicEvent
 
         let baseDatabase = dependencies.defaultDatabase
 

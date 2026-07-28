@@ -51,26 +51,31 @@ struct TangledSourceDownloadFeatureTests {
     @Test
     func downloadedWorkspaceWaitsForManualAuthoringEntryBeforePreparingSource() async throws {
         let database = try makePreparedDatabase()
-        let sourceBaselineID = SourceBaselineRecord.ID(
-            source: tangledSourceProvenance("manual-authoring-entry")
+        let sourceProvenance = tangledSourceProvenance("manual-authoring-entry")
+        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+        let eventID = importedEventID("manual-authoring-entry")
+        try await insertTeamWorkspace(
+            eventID: eventID,
+            sourceProvenance: sourceProvenance,
+            into: database
         )
-        let authoringRequests = Mutex<[Authoring.Request]>([])
-        let preparedSourceBaselineIDs = Mutex<[SourceBaselineRecord.ID]>([])
+        let authoringRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+        let preparedWorkspaceIDs = Mutex<[EditingWorkspaceRecord.ID]>([])
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.authoringPolicy = AuthoringPolicyClient(
-                authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
-                authorize: { request in
-                    authoringRequests.withLock { $0.append(request) }
-                    return .all
-                },
-                mode: { _ in .authoring(.all) }
-            )
-            $0.sourceAuthoringEntry = .live
-            $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
-                preparedSourceBaselineIDs.withLock { $0.append(sourceBaselineID) }
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
+                authoringRequests.withLock { $0.append(requestedWorkspaceID) }
+                return [.editContent]
+            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { requestedWorkspaceID in
+                preparedWorkspaceIDs.withLock { $0.append(requestedWorkspaceID) }
+                return WorkspaceContext(
+                    id: requestedWorkspaceID,
+                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+                )
             }
         } operation: {
             TestStore(initialState: MyEvents.State()) {
@@ -81,43 +86,24 @@ struct TangledSourceDownloadFeatureTests {
         // Opening the downloaded workspace remains attendee-only even when policy allows authoring.
         store.send(.didTapTeamWorkspace(sourceBaselineID))
 
-        #expect(store.state.teamWorkspaceDetail?.sourceBaselineID == sourceBaselineID)
-        #expect(store.state.teamWorkspaceAuthoringMode == .attendee)
-        #expect(!store.state.showsTeamWorkspaceAuthoringControls)
+        #expect(store.state.teamWorkspaceDetail?.content.sourceBaselineID == sourceBaselineID)
+        #expect(store.state.teamWorkspaceDetail?.access == .attendee)
         #expect(authoringRequests.withLock { $0.isEmpty })
-        #expect(preparedSourceBaselineIDs.withLock { $0.isEmpty })
+        #expect(preparedWorkspaceIDs.withLock { $0.isEmpty })
 
         // The explicit authoring action authorizes and promotes the archive to an editable source.
-        let entryTask = store.send(.enterTeamWorkspaceAuthoringButtonTapped) {
-            $0.isTeamWorkspaceAuthoringEntryInFlight = true
-        }
-        await store.receive(
-            \.enterTeamWorkspaceAuthoringAuthorized,
-            .matching { response in
-                response.0 == sourceBaselineID && response.1 == .all
-            },
-            timeout: .seconds(1)
-        ) {
-            $0.isTeamWorkspaceAuthoringEntryInFlight = false
-            $0.teamWorkspaceAuthoringMode = .authoring(.all)
-        }
+        let entryTask = store.send(.teamWorkspaceDetail(.enterButtonTapped))
         await entryTask?.value
 
         expectNoDifference(
             authoringRequests.withLock { $0 },
-            [
-                Authoring.Request(
-                    subject: .sourceBaseline(sourceBaselineID),
-                    feature: .workspace,
-                    action: .enterAuthoring
-                )
-            ]
+            [workspaceID]
         )
         expectNoDifference(
-            preparedSourceBaselineIDs.withLock { $0 },
-            [sourceBaselineID]
+            preparedWorkspaceIDs.withLock { $0 },
+            [workspaceID]
         )
-        #expect(store.state.showsTeamWorkspaceAuthoringControls)
+        #expect(store.state.teamWorkspaceDetail?.access == .authoring([.editContent]))
     }
 
     @Test
@@ -241,9 +227,13 @@ struct TangledSourceDownloadFeatureTests {
             )
         } operation: {
             var initialState = MyEvents.State()
-            initialState.teamWorkspaceDetail = TeamWorkspaceDetail.State(
-                sourceBaselineID: firstSourceBaselineID
-            )
+            initialState.teamWorkspaceDetail = MyEvents.TeamWorkspace.State(
+                workspaceID: EditingWorkspaceRecord.ID(
+                    sourceBaselineID: firstSourceBaselineID
+                )
+            ) {
+                TeamWorkspaceDetail.State(sourceBaselineID: firstSourceBaselineID)
+            }
             return TestStore(initialState: initialState) {
                 MyEvents()
             }

@@ -15,8 +15,25 @@ public struct SourceEditModePreparationClient: Sendable {
     }
 }
 
+public struct WorkspacePreparationClient: Sendable {
+    public var prepare: @Sendable (EditingWorkspaceRecord.ID) async throws -> WorkspaceContext
+
+    public init(
+        prepare: @escaping @Sendable (
+            EditingWorkspaceRecord.ID
+        ) async throws -> WorkspaceContext
+    ) {
+        self.prepare = prepare
+    }
+}
+
 public enum SourceEditModePreparationError: Equatable, Error, Sendable {
     case sourceBaselineNotFound(SourceBaselineRecord.ID)
+}
+
+public enum WorkspacePreparationError: Equatable, Error, Sendable {
+    case workspaceMissingSourceBaseline(EditingWorkspaceRecord.ID)
+    case workspaceNotFound(EditingWorkspaceRecord.ID)
 }
 
 public extension SourceEditModePreparationClient {
@@ -77,6 +94,51 @@ public extension SourceEditModePreparationClient {
     }
 }
 
+public extension WorkspacePreparationClient {
+    static var live: Self {
+        Self { workspaceID in
+            @Dependency(\.defaultDatabase) var database
+            @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
+            @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
+
+            let workspace = try await database.read { db in
+                try EditingWorkspaceRecord
+                    .where { $0.id.eq(workspaceID) }
+                    .fetchOne(db)
+            }
+            guard let workspace else {
+                throw WorkspacePreparationError.workspaceNotFound(workspaceID)
+            }
+
+            switch workspace.kind {
+            case .local:
+                break
+
+            case .team:
+                guard let sourceBaselineID = workspace.sourceBaselineID else {
+                    throw WorkspacePreparationError.workspaceMissingSourceBaseline(workspaceID)
+                }
+                try await sourceEditModePreparation.prepare(sourceBaselineID)
+            }
+
+            return WorkspaceContext(
+                id: workspaceID,
+                sourceWorkspaceDatabase: try sourceWorkspaceDatabase.workspace(workspaceID)
+            )
+        }
+    }
+
+    static var passthrough: Self {
+        Self { workspaceID in
+            @Dependency(\.defaultDatabase) var database
+            return WorkspaceContext(
+                id: workspaceID,
+                sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+            )
+        }
+    }
+}
+
 private func isGitRepository(_ repositoryURL: URL) -> Bool {
     FileManager.default.fileExists(
         atPath: repositoryURL
@@ -101,4 +163,9 @@ private enum SourceEditModePreparationClientKey: DependencyKey {
     static var testValue: SourceEditModePreparationClient {
         .noop
     }
+}
+
+extension WorkspacePreparationClient: DependencyKey {
+    public static var liveValue: Self { .live }
+    public static var testValue: Self { .passthrough }
 }

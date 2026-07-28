@@ -51,20 +51,6 @@ extension DependencyValues {
     }
 }
 
-private func updateEventWorkspaceDependencies(
-    eventID: OMERecord.Event.ID,
-    dependencies: inout DependencyValues
-) {
-    do {
-        dependencies.sourceEditingSession = try dependencies.sourceWorkspaceDatabase
-            .event(eventID)?
-            .sourceEditingSession
-    } catch {
-        dependencies.sourceEditingSession = nil
-        reportIssue(error)
-    }
-}
-
 extension OMERecord.Event {
   static var defaultEvent: some SelectStatementOf<OMERecord.Event> {
     @Dependency(\.defaultEventID) var defaultEventID
@@ -73,8 +59,8 @@ extension OMERecord.Event {
 }
 
 extension OpenMusicEventViewers.EventFeature {
-    static func defaultFeatures(authoringMode: Authoring.Mode) -> [Self] {
-        let authoringFeatures = authoringMode.isAuthoring ? editorFeatures : []
+    static func defaultFeatures(authoringAccess: AuthoringAccess) -> [Self] {
+        let authoringFeatures = authoringAccess.canEditContent ? editorFeatures : []
         return defaultReadOnlyFeatures.filter { $0 != .search && $0 != .about }
             + authoringFeatures
             + [.search, .about]
@@ -82,7 +68,7 @@ extension OpenMusicEventViewers.EventFeature {
 
     static func features(
         eventID: OMERecord.Event.ID,
-        authoringMode: Authoring.Mode
+        authoringAccess: AuthoringAccess
     ) -> [Self] {
         @Dependency(\.defaultDatabase) var database
         let stages = (try? database.read { db in
@@ -90,16 +76,16 @@ extension OpenMusicEventViewers.EventFeature {
         }) ?? []
         return features(
             scheduleDivisions: ScheduleViewer.scheduleDivisions(stages: stages),
-            authoringMode: authoringMode
+            authoringAccess: authoringAccess
         )
     }
 
     static func features(
         scheduleDivisions: [ScheduleDivision],
-        authoringMode: Authoring.Mode
+        authoringAccess: AuthoringAccess
     ) -> [Self] {
         let divisions = scheduleDivisions.isEmpty ? [.schedule] : scheduleDivisions
-        return divisions.map(Self.schedule) + defaultFeatures(authoringMode: authoringMode).filter {
+        return divisions.map(Self.schedule) + defaultFeatures(authoringAccess: authoringAccess).filter {
             $0.scheduleDivision == nil
         }
     }
@@ -113,40 +99,38 @@ public struct EventViewer {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
-    @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
     @StoreTaskID var sourceDataRefreshTask
-    @StoreTaskID var sourceEditModePreparationTask
 
     public struct State: Identifiable {
         public init(eventID: OMERecord.Event.ID) {
-            let authoringMode = Self.authoringMode(eventID: eventID)
+            let authoringGrant = Self.authoringGrant()
             self.init(
                 eventID: eventID,
-                authoringMode: authoringMode,
+                authoringGrant: authoringGrant,
                 features: EventFeature.features(
                     eventID: eventID,
-                    authoringMode: authoringMode
+                    authoringAccess: authoringGrant.wrappedValue?.access ?? .attendee
                 )
             )
         }
 
         public init(
             eventID: OMERecord.Event.ID,
-            authoringMode: Authoring.Mode = .attendee,
+            authoringGrant: SharedReader<AuthoringGrant?>,
             features: [EventFeature],
-            refreshesAuthoringModeOnMount: Bool = true
+            pendingAuthoringEntry: EditorEntry? = nil
         ) {
             let eventTimeZone = Self.eventTimeZone(eventID: eventID)
 
-            self.authoringMode = authoringMode
+            self._authoringGrant = authoringGrant
             self.eventID = eventID
             self.eventTimeZone = eventTimeZone
-            self.refreshesAuthoringModeOnMount = refreshesAuthoringModeOnMount
             self._eventViewerState = Shared(.eventViewerState(eventID))
             self._stages = FetchAll(ScheduleViewer.stagesQuery(eventID: eventID))
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
             self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
+            self.pendingAuthoringEntry = pendingAuthoringEntry
             self.installFeatureStores(features)
         }
 
@@ -242,18 +226,14 @@ public struct EventViewer {
             }
         }
 
-        mutating func refreshAuthoringMode() {
-            self.authoringMode = Self.authoringMode(eventID: eventID)
-        }
-
-        mutating func reloadFeaturesForAuthoringMode(
+        mutating func reloadFeaturesForAuthoringAccess(
             preserving selectedFeature: EventFeature? = nil
         ) {
             let selectedFeature = selectedFeature ?? self.selectedFeature
             let features = withEventDependencies {
                 EventFeature.features(
                     eventID: eventID,
-                    authoringMode: authoringMode
+                    authoringAccess: authoringAccess
                 )
             }
             self.installedFeatures = features
@@ -263,23 +243,13 @@ public struct EventViewer {
             self.installFeatureStores(features)
         }
 
-        mutating func setAuthoringMode(_ authoringMode: Authoring.Mode) {
-            self.authoringMode = authoringMode
-            self.reloadFeaturesForAuthoringMode()
-        }
-
         mutating func reloadAfterSourceDataRefresh() {
-            let mountedAuthoringMode = self.authoringMode
-            self.refreshAuthoringMode()
-            if mountedAuthoringMode.isAuthoring, !self.authoringMode.isAuthoring {
-                self.authoringMode = mountedAuthoringMode
-            }
             let selectedFeature = self.selectedFeature
             self.eventTimeZone = Self.eventTimeZone(eventID: eventID)
             let features = withEventDependencies {
                 EventFeature.features(
                     eventID: eventID,
-                    authoringMode: authoringMode
+                    authoringAccess: authoringAccess
                 )
             }
             self.installedFeatures = features
@@ -291,26 +261,17 @@ public struct EventViewer {
 
         public static func route(
             eventID: OMERecord.Event.ID,
-            target: EventTarget?,
-            authoringMode: Authoring.Mode? = nil
+            target: EventTarget?
         ) -> Self {
-            let refreshesAuthoringModeOnMount: Bool
-            let resolvedAuthoringMode: Authoring.Mode
-            if let explicitAuthoringMode = authoringMode {
-                resolvedAuthoringMode = explicitAuthoringMode
-                refreshesAuthoringModeOnMount = false
-            } else {
-                resolvedAuthoringMode = Self.authoringMode(eventID: eventID)
-                refreshesAuthoringModeOnMount = true
-            }
+            let authoringGrant = Self.authoringGrant()
+            let access = authoringGrant.wrappedValue?.access ?? .attendee
             var state = Self(
                 eventID: eventID,
-                authoringMode: resolvedAuthoringMode,
+                authoringGrant: authoringGrant,
                 features: EventFeature.features(
                     eventID: eventID,
-                    authoringMode: resolvedAuthoringMode
-                ),
-                refreshesAuthoringModeOnMount: refreshesAuthoringModeOnMount
+                    authoringAccess: access
+                )
             )
             if let target, target.eventFeature.isEditorFeature, !state.showsAuthoringControls {
                 state.pendingAuthoringEntry = .target(target)
@@ -320,10 +281,9 @@ public struct EventViewer {
             return state
         }
 
-        public var authoringMode: Authoring.Mode
+        @SharedReader public var authoringGrant: AuthoringGrant?
         public let eventID: OMERecord.Event.ID
         public var eventTimeZone: TimeZone
-        var refreshesAuthoringModeOnMount: Bool
         @Shared public var eventViewerState: EventViewerState
         @FetchAll public var stages: [OMERecord.Stage]
         public var installedFeatures: [EventFeature]
@@ -349,8 +309,12 @@ public struct EventViewer {
 
         public var id: OMERecord.Event.ID { eventID }
 
+        public var authoringAccess: AuthoringAccess {
+            authoringGrant?.access ?? .attendee
+        }
+
         public var showsAuthoringControls: Bool {
-            authoringMode.isAuthoring
+            authoringAccess.canEditContent
         }
 
         public var needsStageDisambiguation: Bool {
@@ -757,11 +721,7 @@ public struct EventViewer {
         private func eventWorkspaceSpawn(
             eventID: OMERecord.Event.ID
         ) -> Spawn<EventWorkspace> {
-            withDependencies {
-                updateEventWorkspaceDependencies(eventID: eventID, dependencies: &$0)
-            } operation: {
-                Spawn(EventWorkspace.State(eventID: eventID))
-            }
+            Spawn(EventWorkspace.State(eventID: eventID))
         }
 
         private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {
@@ -776,11 +736,9 @@ public struct EventViewer {
             ) ?? .current
         }
 
-        private static func authoringMode(eventID: OMERecord.Event.ID) -> Authoring.Mode {
-            @Dependency(\.authoringPolicy) var authoringPolicy
-            return (
-                try? authoringPolicy.mode(.event(eventID))
-            ) ?? .attendee
+        private static func authoringGrant() -> SharedReader<AuthoringGrant?> {
+            @Dependency(\.authoringContext) var authoringContext
+            return authoringContext?.$grant ?? SharedReader(value: nil)
         }
     }
 
@@ -811,42 +769,18 @@ public struct EventViewer {
         case stageForm(Spawn<EditStage>)
     }
 
-    private func enterOrAuthorizeAuthoringEntry(_ entry: EditorEntry, state: inout State) {
-        let previousAuthoringMode = state.authoringMode
-        state.refreshAuthoringMode()
-        if state.authoringMode != previousAuthoringMode {
-            state.reloadFeaturesForAuthoringMode()
-        }
+    private func enterOrRequestAuthoring(_ entry: EditorEntry, state: inout State) {
         guard !state.showsAuthoringControls else {
-            if !previousAuthoringMode.isAuthoring {
-                prepareSourceRepositoryForAuthoring(eventID: state.eventID)
-            }
             state.pendingAuthoringEntry = nil
             store.withDependencies {
                 state.enterAuthoringEntry(entry)
             }
             return
         }
-        state.setAuthoringMode(.authoring(.all))
-        prepareSourceRepositoryForAuthoring(eventID: state.eventID)
-        state.pendingAuthoringEntry = nil
-        store.withDependencies {
-            state.enterAuthoringEntry(entry)
-        }
-    }
-
-    private func prepareSourceRepositoryForAuthoring(eventID: OMERecord.Event.ID) {
-        let database = database
-        let sourceEditModePreparation = sourceEditModePreparation
-        store.addTask(id: sourceEditModePreparationTask) {
-            let sourceBaselineID = try await database.read { db in
-                try EventSourceProvenanceRecord
-                    .where { $0.id.eq(eventID) }
-                    .fetchOne(db)?
-                    .sourceBaselineID
-            }
-            guard let sourceBaselineID else { return }
-            try? await sourceEditModePreparation.prepare(sourceBaselineID)
+        state.pendingAuthoringEntry = entry
+        store.addTask {
+            let task = try store.post(key: AuthoringRequested.self, value: ())
+            await task?.value
         }
     }
 
@@ -868,17 +802,10 @@ public struct EventViewer {
             case let .sourceDataRefreshCompleted(request):
                 guard request.eventID == state.eventID else { return }
                 var sourceWorkspaceSummary: Fetch<SourceWorkspaceSummary>?
-                withDependencies {
-                    updateEventWorkspaceDependencies(
-                        eventID: request.eventID,
-                        dependencies: &$0
-                    )
-                } operation: {
-                    state.reloadAfterSourceDataRefresh()
-                    sourceWorkspaceSummary = state.eventWorkspace?
-                        .state
-                        .$sourceWorkspaceSummary
-                }
+                state.reloadAfterSourceDataRefresh()
+                sourceWorkspaceSummary = state.eventWorkspace?
+                    .state
+                    .$sourceWorkspaceSummary
                 guard let sourceWorkspaceSummary else { return }
                 store.addTask {
                     let _: Void? = await store.withErrorHandling(
@@ -890,29 +817,27 @@ public struct EventViewer {
                 }
             }
         }
+        .onChange(of: store.authoringGrant) { oldGrant, newGrant, state in
+            let oldValue = oldGrant?.access ?? .attendee
+            let newValue = newGrant?.access ?? .attendee
+            guard oldValue != newValue else { return }
+            state.reloadFeaturesForAuthoringAccess()
+            guard newValue.canEditContent,
+                  let pendingAuthoringEntry = state.pendingAuthoringEntry
+            else { return }
+            enterOrRequestAuthoring(pendingAuthoringEntry, state: &state)
+        }
         .onChange(of: store.selectedFeature) { _, feature, state in
             guard feature.isEditorFeature else { return }
-            enterOrAuthorizeAuthoringEntry(.feature(feature), state: &state)
+            enterOrRequestAuthoring(.feature(feature), state: &state)
         }
         .onMount { state in
-            if state.refreshesAuthoringModeOnMount {
-                let mountedAuthoringMode = state.authoringMode
-                state.refreshAuthoringMode()
-                if mountedAuthoringMode.isAuthoring, !state.authoringMode.isAuthoring {
-                    state.authoringMode = mountedAuthoringMode
-                }
-            }
-            state.reloadFeaturesForAuthoringMode()
-            if state.showsAuthoringControls {
-                prepareSourceRepositoryForAuthoring(eventID: state.eventID)
-            }
-            guard let pendingAuthoringEntry = state.pendingAuthoringEntry else { return }
-            enterOrAuthorizeAuthoringEntry(pendingAuthoringEntry, state: &state)
+            state.reloadFeaturesForAuthoringAccess()
         }
         .onEvent(NavigationRequested.self) { request, state in
             if case let .event(eventID, target) = request, eventID == state.eventID {
                 if let target, target.eventFeature.isEditorFeature {
-                    enterOrAuthorizeAuthoringEntry(.target(target), state: &state)
+                    enterOrRequestAuthoring(.target(target), state: &state)
                 } else {
                     state.navigate(to: target)
                 }
@@ -920,7 +845,7 @@ public struct EventViewer {
         }
         .onEvent(EventEditingRequested.self) { intent, state in
             if intent.eventID == state.eventID {
-                enterOrAuthorizeAuthoringEntry(.intent(intent), state: &state)
+                enterOrRequestAuthoring(.intent(intent), state: &state)
             }
         }
         .onEvent(SourceDataRefreshRequested.self) { request, state in
@@ -971,12 +896,6 @@ public struct EventViewer {
         }
         .ifLet(\.eventWorkspace) {
             EventWorkspace()
-                .transformDependency(\.self) { (dependencies: inout DependencyValues) in
-                    updateEventWorkspaceDependencies(
-                        eventID: store.eventID,
-                        dependencies: &dependencies
-                    )
-                }
         }
         .spawn(\.account) {
             Account()

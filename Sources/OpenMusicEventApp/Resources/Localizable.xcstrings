@@ -580,9 +580,6 @@
         }
       }
     },
-    "Preparing Team Workspace" : {
-
-    },
     "Preparing workspace" : {
 
     },
@@ -827,9 +824,6 @@
 
     },
     "Unable to load event source." : {
-
-    },
-    "Unable to prepare source editing." : {
 
     },
     "Unable to prepare the downloaded source because a file already exists." : {

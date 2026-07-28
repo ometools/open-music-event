@@ -24,108 +24,114 @@ public struct SourceWorkspaceDatabase: Sendable {
     }
 }
 
+public struct WorkspaceContext: Sendable {
+    public var id: EditingWorkspaceRecord.ID
+    public var sourceWorkspaceDatabase: SourceWorkspaceDatabase
+
+    public init(
+        id: EditingWorkspaceRecord.ID,
+        sourceWorkspaceDatabase: SourceWorkspaceDatabase
+    ) {
+        self.id = id
+        self.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+    }
+
+    public var database: any DatabaseWriter {
+        sourceWorkspaceDatabase.database
+    }
+
+    public var sourceEditingSession: SourceEditingSession? {
+        sourceWorkspaceDatabase.sourceEditingSession
+    }
+}
+
 public enum SourceWorkspaceDatabaseError: Equatable, Error, Sendable {
-    case referenceDatabaseMissing(SourceBaselineRecord.ID)
+    case invalidWorkspaceDatabaseFileName(EditingWorkspaceRecord.ID)
     case sourceBaselineNotFound(SourceBaselineRecord.ID)
-    case workspaceMissingSourceBaseline(EditingWorkspaceRecord.ID)
+    case workspaceReferenceDatabaseMissing(EditingWorkspaceRecord.ID)
     case workspaceNotFound(EditingWorkspaceRecord.ID)
-    case workingDatabasePathMissing
 }
 
 public struct SourceWorkspaceDatabaseClient: Sendable {
-    public var event: @Sendable (OME.Event.ID) throws -> SourceWorkspaceDatabase?
-    public var sourceBaseline: @Sendable (SourceBaselineRecord.ID) throws -> SourceWorkspaceDatabase
+    public var workspace: @Sendable (EditingWorkspaceRecord.ID) throws -> SourceWorkspaceDatabase
 
     public init(
-        event: @escaping @Sendable (OME.Event.ID) throws -> SourceWorkspaceDatabase?,
-        sourceBaseline: @escaping @Sendable (SourceBaselineRecord.ID) throws -> SourceWorkspaceDatabase
+        workspace: @escaping @Sendable (EditingWorkspaceRecord.ID) throws -> SourceWorkspaceDatabase
     ) {
-        self.event = event
-        self.sourceBaseline = sourceBaseline
+        self.workspace = workspace
     }
 }
 
 public extension SourceWorkspaceDatabaseClient {
     static var live: Self {
-        Self(
-            event: { eventID in
-                @Dependency(\.defaultDatabase) var database
+        fileBacked()
+    }
 
-                let workspaceID = try database.read { db in
-                    try EventEditingWorkspaceRecord
-                        .where { $0.id.eq(eventID) }
-                        .fetchOne(db)?
-                        .workspaceID
-                }
-                guard let workspaceID else { return nil }
-                return try Self.workspace(workspaceID)
-            },
-            sourceBaseline: { sourceBaselineID in
-                try Self.sourceBaselineWorkspace(sourceBaselineID)
+    static func fileBacked(
+        workingDirectory: URL? = nil
+    ) -> Self {
+        Self(
+            workspace: { workspaceID in
+                try Self.workspaceDatabase(
+                    workspaceID,
+                    workingDirectory: workingDirectory
+                )
             }
         )
     }
 
     static var passthrough: Self {
         Self(
-            event: { _ in nil },
-            sourceBaseline: { _ in
+            workspace: { _ in
                 @Dependency(\.defaultDatabase) var database
                 return SourceWorkspaceDatabase(database: database)
             }
         )
     }
 
-    private static func workspace(
-        _ workspaceID: EditingWorkspaceRecord.ID
+    private static func workspaceDatabase(
+        _ workspaceID: EditingWorkspaceRecord.ID,
+        workingDirectory: URL?
     ) throws -> SourceWorkspaceDatabase {
         @Dependency(\.defaultDatabase) var database
+        @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
 
-        let workspace = try database.read { db in
-            try EditingWorkspaceRecord
+        let (workspace, sourceBaseline) = try database.read { db in
+            let workspace = try EditingWorkspaceRecord
                 .where { $0.id.eq(workspaceID) }
                 .fetchOne(db)
+            let sourceBaseline = try workspace?.sourceBaselineID.flatMap { sourceBaselineID in
+                try SourceBaselineRecord
+                    .where { $0.id.eq(sourceBaselineID) }
+                    .fetchOne(db)
+            }
+            return (workspace, sourceBaseline)
         }
         guard let workspace else {
             throw SourceWorkspaceDatabaseError.workspaceNotFound(workspaceID)
         }
-
-        switch workspace.kind {
-        case .local:
-            return SourceWorkspaceDatabase(database: database)
-
-        case .team:
-            guard let sourceBaselineID = workspace.sourceBaselineID else {
-                throw SourceWorkspaceDatabaseError.workspaceMissingSourceBaseline(workspaceID)
-            }
-            return try sourceBaselineWorkspace(sourceBaselineID)
-        }
-    }
-
-    private static func sourceBaselineWorkspace(
-        _ sourceBaselineID: SourceBaselineRecord.ID
-    ) throws -> SourceWorkspaceDatabase {
-        @Dependency(\.defaultDatabase) var database
-        @Dependency(\.sourceEditingWorkingDatabasePath) var workingDatabasePath
-        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-
-        guard let workingDatabasePath else {
-            throw SourceWorkspaceDatabaseError.workingDatabasePathMissing
-        }
-
-        let sourceBaseline = try database.read { db in
-            try SourceBaselineRecord
-                .where { $0.id.eq(sourceBaselineID) }
-                .fetchOne(db)
-        }
-        guard let sourceBaseline else {
+        if let sourceBaselineID = workspace.sourceBaselineID,
+           sourceBaseline == nil {
             throw SourceWorkspaceDatabaseError.sourceBaselineNotFound(sourceBaselineID)
         }
-
-        guard let baselineDatabase = try sourceReferenceDatabase.existing(
-            sourceBaseline.sourceProvenance
+        guard let referenceDatabase = try workspaceReferenceDatabase.existing(
+            workspace,
+            sourceBaseline: sourceBaseline
         ) else {
-            throw SourceWorkspaceDatabaseError.referenceDatabaseMissing(sourceBaselineID)
+            throw SourceWorkspaceDatabaseError.workspaceReferenceDatabaseMissing(workspaceID)
+        }
+
+        let workingDatabaseURL = try workingDatabaseURL(
+            workspace: workspace,
+            directory: workingDirectory
+        )
+        if !FileManager.default.fileExists(atPath: workingDatabaseURL.path) {
+            try FileManager.default.createDirectory(
+                at: workingDatabaseURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let workingDatabase = try DatabasePool(path: workingDatabaseURL.path)
+            try referenceDatabase.database.backup(to: workingDatabase)
         }
 
         var configuration = Configuration()
@@ -134,12 +140,33 @@ public extension SourceWorkspaceDatabaseClient {
 
         return SourceWorkspaceDatabase(
             sourceEditingSession: try SourceEditingSession(
-                workingDatabasePath: workingDatabasePath,
-                baselineDatabasePath: baselineDatabase.path,
+                workingDatabasePath: workingDatabaseURL.path,
+                baselineDatabasePath: referenceDatabase.path,
                 baselineSchemaName: sourceBaselineSchemaName(),
                 configuration: configuration
             )
         )
+    }
+
+    private static func workingDatabaseURL(
+        workspace: EditingWorkspaceRecord,
+        directory: URL?
+    ) throws -> URL {
+        let fileName = URL(fileURLWithPath: workspace.databaseFileName).lastPathComponent
+        guard !fileName.isEmpty, fileName != "." else {
+            throw SourceWorkspaceDatabaseError.invalidWorkspaceDatabaseFileName(workspace.id)
+        }
+        let directory = try directory ?? FileManager.default
+            .url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            .appending(path: "EditingWorkspaces", directoryHint: .isDirectory)
+        return directory
+            .standardizedFileURL
+            .appending(path: fileName)
     }
 
     private static func sourceBaselineSchemaName() -> String {
@@ -147,7 +174,17 @@ public extension SourceWorkspaceDatabaseClient {
     }
 }
 
+private enum WorkspaceContextKey: DependencyKey {
+    static var liveValue: WorkspaceContext? { nil }
+    static var testValue: WorkspaceContext? { nil }
+}
+
 public extension DependencyValues {
+    var workspaceContext: WorkspaceContext? {
+        get { self[WorkspaceContextKey.self] }
+        set { self[WorkspaceContextKey.self] = newValue }
+    }
+
     var sourceWorkspaceDatabase: SourceWorkspaceDatabaseClient {
         get { self[SourceWorkspaceDatabaseClientKey.self] }
         set { self[SourceWorkspaceDatabaseClientKey.self] = newValue }
@@ -158,6 +195,16 @@ public extension DependencyValues {
     ) {
         defaultDatabase = sourceWorkspaceDatabase.database
         sourceEditingSession = sourceWorkspaceDatabase.sourceEditingSession
+    }
+
+    mutating func useWorkspaceContext(
+        _ workspaceContext: WorkspaceContext,
+        authoring: AuthoringContext
+    ) {
+        self.authoringContext = authoring
+        self.defaultDatabase = workspaceContext.database
+        self.sourceEditingSession = workspaceContext.sourceEditingSession
+        self.workspaceContext = workspaceContext
     }
 }
 

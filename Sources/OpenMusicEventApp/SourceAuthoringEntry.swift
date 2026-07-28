@@ -1,39 +1,33 @@
 import Dependencies
-import OpenMusicEventAppEventViewer
+import OpenMusicEventAuthentication
 import OpenMusicEventSourceEditing
+import SQLiteData
 
-struct SourceAuthoringEntryClient: Sendable {
-    var enter: @Sendable (Authoring.Request) async throws -> Authoring.Scope
-}
+extension OpenMusicEventSourceEditing.AuthoringPolicyClient {
+    static var openMusicEvent: Self {
+        Self { workspaceID in
+            @Dependency(\.defaultDatabase) var database
 
-extension SourceAuthoringEntryClient {
-    static var live: Self {
-        Self { request in
-            @Dependency(\.authoringPolicy) var authoringPolicy
-            @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
-
-            let scope = try await authoringPolicy.authorize(request)
-            if case let .sourceBaseline(sourceBaselineID) = request.subject {
-                try await sourceEditModePreparation.prepare(sourceBaselineID)
+            let workspace = try await database.read { db in
+                try EditingWorkspaceRecord
+                    .where { $0.id.eq(workspaceID) }
+                    .fetchOne(db)
             }
-            return scope
+            guard let workspace else {
+                throw WorkspacePreparationError.workspaceNotFound(workspaceID)
+            }
+
+            switch workspace.kind {
+            case .local:
+                return [.editContent]
+
+            case .team:
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
+                try await authorizationBroker.authorize(
+                    OpenMusicEventOAuth.baseAuthRequirement
+                )
+                return [.editContent]
+            }
         }
-    }
-}
-
-extension DependencyValues {
-    var sourceAuthoringEntry: SourceAuthoringEntryClient {
-        get { self[SourceAuthoringEntryClientKey.self] }
-        set { self[SourceAuthoringEntryClientKey.self] = newValue }
-    }
-}
-
-private enum SourceAuthoringEntryClientKey: DependencyKey {
-    static var liveValue: SourceAuthoringEntryClient {
-        .live
-    }
-
-    static var testValue: SourceAuthoringEntryClient {
-        .live
     }
 }

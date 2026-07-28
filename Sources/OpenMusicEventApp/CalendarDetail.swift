@@ -46,7 +46,6 @@ public struct CalendarDetail {
 
     public enum Action {
         case addEventButtonTapped
-        case authoringEventButtonTapped(OMERecord.Event.ID)
         case deleteEventsButtonTapped([OMERecord.Event.ID])
         case deleteEventsConfirmationDeleteButtonTapped
         case deleteEventsConfirmationPresentedChanged(Bool)
@@ -160,14 +159,6 @@ public struct CalendarDetail {
                         )
                     )
                 )
-
-            case let .authoringEventButtonTapped(eventID):
-                store.addTask {
-                    try store.post(
-                        key: OrgAuthoringNavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
-                }
 
             case let .deleteEventsButtonTapped(eventIDs):
                 guard !eventIDs.isEmpty else { return }
@@ -378,11 +369,7 @@ struct CalendarEntryButton: View {
     var body: some View {
         if let event = row.event {
             Button {
-                store.send(
-                    showsAuthoringControls
-                        ? .authoringEventButtonTapped(event.id)
-                        : .eventButtonTapped(event.id)
-                )
+                store.send(.eventButtonTapped(event.id))
             } label: {
                 CalendarEntryRowView(row: row)
             }

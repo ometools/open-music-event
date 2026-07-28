@@ -18,25 +18,24 @@ import SwiftUI
 public struct WhiteLabelRoot {
     public init() {}
 
+    public typealias TeamWorkspace = OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>
+
     public struct State {
         public init(configuration: WhiteLabelAppConfiguration) {
             self.configuration = configuration
         }
 
         public var account = Spawn(Account.State())
-        public var authoringMode: Authoring.Mode = .attendee
-        public var authoringSubject: Authoring.Subject?
         public var configuration: WhiteLabelAppConfiguration
         public var errorMessage: String?
-        public var isAuthoringAuthorizationInFlight = false
         public var isLoading = false
         public var loadingPhase: LoadingPhase = .idle
         public var organizationRoot: Spawn<OrganizationRoot>?
         public var organizerID: OMERecord.Organizer.ID?
-        public var teamWorkspaceDetail: Spawn<TeamWorkspaceDetail>?
+        public var teamWorkspaceDetail: Spawn<TeamWorkspace>?
 
         public var showsAuthoringControls: Bool {
-            authoringMode.isAuthoring
+            teamWorkspaceDetail?.state.access.canEditContent == true
         }
 
         public enum LoadingPhase: Equatable, Sendable {
@@ -50,9 +49,6 @@ public struct WhiteLabelRoot {
     }
 
     public enum Action {
-        case enterAuthoringAuthorizationFailed(Authoring.Subject)
-        case enterAuthoringAuthorized(Authoring.Subject, Authoring.Scope)
-        case enterAuthoringButtonTapped
         case loadDataSucceeded(LoadedRoot)
         case retryButtonTapped
         case task
@@ -72,7 +68,6 @@ public struct WhiteLabelRoot {
     }
 
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.sourceAuthoringEntry) var sourceAuthoringEntry
     @Dependency(\.whiteLabelDevelopmentSourceOverride) var developmentSourceOverride
     @Dependency(\.whiteLabelOrganizerIdentityResolver) var identityResolver
     @Dependency(\.whiteLabelSourceImport) var sourceImport
@@ -83,44 +78,6 @@ public struct WhiteLabelRoot {
 
         Update { state, action in
             switch action {
-            case let .enterAuthoringAuthorizationFailed(subject):
-                state.isAuthoringAuthorizationInFlight = false
-                guard state.authoringSubject == subject else { return }
-
-            case let .enterAuthoringAuthorized(subject, scope):
-                state.isAuthoringAuthorizationInFlight = false
-                guard state.authoringSubject == subject else { return }
-                state.authoringMode = .authoring(scope)
-
-            case .enterAuthoringButtonTapped:
-                guard !state.isAuthoringAuthorizationInFlight,
-                      let authoringSubject = state.authoringSubject
-                else { return }
-                state.refreshAuthoringRequirement()
-                guard !state.showsAuthoringControls else { return }
-
-                let sourceAuthoringEntry = sourceAuthoringEntry
-                state.isAuthoringAuthorizationInFlight = true
-                store.addTask {
-                    let scope = await store.withErrorHandling(
-                        fallbackMessage: .authoringAuthorizationFailed,
-                        operation: .authoringAuthorization
-                    ) {
-                        try await sourceAuthoringEntry.enter(
-                            Authoring.Request(
-                                subject: authoringSubject,
-                                feature: .workspace,
-                                action: .enterAuthoring
-                            )
-                        )
-                    }
-                    guard let scope else {
-                        try store.send(.enterAuthoringAuthorizationFailed(authoringSubject))
-                        return
-                    }
-                    try store.send(.enterAuthoringAuthorized(authoringSubject, scope))
-                }
-
             case let .loadDataSucceeded(loadedRoot):
                 state.errorMessage = nil
                 state.isLoading = false
@@ -130,8 +87,6 @@ public struct WhiteLabelRoot {
                     organizerID: loadedRoot.organizerID,
                     sourceBaselineIDs: loadedRoot.sourceBaselineIDs
                 )
-                state.refreshAuthoringRequirement()
-
             case .retryButtonTapped:
                 guard !state.isLoading else { return }
                 state.errorMessage = nil
@@ -155,7 +110,9 @@ public struct WhiteLabelRoot {
             OrganizationRoot()
         }
         .ifLet(\.teamWorkspaceDetail) {
-            TeamWorkspaceDetail()
+            TeamWorkspace {
+                TeamWorkspaceDetail()
+            }
         }
         .onMount { state in
             guard !state.isLoading else { return }
@@ -244,7 +201,6 @@ public struct WhiteLabelRoot {
                         organizerID: cachedOrganizerID,
                         sourceBaselineIDs: sourceBaselineIDs
                     )
-                    $0.refreshAuthoringRequirement()
                 } else {
                     $0.errorMessage = UserFacingText.whiteLabelLoadFailed.localizedString
                 }
@@ -367,11 +323,15 @@ public struct WhiteLabelRootView: View {
         let accountStore = store.spawn(\.account)
 
         Group {
-            if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail) {
+            if let authoringStore = store.spawn(\.teamWorkspaceDetail) {
+                let teamWorkspaceDetailStore = authoringStore.scope(
+                    \.content,
+                    action: \.content
+                )
                 NavigationStack {
                     TeamWorkspaceDetailView(
                         store: teamWorkspaceDetailStore,
-                        showsAuthoringControls: store.showsAuthoringControls
+                        showsAuthoringControls: authoringStore.access.canEditContent
                     )
                     .whiteLabelRootActionsToolbar(store: store)
                 }
@@ -388,8 +348,15 @@ public struct WhiteLabelRootView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if store.isAuthoringAuthorizationInFlight {
+            if store.spawn(\.teamWorkspaceDetail)?.entry.isRunning == true {
                 AuthoringPreparationStatus()
+            } else if let entryFailure = store.spawn(\.teamWorkspaceDetail)?.entryFailure {
+                Text(entryFailure.message)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(.bar)
             }
         }
         .accountPickerToolbar(store: accountStore)
@@ -497,35 +464,34 @@ struct WhiteLabelRootActionsMenu: View {
 
     var body: some View {
         Menu {
-            if store.authoringSubject != nil,
-               !store.showsAuthoringControls {
+            if let authoringStore = store.spawn(\.teamWorkspaceDetail),
+               !authoringStore.access.canEditContent {
                 Button {
-                    store.send(.enterAuthoringButtonTapped)
+                    authoringStore.send(.enterButtonTapped)
                 } label: {
                     Label(
-                        store.isAuthoringAuthorizationInFlight
+                        authoringStore.entry.isRunning
                             ? "Preparing Workspace"
                             : "Enter Authoring",
                         systemImage: "square.and.pencil"
                     )
                 }
-                .disabled(store.isAuthoringAuthorizationInFlight)
+                .disabled(authoringStore.entry.isRunning)
             }
 
-            if let teamWorkspaceDetailStore = store.spawn(\.teamWorkspaceDetail),
-               store.showsAuthoringControls,
-               teamWorkspaceDetailStore.canManageSource {
-                Button {
-                    teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
-                } label: {
-                    Label(
-                        teamWorkspaceDetailStore.isPreparingTeamWorkspaceEditor
-                            ? "Preparing Workspace"
-                            : "Workspace",
-                        systemImage: EventFeature.workspace.systemImage
-                    )
+            if let authoringStore = store.spawn(\.teamWorkspaceDetail),
+               authoringStore.access.canEditContent {
+                let teamWorkspaceDetailStore = authoringStore.scope(
+                    \.content,
+                    action: \.content
+                )
+                if teamWorkspaceDetailStore.canManageSource {
+                    Button {
+                        teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
+                    } label: {
+                        Label("Workspace", systemImage: EventFeature.workspace.systemImage)
+                    }
                 }
-                .disabled(teamWorkspaceDetailStore.isPreparingTeamWorkspaceEditor)
             }
 
         } label: {
@@ -552,32 +518,24 @@ extension View {
 }
 
 private extension WhiteLabelRoot.State {
-    mutating func refreshAuthoringRequirement() {
-        @Dependency(\.authoringPolicy) var authoringPolicy
-
-        guard let authoringSubject else {
-            account.state.authRequirement = OpenMusicEventOAuth.baseAuthRequirement
-            return
-        }
-
-        account.state.authRequirement = (
-            try? authoringPolicy.authenticate(authoringSubject)
-        ) ?? OpenMusicEventOAuth.baseAuthRequirement
-    }
-
     mutating func setLoadedRoot(
         organizerID: OMERecord.Organizer.ID,
         sourceBaselineIDs: [SourceBaselineRecord.ID]
     ) {
         if sourceBaselineIDs.count == 1, let sourceBaselineID = sourceBaselineIDs.first {
-            authoringSubject = .sourceBaseline(sourceBaselineID)
             organizationRoot = nil
-            if teamWorkspaceDetail?.state.sourceBaselineID != sourceBaselineID {
-                teamWorkspaceDetail = Spawn(TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID))
+            if teamWorkspaceDetail?.state.content.sourceBaselineID != sourceBaselineID {
+                teamWorkspaceDetail = Spawn(
+                    WhiteLabelRoot.TeamWorkspace.State(
+                        workspaceID: EditingWorkspaceRecord.ID(
+                            sourceBaselineID: sourceBaselineID
+                        )
+                    ) {
+                        TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
+                    }
+                )
             }
         } else {
-            authoringSubject = nil
-            authoringMode = .attendee
             teamWorkspaceDetail = nil
             if organizationRoot?.state.organizerID != organizerID {
                 organizationRoot = Spawn(OrganizationRoot.State(organizerID: organizerID))

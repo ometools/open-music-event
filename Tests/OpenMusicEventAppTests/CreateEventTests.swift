@@ -191,7 +191,7 @@ struct CreateEventTests {
         let database = try makePreparedDatabase()
         let workspaceReferenceDirectory = try temporaryDirectoryURL()
         let createdEventID = OMERecord.Event.ID(
-            organizerID: testOrganizerID,
+            organizerID: OMERecord.Organizer.ID("did:web:example.com")!,
             eventID: CreateEvent.makeLocalEventID(from: UUID(1))
         )
         let createEventState = makeState {

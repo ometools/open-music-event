@@ -42,25 +42,36 @@ struct MyEventsView: View {
                 OrganizerDetailView(store: detailStore)
             }
             .navigationDestination(item: $store.scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail)) { detailStore in
+                let contentStore = detailStore.scope(\.content, action: \.content)
                 TeamWorkspaceDetailView(
-                    store: detailStore,
-                    showsAuthoringControls: store.showsTeamWorkspaceAuthoringControls
+                    store: contentStore,
+                    showsAuthoringControls: detailStore.access.canEditContent
                 )
                 .toolbar {
-                    if !store.showsTeamWorkspaceAuthoringControls {
+                    if !detailStore.access.canEditContent {
                         ToolbarItem(placement: .primaryAction) {
                             Button {
-                                store.send(.enterTeamWorkspaceAuthoringButtonTapped)
+                                detailStore.send(.enterButtonTapped)
                             } label: {
                                 Label(
-                                    store.isTeamWorkspaceAuthoringEntryInFlight
+                                    detailStore.entry.isRunning
                                         ? "Preparing Workspace"
                                         : "Enter Authoring",
                                     systemImage: "square.and.pencil"
                                 )
                             }
-                            .disabled(store.isTeamWorkspaceAuthoringEntryInFlight)
+                            .disabled(detailStore.entry.isRunning)
                         }
+                    }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if let entryFailure = detailStore.entryFailure {
+                        Text(entryFailure.message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                            .background(.bar)
                     }
                 }
             }

@@ -61,10 +61,17 @@ struct FestivalProImportTests {
             ]
         )
         expectNoDifference(
-            contributor.data.links?.map { ($0.url.absoluteString, $0.platform?.rawValue) },
+            contributor.data.links?.map { $0.url.absoluteString },
             [
-                ("https://instagram.com/night-sky", "instagram"),
-                ("https://soundcloud.com/night-sky", "soundcloud"),
+                "https://instagram.com/night-sky",
+                "https://soundcloud.com/night-sky",
+            ]
+        )
+        expectNoDifference(
+            contributor.data.links?.map { $0.platform?.rawValue },
+            [
+                "instagram",
+                "soundcloud",
             ]
         )
         expectNoDifference(

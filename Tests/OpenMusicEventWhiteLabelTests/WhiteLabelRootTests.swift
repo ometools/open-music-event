@@ -9,6 +9,7 @@ import IssueReporting
 import OpenMusicEventAuthentication
 import OpenMusicEventLexicon
 import OpenMusicEventSource
+import OpenMusicEventSourceClone
 import SQLiteData
 import Testing
 import XRPCClient
@@ -260,7 +261,10 @@ struct WhiteLabelRootTests {
 
       await load(store)
 
-      #expect(store.state.teamWorkspaceDetail?.state.sourceBaselineID == sourceBaselineID)
+      #expect(
+        store.state.teamWorkspaceDetail?.state.content.sourceBaselineID
+          == sourceBaselineID
+      )
       #expect(store.state.organizationRoot == nil)
       #expect(store.state.errorMessage == nil)
     }
@@ -310,13 +314,16 @@ struct WhiteLabelRootTests {
 
       #expect(store.state.errorMessage == nil)
       #expect(provenanceSourceBaselineIDs == [sourceBaselineID])
-      #expect(store.state.authoringSubject == .sourceBaseline(sourceBaselineID))
+      #expect(
+        store.state.teamWorkspaceDetail?.state.workspaceID
+          == EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+      )
       #expect(accountPermissions == requiredPermissions)
     }
   }
 
   @Test
-  func sourceBackedLaunchRestoresAuthoringModeFromStoredSession() async throws {
+  func sourceBackedLaunchRemainsAttendeeUntilExplicitEntry() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()
       let organizerID = organizerID("wickedwoods")
@@ -326,19 +333,17 @@ struct WhiteLabelRootTests {
       )
       let source = sourceProvenance("wicked-woods-ome")
       let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+      let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+      let recorder = AuthoringWorkspaceRecorder()
 
       let store = makeStore(
         configuration: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
         database: database
       ) {
-        $0.authoringPolicy = AuthoringPolicyClient(
-          authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
-          authorize: { _ in .all },
-          mode: { subject in
-            #expect(subject == .sourceBaseline(sourceBaselineID))
-            return .authoring(.all)
-          }
-        )
+        $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
+          await recorder.record(requestedWorkspaceID)
+          return [.editContent]
+        }
         $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
         $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { importedOrganizerID, _ in
           #expect(importedOrganizerID == organizerID)
@@ -351,12 +356,14 @@ struct WhiteLabelRootTests {
         }
       }
 
-      // The selected account already satisfies the authoring requirement at launch.
+      // A downloaded workspace opens for attendees even when authoring could be authorized.
       await load(store)
 
-      #expect(store.state.authoringSubject == .sourceBaseline(sourceBaselineID))
-      #expect(store.state.authoringMode == .authoring(.all))
-      #expect(store.state.showsAuthoringControls)
+      #expect(store.state.teamWorkspaceDetail?.state.workspaceID == workspaceID)
+      #expect(store.state.teamWorkspaceDetail?.state.access == .attendee)
+      #expect(!store.state.showsAuthoringControls)
+      let workspaceIDs = await recorder.workspaceIDs()
+      expectNoDifference(workspaceIDs, [])
     }
   }
 
@@ -371,21 +378,26 @@ struct WhiteLabelRootTests {
       )
       let source = sourceProvenance("wicked-woods-ome")
       let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+      let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
       let preparationGate = AuthoringPreparationGate()
-      let recorder = AuthoringRequestRecorder()
+      let recorder = AuthoringWorkspaceRecorder()
 
       let store = makeStore(
         configuration: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
         database: database
       ) {
-        $0.authoringPolicy = AuthoringPolicyClient(
-          authenticate: { _ in OpenMusicEventOAuth.baseAuthRequirement },
-          authorize: { request in
-            await recorder.record(request)
-            return .all
-          },
-          mode: { _ in .attendee }
-        )
+        $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
+          await recorder.record(requestedWorkspaceID)
+          return [.editContent]
+        }
+        $0[WorkspacePreparationClient.self] = WorkspacePreparationClient {
+          requestedWorkspaceID in
+          await preparationGate.prepare(requestedWorkspaceID)
+          return WorkspaceContext(
+            id: requestedWorkspaceID,
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+          )
+        }
         $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
         $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { importedOrganizerID, _ in
           #expect(importedOrganizerID == organizerID)
@@ -396,62 +408,38 @@ struct WhiteLabelRootTests {
           )
           return [selectedEventID]
         }
-        $0.sourceEditModePreparation = SourceEditModePreparationClient { sourceBaselineID in
-          await preparationGate.prepare(sourceBaselineID)
-        }
       }
 
       await load(store)
 
-      #expect(store.state.authoringSubject == .sourceBaseline(sourceBaselineID))
-      #expect(store.state.authoringMode == .attendee)
+      #expect(store.state.teamWorkspaceDetail?.state.workspaceID == workspaceID)
+      #expect(store.state.teamWorkspaceDetail?.state.access == .attendee)
       #expect(!store.state.showsAuthoringControls)
 
-      let entryTask = store.send(.enterAuthoringButtonTapped) {
-        $0.isAuthoringAuthorizationInFlight = true
-      }
-      let preparedSourceBaselineIDs = await preparationGate.waitForPreparationToStart()
+      let entryTask = store.send(to: \.teamWorkspaceDetail!, .enterButtonTapped)
+      let preparedWorkspaceIDs = await preparationGate.waitForPreparationToStart()
       expectNoDifference(
-        preparedSourceBaselineIDs,
-        [sourceBaselineID]
+        preparedWorkspaceIDs,
+        [workspaceID]
       )
-      #expect(store.state.authoringMode == .attendee)
+      #expect(store.state.teamWorkspaceDetail?.state.access == .attendee)
       #expect(!store.state.showsAuthoringControls)
-      #expect(store.state.isAuthoringAuthorizationInFlight)
+      #expect(store.state.teamWorkspaceDetail?.state.entry.isRunning == true)
 
       await preparationGate.finish()
-      await store.receive(
-        \.enterAuthoringAuthorized,
-        .matching { (
-          response: (
-            Authoring.Subject,
-            Authoring.Scope
-          )
-        ) in
-          response.0 == .sourceBaseline(sourceBaselineID)
-            && response.1 == .all
-        },
-        timeout: .seconds(1)
-      ) {
-        $0.isAuthoringAuthorizationInFlight = false
-        $0.authoringMode = .authoring(.all)
-      }
       await entryTask?.value
 
-      let requests = await recorder.requests()
+      let workspaceIDs = await recorder.workspaceIDs()
       expectNoDifference(
-        requests,
-        [
-          Authoring.Request(
-            subject: .sourceBaseline(sourceBaselineID),
-            feature: .workspace,
-            action: .enterAuthoring
-          )
-        ]
+        workspaceIDs,
+        [workspaceID]
       )
-      #expect(store.state.authoringMode == .authoring(.all))
+      #expect(
+        store.state.teamWorkspaceDetail?.state.access
+          == .authoring([.editContent])
+      )
       #expect(store.state.showsAuthoringControls)
-      #expect(!store.state.isAuthoringAuthorizationInFlight)
+      #expect(store.state.teamWorkspaceDetail?.state.entry.isRunning == false)
     }
   }
 
@@ -460,25 +448,43 @@ struct WhiteLabelRootTests {
     let recorder = AuthRequirementRecorder()
     let organizerID = organizerID("wickedwoods")
     let eventID = eventID(organizerID: organizerID, eventID: "2025")
+    let database = try makePreparedDatabase()
+    let sourceBaseline = SourceBaselineRecord(
+      source: sourceProvenance("wicked-woods-ome"),
+      databaseFileName: "reference.sqlite",
+      importedAt: Date(timeIntervalSince1970: 1)
+    )
+    let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
+    try await insertEvent(
+      eventID,
+      name: "Wicked Woods 2025",
+      startDate: nil,
+      endDate: nil,
+      into: database
+    )
+    try await database.write { db in
+      try SourceBaselineRecord.insert { sourceBaseline }.execute(db)
+      try EditingWorkspaceRecord.insert { workspace }.execute(db)
+      try EventEditingWorkspaceRecord.insert {
+        EventEditingWorkspaceRecord(id: eventID, workspaceID: workspace.id)
+      }
+      .execute(db)
+    }
 
     try await withDependencies {
       try OpenMusicEventWhiteLabelApp.OpenMusicEvent.WhiteLabel.prepareDependencies(&$0)
+      $0.defaultDatabase = database
       $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
         await recorder.record(requirement)
       }
     } operation: {
-      @Dependency(\.authoringPolicy) var authoringPolicy
+      @Dependency(AuthoringPolicyClient.self) var authoringPolicy
       @Dependency(\.openMusicEventAutomaticallyRefreshesStoredAuthentication)
       var automaticallyRefreshesStoredAuthentication
 
-      let request = Authoring.Request(
-        subject: .event(eventID),
-        feature: .workspace,
-        action: .enterAuthoring
-      )
       #expect(!automaticallyRefreshesStoredAuthentication)
-      #expect(try authoringPolicy.authenticate(request.subject) == OpenMusicEventOAuth.baseAuthRequirement)
-      _ = try await authoringPolicy.authorize(request)
+      let capabilities = try await authoringPolicy.authorize(workspace.id)
+      expectNoDifference(capabilities, [.editContent])
     }
 
     #expect(await recorder.requirements == [OpenMusicEventOAuth.baseAuthRequirement])
@@ -603,83 +609,105 @@ struct WhiteLabelRootTests {
     ])
   }
 
-  @Test
-  func liveSourceImportUsesArchiveCheckoutForInitialSourceImport() async throws {
-    let database = try makePreparedDatabase()
-    let organizerID = organizerID("wickedwoods")
-    let importedEventID = eventID(organizerID: organizerID, eventID: "2025")
-    let source = "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
-    let recorder = ArchiveCheckoutRecorder()
-    let checkoutURL = FileManager.default.temporaryDirectory
-      .appending(path: "white-label-initial-archive-\(UUID().uuidString)")
-      .standardizedFileURL
-    defer { try? FileManager.default.removeItem(at: checkoutURL) }
-    let repository = TangledRepositoryReference(
-      host: "tangled.org",
-      owner: "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
-      repository: "wicked-woods-ome"
-    )
-
-    let importedEventIDs = try await withDependencies {
-      $0.context = .test
-      $0.defaultDatabase = database
-      $0.httpClient = HTTPClient { request, _ in
-        await recorder.recordArchiveRequest(request)
-        return Data("archive".utf8)
-      }
-      $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient {
-        archiveData, outputURL in
-        await recorder.recordExtraction(archiveData: archiveData, outputURL: outputURL)
-      }
-      $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
-        Issue.record(
-          "White-label initial source import should use archive checkout, not the app checkout dependency."
-        )
-        return TangledSourceCheckout(repositoryURL: request.outputURL)
-      }
-      $0.tangledSourceImport = TangledSourceImportClient { request in
-        @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
-        await recorder.recordImport(request)
-        _ = try await tangledSourceCheckout.checkout(
-          TangledSourceCheckoutRequest(
-            repository: repository,
-            ref: request.ref,
-            outputURL: checkoutURL
-          )
-        )
-        return try validationResult(eventID: importedEventID)
-      }
-    } operation: {
-      try await WhiteLabelSourceImportClient.live.ensureImported(
-        organizerID,
-        WhiteLabelSourceDescriptor(reference: .source(source), version: "main")
-      )
-    }
-
-    #expect(importedEventIDs == [importedEventID])
-    let importRequests = await recorder.importRequests()
-    expectNoDifference(
-      importRequests,
-      [
-        OpenMusicEventSourceValidationRequest(
-          source: source,
-          organizerID: organizerID,
-          ref: "main"
-        )
-      ]
-    )
-    let archiveRequestURLs = await recorder.archiveRequestURLs()
-    expectNoDifference(
-      archiveRequestURLs,
-      [try repository.archiveURL(ref: "main")]
-    )
-    let extractions = await recorder.extractions()
-    expectNoDifference(
-      extractions,
-      [.init(archiveData: Data("archive".utf8), outputURL: checkoutURL)]
-    )
-  }
-
+   @Test
+   func liveSourceImportUsesArchiveCheckoutForInitialSourceImport() async throws {
+     let database = try makePreparedDatabase()
+     let organizerID = organizerID("wickedwoods")
+     let importedEventID = eventID(organizerID: organizerID, eventID: "2025")
+     let source = "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
+     let recorder = ArchiveCheckoutRecorder()
+     let checkoutURL = FileManager.default.temporaryDirectory
+       .appending(path: "white-label-initial-archive-\(UUID().uuidString)")
+       .standardizedFileURL
+     defer { try? FileManager.default.removeItem(at: checkoutURL) }
+     let repository = TangledRepositoryReference(
+       host: "tangled.org",
+       owner: "did:plc:cqqtuv75m7e5s4uj6nw4czyu",
+       repository: "wicked-woods-ome"
+     )
+     let ownerDID = try #require(DID(repository.owner))
+     let ownerHandle = Atmosphere.Account.Handle("wickedwoods.ca")
+ 
+     let importedEventIDs = try await withDependencies {
+       $0.context = .test
+       $0.defaultDatabase = database
+       $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+         resolveHandle: { handle in
+           Issue.record("Did not expect handle resolution: \(handle)")
+           throw PublicWhiteLabelImportRequestedAccountResolution()
+         },
+         resolveDID: { did in
+           #expect(did == ownerDID)
+           return (
+             Atmosphere.Account(id: .init(did), handle: ownerHandle),
+             try didDocument(did: did, handle: ownerHandle)
+           )
+         }
+       )
+       $0.httpClient = HTTPClient { request, _ in
+         await recorder.recordArchiveRequest(request)
+         return Data("archive".utf8)
+       }
+       $0.tangledSourceArchiveExtractor = TangledSourceArchiveExtractorClient {
+         archiveData, outputURL in
+         await recorder.recordExtraction(archiveData: archiveData, outputURL: outputURL)
+       }
+       $0.tangledSourceCheckout = TangledSourceCheckoutClient { request in
+         Issue.record(
+           "White-label initial source import should use archive checkout, not the app checkout dependency."
+         )
+         return TangledSourceCheckout(repositoryURL: request.outputURL)
+       }
+       $0.tangledSourceImport = TangledSourceImportClient { request in
+         @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
+         await recorder.recordImport(request)
+         _ = try await tangledSourceCheckout.checkout(
+           TangledSourceCheckoutRequest(
+             repository: repository,
+             ref: request.ref,
+             outputURL: checkoutURL
+           )
+         )
+         return try validationResult(eventID: importedEventID)
+       }
+     } operation: {
+       try await WhiteLabelSourceImportClient.live.ensureImported(
+         organizerID,
+         WhiteLabelSourceDescriptor(reference: .source(source), version: "main")
+       )
+     }
+ 
+     #expect(importedEventIDs == [importedEventID])
+     let importRequests = await recorder.importRequests()
+     expectNoDifference(
+       importRequests,
+       [
+         OpenMusicEventSourceValidationRequest(
+           source: source,
+           organizerID: organizerID,
+           ref: "main"
+         )
+       ]
+     )
+     let archiveRequestURLs = await recorder.archiveRequestURLs()
+     expectNoDifference(
+       archiveRequestURLs,
+       [
+         try TangledRepositoryReference(
+           host: repository.host,
+           owner: ownerHandle.rawValue,
+           repository: repository.repository
+         )
+         .archiveURL(ref: "main")
+       ]
+     )
+     let extractions = await recorder.extractions()
+     expectNoDifference(
+       extractions,
+       [.init(archiveData: Data("archive".utf8), outputURL: checkoutURL)]
+     )
+   }
+ 
   @Test
   func liveSourceImportUsesArchiveCheckoutEvenWhenAppCheckoutIsGit() async throws {
     let database = try makePreparedDatabase()
@@ -687,10 +715,25 @@ struct WhiteLabelRootTests {
     let source = "at://did:plc:5df2u7ief6m6tn77jznicxob/sh.tangled.repo/ome-workspace"
     let importedEventID = eventID(organizerID: organizerID, eventID: "2025")
     let recorder = ArchiveCheckoutRecorder()
+    let ownerDID = try #require(DID("did:plc:5df2u7ief6m6tn77jznicxob"))
+    let ownerHandle = Atmosphere.Account.Handle("owner.example")
 
     let importedEventIDs = try await withDependencies {
       $0.context = .test
       $0.defaultDatabase = database
+      $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
+        resolveHandle: { handle in
+          Issue.record("Did not expect handle resolution: \(handle)")
+          throw PublicWhiteLabelImportRequestedAccountResolution()
+        },
+        resolveDID: { did in
+          #expect(did == ownerDID)
+          return (
+            Atmosphere.Account(id: .init(did), handle: ownerHandle),
+            try didDocument(did: did, handle: ownerHandle)
+          )
+        }
+      )
       $0.tangledSourceCheckout = .git
       $0.tangledSourceImport = TangledSourceImportClient { request in
         @Dependency(\.tangledSourceCheckout) var tangledSourceCheckout
@@ -724,8 +767,9 @@ struct WhiteLabelRootTests {
 
     #expect(importedEventIDs == [importedEventID])
     let extractions = await recorder.extractions()
-    #expect(extractions.map(\.archiveData) == [Data("archive".utf8)])
+    expectNoDifference(extractions.map(\.archiveData), [Data("archive".utf8)])
   }
+
   private func makeStore(
     configuration: WhiteLabelAppConfiguration,
     database: any DatabaseWriter,
@@ -800,14 +844,6 @@ struct WhiteLabelRootTests {
       && (state.errorMessage != nil || state.organizerID != nil)
   }
 
-  private func waitForAuthoringAuthorization(toFinishIn store: TestStore<WhiteLabelRoot>) async {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: .seconds(60))
-    while store.state.isAuthoringAuthorizationInFlight && clock.now < deadline {
-      try? await Task.sleep(for: .milliseconds(10))
-    }
-    #expect(store.state.isAuthoringAuthorizationInFlight == false)
-  }
 }
 
 private struct RegistryShouldNotBeCalled: Error {}
@@ -867,15 +903,15 @@ private actor SourceImportRecorder {
   }
 }
 
-private actor AuthoringRequestRecorder {
-  private var values: [Authoring.Request] = []
+private actor AuthoringWorkspaceRecorder {
+  private var values: [EditingWorkspaceRecord.ID] = []
 
-  func requests() -> [Authoring.Request] {
+  func workspaceIDs() -> [EditingWorkspaceRecord.ID] {
     values
   }
 
-  func record(_ request: Authoring.Request) {
-    values.append(request)
+  func record(_ workspaceID: EditingWorkspaceRecord.ID) {
+    values.append(workspaceID)
   }
 }
 
@@ -903,49 +939,51 @@ private actor TangledSourceImportRecorder {
   }
 }
 
-private actor ArchiveCheckoutRecorder {
-  struct Extraction: Equatable, Sendable {
-    var archiveData: Data
-    var outputURL: URL
-  }
-
-  private var archiveRequests: [URL] = []
-  private var extractionValues: [Extraction] = []
-  private var imports: [OpenMusicEventSourceValidationRequest] = []
-
-  func archiveRequestURLs() -> [URL] {
-    archiveRequests
-  }
-
-  func extractions() -> [Extraction] {
-    extractionValues
-  }
-
-  func importRequests() -> [OpenMusicEventSourceValidationRequest] {
-    imports
-  }
-
-  func recordArchiveRequest(_ request: HTTPRequest) {
-    if let url = request.url {
-      archiveRequests.append(url)
-    }
-  }
-
-  func recordExtraction(archiveData: Data, outputURL: URL) {
-    extractionValues.append(Extraction(archiveData: archiveData, outputURL: outputURL))
-  }
-
-  func recordImport(_ request: OpenMusicEventSourceValidationRequest) {
-    imports.append(request)
-  }
-}
-
+ private actor ArchiveCheckoutRecorder {
+   struct Extraction: Equatable, Sendable {
+     var archiveData: Data
+     var outputURL: URL
+   }
+ 
+   private var archiveRequests: [URL] = []
+   private var extractionValues: [Extraction] = []
+   private var imports: [OpenMusicEventSourceValidationRequest] = []
+ 
+   func archiveRequestURLs() -> [URL] {
+     archiveRequests
+   }
+ 
+   func extractions() -> [Extraction] {
+     extractionValues
+   }
+ 
+   func importRequests() -> [OpenMusicEventSourceValidationRequest] {
+     imports
+   }
+ 
+   func recordArchiveRequest(_ request: HTTPRequest) {
+     if let url = request.url {
+       archiveRequests.append(url)
+     }
+   }
+ 
+   func recordExtraction(archiveData: Data, outputURL: URL) {
+     extractionValues.append(Extraction(archiveData: archiveData, outputURL: outputURL))
+   }
+ 
+   func recordImport(_ request: OpenMusicEventSourceValidationRequest) {
+     imports.append(request)
+   }
+ }
+ 
 private struct PublicWhiteLabelImportRequestedSSHCredentials: Error {}
+private struct PublicWhiteLabelImportRequestedAccountResolution: Error {}
+
 private actor AuthoringPreparationGate {
   private var isFinished = false
-  private var sourceBaselineIDs: [SourceBaselineRecord.ID] = []
+  private var workspaceIDs: [EditingWorkspaceRecord.ID] = []
   private var finishWaiters: [CheckedContinuation<Void, Never>] = []
-  private var startWaiters: [CheckedContinuation<[SourceBaselineRecord.ID], Never>] = []
+  private var startWaiters: [CheckedContinuation<[EditingWorkspaceRecord.ID], Never>] = []
 
   func finish() {
     isFinished = true
@@ -954,20 +992,20 @@ private actor AuthoringPreparationGate {
     waiters.forEach { $0.resume() }
   }
 
-  func prepare(_ sourceBaselineID: SourceBaselineRecord.ID) async {
-    sourceBaselineIDs.append(sourceBaselineID)
+  func prepare(_ workspaceID: EditingWorkspaceRecord.ID) async {
+    workspaceIDs.append(workspaceID)
     let startWaiters = startWaiters
     self.startWaiters.removeAll()
-    startWaiters.forEach { $0.resume(returning: sourceBaselineIDs) }
+    startWaiters.forEach { $0.resume(returning: workspaceIDs) }
     guard !isFinished else { return }
     await withCheckedContinuation { continuation in
       finishWaiters.append(continuation)
     }
   }
 
-  func waitForPreparationToStart() async -> [SourceBaselineRecord.ID] {
-    if !sourceBaselineIDs.isEmpty {
-      return sourceBaselineIDs
+  func waitForPreparationToStart() async -> [EditingWorkspaceRecord.ID] {
+    if !workspaceIDs.isEmpty {
+      return workspaceIDs
     }
     return await withCheckedContinuation { continuation in
       startWaiters.append(continuation)
@@ -1056,13 +1094,20 @@ private func insertSourceBackedEvent(
     into: database
   )
   let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+  let sourceBaseline = SourceBaselineRecord(
+    source: source,
+    databaseFileName: "reference.sqlite",
+    importedAt: Date(timeIntervalSince1970: 1)
+  )
+  let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
   try await database.write { db in
     try SourceBaselineRecord.insert {
-      SourceBaselineRecord(
-        source: source,
-        databaseFileName: "reference.sqlite",
-        importedAt: Date(timeIntervalSince1970: 1)
-      )
+      sourceBaseline
+    }
+    .execute(db)
+    try EditingWorkspaceRecord.insert { workspace }.execute(db)
+    try EventEditingWorkspaceRecord.insert {
+      EventEditingWorkspaceRecord(id: eventID, workspaceID: workspace.id)
     }
     .execute(db)
     try EventSourceProvenanceRecord.insert {

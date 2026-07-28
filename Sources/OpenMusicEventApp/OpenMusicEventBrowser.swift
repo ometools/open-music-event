@@ -419,7 +419,6 @@ public struct OrganizerDetail {
 
     public enum Action {
         case addEventButtonTapped
-        case authoringEventButtonTapped(OMERecord.Event.ID)
         case calendarButtonTapped(OMERecord.Calendar.ID)
         case calendarDetail(CalendarDetail.Action)
         case deleteEventsButtonTapped([OMERecord.Event.ID])
@@ -695,14 +694,6 @@ public struct OrganizerDetail {
                     )
                 )
 
-            case let .authoringEventButtonTapped(eventID):
-                store.addTask {
-                    try store.post(
-                        key: OrgAuthoringNavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
-                }
-
             case .calendarButtonTapped(let calendarID):
                 store.withDependencies {
                     state.calendarDetail = .init(calendarID: calendarID)
@@ -927,11 +918,7 @@ public struct OrganizerDetailView: View {
         ForEach(rows) { row in
             if let event = row.event {
                 Button {
-                    store.send(
-                        showsAuthoringControls
-                            ? .authoringEventButtonTapped(event.id)
-                            : .eventButtonTapped(event.id)
-                    )
+                    store.send(.eventButtonTapped(event.id))
                 } label: {
                     CalendarEntryRowView(row: row)
                 }
@@ -1007,7 +994,6 @@ public struct TeamWorkspaceDetail {
         var destination: Destination.State?
         var editCalendar: EditCalendar.State?
         var teamWorkspaceEditor: SourceWorkspace.State?
-        var isPreparingTeamWorkspaceEditor = false
 
         @DebugSnapshotIgnored
         @FetchOne
@@ -1085,7 +1071,6 @@ public struct TeamWorkspaceDetail {
 
     public enum Action {
         case addEventButtonTapped
-        case authoringEventButtonTapped(OMERecord.Event.ID)
         case rolloverEventButtonTapped
         case destination(Destination.Action)
         case didPullToRefresh
@@ -1104,9 +1089,7 @@ public struct TeamWorkspaceDetail {
         case uploadToTangled(Spawn<TangledWorkspaceUpload>)
     }
 
-    @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
-    @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
     @StoreTaskID var sourceDataRefreshTask
 
     static func sourceBaselineQuery(
@@ -1287,51 +1270,13 @@ public struct TeamWorkspaceDetail {
                     )
                 }
 
-            case let .authoringEventButtonTapped(eventID):
-                store.addTask {
-                    try store.post(
-                        key: OrgAuthoringNavigationRequested.self,
-                        value: .event(eventID, nil)
-                    )
-                }
-
             case .manageSourceButtonTapped:
-                guard !state.isPreparingTeamWorkspaceEditor else { return }
                 guard let calendarID = state.editableCalendarID,
                       let sourceBaseline = state.sourceBaseline
                 else { return }
-                let sourceBaselineID = sourceBaseline.id
-                let sourceEditModePreparation = sourceEditModePreparation
-                let sourceWorkspaceDatabase = sourceWorkspaceDatabase
-                state.isPreparingTeamWorkspaceEditor = true
-                store.addTask {
-                    let teamWorkspaceEditor = await store.withErrorHandling(
-                        fallbackMessage: .sourceEditPreparationFailed,
-                        operation: .sourceEditPreparation
-                    ) {
-                        try await sourceEditModePreparation.prepare(sourceBaselineID)
-                        let workspaceDatabase = try sourceWorkspaceDatabase
-                            .sourceBaseline(sourceBaselineID)
-                        return withDependencies {
-                            $0.defaultDatabase = workspaceDatabase.database
-                            $0.sourceEditingSession = workspaceDatabase.sourceEditingSession
-                        } operation: {
-                            SourceWorkspace.State(
-                                target: .calendar(calendarID, sourceBaselineID)
-                            )
-                        }
-                    } cleanup: {
-                        $0.isPreparingTeamWorkspaceEditor = false
-                    } parseError: {
-                        SourceImportError.parser
-                    }
-
-                    guard let teamWorkspaceEditor else { return }
-                    try store.modify {
-                        $0.isPreparingTeamWorkspaceEditor = false
-                        $0.teamWorkspaceEditor = teamWorkspaceEditor
-                    }
-                }
+                state.teamWorkspaceEditor = SourceWorkspace.State(
+                    target: .calendar(calendarID, sourceBaseline.id)
+                )
 
             case let .teamWorkspaceEditor(
                 .delegate(
@@ -1377,18 +1322,6 @@ public struct TeamWorkspaceDetail {
         }
         .ifLet(\.teamWorkspaceEditor, action: \.teamWorkspaceEditor) {
             SourceWorkspace()
-                .transformDependency(\.self) { (dependencies: inout DependencyValues) in
-                    guard case let .calendar(_, sourceBaselineID) = store.teamWorkspaceEditor!.target else {
-                        return
-                    }
-                    do {
-                        let workspaceDatabase = try dependencies.sourceWorkspaceDatabase
-                            .sourceBaseline(sourceBaselineID)
-                        dependencies.sourceEditingSession = workspaceDatabase.sourceEditingSession
-                    } catch {
-                        reportIssue(error)
-                    }
-                }
         }
     }
 }
@@ -1571,15 +1504,9 @@ public struct TeamWorkspaceDetailView: View {
                 Button {
                     store.send(.manageSourceButtonTapped)
                 } label: {
-                    Label(
-                        store.isPreparingTeamWorkspaceEditor
-                            ? "Preparing Team Workspace"
-                            : "Manage Team Workspace",
-                        systemImage: "tray.full"
-                    )
+                    Label("Manage Team Workspace", systemImage: "tray.full")
                     .labelStyle(.iconOnly)
                 }
-                .disabled(store.isPreparingTeamWorkspaceEditor)
             }
         }
     }
@@ -1616,11 +1543,7 @@ public struct TeamWorkspaceDetailView: View {
         ForEach(rows) { row in
             if let event = row.event {
                 Button {
-                    store.send(
-                        showsAuthoringControls
-                            ? .authoringEventButtonTapped(event.id)
-                            : .eventButtonTapped(event.id)
-                    )
+                    store.send(.eventButtonTapped(event.id))
                 } label: {
                     CalendarEntryRowView(row: row)
                 }

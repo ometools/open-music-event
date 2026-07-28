@@ -67,10 +67,6 @@ public extension UserFacingText {
         "Unable to upload source to Tangled.",
         fallback: "Unable to upload source to Tangled."
     )
-    static let sourceEditPreparationFailed = Self(
-        "Unable to prepare source editing.",
-        fallback: "Unable to prepare source editing."
-    )
     static let sourcePatchGenerationFailed = Self(
         "Unable to check source changes.",
         fallback: "Unable to check source changes."
@@ -96,7 +92,6 @@ public extension UserFacingText {
 public extension ErrorOperation {
     static let authenticationAuthorization = Self("auth.authorization")
     static let eventDeletion = Self("event.delete")
-    static let sourceEditPreparation = Self("source.edit.prepare")
     static let sourceImport = Self("source.import")
     static let sourcePatchGeneration = Self("source.patch.generate")
     static let sourceWorkspaceUpload = Self("source.workspace.upload")

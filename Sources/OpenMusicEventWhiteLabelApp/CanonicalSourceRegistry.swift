@@ -61,7 +61,6 @@ public enum OpenMusicEvent {
             _ dependencies: inout DependencyValues
         ) throws {
             try OME.prepareDependencies(&dependencies)
-            dependencies.authoringPolicy = .loginRequired
             dependencies.openMusicEventAutomaticallyRefreshesStoredAuthentication = false
             dependencies.whiteLabelSourceRegistry = .canonicalSourceRecord
             dependencies.whiteLabelSourceImport = .live

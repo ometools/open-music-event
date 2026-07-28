@@ -264,6 +264,7 @@ var targets: [Target] = [
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "ATProtoOAuth", package: "swift-composable-atmosphere"),
             .product(name: "ComposableAtmosphereConstellation", package: "composable-atmosphere-constellation"),
+            .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "FileTree", package: "swift-file-tree"),
@@ -273,6 +274,7 @@ var targets: [Target] = [
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "Lexicon", package: "swift-composable-atmosphere"),
             .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
+            .product(name: "Sharing", package: "swift-sharing"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
             .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
@@ -403,6 +405,14 @@ var targets: [Target] = [
         ],
         resources: [
             .copy("Fixtures")
+        ]
+    ),
+    .testTarget(
+        name: "OpenMusicEventSourceEditingTests",
+        dependencies: [
+            "OpenMusicEventSourceEditing",
+            .product(name: "CustomDump", package: "swift-custom-dump"),
+            .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
         ]
     ),
     .testTarget(

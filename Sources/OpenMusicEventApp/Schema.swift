@@ -54,7 +54,6 @@ extension DependencyValues {
             path = nil
         }
         let database = try SQLiteData.defaultDatabase(path: path, configuration: configuration)
-        sourceEditingWorkingDatabasePath = path
 
         var migrator = DatabaseMigrator()
         #if DEBUG

@@ -47,7 +47,11 @@ public extension WhiteLabelSourceImportClient {
                     organizerID: organizerID,
                     ref: descriptor.version ?? "HEAD"
                 )
-                let result = try await tangledSourceImport.importSource(request)
+                let result = try await withDependencies {
+                    $0.tangledSourceCheckout = .archive
+                } operation: {
+                    try await tangledSourceImport.importSource(request)
+                }
                 return result.insertedEventIDs
             }
 
