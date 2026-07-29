@@ -1,6 +1,9 @@
 import ATProto
 import Dependencies
 import Foundation
+#if canImport(OSLog)
+import OSLog
+#endif
 import SourceControlClient
 import TangledLexicon
 import XRPCClient
@@ -90,14 +93,55 @@ public extension TangledSourceCheckoutClient {
 
             try TangledSourceArchiveExtractor.validateOutputDoesNotExist(request.outputURL)
             let target = try await request.repository.resolvedTangledRepositoryTarget()
-            _ = try await sourceControl.clone(
-                target.sourceControlCloneRequest(
-                    destinationURL: request.outputURL,
-                    ref: request.ref,
-                    depth: 1,
-                    credentials: credentials
-                )
+            let cloneRequest = request.repository.sourceControlCloneRequest(
+                repoDID: target.repositoryDID.description,
+                destinationURL: request.outputURL,
+                ref: request.ref,
+                depth: 1,
+                credentials: credentials
             )
+            do {
+                _ = try await sourceControl.clone(cloneRequest)
+            } catch where error.isSSHSessionStartFailure {
+                TangledSourceCheckoutDiagnostics.logCloneFailure(
+                    error,
+                    remote: cloneRequest.remote.url,
+                    attempt: 1,
+                    willRetry: true
+                )
+                do {
+                    if FileManager.default.fileExists(
+                        atPath: request.outputURL.path(percentEncoded: false)
+                    ) {
+                        try FileManager.default.removeItem(at: request.outputURL)
+                    }
+                } catch {
+                    TangledSourceCheckoutDiagnostics.logRetryCleanupFailure(
+                        error,
+                        outputURL: request.outputURL
+                    )
+                    throw error
+                }
+                do {
+                    _ = try await sourceControl.clone(cloneRequest)
+                } catch {
+                    TangledSourceCheckoutDiagnostics.logCloneFailure(
+                        error,
+                        remote: cloneRequest.remote.url,
+                        attempt: 2,
+                        willRetry: false
+                    )
+                    throw error
+                }
+            } catch {
+                TangledSourceCheckoutDiagnostics.logCloneFailure(
+                    error,
+                    remote: cloneRequest.remote.url,
+                    attempt: 1,
+                    willRetry: false
+                )
+                throw error
+            }
             return TangledSourceCheckout(repositoryURL: request.outputURL)
         }
     }
@@ -240,39 +284,6 @@ public extension TangledRepositoryReference {
     }
 }
 
-public extension TangledRepositoryTarget {
-    func sourceControlRemote() -> Remote {
-        Remote(
-            url: RemoteURL(
-                rawValue: "git@\(knotHost.rawValue):\(repositoryDID.description)"
-            )
-        )
-    }
-
-    func sourceControlCloneRequest(
-        destinationURL: URL,
-        ref: String,
-        depth: Int? = nil,
-        credentials: Credentials? = nil
-    ) -> CloneRequest {
-        CloneRequest(
-            remote: sourceControlRemote(),
-            destinationURL: destinationURL,
-            checkout: tangledSourceControlCheckoutRef(ref),
-            depth: depth,
-            credentials: sourceControlCredentials(credentials)
-        )
-    }
-
-    func sourceControlCredentials(_ credentials: Credentials?) -> Credentials? {
-        tangledSourceControlCredentials(
-            credentials,
-            host: knotHost.rawValue,
-            port: nil
-        )
-    }
-}
-
 public extension TangledRepositoryReference {
     // Verified with: ssh-keyscan -T 10 -t ed25519 tangled.org
     static let tangledOrgEd25519HostKeySHA256 = HostKeySHA256(
@@ -327,6 +338,58 @@ private func tangledSourceControlCredentials(
 private struct TangledRepositoryOwnerResolution: Sendable {
     var did: DID
     var pdsHost: ATProto.PDSHost
+}
+
+private extension Error {
+    var isSSHSessionStartFailure: Bool {
+        guard let sourceControlError = self as? SourceControlError,
+              case let .operationFailed(message) = sourceControlError else {
+            return false
+        }
+        return message.localizedCaseInsensitiveContains("failed to start ssh session")
+    }
+}
+
+private enum TangledSourceCheckoutDiagnostics {
+    #if canImport(OSLog)
+    private static let logger = Logger(
+        subsystem: "fm.woody.openmusicevent",
+        category: "TangledSourceCheckout"
+    )
+    #endif
+
+    static func logCloneFailure(
+        _ error: Error,
+        remote: RemoteURL,
+        attempt: Int,
+        willRetry: Bool
+    ) {
+        let message = """
+        Tangled source checkout clone failed
+        remote: \(remote.rawValue)
+        attempt: \(attempt)
+        retrying: \(willRetry)
+        error: \(String(describing: error))
+        """
+        #if canImport(OSLog)
+        logger.error("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
+
+    static func logRetryCleanupFailure(_ error: Error, outputURL: URL) {
+        let message = """
+        Tangled source checkout retry cleanup failed
+        destination: \(outputURL.path(percentEncoded: false))
+        error: \(String(describing: error))
+        """
+        #if canImport(OSLog)
+        logger.error("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
 }
 
 public extension DependencyValues {

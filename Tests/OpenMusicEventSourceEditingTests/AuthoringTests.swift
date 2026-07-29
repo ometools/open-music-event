@@ -1,8 +1,10 @@
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
+import ErrorHandling
 import Foundation
 import GRDB
+import IssueReporting
 import OpenMusicEventSourceEditing
 import Sharing
 import Synchronization
@@ -137,13 +139,13 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `authorization failure remains attendee without a response action`() async throws {
+    func `authorization failure reports an ephemeral issue and remains attendee`() async throws {
         let workspace = WorkspaceContext(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-denied"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
         )
         let preparationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
-        let store: TestStoreActor<Authoring<WorkspaceProbe>> = await withDependencies {
+        let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { _ in
                 throw TestFailure.authorizationDenied
             }
@@ -153,30 +155,65 @@ struct AuthoringTests {
             }
         } operation: {
             await TestStoreActor(
-                initialState: Authoring<WorkspaceProbe>.State(workspace: workspace) {
-                    WorkspaceProbe.State()
-                }
+                initialState: AuthoringErrorHost.State(workspace: workspace)
             ) {
-                Authoring { WorkspaceProbe() }
+                AuthoringErrorHost()
             }
         }
 
-        // Authorization fails inside the entry task and modifies the store directly.
-        let entry = await store.send(.enterButtonTapped)
-        await entry?.value
+        await withIssueReporters([]) {
+            await store.send(to: \.authoring, .enterButtonTapped)?.value
+        }
         await store.expect {
-            $0.entryFailure = AuthoringEntryFailure(
-                stage: .authorization,
-                message: "Authorization denied"
+            $0.reportedErrorMessage = "Unable to enter authoring."
+            $0.reportedErrorOperation = ErrorOperation(
+                rawValue: "authoring.entry.authorization"
             )
         }
 
-        // Preparation never starts, and the workspace stays attendee-only.
-        let deniedAccess = await store[dynamicMember: \.access]
-        let deniedContentAccess = await store[dynamicMember: \.content.access]
+        let deniedAccess = await store[dynamicMember: \.authoring.state.access]
+        let deniedContentAccess = await store[dynamicMember: \.authoring.state.content.access]
         expectNoDifference(deniedAccess, .attendee)
         expectNoDifference(deniedContentAccess, .attendee)
         expectNoDifference(preparationRequests.withLock { $0 }, [])
+
+        await store.dismount()
+    }
+
+    @Test
+    @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
+    func `preparation failure reports an ephemeral issue and remains attendee`() async throws {
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "workspace-preparation-failed"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
+        )
+        let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
+            $0[AuthoringPolicyClient.self] = .authoring
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { _ in
+                throw TestFailure.preparationFailed
+            }
+        } operation: {
+            await TestStoreActor(
+                initialState: AuthoringErrorHost.State(workspace: workspace)
+            ) {
+                AuthoringErrorHost()
+            }
+        }
+
+        await withIssueReporters([]) {
+            await store.send(to: \.authoring, .enterButtonTapped)?.value
+        }
+        await store.expect {
+            $0.reportedErrorMessage = "Unable to enter authoring."
+            $0.reportedErrorOperation = ErrorOperation(
+                rawValue: "authoring.entry.preparation"
+            )
+        }
+
+        let deniedAccess = await store[dynamicMember: \.authoring.state.access]
+        let deniedContentAccess = await store[dynamicMember: \.authoring.state.content.access]
+        expectNoDifference(deniedAccess, .attendee)
+        expectNoDifference(deniedContentAccess, .attendee)
 
         await store.dismount()
     }
@@ -269,6 +306,36 @@ struct AuthoringTests {
 }
 
 @Feature
+struct AuthoringErrorHost {
+    struct State {
+        init(workspace: WorkspaceContext) {
+            self.authoring = Spawn(
+                Authoring<WorkspaceProbe>.State(workspace: workspace) {
+                    WorkspaceProbe.State()
+                }
+            )
+        }
+
+        var authoring: Spawn<Authoring<WorkspaceProbe>>
+        var reportedErrorMessage: String?
+        var reportedErrorOperation: ErrorOperation?
+    }
+
+    enum Action {}
+
+    var body: some Feature {
+        Update { _, _ in }
+            .spawn(\.authoring) {
+                Authoring { WorkspaceProbe() }
+            }
+            .onEvent(ErrorReported.self) { error, state in
+                state.reportedErrorMessage = error.message.fallback
+                state.reportedErrorOperation = error.operation
+            }
+    }
+}
+
+@Feature
 struct WorkspaceProbe {
     struct State {
         init() {
@@ -316,12 +383,15 @@ struct WorkspaceProbe {
 
 enum TestFailure: Error, LocalizedError {
     case authorizationDenied
+    case preparationFailed
     case unexpectedWorkspace
 
     var errorDescription: String? {
         switch self {
         case .authorizationDenied:
             "Authorization denied"
+        case .preparationFailed:
+            "Preparation failed"
         case .unexpectedWorkspace:
             "Unexpected workspace"
         }

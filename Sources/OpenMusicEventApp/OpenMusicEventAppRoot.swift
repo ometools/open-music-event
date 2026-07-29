@@ -220,21 +220,6 @@ public struct OpenMusicEventAppRootView: View {
             OpenMusicEventAuthorizationView(store: authoringStore) { authoringStore in
                 let eventViewerStore = authoringStore.scope(\.content, action: \.content)
                 EventViewerView(store: eventViewerStore)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if authoringStore.entry.isRunning {
-                            ProgressView("Preparing workspace")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding()
-                                .background(.bar)
-                        } else if let entryFailure = authoringStore.entryFailure {
-                            Text(entryFailure.message)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding()
-                                .background(.bar)
-                        }
-                }
             }
         }
         .task {

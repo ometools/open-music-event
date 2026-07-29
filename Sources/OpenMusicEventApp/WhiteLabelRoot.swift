@@ -352,18 +352,6 @@ public struct WhiteLabelRootView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if store.spawn(\.teamWorkspaceDetail)?.content.entry.isRunning == true {
-                AuthoringPreparationStatus()
-            } else if let entryFailure = store.spawn(\.teamWorkspaceDetail)?.content.entryFailure {
-                Text(entryFailure.message)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(.bar)
-            }
-        }
         .accountPickerToolbar(store: accountStore)
     }
 
@@ -442,26 +430,6 @@ public struct WhiteLabelRootView: View {
         }
     }
 
-    struct AuthoringPreparationStatus: View {
-        var body: some View {
-            HStack(alignment: .top, spacing: 12) {
-                ProgressView()
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Preparing workspace")
-                        .font(.footnote.weight(.semibold))
-                    Text("Downloading the editable source.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-            .background(.bar)
-            .accessibilityElement(children: .combine)
-        }
-    }
 }
 
 struct WhiteLabelRootActionsMenu: View {
@@ -475,12 +443,15 @@ struct WhiteLabelRootActionsMenu: View {
                     Button {
                         authoringStore.send(.enterButtonTapped)
                     } label: {
-                        Label(
-                            authoringStore.entry.isRunning
-                                ? "Preparing Workspace"
-                                : "Enter Authoring",
-                            systemImage: "square.and.pencil"
-                        )
+                        Label {
+                            Text("Enter Authoring")
+                        } icon: {
+                            if authoringStore.entry.isRunning {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "square.and.pencil")
+                            }
+                        }
                     }
                     .disabled(authoringStore.entry.isRunning)
                 } else {

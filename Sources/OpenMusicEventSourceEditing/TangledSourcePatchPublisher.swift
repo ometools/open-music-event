@@ -39,6 +39,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         let targetRepository = try await targetRepository(repository)
         let gitBackedPatch = try await gitBackedPreparedPatch(
             preparedPatch,
+            repository: repository,
             targetRepository: targetRepository
         )
         defer {
@@ -53,6 +54,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         let sourceBranch = Self.proposalBranchName()
         let commit = try await pushBranch(
             publishingPatch,
+            repositoryReference: repository,
             targetRepository: targetRepository,
             branchName: sourceBranch,
             credentials: gitBackedPatch.credentials,
@@ -229,6 +231,7 @@ private extension TangledSourcePatchPublisher {
 
     func gitBackedPreparedPatch(
         _ preparedPatch: PreparedSourcePatch,
+        repository: TangledRepositoryReference,
         targetRepository: TangledRepositoryTarget
     ) async throws -> GitBackedPreparedPatch {
         guard !Self.isGitRepository(preparedPatch.workingTree.workingRepositoryURL) else {
@@ -256,14 +259,15 @@ private extension TangledSourcePatchPublisher {
             operation: "tangledSSHCredentials.credentials",
             details: [
                 "reason: clone temporary git checkout",
-                "repository: \(targetRepository.knotHost.rawValue)/\(targetRepository.repositoryDID.description)",
+                "repository: \(repository.host)/\(targetRepository.repositoryDID.description)",
             ]
         ) {
             try await tangledSSHCredentials.credentials()
         }
         let checkoutURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid())
         let ref = preparedPatch.request.location.remote?.ref ?? "HEAD"
-        let cloneRequest = targetRepository.sourceControlCloneRequest(
+        let cloneRequest = repository.sourceControlCloneRequest(
+            repoDID: targetRepository.repositoryDID.description,
             destinationURL: checkoutURL,
             ref: ref,
             credentials: credentials
@@ -323,6 +327,7 @@ private extension TangledSourcePatchPublisher {
 
     func pushBranch(
         _ preparedPatch: PreparedSourcePatch,
+        repositoryReference: TangledRepositoryReference,
         targetRepository: TangledRepositoryTarget,
         branchName: BranchName,
         credentials: Credentials?,
@@ -407,7 +412,7 @@ private extension TangledSourcePatchPublisher {
                 operation: "tangledSSHCredentials.credentials",
                 details: [
                     "reason: prepare git push",
-                    "repository: \(targetRepository.knotHost.rawValue)/\(targetRepository.repositoryDID.description)",
+                    "repository: \(repositoryReference.host)/\(targetRepository.repositoryDID.description)",
                 ]
             ) {
                 try await tangledSSHCredentials.credentials()
@@ -417,7 +422,7 @@ private extension TangledSourcePatchPublisher {
             repository: repository,
             localBranch: branch.name,
             remoteBranch: branch.name,
-            credentials: targetRepository.sourceControlCredentials(
+            credentials: repositoryReference.sourceControlCredentials(
                 pushCredentials
             )
         )

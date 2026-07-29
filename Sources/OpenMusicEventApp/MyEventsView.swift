@@ -55,25 +55,18 @@ struct MyEventsView: View {
                                 Button {
                                     authoringStore.send(.enterButtonTapped)
                                 } label: {
-                                    Label(
-                                        authoringStore.entry.isRunning
-                                            ? "Preparing Workspace"
-                                            : "Enter Authoring",
-                                        systemImage: "square.and.pencil"
-                                    )
+                                    Label {
+                                        Text("Enter Authoring")
+                                    } icon: {
+                                        if authoringStore.entry.isRunning {
+                                            ProgressView()
+                                        } else {
+                                            Image(systemName: "square.and.pencil")
+                                        }
+                                    }
                                 }
                                 .disabled(authoringStore.entry.isRunning)
                             }
-                        }
-                    }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if let entryFailure = authoringStore.entryFailure {
-                            Text(entryFailure.message)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding()
-                                .background(.bar)
                         }
                     }
                 }

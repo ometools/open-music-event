@@ -206,7 +206,7 @@ struct TangledSourceCloneTests {
     }
 
     @Test
-    func gitCheckoutResolvesRepositoryTargetAndClonesSource() async throws {
+    func gitCheckoutRetriesAFailedSSHSessionAfterRemovingPartialClone() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let ownerHandle = Atmosphere.Account.Handle("woody.fm")
         let outputURL = FileManager.default.temporaryDirectory
@@ -225,6 +225,7 @@ struct TangledSourceCloneTests {
             )
         )
         let cloneRequests = Mutex([CloneRequest]())
+        let cloneAttempts = Mutex(0)
 
         let checkout = try await withDependencies {
             $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
@@ -279,6 +280,24 @@ struct TangledSourceCloneTests {
             $0.sourceControl = SourceControlClient(
                 clone: { request in
                     cloneRequests.withLock { $0.append(request) }
+                    let attempt = cloneAttempts.withLock { attempts in
+                        attempts += 1
+                        return attempts
+                    }
+                    if attempt == 1 {
+                        try FileManager.default.createDirectory(
+                            at: request.destinationURL,
+                            withIntermediateDirectories: true
+                        )
+                        throw SourceControlError.operationFailed(
+                            "failed to start SSH session"
+                        )
+                    }
+                    #expect(
+                        !FileManager.default.fileExists(
+                            atPath: request.destinationURL.path(percentEncoded: false)
+                        )
+                    )
                     return Repository(url: request.destinationURL)
                 },
                 open: { Repository(url: $0) },
@@ -305,12 +324,14 @@ struct TangledSourceCloneTests {
         }
 
         #expect(checkout.repositoryURL == outputURL)
+        #expect(cloneAttempts.withLock { $0 } == 2)
         let request = try #require(cloneRequests.withLock { $0.first })
-        #expect(request.remote.url == "git@knot1.tangled.sh:did:plc:targetrepo")
+        #expect(cloneRequests.withLock { $0.count } == 2)
+        #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(request.checkout == "main")
         #expect(request.destinationURL == outputURL)
         #expect(request.depth == 1)
-        #expect(request.credentials == credentials)
+        #expect(request.credentials == repository.sourceControlCredentials(credentials))
     }
 
     @Test

@@ -572,7 +572,6 @@ struct NavigationTests {
             store.state.root.eventViewer?.state.content.access.canEditContent == true
         }
 
-        #expect(store.state.root.eventViewer?.state.content.entryFailure == nil)
         let workspaceID = EditingWorkspaceRecord.ID(
             sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance)
         )

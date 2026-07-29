@@ -1,6 +1,10 @@
 import ComposableArchitecture2
 import Dependencies
+import ErrorHandling
 import Foundation
+#if canImport(OSLog)
+import OSLog
+#endif
 import Sharing
 
 public enum AuthoringCapability: Hashable, Sendable {
@@ -72,21 +76,6 @@ public struct AuthoringContext: Sendable {
     }
 }
 
-public struct AuthoringEntryFailure: Equatable, Sendable {
-    public enum Stage: Equatable, Sendable {
-        case authorization
-        case preparation
-    }
-
-    public var message: String
-    public var stage: Stage
-
-    public init(stage: Stage, message: String) {
-        self.message = message
-        self.stage = stage
-    }
-}
-
 public struct AuthoringPolicyClient: Sendable {
     public var authorize: @Sendable (
         EditingWorkspaceRecord.ID
@@ -133,7 +122,6 @@ public struct Authoring<Content: FeatureProtocol> {
     public typealias Access = AuthoringAccess
     public typealias Capability = AuthoringCapability
     public typealias Context = AuthoringContext
-    public typealias EntryFailure = AuthoringEntryFailure
     public typealias Grant = AuthoringGrant
 
     public init(
@@ -216,7 +204,6 @@ public struct Authoring<Content: FeatureProtocol> {
         @Shared public var grant: AuthoringGrant?
         public var content: Content.State
         @StoreTaskID public var entry
-        public var entryFailure: AuthoringEntryFailure?
         @DebugSnapshotIgnored public var attendeeWorkspace: WorkspaceContext
         @DebugSnapshotIgnored var initiallyRequestsEntry: Bool
 
@@ -244,7 +231,6 @@ public struct Authoring<Content: FeatureProtocol> {
 
         public mutating func invalidateAuthoring() {
             $grant.withLock { $0 = nil }
-            entryFailure = nil
         }
     }
 
@@ -300,8 +286,8 @@ public struct Authoring<Content: FeatureProtocol> {
         guard !state.access.canEditContent, !state.entry.isRunning else { return }
 
         let workspaceID = state.workspaceID
-        state.entryFailure = nil
         store.addTask(id: state.entry) {
+            AuthoringEntryDiagnostics.logStarted(workspaceID: workspaceID)
             let capabilities: Set<AuthoringCapability>
             do {
                 capabilities = try await policy.authorize(workspaceID)
@@ -309,13 +295,19 @@ public struct Authoring<Content: FeatureProtocol> {
                     throw AuthoringPolicyError.editContentDenied
                 }
             } catch {
-                try store.modify {
-                    $0.$grant.withLock { $0 = nil }
-                    $0.entryFailure = AuthoringEntryFailure(
-                        stage: .authorization,
-                        message: error.localizedDescription
-                    )
-                }
+                AuthoringEntryDiagnostics.logFailed(
+                    error,
+                    stage: "authorization",
+                    workspaceID: workspaceID
+                )
+                await store.reportError(
+                    error,
+                    fallbackMessage: UserFacingText(
+                        "Unable to enter authoring.",
+                        fallback: "Unable to enter authoring."
+                    ),
+                    operation: ErrorOperation(rawValue: "authoring.entry.authorization")
+                )
                 return
             }
 
@@ -328,18 +320,72 @@ public struct Authoring<Content: FeatureProtocol> {
                             workspace: workspace
                         )
                     }
-                    $0.entryFailure = nil
                 }
+                AuthoringEntryDiagnostics.logDone(workspaceID: workspaceID)
             } catch {
-                try store.modify {
-                    $0.$grant.withLock { $0 = nil }
-                    $0.entryFailure = AuthoringEntryFailure(
-                        stage: .preparation,
-                        message: error.localizedDescription
-                    )
-                }
+                AuthoringEntryDiagnostics.logFailed(
+                    error,
+                    stage: "preparation",
+                    workspaceID: workspaceID
+                )
+                await store.reportError(
+                    error,
+                    fallbackMessage: UserFacingText(
+                        "Unable to enter authoring.",
+                        fallback: "Unable to enter authoring."
+                    ),
+                    operation: ErrorOperation(rawValue: "authoring.entry.preparation")
+                )
             }
         }
+    }
+}
+
+private enum AuthoringEntryDiagnostics {
+    #if canImport(OSLog)
+    private static let logger = Logger(
+        subsystem: "fm.woody.openmusicevent",
+        category: "Authoring"
+    )
+    #endif
+
+    static func logStarted(workspaceID: EditingWorkspaceRecord.ID) {
+        log("""
+        Enter Authoring started
+        workspace: \(workspaceID)
+        """)
+    }
+
+    static func logDone(workspaceID: EditingWorkspaceRecord.ID) {
+        log("""
+        Enter Authoring done
+        workspace: \(workspaceID)
+        """)
+    }
+
+    static func logFailed(
+        _ error: Error,
+        stage: String,
+        workspaceID: EditingWorkspaceRecord.ID
+    ) {
+        log("""
+        Enter Authoring failed
+        workspace: \(workspaceID)
+        stage: \(stage)
+        error: \(String(describing: error))
+        """, isError: true)
+    }
+
+    static func log(_ message: String, isError: Bool = false) {
+        #if canImport(OSLog)
+        if isError {
+            logger.error("\(message, privacy: .public)")
+        } else {
+            logger.log("\(message, privacy: .public)")
+        }
+        #else
+        print(message)
+        #endif
     }
 }
 

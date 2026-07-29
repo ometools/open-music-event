@@ -1049,9 +1049,9 @@ struct TangledSourceDownloadFeatureTests {
 
         let cloneRequest = try #require(await sourceControlRequests.cloneRequests.first)
         #expect(cloneRequest.destinationURL == outputURL.standardizedFileURL)
-        #expect(cloneRequest.remote.url == "git@knot1.tangled.sh:did:plc:targetrepo")
+        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(cloneRequest.checkout == nil)
-        #expect(cloneRequest.credentials == credentials)
+        #expect(cloneRequest.credentials == repository.sourceControlCredentials(credentials))
         #expect(await sourceControlRequests.fetchRequests.isEmpty)
         #expect(await sourceControlRequests.checkoutRequests.isEmpty)
     }
@@ -1799,7 +1799,7 @@ struct TangledSourceDownloadFeatureTests {
             cloneRequest.destinationURL
                 == SourceRepositoryStorageClient.temporaryDownloadURL(uuid: checkoutUUID)
         )
-        #expect(cloneRequest.remote.url == "git@knot1.tangled.sh:did:plc:workspace123")
+        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:workspace123")
         #expect(cloneRequest.checkout == "main")
         #expect(
             FileManager.default.fileExists(atPath: storedRepositoryURL.appending(path: ".git").path)

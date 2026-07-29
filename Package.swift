@@ -259,6 +259,7 @@ var targets: [Target] = [
     .target(
         name: "OpenMusicEventSourceEditing",
         dependencies: [
+            "ErrorHandling",
             "OpenMusicEventLexicon",
             "OpenMusicEventSource",
             "OpenMusicEventSourceClone",

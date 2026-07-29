@@ -186,6 +186,9 @@ struct TangledSourcePatchPublisherTests {
     @Test
     func publishUploadsLargePatchBlobWithoutInlinePatch() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
+        let repositoryReference = try TangledRepositoryReference(
+            sourceReference: "tangled.org/woody.fm/wicked-woods-ome"
+        )
         let requestRecorder = HTTPRequestRecorder()
         let repositoryURL = FileManager.default.temporaryDirectory
             .appending(path: "TangledSourcePatchPublisherTests-\(UUID().uuidString)")
@@ -412,7 +415,10 @@ struct TangledSourcePatchPublisherTests {
         let pushRequest = try #require(pushRequests.withLock { $0.first })
         #expect(pushRequest.localBranch == branchName)
         #expect(pushRequest.remoteBranch == branchName)
-        #expect(pushRequest.credentials == credentials)
+        #expect(
+            pushRequest.credentials
+                == repositoryReference.sourceControlCredentials(credentials)
+        )
 
         let requests = await requestRecorder.requests
         let uploadRequest = try #require(
@@ -714,6 +720,9 @@ struct TangledSourcePatchPublisherTests {
     @Test
     func publishingNonGitWorkingTreeClonesWithSSHCredentials() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
+        let repositoryReference = try TangledRepositoryReference(
+            sourceReference: "woody.fm/wicked-woods-ome"
+        )
         let requestRecorder = HTTPRequestRecorder()
         let repositoryURL = FileManager.default.temporaryDirectory
             .appending(path: "TangledSourcePatchPublisherNonGit-\(UUID().uuidString)")
@@ -891,14 +900,20 @@ struct TangledSourcePatchPublisherTests {
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
         #expect(publishEvents.withLock { $0 } == ["credentials"])
         let cloneRequest = try #require(cloneRequests.withLock { $0.first })
-        #expect(cloneRequest.remote.url == "git@knot1.tangled.sh:did:plc:targetrepo")
+        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(cloneRequest.checkout == "main")
-        #expect(cloneRequest.credentials == credentials)
+        #expect(
+            cloneRequest.credentials
+                == repositoryReference.sourceControlCredentials(credentials)
+        )
         #expect(openRequests.withLock { $0 } == [cloneRequest.destinationURL])
         let pushRequest = try #require(pushRequests.withLock { $0.first })
         #expect(pushRequest.localBranch == branchName)
         #expect(pushRequest.remoteBranch == branchName)
-        #expect(pushRequest.credentials == credentials)
+        #expect(
+            pushRequest.credentials
+                == repositoryReference.sourceControlCredentials(credentials)
+        )
 
         let requests = await requestRecorder.requests
         #expect(requests.contains { $0.url?.path.hasSuffix("/com.atproto.repo.uploadBlob") == true })
