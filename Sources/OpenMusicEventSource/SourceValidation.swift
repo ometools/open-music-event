@@ -293,8 +293,8 @@ public struct SourceValidationSummary: CustomStringConvertible, Equatable, Senda
         self.contributorCount = insertion.contributors.count
         self.channelCount = insertion.channels.count
         self.posterCount = insertion.posters.count
-        self.performanceCount = insertion.performances.count
-        self.performanceContributorCount = insertion.performanceContributors.count
+        self.performanceCount = insertion.scheduleItemPerformanceDetails.count
+        self.performanceContributorCount = insertion.scheduleItemContributors.count
     }
 
     public var description: String {

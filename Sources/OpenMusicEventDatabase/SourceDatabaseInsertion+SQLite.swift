@@ -188,8 +188,9 @@ private struct PreparedSourceDatabaseInsertion {
     var channels: [OME.Channel.Draft]
     var commsPosts: [CommsPost]
     var posters: [OME.Poster.Draft]
-    var performances: [OME.Performance.Draft]
-    var performanceContributors: [OME.Performance.Contributors.Draft]
+    var scheduleItems: [OME.ScheduleItem.Draft]
+    var scheduleItemPerformanceDetails: [OME.ScheduleItem.PerformanceDetails.Draft]
+    var scheduleItemContributors: [OME.ScheduleItem.Contributor.Draft]
     var relationships: [OME.Relationship]
     var localImageBlobs: [LocalImageBlob]
 
@@ -245,8 +246,9 @@ private struct PreparedSourceDatabaseInsertion {
         self.channels = sourceInsertion.channels
         self.commsPosts = sourceInsertion.communicationPosts.map(CommsPost.init)
         self.posters = sourceInsertion.posters
-        self.performances = sourceInsertion.performances
-        self.performanceContributors = sourceInsertion.performanceContributors
+        self.scheduleItems = sourceInsertion.scheduleItems
+        self.scheduleItemPerformanceDetails = sourceInsertion.scheduleItemPerformanceDetails
+        self.scheduleItemContributors = sourceInsertion.scheduleItemContributors
         self.relationships = sourceInsertion.relationships.map {
             var relationship = $0
             relationship.createdAt = Self.relationshipCreatedAt(importedAt)
@@ -414,11 +416,17 @@ private struct PreparedSourceDatabaseInsertion {
         if !posters.isEmpty {
             try OME.Poster.insert { posters }.execute(db)
         }
-        if !performances.isEmpty {
-            try OME.Performance.insert { performances }.execute(db)
+        if !scheduleItems.isEmpty {
+            try OME.ScheduleItem.insert { scheduleItems }.execute(db)
         }
-        if !performanceContributors.isEmpty {
-            try OME.Performance.Contributors.insert { performanceContributors }.execute(db)
+        if !scheduleItemPerformanceDetails.isEmpty {
+            try OME.ScheduleItem.PerformanceDetails.insert {
+                scheduleItemPerformanceDetails
+            }
+            .execute(db)
+        }
+        if !scheduleItemContributors.isEmpty {
+            try OME.ScheduleItem.Contributor.insert { scheduleItemContributors }.execute(db)
         }
         if !relationships.isEmpty {
             try OME.Relationship.insert { relationships }.execute(db)

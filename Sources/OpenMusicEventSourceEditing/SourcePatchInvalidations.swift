@@ -181,13 +181,6 @@ private func installSourcePatchInvalidationTriggers(
     descriptors: [SourceTableDescriptor]
 ) throws {
     for descriptor in descriptors {
-        if descriptor.tableName == OME.Performance.tableName,
-           try db.tableExists("scheduleItems")
-        {
-            try createMigratedPerformanceSourcePatchInvalidationTriggers(in: db)
-            continue
-        }
-
         let target = try SourcePatchInvalidationTriggerTarget(descriptor: descriptor)
         try createSourcePatchInvalidationInsertTrigger(
             for: descriptor,
@@ -205,49 +198,6 @@ private func installSourcePatchInvalidationTriggers(
             in: db
         )
     }
-}
-
-private func createMigratedPerformanceSourcePatchInvalidationTriggers(
-    in db: Database
-) throws {
-    try #sql("""
-        CREATE TEMPORARY TRIGGER IF NOT EXISTS "ome_source_patch_invalidated_performances_insert"
-        AFTER INSERT ON "scheduleItems"
-        FOR EACH ROW
-        WHEN NEW."kind" = 'performance'
-        BEGIN
-          SELECT "ome_source_patch_invalidated"(
-            'event', NEW."organizerID", NEW."eventID", 'performances', 'insert'
-          );
-        END
-        """)
-        .execute(db)
-
-    try #sql("""
-        CREATE TEMPORARY TRIGGER IF NOT EXISTS "ome_source_patch_invalidated_performances_update"
-        AFTER UPDATE ON "scheduleItems"
-        FOR EACH ROW
-        WHEN OLD."kind" = 'performance' OR NEW."kind" = 'performance'
-        BEGIN
-          SELECT "ome_source_patch_invalidated"(
-            'event', NEW."organizerID", NEW."eventID", 'performances', 'update'
-          );
-        END
-        """)
-        .execute(db)
-
-    try #sql("""
-        CREATE TEMPORARY TRIGGER IF NOT EXISTS "ome_source_patch_invalidated_performances_delete"
-        AFTER DELETE ON "scheduleItems"
-        FOR EACH ROW
-        WHEN OLD."kind" = 'performance'
-        BEGIN
-          SELECT "ome_source_patch_invalidated"(
-            'event', OLD."organizerID", OLD."eventID", 'performances', 'delete'
-          );
-        END
-        """)
-        .execute(db)
 }
 
 private func createSourcePatchInvalidationInsertTrigger(

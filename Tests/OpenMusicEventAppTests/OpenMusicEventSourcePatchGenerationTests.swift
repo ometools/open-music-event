@@ -1904,7 +1904,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
     }
 
     @Test
-    func liveConversionUpdatesScheduleYamlFromDatabase() async throws {
+    func canonicalScheduleItemsPublishKnownAndUnknownKindsToSource() async throws {
         let fixture = try OpenMusicEventSourcePatchGenerationFixture()
         defer { fixture.cleanUp() }
         try fixture.writeFile(
@@ -1941,13 +1941,20 @@ struct OpenMusicEventSourcePatchGenerationTests {
             eventID: eventID.eventID,
             scheduleID: localID("saturday")
         )
-        let performanceID = OME.Performance.ID(
+        let performanceID = OME.ScheduleItem.ID(
             organizerID: eventID.organizerID,
             eventID: eventID.eventID,
-            performanceID: localID("main-set")
+            scheduleItemID: localID("main-set")
+        )
+        let unknownItemID = OME.ScheduleItem.ID(
+            organizerID: eventID.organizerID,
+            eventID: eventID.eventID,
+            scheduleItemID: localID("future-item")
         )
         let performanceStart = try #require(scheduleDate.at(hour: 20, in: timeZone))
         let performanceEnd = try #require(scheduleDate.at(hour: 21, minute: 30, in: timeZone))
+        let unknownItemStart = try #require(scheduleDate.at(hour: 22, in: timeZone))
+        let unknownItemEnd = try #require(scheduleDate.at(hour: 23, in: timeZone))
         let repositoryURL = fixture.repositoryURL
         let workingRootURL = fixture.rootURL
 
@@ -1992,22 +1999,46 @@ struct OpenMusicEventSourcePatchGenerationTests {
                 )
             }
             .execute(db)
-            try OME.Performance.insert {
-                OME.Performance.Draft(
+            // The organizer's working database stores the schedule itself independently from
+            // the details understood by this version of OME.
+            try OME.ScheduleItem.insert {
+                [
+                    OME.ScheduleItem.Draft(
+                        id: performanceID,
+                        stageID: stageID.stageID,
+                        scheduleID: scheduleID.scheduleID,
+                        kind: .known(.performance),
+                        startTime: performanceStart,
+                        endTime: performanceEnd,
+                        title: "New Set",
+                        description: nil
+                    ),
+                    OME.ScheduleItem.Draft(
+                        id: unknownItemID,
+                        stageID: stageID.stageID,
+                        scheduleID: scheduleID.scheduleID,
+                        kind: .unknown(.string("app.example.scheduleItem#future")),
+                        startTime: unknownItemStart,
+                        endTime: unknownItemEnd,
+                        title: "Future Item",
+                        description: "Created by another compatible scheduler."
+                    ),
+                ]
+            }
+            .execute(db)
+            try OME.ScheduleItem.PerformanceDetails.insert {
+                OME.ScheduleItem.PerformanceDetails.Draft(
                     id: performanceID,
-                    stageID: stageID.stageID,
-                    scheduleID: scheduleID.scheduleID,
-                    startTime: performanceStart,
-                    endTime: performanceEnd,
-                    title: "New Set",
-                    description: nil,
                     recordings: []
                 )
             }
             .execute(db)
-            try OME.Performance.Contributors.insert {
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID,
+            try OME.ScheduleItem.Contributor.insert {
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: performanceID,
+                        sortIndex: 0
+                    ),
                     anonymousName: "Guest Artist",
                     billing: .supporting,
                     role: "dancer"
@@ -2056,6 +2087,9 @@ struct OpenMusicEventSourcePatchGenerationTests {
         #expect(newText.contains("role: dancer"))
         #expect(newText.contains("scheduleItems:"))
         #expect(newText.contains("kind: performance"))
+        #expect(newText.contains("kind: app.example.scheduleItem#future"))
+        #expect(newText.contains("Future Item"))
+        #expect(newText.contains("Created by another compatible scheduler."))
         #expect(!newText.contains("performances:"))
         #expect(!newText.contains("billing: primary"))
         #expect(!newText.contains("Old Set"))

@@ -49,15 +49,15 @@ public extension OME {
             case invalidLocalTime(String)
             case missingPosterImage(String)
             case missingSourceRootForFileAsset(String)
-            case missingPerformanceEndTime(
+            case missingScheduleItemEndTime(
                 scheduleID: OME.Schedule.ID,
                 stageID: OME.ID<OME.Stage>,
-                performanceIndex: Int
+                scheduleItemIndex: Int
             )
             case missingScheduleContributorID(
                 scheduleID: OME.Schedule.ID,
                 stageID: OME.ID<OME.Stage>,
-                performanceIndex: Int,
+                scheduleItemIndex: Int,
                 contributorID: OME.ID<OME.Contributor>
             )
             case missingInlineScheduleDate(OME.Event.ID)
@@ -187,8 +187,9 @@ public extension OME {
         public var channels: [OME.Channel.Draft]
         public var communicationPosts: [CommunicationPost]
         public var posters: [OME.Poster.Draft]
-        public var performances: [OME.Performance.Draft]
-        public var performanceContributors: [OME.Performance.Contributors.Draft]
+        public var scheduleItems: [OME.ScheduleItem.Draft]
+        public var scheduleItemPerformanceDetails: [OME.ScheduleItem.PerformanceDetails.Draft]
+        public var scheduleItemContributors: [OME.ScheduleItem.Contributor.Draft]
         public var relationships: [OME.Relationship]
         public var pendingFileImageAssets: [PendingFileImageAsset]
 
@@ -207,8 +208,9 @@ public extension OME {
             self.channels = []
             self.communicationPosts = []
             self.posters = []
-            self.performances = []
-            self.performanceContributors = []
+            self.scheduleItems = []
+            self.scheduleItemPerformanceDetails = []
+            self.scheduleItemContributors = []
             self.relationships = []
             self.pendingFileImageAssets = []
 
@@ -592,76 +594,91 @@ public extension OME {
                 )
 
                 for (offset, sourceScheduleItem) in sourceScheduleItems.enumerated() {
-                    switch sourceScheduleItem.kind {
-                    case .performance:
-                        let index = offset + 1
-                        let scheduleItemID = sourceScheduleItem.id
-                            ?? Self.localID("\(scheduleID.rawValue.rawValue)-\(stageID.rawValue.rawValue)-\(index)")
-                        let performanceID = OME.ID<OME.Performance>(scheduleItemID.rawValue)
-                        let scopedPerformanceID = OME.Performance.ID(
-                            organizerID: organizerID,
-                            eventID: eventID,
-                            performanceID: performanceID
+                    let index = offset + 1
+                    let scheduleItemID = sourceScheduleItem.id
+                        .map { OME.ID<OME.ScheduleItem>($0.rawValue) }
+                        ?? Self.localID("\(scheduleID.rawValue.rawValue)-\(stageID.rawValue.rawValue)-\(index)")
+                    let scopedScheduleItemID = OME.ScheduleItem.ID(
+                        organizerID: organizerID,
+                        eventID: eventID,
+                        scheduleItemID: scheduleItemID
+                    )
+                    let startTime = resolvedStarts[offset]
+                    let endTime: Date
+
+                    if let explicitEndTime = sourceScheduleItem.endTime {
+                        endTime = try explicitEndTime.localTimeDate(
+                            on: sourceSchedule.date,
+                            in: timeZone
+                        ).advancedPast(startTime, in: timeZone)
+                    } else if sourceScheduleItems.indices.contains(offset + 1) {
+                        endTime = resolvedStarts[offset + 1]
+                    } else {
+                        throw Error.missingScheduleItemEndTime(
+                            scheduleID: scopedScheduleID,
+                            stageID: stageID,
+                            scheduleItemIndex: index
                         )
-                        let startTime = resolvedStarts[offset]
-                        let endTime: Date
+                    }
 
-                        if let explicitEndTime = sourceScheduleItem.endTime {
-                            endTime = try explicitEndTime.localTimeDate(
-                                on: sourceSchedule.date,
-                                in: timeZone
-                            ).advancedPast(startTime, in: timeZone)
-                        } else if sourceScheduleItems.indices.contains(offset + 1) {
-                            endTime = resolvedStarts[offset + 1]
-                        } else {
-                            throw Error.missingPerformanceEndTime(
-                                scheduleID: scopedScheduleID,
-                                stageID: stageID,
-                                performanceIndex: index
-                            )
-                        }
+                    scheduleItems.append(
+                        OME.ScheduleItem.Draft(
+                            id: scopedScheduleItemID,
+                            stageID: stageID,
+                            scheduleID: scheduleID,
+                            kind: sourceScheduleItem.kind,
+                            startTime: startTime,
+                            endTime: endTime,
+                            title: sourceScheduleItem.title,
+                            description: sourceScheduleItem.description
+                        )
+                    )
 
-                        performances.append(
-                            OME.Performance.Draft(
-                                id: scopedPerformanceID,
-                                stageID: stageID,
-                                scheduleID: scheduleID,
-                                startTime: startTime,
-                                endTime: endTime,
-                                title: sourceScheduleItem.title,
-                                description: sourceScheduleItem.description,
+                    if case .known(.performance) = sourceScheduleItem.kind {
+                        scheduleItemPerformanceDetails.append(
+                            OME.ScheduleItem.PerformanceDetails.Draft(
+                                id: scopedScheduleItemID,
                                 recordings: sourceScheduleItem.recordings ?? []
                             )
                         )
+                    }
 
-                        for (sortIndex, contributor) in (sourceScheduleItem.contributors ?? []).enumerated() {
-                            let contributorID = try Self.contributorID(
-                                for: contributor,
-                                in: scheduleContributorIndex,
-                                scheduleID: scopedScheduleID,
-                                stageID: stageID,
-                                performanceIndex: index
-                            )
-                            let contributorActor = Self.actor(for: contributor)
-                            let projection = OME.Performance.Contributors.Draft(
-                                performanceID: scopedPerformanceID,
+                    for (sortIndex, contributor) in (sourceScheduleItem.contributors ?? []).enumerated() {
+                        let contributorID = try Self.contributorID(
+                            for: contributor,
+                            in: scheduleContributorIndex,
+                            scheduleID: scopedScheduleID,
+                            stageID: stageID,
+                            scheduleItemIndex: index
+                        )
+                        let contributorActor = Self.actor(for: contributor)
+                        scheduleItemContributors.append(
+                            OME.ScheduleItem.Contributor.Draft(
+                                id: .init(
+                                    scheduleItemID: scopedScheduleItemID,
+                                    sortIndex: sortIndex
+                                ),
                                 contributorID: contributorID,
                                 anonymousName: Self.anonymousName(for: contributor),
                                 contributorActor: contributorActor,
                                 billing: contributor.billing,
-                                role: contributor.role,
-                                sortIndex: sortIndex
-                            )
-                            performanceContributors.append(projection)
-
-                            if let relationship = Self.performanceContributorRelationship(
-                                performanceID: scopedPerformanceID,
-                                contributorID: contributorID,
-                                contributorActor: contributorActor,
                                 role: contributor.role
-                            ) {
-                                relationships.append(relationship)
-                            }
+                            )
+                        )
+
+                        guard case .known(.performance) = sourceScheduleItem.kind else { continue }
+                        let scopedPerformanceID = OME.Performance.ID(
+                            organizerID: organizerID,
+                            eventID: eventID,
+                            performanceID: OME.ID<OME.Performance>(scheduleItemID.rawValue)
+                        )
+                        if let relationship = Self.performanceContributorRelationship(
+                            performanceID: scopedPerformanceID,
+                            contributorID: contributorID,
+                            contributorActor: contributorActor,
+                            role: contributor.role
+                        ) {
+                            relationships.append(relationship)
                         }
                     }
                 }
@@ -828,7 +845,7 @@ public extension OME {
             in index: ScheduleContributorIndex,
             scheduleID: OME.Schedule.ID,
             stageID: OME.ID<OME.Stage>,
-            performanceIndex: Int
+            scheduleItemIndex: Int
         ) throws -> OME.ID<OME.Contributor>? {
             switch contributor.subject {
             case let .id(contributorID):
@@ -836,7 +853,7 @@ public extension OME {
                     throw Error.missingScheduleContributorID(
                         scheduleID: scheduleID,
                         stageID: stageID,
-                        performanceIndex: performanceIndex,
+                        scheduleItemIndex: scheduleItemIndex,
                         contributorID: contributorID
                     )
                 }
@@ -1137,11 +1154,11 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
         case let .missingSourceRootForFileAsset(path):
             return "Cannot resolve file-backed image asset without a source root URL: \(path)"
 
-        case let .missingPerformanceEndTime(scheduleID, stageID, performanceIndex):
-            return "Missing end time for performance \(performanceIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'."
+        case let .missingScheduleItemEndTime(scheduleID, stageID, scheduleItemIndex):
+            return "Missing end time for schedule item \(scheduleItemIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'."
 
-        case let .missingScheduleContributorID(scheduleID, stageID, performanceIndex, contributorID):
-            return "Missing contributor '\(contributorID.rawValue.rawValue)' for performance \(performanceIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'. Add a contributor file for this ID or use a name/actor schedule contributor."
+        case let .missingScheduleContributorID(scheduleID, stageID, scheduleItemIndex, contributorID):
+            return "Missing contributor '\(contributorID.rawValue.rawValue)' for schedule item \(scheduleItemIndex) in schedule '\(scheduleID.scheduleID.rawValue.rawValue)' on stage '\(stageID.rawValue.rawValue)'. Add a contributor file for this ID or use a name/actor schedule contributor."
 
         case let .missingInlineScheduleDate(eventID):
             return "Inline schedule for event '\(eventID.eventID.rawValue.rawValue)' is missing a date. Add schedule.date or event.startDate."

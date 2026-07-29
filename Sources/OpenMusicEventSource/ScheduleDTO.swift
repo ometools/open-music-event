@@ -1,4 +1,5 @@
 import Foundation
+import Lexicon
 import OpenMusicEventLexicon
 
 public struct ScheduleDTO: Codable, Equatable, Sendable {
@@ -122,12 +123,9 @@ public struct InlineScheduleDTO: Codable, Equatable, Sendable {
 extension ScheduleDTO {
     public struct ScheduleItem: Codable, Equatable, Sendable {
         public typealias ID = OMERecord.ID<ScheduleItem>
+        public typealias Kind = OMERecord.ScheduleItem.Kind
 
-        public enum Kind: String, Codable, Equatable, Sendable {
-            case performance
-        }
-
-        public var kind: Kind
+        public var kind: Open<Kind>
         public var id: ID?
         public var title: String
         public var description: String?
@@ -137,7 +135,7 @@ extension ScheduleDTO {
         public var recordings: [ExternalPlatform.Asset]?
 
         public init(
-            kind: Kind = .performance,
+            kind: Open<Kind> = .known(.performance),
             id: ID? = nil,
             title: String,
             description: String? = nil,
@@ -173,13 +171,13 @@ extension ScheduleDTO {
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             try self.init(
-                kind: container.decode(Kind.self, forKey: .kind),
+                kind: container.decode(Open<Kind>.self, forKey: .kind),
                 from: container
             )
         }
 
         private init(
-            kind: Kind,
+            kind: Open<Kind>,
             from container: KeyedDecodingContainer<CodingKeys>
         ) throws {
             self.kind = kind
@@ -235,8 +233,8 @@ extension ScheduleDTO {
         public struct Contributor: Codable, Equatable, Hashable, Sendable {
             public init(
                 subject: Subject,
-                billing: OMERecord.Performance.Contributors.Billing = .primary,
-                role: OMERecord.Performance.Contributors.Role? = nil
+                billing: OMERecord.ScheduleItem.Contributor.Billing = .primary,
+                role: OMERecord.ScheduleItem.Contributor.Role? = nil
             ) {
                 self.subject = subject
                 self.billing = billing
@@ -244,8 +242,8 @@ extension ScheduleDTO {
             }
 
             public var subject: Subject
-            public var billing: OMERecord.Performance.Contributors.Billing
-            public var role: OMERecord.Performance.Contributors.Role?
+            public var billing: OMERecord.ScheduleItem.Contributor.Billing
+            public var role: OMERecord.ScheduleItem.Contributor.Role?
 
             public enum Subject: Equatable, Hashable, Sendable {
                 case id(OMERecord.ID<OMERecord.Contributor>)
@@ -283,11 +281,11 @@ extension ScheduleDTO {
                 self.init(
                     subject: subject,
                     billing: try container.decodeIfPresent(
-                        OMERecord.Performance.Contributors.Billing.self,
+                        OMERecord.ScheduleItem.Contributor.Billing.self,
                         forKey: .billing
                     ) ?? .primary,
                     role: try container.decodeIfPresent(
-                        OMERecord.Performance.Contributors.Role.self,
+                        OMERecord.ScheduleItem.Contributor.Role.self,
                         forKey: .role
                     )
                 )
@@ -312,7 +310,7 @@ extension ScheduleDTO {
 
         fileprivate static func legacyPerformance(from decoder: any Decoder) throws -> Self {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            return try Self(kind: .performance, from: container)
+            return try Self(kind: .known(.performance), from: container)
         }
     }
 }

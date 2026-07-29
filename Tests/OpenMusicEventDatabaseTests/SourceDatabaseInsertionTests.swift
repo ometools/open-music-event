@@ -119,50 +119,60 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performances,
+            insertion.scheduleItems,
             [
-                OME.Performance.Draft(
-                    id: performanceID("opening-set", eventID: resolvedEventID, organizerID: organizerID),
+                OME.ScheduleItem.Draft(
+                    id: scheduleItemID("opening-set", eventID: resolvedEventID, organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
+                    kind: .known(.performance),
                     startTime: try localDate(scheduleDate, atHour: 18, in: timeZone),
                     endTime: try localDate(scheduleDate, atHour: 19, in: timeZone),
                     title: "Opening Set",
-                    description: nil,
-                    recordings: []
+                    description: nil
                 ),
-                OME.Performance.Draft(
-                    id: performanceID("saturday-meadow-2", eventID: resolvedEventID, organizerID: organizerID),
+                OME.ScheduleItem.Draft(
+                    id: scheduleItemID("saturday-meadow-2", eventID: resolvedEventID, organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
+                    kind: .known(.performance),
                     startTime: try localDate(scheduleDate, atHour: 20, in: timeZone),
                     endTime: try localDate(scheduleDate, atHour: 21, in: timeZone),
                     title: "Late Set",
-                    description: nil,
-                    recordings: []
+                    description: nil
                 ),
-                OME.Performance.Draft(
-                    id: performanceID("closing-set", eventID: resolvedEventID, organizerID: organizerID),
+                OME.ScheduleItem.Draft(
+                    id: scheduleItemID("closing-set", eventID: resolvedEventID, organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
+                    kind: .known(.performance),
                     startTime: try localDate(scheduleDate, atHour: 21, in: timeZone),
                     endTime: try localDate(scheduleDate, atHour: 22, in: timeZone),
                     title: "Closing Set",
-                    description: nil,
-                    recordings: []
+                    description: nil
                 ),
             ]
         )
         expectNoDifference(
-            insertion.performanceContributors,
+            insertion.scheduleItemPerformanceDetails.map(\.recordings),
+            [[], [], []]
+        )
+        expectNoDifference(
+            insertion.scheduleItemContributors,
             [
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID("opening-set", eventID: resolvedEventID, organizerID: organizerID),
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: scheduleItemID("opening-set", eventID: resolvedEventID, organizerID: organizerID),
+                        sortIndex: 0
+                    ),
                     contributorID: id("artist-one"),
                     anonymousName: nil
                 ),
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID("saturday-meadow-2", eventID: resolvedEventID, organizerID: organizerID),
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: scheduleItemID("saturday-meadow-2", eventID: resolvedEventID, organizerID: organizerID),
+                        sortIndex: 0
+                    ),
                     contributorID: nil,
                     anonymousName: "Guest Artist"
                 ),
@@ -190,6 +200,45 @@ struct SourceDatabaseInsertionTests {
                     createdAt: pendingRelationshipCreatedAt
                 ),
             ]
+        )
+    }
+
+    @Test
+    func unknownScheduleItemKindRoundTripsThroughCanonicalSQLiteRows() async throws {
+        let unknownKind = "app.example.scheduleItem#future"
+        let source = try makeSourceRepository(
+            scheduleItems: [
+                "meadow": [
+                    .init(
+                        kind: .unknown(.string(unknownKind)),
+                        id: id("future-item"),
+                        title: "Future Item",
+                        description: "Defined by another scheduler.",
+                        startTime: "18:00",
+                        endTime: "19:00"
+                    )
+                ]
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+
+        expectNoDifference(
+            insertion.scheduleItems.map(\.kind),
+            [.unknown(.string(unknownKind))]
+        )
+        expectNoDifference(insertion.scheduleItemPerformanceDetails, [])
+
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+        let persisted = try await database.read { db in
+            try OME.ScheduleItem.fetchAll(db)
+        }
+        expectNoDifference(
+            persisted.map(\.kind),
+            [.unknown(.string(unknownKind))]
         )
     }
 
@@ -272,7 +321,7 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performances.map(\.id?.performanceID.rawValue.rawValue),
+            insertion.scheduleItems.map(\.id?.scheduleItemID.rawValue.rawValue),
             [
                 "opening-set",
                 "schedule-meadow-2",
@@ -280,7 +329,7 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performances.map(\.scheduleID?.rawValue.rawValue),
+            insertion.scheduleItems.map(\.scheduleID?.rawValue.rawValue),
             [
                 "schedule",
                 "schedule",
@@ -598,10 +647,13 @@ struct SourceDatabaseInsertionTests {
 
         expectNoDifference(insertion.contributors, [])
         expectNoDifference(
-            insertion.performanceContributors,
+            insertion.scheduleItemContributors,
             [
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID("actor-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: scheduleItemID("actor-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                        sortIndex: 0
+                    ),
                     contributorID: nil,
                     anonymousName: nil,
                     contributorActor: OME.Contributor.Actor("artist.bsky.social")
@@ -697,23 +749,27 @@ struct SourceDatabaseInsertionTests {
         )
 
         expectNoDifference(
-            insertion.performanceContributors,
+            insertion.scheduleItemContributors,
             [
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: scheduleItemID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                        sortIndex: 0
+                    ),
                     contributorID: id("artist-one"),
                     anonymousName: nil,
                     billing: .primary,
-                    role: "dj",
-                    sortIndex: 0
+                    role: "dj"
                 ),
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: scheduleItemID("credited-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                        sortIndex: 1
+                    ),
                     contributorID: nil,
                     anonymousName: "Dance Crew",
                     billing: .supporting,
-                    role: "dancer",
-                    sortIndex: 1
+                    role: "dancer"
                 ),
             ]
         )
@@ -788,10 +844,13 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performanceContributors,
+            insertion.scheduleItemContributors,
             [
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID("guest-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: scheduleItemID("guest-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                        sortIndex: 0
+                    ),
                     contributorID: id("schedule-name-Guest%20Artist"),
                     anonymousName: "Guest Artist"
                 )
@@ -861,7 +920,7 @@ struct SourceDatabaseInsertionTests {
                         organizerID: organizerID
                     ),
                     stageID: id("meadow"),
-                    performanceIndex: 1,
+                    scheduleItemIndex: 1,
                     contributorID: id("missing-artist")
                 )
             )
@@ -917,10 +976,13 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performanceContributors,
+            insertion.scheduleItemContributors,
             [
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID("actor-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: scheduleItemID("actor-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                        sortIndex: 0
+                    ),
                     contributorID: id("schedule-actor-artist.bsky.social"),
                     anonymousName: nil,
                     contributorActor: actor
@@ -968,10 +1030,13 @@ struct SourceDatabaseInsertionTests {
             ]
         )
         expectNoDifference(
-            insertion.performanceContributors,
+            insertion.scheduleItemContributors,
             [
-                OME.Performance.Contributors.Draft(
-                    performanceID: performanceID("artist-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                OME.ScheduleItem.Contributor.Draft(
+                    id: .init(
+                        scheduleItemID: scheduleItemID("artist-set", eventID: "testival-source-testival-2026", organizerID: organizerID),
+                        sortIndex: 0
+                    ),
                     contributorID: id("artist-one"),
                     anonymousName: "Artist One"
                 )
@@ -1060,7 +1125,9 @@ struct SourceDatabaseInsertionTests {
                 ObjectIdentifier(OME.Stage.self),
                 ObjectIdentifier(OME.Contributor.self),
                 ObjectIdentifier(OME.Schedule.self),
-                ObjectIdentifier(OME.Performance.self),
+                ObjectIdentifier(OME.ScheduleItem.self),
+                ObjectIdentifier(OME.ScheduleItem.PerformanceDetails.self),
+                ObjectIdentifier(OME.ScheduleItem.Contributor.self),
                 ObjectIdentifier(OME.Channel.self),
                 ObjectIdentifier(OME.Poster.self),
             ]
@@ -1090,7 +1157,9 @@ struct SourceDatabaseInsertionTests {
                 SourceProjectionAssertion(tableID: OME.Stage.tableName, fileFamily: .stage),
                 SourceProjectionAssertion(tableID: OME.Contributor.tableName, fileFamily: .contributor),
                 SourceProjectionAssertion(tableID: OME.Schedule.tableName, fileFamily: .schedule),
-                SourceProjectionAssertion(tableID: OME.Performance.tableName, fileFamily: .schedule),
+                SourceProjectionAssertion(tableID: OME.ScheduleItem.tableName, fileFamily: .schedule),
+                SourceProjectionAssertion(tableID: OME.ScheduleItem.PerformanceDetails.tableName, fileFamily: .schedule),
+                SourceProjectionAssertion(tableID: OME.ScheduleItem.Contributor.tableName, fileFamily: .schedule),
                 SourceProjectionAssertion(tableID: OME.Channel.tableName, fileFamily: .channel),
                 SourceProjectionAssertion(tableID: OME.Poster.tableName, fileFamily: .poster),
             ]
@@ -1720,7 +1789,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func eventWorkspaceSummaryCountsAddedPerformanceInDefaultDatabase() async throws {
+    func eventWorkspaceSummaryCountsAddedCanonicalPerformanceRows() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -1779,25 +1848,29 @@ struct SourceDatabaseInsertionTests {
         )
 
         #expect(summary.availability == .available)
-        #expect(summary.totalCount == 1)
-        #expect(summary.badgeCount == 1)
-        let performanceGroup = try #require(
-            summary.groups.first { $0.id == OME.Performance.tableName }
+        #expect(summary.totalCount == 2)
+        #expect(summary.badgeCount == 2)
+        let scheduleItemGroup = try #require(
+            summary.groups.first { $0.id == OME.ScheduleItem.tableName }
         )
-        #expect(performanceGroup.displayName == "Performance")
-        #expect(performanceGroup.added == 1)
-        #expect(performanceGroup.modified == 0)
-        #expect(performanceGroup.deleted == 0)
-        let performanceRecord = try #require(performanceGroup.records.first)
-        #expect(performanceRecord.kind == .added)
-        #expect(performanceRecord.recordDiff?.contains("Late Addition") == true)
-        let performanceComparison = try #require(
-            summary.recordComparisons[performanceRecord]?.as(OME.Performance.self)
+        #expect(scheduleItemGroup.displayName == "ScheduleItem")
+        #expect(scheduleItemGroup.added == 1)
+        #expect(scheduleItemGroup.modified == 0)
+        #expect(scheduleItemGroup.deleted == 0)
+        let scheduleItemRecord = try #require(scheduleItemGroup.records.first)
+        #expect(scheduleItemRecord.kind == .added)
+        #expect(scheduleItemRecord.recordDiff?.contains("Late Addition") == true)
+        let scheduleItemComparison = try #require(
+            summary.recordComparisons[scheduleItemRecord]?.as(OME.ScheduleItem.self)
         )
-        #expect(performanceComparison.left == nil)
-        #expect(performanceComparison.right?.title == "Late Addition")
+        #expect(scheduleItemComparison.left == nil)
+        #expect(scheduleItemComparison.right?.title == "Late Addition")
+        let performanceDetailsGroup = try #require(
+            summary.groups.first { $0.id == OME.ScheduleItem.PerformanceDetails.tableName }
+        )
+        #expect(performanceDetailsGroup.added == 1)
         let titleChange = try #require(
-            performanceRecord.fieldChanges.first { $0.columnName == "title" }
+            scheduleItemRecord.fieldChanges.first { $0.columnName == "title" }
         )
         expectNoDifference(
             titleChange,
@@ -2765,12 +2838,13 @@ struct SourceDatabaseInsertionTests {
         let scheduleDate = try #require(LocalDate("2026-08-01"))
 
         expectNoDifference(
-            insertion.performances,
+            insertion.scheduleItems,
             [
-                OME.Performance.Draft(
-                    id: performanceID("late-night", eventID: "2025", organizerID: organizerID),
+                OME.ScheduleItem.Draft(
+                    id: scheduleItemID("late-night", eventID: "2025", organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
+                    kind: .known(.performance),
                     startTime: try localDate(scheduleDate, atHour: 23, minute: 30, in: timeZone),
                     endTime: try localDate(
                         scheduleDate,
@@ -2780,13 +2854,13 @@ struct SourceDatabaseInsertionTests {
                         in: timeZone
                     ),
                     title: "Late Night",
-                    description: nil,
-                    recordings: []
+                    description: nil
                 ),
-                OME.Performance.Draft(
-                    id: performanceID("after-midnight", eventID: "2025", organizerID: organizerID),
+                OME.ScheduleItem.Draft(
+                    id: scheduleItemID("after-midnight", eventID: "2025", organizerID: organizerID),
                     stageID: id("meadow"),
                     scheduleID: id("saturday"),
+                    kind: .known(.performance),
                     startTime: try localDate(
                         scheduleDate,
                         atHour: 0,
@@ -2801,8 +2875,7 @@ struct SourceDatabaseInsertionTests {
                         in: timeZone
                     ),
                     title: "After Midnight",
-                    description: nil,
-                    recordings: []
+                    description: nil
                 ),
             ]
         )
@@ -2841,7 +2914,7 @@ struct SourceDatabaseInsertionTests {
         )
 
         expectNoDifference(
-            insertion.performances.map(\.recordings),
+            insertion.scheduleItemPerformanceDetails.map(\.recordings),
             [
                 [
                     externalRecording,
@@ -2870,10 +2943,10 @@ struct SourceDatabaseInsertionTests {
         } catch let error as OME.SourceDatabaseInsertion.Error {
             expectNoDifference(
                 error,
-                .missingPerformanceEndTime(
+                .missingScheduleItemEndTime(
                     scheduleID: scheduleID("saturday", eventID: "testival-2026", organizerID: organizerID),
                     stageID: id("meadow"),
-                    performanceIndex: 1
+                    scheduleItemIndex: 1
                 )
             )
         } catch {
@@ -4090,6 +4163,18 @@ private func performanceID(
         organizerID: organizerID,
         eventID: id(eventID),
         performanceID: id(performanceID)
+    )
+}
+
+private func scheduleItemID(
+    _ scheduleItemID: String,
+    eventID: String,
+    organizerID: OME.Organizer.ID
+) -> OME.ScheduleItem.ID {
+    OME.ScheduleItem.ID(
+        organizerID: organizerID,
+        eventID: id(eventID),
+        scheduleItemID: id(scheduleItemID)
     )
 }
 

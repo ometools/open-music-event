@@ -562,7 +562,115 @@ extension OpenMusicEvent {
     }
 }
 
-// MARK: - Performance  (app.openmusicevent.performance)
+// MARK: - ScheduleItem
+
+extension OpenMusicEvent {
+    @Table("scheduleItems")
+    public struct ScheduleItem: Equatable, Sendable, Identifiable, TimelineRepresentable {
+        @Selection public struct ID: Codable, Hashable, Sendable {
+            public init(
+                organizerID: OME.Organizer.ID,
+                eventID: OME.ID<OME.Event>,
+                scheduleItemID: OME.ID<OME.ScheduleItem>
+            ) {
+                self.organizerID = organizerID
+                self.eventID = eventID
+                self.scheduleItemID = scheduleItemID
+            }
+
+            public var organizerID: OME.Organizer.ID
+            public var eventID: OME.ID<OME.Event>
+            public var scheduleItemID: OME.ID<OME.ScheduleItem>
+        }
+
+        public var id: ID
+        public var stageID: OME.ID<OME.Stage>
+        public var scheduleID: OME.ID<OME.Schedule>?
+        public var kind: Open<Kind>
+        public var startTime: Date
+        public var endTime: Date
+        public var title: String
+        public var description: String?
+    }
+}
+
+extension OpenMusicEvent.ScheduleItem {
+    public enum Kind: String, Codable, Equatable, Hashable, Sendable, SQLiteType, OpenValue {
+        case performance
+    }
+
+    @Table("scheduleItemPerformanceDetails")
+    public struct PerformanceDetails: Equatable, Sendable, Identifiable {
+        public var id: OME.ScheduleItem.ID
+
+        @Column(as: [ExternalPlatform.Asset].JSONRepresentation.self)
+        public var recordings: [ExternalPlatform.Asset]
+    }
+
+    @Table("scheduleItemContributors")
+    public struct Contributor: Equatable, Sendable, Identifiable {
+        @Selection public struct ID: Codable, Hashable, Sendable {
+            public init(
+                scheduleItemID: OME.ScheduleItem.ID,
+                sortIndex: Int
+            ) {
+                self.organizerID = scheduleItemID.organizerID
+                self.eventID = scheduleItemID.eventID
+                self.scheduleItemID = scheduleItemID.scheduleItemID
+                self.sortIndex = sortIndex
+            }
+
+            public var organizerID: OME.Organizer.ID
+            public var eventID: OME.ID<OME.Event>
+            public var scheduleItemID: OME.ID<OME.ScheduleItem>
+            public var sortIndex: Int
+        }
+
+        public init(
+            id: ID,
+            contributorID: OME.ID<OME.Contributor>? = nil,
+            anonymousName: String? = nil,
+            contributorActor: OME.Contributor.Actor? = nil,
+            billing: Billing = .primary,
+            role: Role? = nil
+        ) {
+            self.id = id
+            self.contributorID = contributorID
+            self.anonymousName = anonymousName
+            self.contributorActor = contributorActor
+            self.billing = billing
+            self.role = role
+        }
+
+        public var id: ID
+        public var contributorID: OME.ID<OME.Contributor>?
+        public var anonymousName: String?
+        public var contributorActor: OME.Contributor.Actor?
+        public var billing: Billing = .primary
+        public var role: Role?
+    }
+}
+
+extension OpenMusicEvent.ScheduleItem.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.ScheduleItem.PerformanceDetails.Draft: Codable, Equatable, Sendable {}
+extension OpenMusicEvent.ScheduleItem.Contributor.Draft: Codable, Equatable, Sendable {}
+
+extension OpenMusicEvent.ScheduleItem.Contributor {
+    public enum Billing: String, Codable, Equatable, Hashable, Sendable, SQLiteType {
+        case primary
+        case supporting
+    }
+
+    public struct Role: Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral, RawRepresentable, SQLiteType {
+        public var type: String
+        public var rawValue: String { type }
+        public init(stringLiteral value: String) { self.type = value }
+        public init(_ type: String) { self.type = type }
+        public init(rawValue: String) { self.type = rawValue }
+    }
+}
+
+// MARK: - Performance compatibility projection  (app.openmusicevent.performance)
 extension OpenMusicEvent {
     @Table("performances")
     public struct Performance: Equatable, Sendable, Identifiable, TimelineRepresentable {
@@ -631,19 +739,8 @@ extension OpenMusicEvent.Performance {
 
 extension OpenMusicEvent.Performance.Contributors {
     public typealias Draft = Self
-
-    public enum Billing: String, Codable, Equatable, Hashable, Sendable, SQLiteType {
-        case primary
-        case supporting
-    }
-
-    public struct Role: Codable, Equatable, Hashable, Sendable, ExpressibleByStringLiteral, RawRepresentable, SQLiteType {
-        public var type: String
-        public var rawValue: String { type }
-        public init(stringLiteral value: String) { self.type = value }
-        public init(_ type: String) { self.type = type }
-        public init(rawValue: String) { self.type = rawValue }
-    }
+    public typealias Billing = OME.ScheduleItem.Contributor.Billing
+    public typealias Role = OME.ScheduleItem.Contributor.Role
 }
 
 // MARK: - Contributor  (app.openmusicevent.contributor)

@@ -39,8 +39,18 @@ public extension OME {
                 fileFamily: .schedule
             ),
             OpenMusicEventSourceProjection(
-                tableType: Performance.self,
-                recordType: Performance.sourceRecordType,
+                tableType: ScheduleItem.self,
+                recordType: ScheduleItem.sourceRecordType,
+                fileFamily: .schedule
+            ),
+            OpenMusicEventSourceProjection(
+                tableType: ScheduleItem.PerformanceDetails.self,
+                recordType: ScheduleItem.PerformanceDetails.sourceRecordType,
+                fileFamily: .schedule
+            ),
+            OpenMusicEventSourceProjection(
+                tableType: ScheduleItem.Contributor.self,
+                recordType: ScheduleItem.Contributor.sourceRecordType,
                 fileFamily: .schedule
             ),
             OpenMusicEventSourceProjection(
@@ -148,7 +158,9 @@ extension OME.Contributor: SourceEditableTable {
 }
 
 extension OME.Schedule: SourceEditableTable {}
-extension OME.Performance: SourceEditableTable {}
+extension OME.ScheduleItem: SourceEditableTable {}
+extension OME.ScheduleItem.PerformanceDetails: SourceEditableTable {}
+extension OME.ScheduleItem.Contributor: SourceEditableTable {}
 extension OME.Channel: SourceEditableTable {}
 
 extension OME.Poster: SourceEditableTable {

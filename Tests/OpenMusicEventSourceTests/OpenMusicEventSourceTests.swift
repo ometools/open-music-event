@@ -495,7 +495,10 @@ struct OpenMusicEventSourceTests {
         let scheduleItems = try #require(
             repository.events.first?.components.schedules?.first?.data.scheduleItems["main"]
         )
-        expectNoDifference(scheduleItems.map(\.kind), [.performance, .performance])
+        expectNoDifference(
+            scheduleItems.map(\.kind),
+            [.known(.performance), .known(.performance)]
+        )
         expectNoDifference(scheduleItems.map(\.id?.rawValue.rawValue), ["opening-set", "closing-set"])
         expectNoDifference(scheduleItems.map(\.title), ["Opening: Live", "Closing Set"])
         expectNoDifference(

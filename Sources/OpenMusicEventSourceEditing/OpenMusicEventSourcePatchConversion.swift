@@ -55,8 +55,9 @@ public extension OpenMusicEventSourcePatchConversion {
             let sourceSchedules = try sourceEvent.sourceScheduleRendering(
                 from: sourceRecords.schedules,
                 contributors: sourceRecords.contributors,
-                performances: sourceRecords.performances,
-                performanceContributors: sourceRecords.performanceContributors,
+                scheduleItems: sourceRecords.scheduleItems,
+                performanceDetails: sourceRecords.scheduleItemPerformanceDetails,
+                scheduleItemContributors: sourceRecords.scheduleItemContributors,
                 event: event,
                 sourceInlineSchedule: sourceInlineSchedule
             )
@@ -144,9 +145,10 @@ private struct OpenMusicEventSourceRecords {
     var contributors: [OME.Contributor] = []
     var posters: [OME.Poster] = []
     var schedules: [OME.Schedule] = []
-    var performances: [OME.Performance] = []
+    var scheduleItems: [OME.ScheduleItem] = []
+    var scheduleItemPerformanceDetails: [OME.ScheduleItem.PerformanceDetails] = []
     var channels: [OME.Channel] = []
-    var performanceContributors: [OME.Performance.Contributors] = []
+    var scheduleItemContributors: [OME.ScheduleItem.Contributor] = []
 
     init() {}
 
@@ -183,8 +185,20 @@ private struct OpenMusicEventSourceRecords {
                         .where { $0.id.eventID.eq(eventID.eventID) }
                         .fetchAll(db)
 
-                case OME.Performance.tableName:
-                    records.performances = try OME.Performance
+                case OME.ScheduleItem.tableName:
+                    records.scheduleItems = try OME.ScheduleItem
+                        .where { $0.id.organizerID.eq(eventID.organizerID) }
+                        .where { $0.id.eventID.eq(eventID.eventID) }
+                        .fetchAll(db)
+
+                case OME.ScheduleItem.PerformanceDetails.tableName:
+                    records.scheduleItemPerformanceDetails = try OME.ScheduleItem.PerformanceDetails
+                        .where { $0.id.organizerID.eq(eventID.organizerID) }
+                        .where { $0.id.eventID.eq(eventID.eventID) }
+                        .fetchAll(db)
+
+                case OME.ScheduleItem.Contributor.tableName:
+                    records.scheduleItemContributors = try OME.ScheduleItem.Contributor
                         .where { $0.id.organizerID.eq(eventID.organizerID) }
                         .where { $0.id.eventID.eq(eventID.eventID) }
                         .fetchAll(db)
@@ -212,11 +226,6 @@ private struct OpenMusicEventSourceRecords {
             }
         }
 
-        records.performanceContributors = try OME.Performance.Contributors
-            .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
-            .where { $0.performanceID.eventID.eq(eventID.eventID) }
-            .fetchAll(db)
-
         self = records
     }
 }
@@ -230,26 +239,30 @@ private extension OpenMusicEventSourceEvent {
     func sourceScheduleRendering(
         from schedules: [OME.Schedule],
         contributors: [OME.Contributor],
-        performances: [OME.Performance],
-        performanceContributors: [OME.Performance.Contributors],
+        scheduleItems: [OME.ScheduleItem],
+        performanceDetails: [OME.ScheduleItem.PerformanceDetails],
+        scheduleItemContributors: [OME.ScheduleItem.Contributor],
         event: OME.Event,
         sourceInlineSchedule: InlineScheduleDTO?
     ) throws -> SourceScheduleRendering {
         let schedulesByID = Dictionary(
             uniqueKeysWithValues: schedules.map { ($0.id.scheduleID, $0) }
         )
-        let performancesByScheduleID = Dictionary(
-            grouping: performances.compactMap { performance in
-                performance.scheduleID.map { ($0, performance) }
+        let scheduleItemsByScheduleID = Dictionary(
+            grouping: scheduleItems.compactMap { scheduleItem in
+                scheduleItem.scheduleID.map { ($0, scheduleItem) }
             },
             by: \.0
         )
         .mapValues { pairs in
             pairs.map(\.1)
         }
-        let contributorsByPerformanceID = Dictionary(
-            grouping: performanceContributors,
-            by: \.performanceID.performanceID
+        let performanceDetailsByScheduleItemID = Dictionary(
+            uniqueKeysWithValues: performanceDetails.map { ($0.id.scheduleItemID, $0) }
+        )
+        let contributorsByScheduleItemID = Dictionary(
+            grouping: scheduleItemContributors,
+            by: \.id.scheduleItemID
         )
         let contributorIDsWithDID = Set(
             contributors.compactMap { contributor in
@@ -268,10 +281,11 @@ private extension OpenMusicEventSourceEvent {
                 inlineSchedule: schedule.inlineSourceDTO(
                     scheduleItems: sourceScheduleItems(
                         scheduleID: scheduleID,
-                        performances: performancesByScheduleID[scheduleID] ?? [],
+                        scheduleItems: scheduleItemsByScheduleID[scheduleID] ?? [],
+                        performanceDetails: performanceDetailsByScheduleItemID,
                         contributorIDsWithDID: contributorIDsWithDID,
-                        performanceContributors: contributorsByPerformanceID,
-                        sourceScheduleItemsByPerformanceID: sourceInlineSchedule?.sourceScheduleItemsByPerformanceID(
+                        scheduleItemContributors: contributorsByScheduleItemID,
+                        sourceScheduleItemsByID: sourceInlineSchedule?.sourceScheduleItemsByID(
                             scheduleID: scheduleID
                         ) ?? [:],
                         eventTimeZone: event.timeZone
@@ -297,10 +311,11 @@ private extension OpenMusicEventSourceEvent {
                         preservingSourceEventID: sourceSchedule.eventID,
                         scheduleItems: sourceScheduleItems(
                             scheduleID: scheduleID,
-                            performances: performancesByScheduleID[scheduleID] ?? [],
+                            scheduleItems: scheduleItemsByScheduleID[scheduleID] ?? [],
+                            performanceDetails: performanceDetailsByScheduleItemID,
                             contributorIDsWithDID: contributorIDsWithDID,
-                            performanceContributors: contributorsByPerformanceID,
-                            sourceScheduleItemsByPerformanceID: sourceSchedule.sourceScheduleItemsByPerformanceID(
+                            scheduleItemContributors: contributorsByScheduleItemID,
+                            sourceScheduleItemsByID: sourceSchedule.sourceScheduleItemsByID(
                                 scheduleID: scheduleID
                             ),
                             eventTimeZone: event.timeZone
@@ -332,10 +347,11 @@ private extension OpenMusicEventSourceEvent {
                         preservingSourceEventID: nil,
                         scheduleItems: sourceScheduleItems(
                             scheduleID: scheduleID,
-                            performances: performancesByScheduleID[scheduleID] ?? [],
+                            scheduleItems: scheduleItemsByScheduleID[scheduleID] ?? [],
+                            performanceDetails: performanceDetailsByScheduleItemID,
                             contributorIDsWithDID: contributorIDsWithDID,
-                            performanceContributors: contributorsByPerformanceID,
-                            sourceScheduleItemsByPerformanceID: sourceInlineSchedule?.sourceScheduleItemsByPerformanceID(
+                            scheduleItemContributors: contributorsByScheduleItemID,
+                            sourceScheduleItemsByID: sourceInlineSchedule?.sourceScheduleItemsByID(
                                 scheduleID: scheduleID
                             ) ?? [:],
                             eventTimeZone: event.timeZone
@@ -819,42 +835,44 @@ private extension String {
 
 private func sourceScheduleItems(
     scheduleID: OME.ID<OME.Schedule>,
-    performances: [OME.Performance],
+    scheduleItems: [OME.ScheduleItem],
+    performanceDetails: [OME.ID<OME.ScheduleItem>: OME.ScheduleItem.PerformanceDetails],
     contributorIDsWithDID: Set<OME.ID<OME.Contributor>>,
-    performanceContributors: [OME.ID<OME.Performance>: [OME.Performance.Contributors]],
-    sourceScheduleItemsByPerformanceID: [OME.ID<OME.Performance>: SourcePerformanceScheduleItem],
+    scheduleItemContributors: [OME.ID<OME.ScheduleItem>: [OME.ScheduleItem.Contributor]],
+    sourceScheduleItemsByID: [OME.ID<OME.ScheduleItem>: SourceScheduleItem],
     eventTimeZone: TimeZone
 ) -> [String: [ScheduleDTO.ScheduleItem]] {
-    let performancesByStageID = Dictionary(
-        grouping: performances,
+    let scheduleItemsByStageID = Dictionary(
+        grouping: scheduleItems,
         by: \.stageID
     )
 
     return Dictionary(
-        uniqueKeysWithValues: performancesByStageID.keys.sorted {
+        uniqueKeysWithValues: scheduleItemsByStageID.keys.sorted {
             $0.rawValue.rawValue < $1.rawValue.rawValue
         }
         .map { stageID in
-            let performances = performancesByStageID[stageID] ?? []
-            let sortedPerformances = performances.sorted { lhs, rhs in
+            let scheduleItems = scheduleItemsByStageID[stageID] ?? []
+            let sortedScheduleItems = scheduleItems.sorted { lhs, rhs in
                 if lhs.startTime != rhs.startTime { return lhs.startTime < rhs.startTime }
                 if lhs.endTime != rhs.endTime { return lhs.endTime < rhs.endTime }
-                return lhs.id.performanceID.rawValue.rawValue < rhs.id.performanceID.rawValue.rawValue
+                return lhs.id.scheduleItemID.rawValue.rawValue < rhs.id.scheduleItemID.rawValue.rawValue
             }
             return (
                 stageID.rawValue.rawValue,
-                sortedPerformances.enumerated().map { offset, performance in
-                    let inferredID = OME.ID<OME.Performance>(
+                sortedScheduleItems.enumerated().map { offset, scheduleItem in
+                    let inferredID = OME.ID<OME.ScheduleItem>(
                         .init("\(scheduleID.rawValue.rawValue)-\(stageID.rawValue.rawValue)-\(offset + 1)")
                     )
-                    let nextPerformance = sortedPerformances.indices.contains(offset + 1)
-                        ? sortedPerformances[offset + 1]
+                    let nextScheduleItem = sortedScheduleItems.indices.contains(offset + 1)
+                        ? sortedScheduleItems[offset + 1]
                         : nil
-                    return performance.sourceDTO(
+                    return scheduleItem.sourceDTO(
                         inferredID: inferredID,
-                        preservingSource: sourceScheduleItemsByPerformanceID[performance.id.performanceID],
-                        nextPerformance: nextPerformance,
-                        contributors: performanceContributors[performance.id.performanceID] ?? [],
+                        preservingSource: sourceScheduleItemsByID[scheduleItem.id.scheduleItemID],
+                        nextScheduleItem: nextScheduleItem,
+                        performanceDetails: performanceDetails[scheduleItem.id.scheduleItemID],
+                        contributors: scheduleItemContributors[scheduleItem.id.scheduleItemID] ?? [],
                         contributorIDsWithDID: contributorIDsWithDID,
                         eventTimeZone: eventTimeZone
                     )
@@ -864,17 +882,17 @@ private func sourceScheduleItems(
     )
 }
 
-private struct SourcePerformanceScheduleItem {
+private struct SourceScheduleItem {
     var id: ScheduleDTO.ScheduleItem.ID?
     var hasExplicitEndTime: Bool
     var contributors: [ScheduleDTO.ScheduleItem.Contributor]?
 }
 
 private extension ScheduleDTO {
-    func sourceScheduleItemsByPerformanceID(
+    func sourceScheduleItemsByID(
         scheduleID: OME.ID<OME.Schedule>
-    ) -> [OME.ID<OME.Performance>: SourcePerformanceScheduleItem] {
-        sourcePerformanceScheduleItemLookup(
+    ) -> [OME.ID<OME.ScheduleItem>: SourceScheduleItem] {
+        sourceScheduleItemLookup(
             scheduleID: scheduleID,
             scheduleItems: scheduleItems
         )
@@ -882,31 +900,31 @@ private extension ScheduleDTO {
 }
 
 private extension InlineScheduleDTO {
-    func sourceScheduleItemsByPerformanceID(
+    func sourceScheduleItemsByID(
         scheduleID: OME.ID<OME.Schedule>
-    ) -> [OME.ID<OME.Performance>: SourcePerformanceScheduleItem] {
-        sourcePerformanceScheduleItemLookup(
+    ) -> [OME.ID<OME.ScheduleItem>: SourceScheduleItem] {
+        sourceScheduleItemLookup(
             scheduleID: scheduleID,
             scheduleItems: scheduleItems
         )
     }
 }
 
-private func sourcePerformanceScheduleItemLookup(
+private func sourceScheduleItemLookup(
     scheduleID: OME.ID<OME.Schedule>,
     scheduleItems: [String: [ScheduleDTO.ScheduleItem]]
-) -> [OME.ID<OME.Performance>: SourcePerformanceScheduleItem] {
+) -> [OME.ID<OME.ScheduleItem>: SourceScheduleItem] {
     Dictionary(
         uniqueKeysWithValues: scheduleItems.flatMap { stageID, scheduleItems in
             scheduleItems.enumerated().map { offset, scheduleItem in
-                let performanceID = scheduleItem.id
-                    .map { OME.ID<OME.Performance>($0.rawValue) }
-                    ?? OME.ID<OME.Performance>(
+                let scheduleItemID = scheduleItem.id
+                    .map { OME.ID<OME.ScheduleItem>($0.rawValue) }
+                    ?? OME.ID<OME.ScheduleItem>(
                         .init("\(scheduleID.rawValue.rawValue)-\(stageID)-\(offset + 1)")
                     )
                 return (
-                    performanceID,
-                    SourcePerformanceScheduleItem(
+                    scheduleItemID,
+                    SourceScheduleItem(
                         id: scheduleItem.id,
                         hasExplicitEndTime: scheduleItem.endTime != nil,
                         contributors: scheduleItem.contributors
@@ -1004,59 +1022,70 @@ private extension OME.Schedule {
     }
 }
 
-private extension OME.Performance {
+private extension OME.ScheduleItem {
     func sourceDTO(
-        inferredID: OME.ID<OME.Performance>,
-        preservingSource source: SourcePerformanceScheduleItem?,
-        nextPerformance: OME.Performance?,
-        contributors: [OME.Performance.Contributors],
+        inferredID: OME.ID<OME.ScheduleItem>,
+        preservingSource source: SourceScheduleItem?,
+        nextScheduleItem: OME.ScheduleItem?,
+        performanceDetails: OME.ScheduleItem.PerformanceDetails?,
+        contributors: [OME.ScheduleItem.Contributor],
         contributorIDsWithDID: Set<OME.ID<OME.Contributor>>,
         eventTimeZone: TimeZone
     ) -> ScheduleDTO.ScheduleItem {
         let contributorCredits = contributors
             .sorted { lhs, rhs in
-                if lhs.sortIndex != rhs.sortIndex { return lhs.sortIndex < rhs.sortIndex }
+                if lhs.id.sortIndex != rhs.id.sortIndex { return lhs.id.sortIndex < rhs.id.sortIndex }
                 return lhs.sourceOrderKey < rhs.sourceOrderKey
             }
             .compactMap {
                 $0.sourceContributorCredit(contributorIDsWithDID: contributorIDsWithDID)
             }
         return ScheduleDTO.ScheduleItem(
+            kind: kind,
             id: source?.id ?? (
-                id.performanceID == inferredID
+                id.scheduleItemID == inferredID
                     ? nil
-                    : ScheduleDTO.ScheduleItem.ID(id.performanceID.rawValue)
+                    : ScheduleDTO.ScheduleItem.ID(id.scheduleItemID.rawValue)
             ),
             title: title,
             description: description,
             startTime: startTime.sourceLocalTime(in: eventTimeZone),
             endTime: sourceEndTime(
                 preservingSource: source,
-                nextPerformance: nextPerformance,
+                nextScheduleItem: nextScheduleItem,
                 eventTimeZone: eventTimeZone
             ),
             contributors: contributorCredits.sourceOrdered(
                 preserving: source?.contributors,
                 by: \.sourceOrderKey
             ),
-            recordings: recordings.isEmpty ? nil : recordings
+            recordings: sourceRecordings(performanceDetails: performanceDetails)
         )
     }
 
+    func sourceRecordings(
+        performanceDetails: OME.ScheduleItem.PerformanceDetails?
+    ) -> [ExternalPlatform.Asset]? {
+        guard case .known(.performance) = kind,
+              performanceDetails?.recordings.isEmpty == false
+        else { return nil }
+        return performanceDetails?.recordings
+    }
+
     func sourceEndTime(
-        preservingSource source: SourcePerformanceScheduleItem?,
-        nextPerformance: OME.Performance?,
+        preservingSource source: SourceScheduleItem?,
+        nextScheduleItem: OME.ScheduleItem?,
         eventTimeZone: TimeZone
     ) -> String? {
         if source?.hasExplicitEndTime == false,
-           nextPerformance?.startTime == endTime {
+           nextScheduleItem?.startTime == endTime {
             return nil
         }
         return endTime.sourceLocalTime(in: eventTimeZone)
     }
 }
 
-private extension OME.Performance.Contributors {
+private extension OME.ScheduleItem.Contributor {
     var sourceOrderKey: String {
         if let anonymousName {
             return "name:\(anonymousName)"

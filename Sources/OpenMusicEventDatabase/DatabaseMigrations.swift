@@ -786,6 +786,26 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Key OpenMusicEvent schedule item contributors") { db in
+                try #sql("""
+                    DELETE FROM "scheduleItemContributors"
+                    WHERE "rowid" NOT IN (
+                      SELECT MAX("rowid")
+                      FROM "scheduleItemContributors"
+                      GROUP BY "organizerID", "eventID", "scheduleItemID", "sortIndex"
+                    )
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS "scheduleItemContributors_item_sortIndex"
+                    ON "scheduleItemContributors" (
+                      "organizerID", "eventID", "scheduleItemID", "sortIndex"
+                    )
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

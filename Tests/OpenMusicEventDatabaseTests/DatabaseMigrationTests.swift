@@ -142,6 +142,17 @@ struct DatabaseMigrationTests {
             #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItems""#) == 1)
             #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItemPerformanceDetails""#) == 1)
             #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItemContributors""#) == 1)
+            expectNoDifference(
+                try String.fetchAll(
+                    db,
+                    sql: """
+                        SELECT "name"
+                        FROM pragma_index_info('scheduleItemContributors_item_sortIndex')
+                        ORDER BY "seqno"
+                        """
+                ),
+                ["organizerID", "eventID", "scheduleItemID", "sortIndex"]
+            )
 
             // The current app can keep using its shipped performance model while call sites migrate.
             try db.execute(sql: """
@@ -1281,7 +1292,7 @@ struct DatabaseMigrationTests {
 
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(database)
+        try migrator.migrate(database, upTo: "Add OpenMusicEvent performance contributor credits")
 
         try await database.read { db in
             #expect(try db.tableExists("contributors"))
