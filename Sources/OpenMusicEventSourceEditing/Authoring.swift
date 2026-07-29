@@ -253,7 +253,6 @@ public struct Authoring<Content: FeatureProtocol> {
     @Dependency(WorkspacePreparationClient.self) var preparation
 
     public var body: some Feature {
-        let _ = Self._logChanges()
         Update { state, action in
             switch action {
             case .content:

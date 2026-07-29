@@ -178,6 +178,7 @@ public struct EditPerformance {
         public init(
             eventID: OMERecord.Event.ID,
             schedule: OMERecord.Schedule,
+            schedules: [OMERecord.Schedule],
             stages: [OMERecord.Stage],
             timeZone: TimeZone,
             selectedStageID: OMERecord.ID<OMERecord.Stage>? = nil,
@@ -192,6 +193,7 @@ public struct EditPerformance {
                 ?? schedule.date.atStartOfDay(in: timeZone)
             self.eventID = eventID
             self.schedule = schedule
+            self.schedules = schedules
             self.contributorRelationshipPicker = ContributorRelationshipPicker.State(
                 contributors: contributors
             )
@@ -214,6 +216,7 @@ public struct EditPerformance {
         public init(
             eventID: OMERecord.Event.ID,
             schedule: OMERecord.Schedule,
+            schedules: [OMERecord.Schedule],
             stages: [OMERecord.Stage],
             timeZone: TimeZone,
             performance: OMERecord.Performance,
@@ -223,6 +226,7 @@ public struct EditPerformance {
             self.init(
                 eventID: eventID,
                 schedule: schedule,
+                schedules: schedules,
                 stages: stages,
                 timeZone: timeZone,
                 selectedStageID: performance.stageID,
@@ -239,7 +243,8 @@ public struct EditPerformance {
         }
 
         public let eventID: OMERecord.Event.ID
-        public let schedule: OMERecord.Schedule
+        public var schedule: OMERecord.Schedule
+        public let schedules: [OMERecord.Schedule]
         public let stageOptions: [StageOption]
         @DebugSnapshotIgnored
         public let timeZone: TimeZone
@@ -259,12 +264,28 @@ public struct EditPerformance {
 
         public var id: String {
             [
-                schedule.id.organizerID.description,
-                schedule.id.eventID.rawValue.rawValue,
-                schedule.id.scheduleID.rawValue.rawValue,
+                eventID.organizerID.description,
+                eventID.eventID.rawValue.rawValue,
                 performanceID?.rawValue.rawValue ?? "new",
             ]
             .joined(separator: ":")
+        }
+
+        public var selectedScheduleID: OMERecord.ID<OMERecord.Schedule> {
+            get { schedule.id.scheduleID }
+            set {
+                guard newValue != schedule.id.scheduleID,
+                      let selectedSchedule = schedules.first(where: {
+                          $0.id.scheduleID == newValue
+                      })
+                else { return }
+
+                let startDayOffset = timeRangeSelection.startDayOffset
+                schedule = selectedSchedule
+                timeRangeSelection.anchorDate = selectedSchedule.date.atStartOfDay(in: timeZone)
+                timeRangeSelection.preferredWindow = Self.preferredWindow(for: selectedSchedule)
+                timeRangeSelection.setStartDayOffset(startDayOffset)
+            }
         }
 
         public var canSubmit: Bool {
@@ -618,7 +639,7 @@ fileprivate struct EditPerformanceSaveRequest: Sendable {
         self.endTime = state.endTimeSelection
         self.eventID = state.eventID
         self.performanceID = state.performanceID
-        self.scheduleID = state.schedule.id.scheduleID
+        self.scheduleID = state.selectedScheduleID
         self.stageID = stageID
         self.startTime = state.startTimeSelection
         self.title = state.trimmedTitle
@@ -1104,6 +1125,14 @@ public struct EditPerformanceView: View {
 
     private var timeSection: some View {
         Section("Time") {
+            if store.schedules.count > 1 {
+                Picker("Schedule", selection: $store.selectedScheduleID) {
+                    ForEach(store.schedules) { schedule in
+                        Text(ScheduleViewer.scheduleTitle(schedule))
+                            .tag(schedule.id.scheduleID)
+                    }
+                }
+            }
             DateTimeRangePicker(selection: $store.timeRangeSelection)
         }
     }

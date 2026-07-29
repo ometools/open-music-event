@@ -264,6 +264,10 @@ struct ScheduleAuthoringTests {
             selectedContext.schedule.id.scheduleID
         )
         expectNoDifference(
+            editPerformance.schedules.map(\.id.scheduleID),
+            [selectedContext.schedule.id.scheduleID, fixture.schedule.id.scheduleID]
+        )
+        expectNoDifference(
             editPerformance.selectedStageID,
             selectedContext.stage.id.stageID
         )
@@ -420,6 +424,10 @@ struct ScheduleAuthoringTests {
         )
         expectNoDifference(editPerformance.schedule.date, scheduleDate)
         expectNoDifference(editPerformance.selectedStageID, stageID.stageID)
+        expectNoDifference(
+            editPerformance.schedules.map(\.id.scheduleID),
+            [OMERecord.Schedule.singletonID]
+        )
         let schedules = try await database.read { db in
             try OMERecord.Schedule.fetchAll(db)
         }
@@ -935,6 +943,126 @@ struct ScheduleAuthoringTests {
     }
 
     @Test
+    func movesCrossMidnightPerformanceToAnotherScheduleWithoutDroppingFormContent() async throws {
+        let database = try makePreparedDatabase()
+        let timeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let fixture = try await seedScheduleFixture(
+            database: database,
+            timeZone: timeZone
+        )
+        let targetContext = try await seedAdditionalScheduleContext(
+            database: database,
+            eventID: fixture.eventID
+        )
+        let performanceID = OMERecord.Performance.ID(
+            organizerID: fixture.eventID.organizerID,
+            eventID: fixture.eventID.eventID,
+            performanceID: performanceLocalID("overnight-set")
+        )
+        let originalStartTime = try #require(
+            fixture.schedule.date.at(hour: 23, minute: 30, in: timeZone)
+        )
+        let originalEndTime = originalStartTime.addingTimeInterval(90 * 60)
+        let performance = try await seedPerformance(
+            database: database,
+            eventID: fixture.eventID,
+            schedule: fixture.schedule,
+            stage: fixture.stage,
+            performanceID: performanceID,
+            title: "Overnight Set",
+            description: "Original overnight description.",
+            startTime: originalStartTime,
+            endTime: originalEndTime
+        )
+        try await database.write { db in
+            try OMERecord.Performance.Contributors.insert {
+                OMERecord.Performance.Contributors.Draft(
+                    performanceID: performanceID,
+                    contributorID: fixture.contributor.id.contributorID,
+                    anonymousName: nil,
+                    contributorActor: nil
+                )
+            }
+            .execute(db)
+        }
+        let store = try makePerformanceStore(
+            database: database,
+            fixture: fixture,
+            timeZone: timeZone,
+            schedules: [targetContext.schedule, fixture.schedule],
+            performance: performance
+        ) { state in
+            #expect(state.title == "Overnight Set")
+            #expect(state.description == "Original overnight description.")
+            #expect(state.selectedStageID == fixture.stage.id.stageID)
+            #expect(
+                state.contributions.map(\.selection)
+                    == [.existingContributor(fixture.contributor.id.contributorID)]
+            )
+        }
+        let formID = store.state.id
+        let expectedStartTime = try #require(
+            targetContext.schedule.date.at(hour: 23, minute: 30, in: timeZone)
+        )
+        let expectedEndTime = expectedStartTime.addingTimeInterval(90 * 60)
+
+        store.modify {
+            $0.selectedScheduleID = targetContext.schedule.id.scheduleID
+        }
+
+        expectNoDifference(store.state.id, formID)
+        expectNoDifference(
+            store.state.selectedScheduleID,
+            targetContext.schedule.id.scheduleID
+        )
+        expectNoDifference(store.state.startTimeSelection, expectedStartTime)
+        expectNoDifference(store.state.endTimeSelection, expectedEndTime)
+        expectNoDifference(store.state.timeRangeSelection.duration, 90 * 60)
+        expectNoDifference(store.state.selectedStageID, fixture.stage.id.stageID)
+        expectNoDifference(store.state.title, "Overnight Set")
+        expectNoDifference(store.state.description, "Original overnight description.")
+        expectNoDifference(
+            store.state.contributions.map(\.selection),
+            [.existingContributor(fixture.contributor.id.contributorID)]
+        )
+
+        await store.send(.saveButtonTapped)?.value
+
+        #expect(store.state.isSaving == false)
+        #expect(store.state.errorMessage == nil)
+        #expect(store.isPresented == false)
+
+        let rows = try await database.read { db in
+            (
+                performance: try #require(
+                    try OMERecord.Performance
+                        .where { $0.id.eq(performanceID) }
+                        .fetchOne(db)
+                ),
+                contributors: try OMERecord.Performance.Contributors.fetchAll(db)
+            )
+        }
+        expectNoDifference(
+            rows.performance.scheduleID,
+            targetContext.schedule.id.scheduleID
+        )
+        expectNoDifference(rows.performance.startTime, expectedStartTime)
+        expectNoDifference(rows.performance.endTime, expectedEndTime)
+        expectNoDifference(rows.performance.stageID, fixture.stage.id.stageID)
+        expectNoDifference(rows.performance.title, "Overnight Set")
+        expectNoDifference(
+            rows.performance.description,
+            "Original overnight description."
+        )
+        expectNoDifference(rows.contributors.count, 1)
+        expectNoDifference(rows.contributors.first?.performanceID, performanceID)
+        expectNoDifference(
+            rows.contributors.first?.contributorID,
+            fixture.contributor.id.contributorID
+        )
+    }
+
+    @Test
     func editsPerformanceContributorRelationship() async throws {
         let database = try makePreparedDatabase()
         let timeZone = try #require(TimeZone(identifier: "America/Denver"))
@@ -1180,6 +1308,7 @@ struct ScheduleAuthoringTests {
         var initialState = EditPerformance.State(
             eventID: fixture.eventID,
             schedule: fixture.schedule,
+            schedules: [fixture.schedule],
             stages: [fixture.stage],
             timeZone: timeZone,
             contributors: contributors
@@ -1233,6 +1362,7 @@ struct ScheduleAuthoringTests {
                 initialState: EditPerformance.State(
                     eventID: fixture.eventID,
                     schedule: fixture.schedule,
+                    schedules: [fixture.schedule],
                     stages: [fixture.stage],
                     timeZone: timeZone,
                     contributors: contributors
@@ -1467,6 +1597,7 @@ struct ScheduleAuthoringTests {
         database: any DatabaseWriter,
         fixture: ScheduleAuthoringFixture,
         timeZone: TimeZone,
+        schedules: [OMERecord.Schedule]? = nil,
         performance: OMERecord.Performance? = nil,
         update: (inout EditPerformance.State) throws -> Void
     ) throws -> TestStore<EditPerformance> {
@@ -1493,6 +1624,7 @@ struct ScheduleAuthoringTests {
                 state = EditPerformance.State(
                     eventID: fixture.eventID,
                     schedule: fixture.schedule,
+                    schedules: schedules ?? [fixture.schedule],
                     stages: [fixture.stage],
                     timeZone: timeZone,
                     performance: performance,
@@ -1503,6 +1635,7 @@ struct ScheduleAuthoringTests {
                 state = EditPerformance.State(
                     eventID: fixture.eventID,
                     schedule: fixture.schedule,
+                    schedules: schedules ?? [fixture.schedule],
                     stages: [fixture.stage],
                     timeZone: timeZone,
                     contributors: contributors

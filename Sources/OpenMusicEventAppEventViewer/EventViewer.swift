@@ -575,7 +575,7 @@ public struct EventViewer {
                     let event = try OMERecord.Event
                         .where { $0.id.eq(eventID) }
                         .fetchOne(db)
-                    let schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
+                    var schedules = try ScheduleViewer.schedulesQuery(eventID: eventID).fetchAll(db)
                     let stages = try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
                     let contributors = try ContributorProfile
                         .all(eventID: eventID, hydration: .none)
@@ -590,12 +590,14 @@ public struct EventViewer {
                     var schedule = resolvedScheduleID.flatMap { scheduleID in
                         schedules.first { $0.id.scheduleID == scheduleID }
                     } ?? schedules.first
-                    if schedule == nil {
-                        schedule = try Self.insertSingletonSchedule(
-                            event: event,
-                            eventID: eventID,
-                            in: db
-                        )
+                    if schedule == nil,
+                       let insertedSchedule = try Self.insertSingletonSchedule(
+                           event: event,
+                           eventID: eventID,
+                           in: db
+                       ) {
+                        schedules.append(insertedSchedule)
+                        schedule = insertedSchedule
                     }
                     guard let schedule else { return nil }
                     let resolvedStageID = stageID.flatMap { stageID in
@@ -616,6 +618,7 @@ public struct EventViewer {
                     return EditPerformance.State(
                         eventID: eventID,
                         schedule: schedule,
+                        schedules: schedules,
                         stages: stages,
                         timeZone: eventTimeZone,
                         selectedStageID: resolvedStageID,
@@ -682,6 +685,7 @@ public struct EventViewer {
                     return EditPerformance.State(
                         eventID: eventID,
                         schedule: schedule,
+                        schedules: schedules,
                         stages: stages,
                         timeZone: eventTimeZone,
                         performance: row.performance,
@@ -941,7 +945,7 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
         case let .locationForm(store):
             destinationID("locationForm", store.eventID)
         case let .performanceForm(store):
-            destinationID("performanceForm", store.eventID, store.schedule.id.scheduleID, store.performanceID)
+            destinationID("performanceForm", store.eventID, store.performanceID)
         case let .reportingLinkForm(store):
             destinationID("reportingLinkForm", store.eventID)
         case let .scheduleForm(store):
