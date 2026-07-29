@@ -258,7 +258,6 @@ extension UserStoryTests {
                 ) {
                     OpenMusicEventAppRoot()
                 } changes: {
-                    $0.whiteLabelRoot?.isLoading = true
                     $0.whiteLabelRoot?.loadingPhase = .locatingSource
                 }
 
@@ -318,7 +317,6 @@ extension UserStoryTests {
                 )),
                 timeout: .seconds(1)
             ) {
-                $0.whiteLabelRoot?.isLoading = false
                 $0.whiteLabelRoot?.loadingPhase = .idle
                 $0.whiteLabelRoot?.organizerID = UserStory.organizerID
                 $0.whiteLabelRoot?.teamWorkspaceDetail = snap(

@@ -21,14 +21,23 @@ public struct WhiteLabelRoot {
     public typealias TeamWorkspace = OpenMusicEventAuthoring<TeamWorkspaceDetail>
 
     public struct State {
-        public init(configuration: WhiteLabelAppConfiguration) {
+        public init(
+            configuration: WhiteLabelAppConfiguration,
+            loadedRootAtLaunch: LoadedRoot? = nil
+        ) {
             self.configuration = configuration
+            if let loadedRootAtLaunch {
+                organizerID = loadedRootAtLaunch.organizerID
+                setLoadedRoot(
+                    organizerID: loadedRootAtLaunch.organizerID,
+                    sourceBaselineIDs: loadedRootAtLaunch.sourceBaselineIDs
+                )
+            }
         }
 
         public var account = Spawn(Account.State())
         public var configuration: WhiteLabelAppConfiguration
         public var errorMessage: String?
-        public var isLoading = false
         public var loadingPhase: LoadingPhase = .idle
         public var organizationRoot: Spawn<OrganizationRoot>?
         public var organizerID: OMERecord.Organizer.ID?
@@ -80,7 +89,6 @@ public struct WhiteLabelRoot {
             switch action {
             case let .loadDataSucceeded(loadedRoot):
                 state.errorMessage = nil
-                state.isLoading = false
                 state.loadingPhase = .idle
                 state.organizerID = loadedRoot.organizerID
                 state.setLoadedRoot(
@@ -88,16 +96,14 @@ public struct WhiteLabelRoot {
                     sourceBaselineIDs: loadedRoot.sourceBaselineIDs
                 )
             case .retryButtonTapped:
-                guard !state.isLoading else { return }
+                guard state.loadingPhase == .idle else { return }
                 state.errorMessage = nil
-                state.isLoading = true
                 state.loadingPhase = .preparing
 
                 loadData(configuration: state.configuration)
 
             case .task:
-                guard !state.isLoading else { return }
-                state.isLoading = true
+                guard state.loadingPhase == .idle else { return }
                 state.loadingPhase = .preparing
                 loadData(configuration: state.configuration)
 
@@ -118,8 +124,7 @@ public struct WhiteLabelRoot {
             .invalidatingAuthoringWhenAuthorizationIsLost()
         }
         .onMount { state in
-            guard !state.isLoading else { return }
-            state.isLoading = true
+            guard state.loadingPhase == .idle else { return }
             state.loadingPhase = .preparing
             loadData(configuration: state.configuration)
         }
@@ -168,7 +173,6 @@ public struct WhiteLabelRoot {
                     sourceBaselineIDs: sourceBaselineIDs
                 )
             } cleanup: {
-                $0.isLoading = false
                 $0.loadingPhase = .idle
             } parseError: {
                 SourceImportError.parser
@@ -195,7 +199,6 @@ public struct WhiteLabelRoot {
                 sourceBaselineIDs = []
             }
             try store.modify {
-                $0.isLoading = false
                 $0.loadingPhase = .idle
                 if let cachedOrganizerID {
                     $0.errorMessage = "Unable to refresh \(configuration.brand.displayName)."
@@ -290,6 +293,31 @@ public struct WhiteLabelRoot {
         }
     }
 
+    static func loadedRootAtLaunch(
+        for configuration: WhiteLabelAppConfiguration,
+        database: any DatabaseReader
+    ) throws -> LoadedRoot? {
+        guard let organizerID = configuration.organizerID else { return nil }
+        return try database.read { db in
+            let eventCount = try OMERecord.Event
+                .where { $0.id.organizerID.eq(organizerID) }
+                .fetchCount(db)
+            guard eventCount > 0 else { return nil }
+
+            let provenanceRecords = try EventSourceProvenanceRecord
+                .fetchAll(db)
+                .filter { $0.id.organizerID == organizerID }
+            var seen: Set<SourceBaselineRecord.ID> = []
+            let sourceBaselineIDs = provenanceRecords.compactMap(\.sourceBaselineID).filter {
+                seen.insert($0).inserted
+            }
+            return LoadedRoot(
+                organizerID: organizerID,
+                sourceBaselineIDs: sourceBaselineIDs
+            )
+        }
+    }
+
     private static var developmentSourceOverridesAreEnabled: Bool {
         #if DEBUG
         true
@@ -303,14 +331,10 @@ public struct WhiteLabelRoot {
         in database: any DatabaseReader
     ) async throws -> Bool {
         try await database.read { db in
-            let eventCount = try OMERecord.Event
+            return try OMERecord.Event
                 .where { $0.id.organizerID.eq(organizerID) }
                 .fetchCount(db)
-            guard eventCount == 0 else { return true }
-
-            return try OMERecord.Organizer
-                .where { $0.id.eq(organizerID) }
-                .fetchOne(db) != nil
+                > 0
         }
     }
 }
@@ -359,23 +383,51 @@ public struct WhiteLabelRootView: View {
         let store: StoreOf<WhiteLabelRoot>
 
         var body: some View {
-            List {
-                Header(configuration: store.configuration)
+            Group {
+                if store.loadingPhase != .idle,
+                   let loadingImage = store.configuration.brand.loadingImage {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(
+                            loadingImage.name,
+                            bundle: Bundle(url: loadingImage.bundleURL)
+                        )
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 320, maxHeight: 240)
+                        .accessibilityHidden(true)
+                        ProgressView()
+                            .accessibilityLabel(
+                                Text(
+                                    store.loadingPhase.title(
+                                        displayName: store.configuration.brand.displayName
+                                    )
+                                )
+                            )
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else {
+                    List {
+                        Header(configuration: store.configuration)
 
-                if store.isLoading {
-                    LoadingStatus(
-                        displayName: store.configuration.brand.displayName,
-                        phase: store.loadingPhase
-                    )
-                }
+                        if store.loadingPhase != .idle {
+                            LoadingStatus(
+                                displayName: store.configuration.brand.displayName,
+                                phase: store.loadingPhase
+                            )
+                        }
 
-                if let errorMessage = store.errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Button("Retry") {
-                            store.send(.retryButtonTapped)
+                        if let errorMessage = store.errorMessage {
+                            Section {
+                                Text(errorMessage)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                Button("Retry") {
+                                    store.send(.retryButtonTapped)
+                                }
+                            }
                         }
                     }
                 }

@@ -7484,7 +7484,7 @@ struct NavigationTests {
                     }
                 }
             )
-            state.isLoading = true
+            state.loadingPhase = .preparing
             return TestStore(initialState: state) {
                 WhiteLabelRoot()
             }
@@ -7519,7 +7519,7 @@ struct NavigationTests {
             $0[AuthoringPolicyClient.self] = .authoring
         } operation: {
             var state = WhiteLabelRoot.State(configuration: configuration)
-            state.isLoading = true
+            state.loadingPhase = .preparing
             return TestStore(initialState: state) {
                 WhiteLabelRoot()
             }

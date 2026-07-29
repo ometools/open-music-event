@@ -23,7 +23,8 @@ public struct OpenMusicEventAppRoot {
     public struct State {
         public init(
             variant: OpenMusicEventAppVariant = .generic,
-            selectedEventIDAtLaunch: OMERecord.Event.ID? = nil
+            selectedEventIDAtLaunch: OMERecord.Event.ID? = nil,
+            whiteLabelLoadedRootAtLaunch: WhiteLabelRoot.LoadedRoot? = nil
         ) {
             self.variant = variant
             if variant.persistsSelectedEvent, let selectedEventIDAtLaunch {
@@ -37,7 +38,10 @@ public struct OpenMusicEventAppRoot {
             }
             if case let .whiteLabel(configuration) = variant {
                 self.whiteLabelRoot = Spawn(
-                    WhiteLabelRoot.State(configuration: configuration)
+                    WhiteLabelRoot.State(
+                        configuration: configuration,
+                        loadedRootAtLaunch: whiteLabelLoadedRootAtLaunch
+                    )
                 )
             }
         }

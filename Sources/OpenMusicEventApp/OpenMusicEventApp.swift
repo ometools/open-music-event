@@ -152,7 +152,8 @@ public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventAp
             initialState: .init(storage: OpenMusicEventOAuth.storage) {
                 OpenMusicEventAppRoot.State(
                     variant: variant,
-                    selectedEventIDAtLaunch: selectedEventIDAtLaunch(for: variant)
+                    selectedEventIDAtLaunch: selectedEventIDAtLaunch(for: variant),
+                    whiteLabelLoadedRootAtLaunch: whiteLabelLoadedRootAtLaunch(for: variant)
                 )
             }
         ) {
@@ -174,6 +175,22 @@ public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventAp
             }
         } catch {
             logger.error("Failed to restore selected event at launch: \(String(describing: error))")
+            return nil
+        }
+    }
+
+    private static func whiteLabelLoadedRootAtLaunch(
+        for variant: OpenMusicEventAppVariant
+    ) -> WhiteLabelRoot.LoadedRoot? {
+        guard case let .whiteLabel(configuration) = variant else { return nil }
+        @Dependency(\.defaultDatabase) var database
+        do {
+            return try WhiteLabelRoot.loadedRootAtLaunch(
+                for: configuration,
+                database: database
+            )
+        } catch {
+            logger.error("Failed to restore white-label event at launch: \(String(describing: error))")
             return nil
         }
     }

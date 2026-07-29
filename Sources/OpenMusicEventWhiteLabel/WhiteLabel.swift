@@ -25,14 +25,27 @@ public struct WhiteLabelAppConfiguration: Equatable, Sendable {
 
 public struct WhiteLabelBrand: Equatable, Sendable {
     public var displayName: String
+    public var loadingImage: WhiteLabelStaticImage?
     public var systemImage: String
 
     public init(
         displayName: String,
-        systemImage: String = "music.note.list"
+        systemImage: String = "music.note.list",
+        loadingImage: WhiteLabelStaticImage? = nil
     ) {
         self.displayName = displayName
+        self.loadingImage = loadingImage
         self.systemImage = systemImage
+    }
+}
+
+public struct WhiteLabelStaticImage: Equatable, Sendable {
+    public var bundleURL: URL
+    public var name: String
+
+    public init(name: String, bundleURL: URL) {
+        self.bundleURL = bundleURL
+        self.name = name
     }
 }
 
@@ -59,10 +72,14 @@ public enum WickedWoodsWhiteLabel {
     public static let temporaryDevelopmentOrganizerID = OMERecord.Organizer.ID("did:plc:wickedwoodsdev")!
 
     public static func configuration(
-        organizerID: OMERecord.Organizer.ID? = nil
+        organizerID: OMERecord.Organizer.ID? = nil,
+        loadingImage: WhiteLabelStaticImage? = nil
     ) -> WhiteLabelAppConfiguration {
         WhiteLabelAppConfiguration(
-            brand: WhiteLabelBrand(displayName: "Wicked Woods"),
+            brand: WhiteLabelBrand(
+                displayName: "Wicked Woods",
+                loadingImage: loadingImage
+            ),
             organizerID: organizerID,
             handle: handle,
             developmentOrganizerID: organizerID == nil ? temporaryDevelopmentOrganizerID : nil

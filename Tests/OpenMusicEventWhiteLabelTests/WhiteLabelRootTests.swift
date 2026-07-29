@@ -25,6 +25,141 @@ private typealias OMERecord = OpenMusicEventLexicon.OpenMusicEvent
 @MainActor
 struct WhiteLabelRootTests {
   @Test
+  func `returning attendee mounts cached event before refresh completes`() async throws {
+    let database = try makePreparedDatabase()
+    let organizerID = organizerID("wickedwoods")
+    let cachedEventID = eventID(organizerID: organizerID, eventID: "2025")
+    let source = sourceProvenance("wicked-woods-ome")
+    let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+    let refreshGate = WhiteLabelRefreshGate()
+    let configuration = WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
+
+    // A returning attendee already has the source-backed event in the installed database.
+    try await insertSourceBackedEvent(
+      cachedEventID,
+      source: source,
+      into: database
+    )
+
+    // Creating the real app store starts its normal source refresh, which remains in flight.
+    let appStore = withDependencies {
+      $0.context = .test
+      $0.defaultDatabase = database
+      $0.defaultEventID = cachedEventID
+      $0.whiteLabelSourceRegistry = .codeBacked([
+        organizerID: WhiteLabelSourceDescriptor(
+          reference: .source(
+            "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
+          )
+        )
+      ])
+      $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { _, _ in
+        try await refreshGate.refresh(eventID: cachedEventID)
+      }
+    } operation: {
+      OpenMusicEventApplicationRootView.makeStore(
+        variant: .whiteLabel(configuration)
+      )
+    }
+
+    await refreshGate.waitForRefreshToStart()
+
+    // The cached team workspace is mounted while that refresh is still blocked.
+    let whiteLabelRoot = try #require(appStore.content.whiteLabelRoot)
+    #expect(whiteLabelRoot.state.loadingPhase == .importingSource)
+    #expect(
+      whiteLabelRoot.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
+        == sourceBaselineID
+    )
+
+    await refreshGate.finish(succeeding: true)
+  }
+
+  @Test
+  func `failed background refresh keeps cached event mounted`() async throws {
+    try await withNonExhaustiveTest {
+      let database = try makePreparedDatabase()
+      let organizerID = organizerID("wickedwoods")
+      let cachedEventID = eventID(organizerID: organizerID, eventID: "2025")
+      let source = sourceProvenance("wicked-woods-ome")
+      let sourceBaselineID = SourceBaselineRecord.ID(source: source)
+      let refreshGate = WhiteLabelRefreshGate()
+      let configuration = WickedWoodsWhiteLabel.configuration(organizerID: organizerID)
+
+      try await insertSourceBackedEvent(
+        cachedEventID,
+        source: source,
+        into: database
+      )
+      let loadedRootAtLaunch = try #require(
+        try WhiteLabelRoot.loadedRootAtLaunch(
+          for: configuration,
+          database: database
+        )
+      )
+      let store = makeStore(
+        configuration: configuration,
+        database: database,
+        loadedRootAtLaunch: loadedRootAtLaunch
+      ) {
+        $0.whiteLabelSourceRegistry = .codeBacked([
+          organizerID: WhiteLabelSourceDescriptor(
+            reference: .source(
+              "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
+            )
+          )
+        ])
+        $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { _, _ in
+          try await refreshGate.refresh(eventID: cachedEventID)
+        }
+      }
+
+      let reporters = IssueReporters.current
+      IssueReporters.current = []
+      defer { IssueReporters.current = reporters }
+
+      let loadTask = store.send(.task)
+      await refreshGate.waitForRefreshToStart()
+
+      #expect(
+        store.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
+          == sourceBaselineID
+      )
+
+      await refreshGate.finish(succeeding: false)
+      await loadTask?.value
+      store.expect {
+        $0.errorMessage = "Unable to refresh Wicked Woods."
+      }
+
+      #expect(
+        store.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
+          == sourceBaselineID
+      )
+      #expect(store.state.organizationRoot == nil)
+    }
+  }
+
+  @Test
+  func `configured organizer without an event does not mount cached content`() async throws {
+    let database = try makePreparedDatabase()
+    let organizerID = organizerID("wickedwoods")
+    try await database.write { db in
+      try OMERecord.Organizer.insert {
+        OMERecord.Organizer.Draft(id: organizerID)
+      }
+      .execute(db)
+    }
+
+    let loadedRoot = try WhiteLabelRoot.loadedRootAtLaunch(
+      for: WickedWoodsWhiteLabel.configuration(organizerID: organizerID),
+      database: database
+    )
+
+    #expect(loadedRoot == nil)
+  }
+
+  @Test
   func unknownOrganizerShowsFirstLaunchError() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()
@@ -39,7 +174,7 @@ struct WhiteLabelRootTests {
 
       await load(store, suppressingReportedIssues: true)
 
-      #expect(store.state.isLoading == false)
+      #expect(store.state.loadingPhase == .idle)
       #expect(store.state.organizationRoot?.state.organizerID == nil)
       #expect(store.state.errorMessage == "Unable to load event source.")
     }
@@ -553,12 +688,17 @@ struct WhiteLabelRootTests {
   }
 
   @Test
-  func liveSourceImportDelegatesSourceReferencesToTangledSourceImport() async throws {
+  func `live source import refreshes an existing cached source`() async throws {
     let database = try makePreparedDatabase()
     let organizerID = organizerID("wickedwoods")
     let importedEventID = eventID(organizerID: organizerID, eventID: "2025")
     let source = "https://tangled.org/did:plc:cqqtuv75m7e5s4uj6nw4czyu/wicked-woods-ome"
     let recorder = TangledSourceImportRecorder()
+    try await insertSourceBackedEvent(
+      importedEventID,
+      source: sourceProvenance("wicked-woods-ome"),
+      into: database
+    )
 
     let importedEventIDs = try await withDependencies {
       $0.context = .test
@@ -779,6 +919,7 @@ struct WhiteLabelRootTests {
   private func makeStore(
     configuration: WhiteLabelAppConfiguration,
     database: any DatabaseWriter,
+    loadedRootAtLaunch: WhiteLabelRoot.LoadedRoot? = nil,
     updateDependencies: (inout DependencyValues) -> Void = { _ in }
   ) -> TestStore<WhiteLabelRoot> {
     withDependencies {
@@ -790,7 +931,12 @@ struct WhiteLabelRootTests {
       )
       updateDependencies(&$0)
     } operation: {
-      TestStore(initialState: WhiteLabelRoot.State(configuration: configuration)) {
+      TestStore(
+        initialState: WhiteLabelRoot.State(
+          configuration: configuration,
+          loadedRootAtLaunch: loadedRootAtLaunch
+        )
+      ) {
         WhiteLabelRoot()
       }
     }
@@ -846,13 +992,54 @@ struct WhiteLabelRootTests {
   }
 
   private func loadIsSettled(_ state: WhiteLabelRoot.State) -> Bool {
-    !state.isLoading
+    state.loadingPhase == .idle
       && (state.errorMessage != nil || state.organizerID != nil)
   }
 
 }
 
 private struct RegistryShouldNotBeCalled: Error {}
+
+private actor WhiteLabelRefreshGate {
+  struct RefreshFailed: Error {}
+
+  private var result: Bool?
+  private var refreshStarted = false
+  private var finishWaiters: [CheckedContinuation<Bool, Never>] = []
+  private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func finish(succeeding: Bool) {
+    result = succeeding
+    let waiters = finishWaiters
+    finishWaiters.removeAll()
+    waiters.forEach { $0.resume(returning: succeeding) }
+  }
+
+  func refresh(eventID: OMERecord.Event.ID) async throws -> [OMERecord.Event.ID] {
+    refreshStarted = true
+    let waiters = startWaiters
+    startWaiters.removeAll()
+    waiters.forEach { $0.resume() }
+
+    let succeeded: Bool
+    if let result {
+      succeeded = result
+    } else {
+      succeeded = await withCheckedContinuation { continuation in
+        finishWaiters.append(continuation)
+      }
+    }
+    guard succeeded else { throw RefreshFailed() }
+    return [eventID]
+  }
+
+  func waitForRefreshToStart() async {
+    guard !refreshStarted else { return }
+    await withCheckedContinuation { continuation in
+      startWaiters.append(continuation)
+    }
+  }
+}
 
 private actor HTTPRequestRecorder {
   struct Request: Sendable {
