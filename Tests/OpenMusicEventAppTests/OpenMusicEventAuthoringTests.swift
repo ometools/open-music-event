@@ -180,6 +180,21 @@ struct OpenMusicEventAuthoringTests {
         #expect(grant.wrappedValue == nil)
     }
 
+    @Test
+    func authoringWrapperForwardsContentIdentity() throws {
+        let database = try makePreparedDatabase()
+        let workspace = localWorkspace("identity")
+        let state = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            Authoring<AuthoringIdentityProbe>.State(workspaceID: workspace.id) {
+                AuthoringIdentityProbe.State(id: 42)
+            }
+        }
+
+        #expect(state.id == 42)
+    }
+
     private func makePreparedDatabase() throws -> any DatabaseWriter {
         try withDependencies {
             $0.context = .test
@@ -223,6 +238,15 @@ struct OpenMusicEventAuthoringTests {
 @Feature
 private struct AuthoringProbe {
     struct State {}
+    enum Action {}
+}
+
+@Feature
+private struct AuthoringIdentityProbe {
+    struct State: Identifiable {
+        let id: Int
+    }
+
     enum Action {}
 }
 

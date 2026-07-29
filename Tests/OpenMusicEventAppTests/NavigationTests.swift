@@ -378,9 +378,9 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == eventID)
-        #expect(store.state.root.eventViewer?.state.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.content.content.eventID == eventID)
         #expect(
-            store.state.root.eventViewer?.state.content.content.pendingScheduleLaunchAction == nil
+            store.state.root.eventViewer?.content.content.pendingScheduleLaunchAction == nil
         )
     }
 
@@ -392,7 +392,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: firstEventID)
 
         store.send(.root(.handleNavigationRequest(.event(firstEventID, nil))))
-        #expect(store.state.root.eventViewer?.state.content.content.eventID == firstEventID)
+        #expect(store.state.root.eventViewer?.content.content.eventID == firstEventID)
 
         store.send(.root(.handleNavigationRequest(.event(secondEventID, nil))))
 
@@ -400,7 +400,7 @@ struct NavigationTests {
             try AppState.fetchOne(db)
         }
         #expect(appState?.selectedEventID == secondEventID)
-        #expect(store.state.root.eventViewer?.state.content.content.eventID == secondEventID)
+        #expect(store.state.root.eventViewer?.content.content.eventID == secondEventID)
     }
 
     @Test
@@ -419,11 +419,11 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.eventViewer?.state.content.content.selectedFeature
+            store.state.root.eventViewer?.content.content.selectedFeature
                 == .contributors
         )
         #expect(
-            store.state.root.eventViewer?.state.content.content.contributorsViewer?
+            store.state.root.eventViewer?.content.content.contributorsViewer?
                 .destination?.contributorDetail?.contributorID == contributorID
         )
     }
@@ -444,11 +444,11 @@ struct NavigationTests {
         }
 
         #expect(
-            store.state.root.eventViewer?.state.content.content.selectedFeature
+            store.state.root.eventViewer?.content.content.selectedFeature
                 == .stages
         )
         #expect(
-            store.state.root.eventViewer?.state.content.content.stagesViewer?
+            store.state.root.eventViewer?.content.content.stagesViewer?
                 .destination?.stageDetail?.stageID == stageID
         )
     }
@@ -485,11 +485,11 @@ struct NavigationTests {
         store.send(.root(.openRoute(route)))
 
         #expect(
-            store.state.root.eventViewer?.state.content.content.selectedFeature
+            store.state.root.eventViewer?.content.content.selectedFeature
                 == .schedule(.schedule)
         )
         let scheduleViewer = try #require(
-            store.state.root.eventViewer?.state.content.content.scheduleViewers.first {
+            store.state.root.eventViewer?.content.content.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -508,7 +508,7 @@ struct NavigationTests {
         store.send(.root(.openRoute(.event(eventID, .performance(performanceID)))))
 
         let scheduleViewer = try #require(
-            store.state.root.eventViewer?.state.content.content.scheduleViewers.first {
+            store.state.root.eventViewer?.content.content.scheduleViewers.first {
                 $0.state.scheduleDivision == .schedule
             }
         )
@@ -564,12 +564,12 @@ struct NavigationTests {
 
         let task = store.send(.root(.handleNavigationRequest(.event(eventID, .workspace))))
         #expect(
-            store.state.root.eventViewer?.state.content.content.pendingAuthoringEntry
+            store.state.root.eventViewer?.content.content.pendingAuthoringEntry
                 == .target(.workspace)
         )
         await task?.value
         await waitUntil {
-            store.state.root.eventViewer?.state.content.access.canEditContent == true
+            store.state.root.eventViewer?.content.access.canEditContent == true
         }
 
         let workspaceID = EditingWorkspaceRecord.ID(
@@ -578,19 +578,19 @@ struct NavigationTests {
         expectNoDifference(authorizationRequests.withLock { $0 }, [workspaceID])
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceID])
         #expect(
-            store.state.root.eventViewer?.state.content.access
+            store.state.root.eventViewer?.content.access
                 == .authoring([.editContent])
         )
         #expect(
-            store.state.root.eventViewer?.state.content.content.installedFeatures
+            store.state.root.eventViewer?.content.content.installedFeatures
                 .contains(.workspace) == true
         )
         #expect(
-            store.state.root.eventViewer?.state.content.content.selectedFeature
+            store.state.root.eventViewer?.content.content.selectedFeature
                 == .workspace
         )
         #expect(
-            store.state.root.eventViewer?.state.content.content.eventWorkspace?.eventID
+            store.state.root.eventViewer?.content.content.eventWorkspace?.eventID
                 == eventID
         )
     }
@@ -651,7 +651,9 @@ struct NavigationTests {
             )
             await teamWorkspaceDetailStore.send(.eventButtonTapped(eventID))?.value
 
-            let eventAuthoringStore = try #require(store.spawn(\.eventViewer))
+            let eventAuthoringStore = try #require(
+                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
+            )
             let eventWorkspaceAuthoringStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
@@ -708,7 +710,9 @@ struct NavigationTests {
 
             await browseStore.send(.eventButtonTapped(eventID))?.value
 
-            let eventAuthoringStore = try #require(store.spawn(\.eventViewer))
+            let eventAuthoringStore = try #require(
+                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
+            )
             let authoringStore = eventAuthoringStore.scope(\.content, action: \.content)
             let eventViewerStore = authoringStore.scope(\.content, action: \.content)
             #expect(eventViewerStore.eventID == eventID)
@@ -5381,7 +5385,9 @@ struct NavigationTests {
                 OpenMusicEventAppRoot()
             }
             await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
-            let eventAuthoringStore = try #require(store.spawn(\.eventViewer))
+            let eventAuthoringStore = try #require(
+                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
+            )
             let authoringStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
@@ -5562,7 +5568,9 @@ struct NavigationTests {
                 OpenMusicEventAppRoot()
             }
             await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
-            let eventAuthoringStore = try #require(store.spawn(\.eventViewer))
+            let eventAuthoringStore = try #require(
+                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
+            )
             let authoringStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
@@ -5628,7 +5636,9 @@ struct NavigationTests {
                 OpenMusicEventAppRoot()
             }
             await store.send(.handleNavigationRequest(.event(eventID, nil)))?.value
-            let eventAuthoringStore = try #require(store.spawn(\.eventViewer))
+            let eventAuthoringStore = try #require(
+                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
+            )
             let authoringStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
@@ -7201,11 +7211,38 @@ struct NavigationTests {
             eventID: eventID,
             selectedEventIDAtLaunch: eventID
         )
-        #expect(store.state.root.eventViewer?.state.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.id == eventID)
         expectNoDifference(
-            store.state.root.eventViewer?.state.content.content.pendingScheduleLaunchAction,
+            store.state.root.eventViewer?.content.content.pendingScheduleLaunchAction,
             .jumpToCurrentTime
         )
+    }
+
+    @Test
+    func eventViewerDestinationBindingPresentsAndDismissesSpawnedStore() throws {
+        let eventID = eventID("event-1")
+        let database = try makePreparedDatabase()
+        @Bindable var store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: OpenMusicEventAppRoot.State()) {
+                OpenMusicEventAppRoot()
+            }
+        }
+
+        store.send(.handleNavigationRequest(.event(eventID, nil)))
+
+        let presentation = $store
+            .scope(\.destination, action: \.destination)
+            .eventViewer
+        let eventViewerStore = try #require(presentation.wrappedValue)
+        #expect(eventViewerStore.state.id == eventID)
+
+        presentation.wrappedValue = nil
+
+        #expect(store.eventViewer == nil)
     }
 
     @Test
@@ -7230,10 +7267,10 @@ struct NavigationTests {
              OpenMusicEventAppRoot.State(selectedEventIDAtLaunch: eventID)
         }
 
-        #expect(state.eventViewer?.state.content.content.eventID == eventID)
-        #expect(state.eventViewer?.state.content.access == .attendee)
+        #expect(state.eventViewer?.content.content.eventID == eventID)
+        #expect(state.eventViewer?.content.access == .attendee)
         #expect(
-            state.eventViewer?.state.content.content.installedFeatures
+            state.eventViewer?.content.content.installedFeatures
                 .contains(.workspace) == false
         )
     }
@@ -7255,7 +7292,7 @@ struct NavigationTests {
             eventID: eventID,
             selectedEventIDAtLaunch: eventID
         )
-        #expect(store.state.root.eventViewer?.state.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.content.content.eventID == eventID)
 
         await store.modify {
             $0.root.eventViewer = nil
@@ -7295,7 +7332,9 @@ struct NavigationTests {
                 OpenMusicEventAppRoot()
             }
 
-            let eventAuthoringStore = try #require(store.spawn(\.eventViewer))
+            let eventAuthoringStore = try #require(
+                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
+            )
             let authoringStore = eventAuthoringStore.scope(
                 \.content,
                 action: \.content
@@ -7350,7 +7389,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
-        #expect(store.state.root.eventViewer?.state.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.id == eventID)
 
         let appState = try await database.read { db in
             try AppState.fetchOne(db)
@@ -7424,11 +7463,11 @@ struct NavigationTests {
         store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
 
         #expect(
-            store.state.root.eventViewer?.state.content.access
+            store.state.root.eventViewer?.content.access
                 == .authoring([.editContent])
         )
         #expect(
-            store.state.root.eventViewer?.state.content.content.installedFeatures
+            store.state.root.eventViewer?.content.content.installedFeatures
                 .contains(.workspace) == true
         )
 
@@ -7559,9 +7598,9 @@ struct NavigationTests {
             )
         }
 
-        #expect(state.eventViewer?.state.content.content.eventID == eventID)
+        #expect(state.eventViewer?.content.content.eventID == eventID)
         expectNoDifference(
-            state.eventViewer?.state.content.content.pendingScheduleLaunchAction,
+            state.eventViewer?.content.content.pendingScheduleLaunchAction,
             .jumpToCurrentTime
         )
     }
@@ -7597,9 +7636,9 @@ struct NavigationTests {
             }
         }
 
-        #expect(store.state.root.eventViewer?.state.content.access == .attendee)
+        #expect(store.state.root.eventViewer?.content.access == .attendee)
         #expect(
-            store.state.root.eventViewer?.state.content.content.installedFeatures
+            store.state.root.eventViewer?.content.content.installedFeatures
                 .contains(.workspace) == false
         )
     }
@@ -7611,7 +7650,7 @@ struct NavigationTests {
         let store = makeRootHarnessStore(database: database, eventID: eventID)
 
         store.send(.root(.handleNavigationRequest(.event(eventID, nil))))
-        #expect(store.state.root.eventViewer?.state.content.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.id == eventID)
 
         await store.modify {
             $0.root.eventViewer = nil

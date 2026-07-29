@@ -651,37 +651,37 @@ private extension OpenMusicEventAppRoot.State {
 
     var storyEventAuthoring: Authoring<EventViewer>.State? {
         get {
-            eventViewer?.state.content
+            eventViewer?.content
         }
         set {
             guard let newValue else {
                 eventViewer = nil
                 return
             }
-            eventViewer?.state.content = newValue
+            eventViewer?.content = newValue
         }
     }
 
     var storyEventViewer: EventViewer.State? {
         get {
-            eventViewer?.state.content.content
+            eventViewer?.content.content
         }
         set {
             guard let newValue else { return }
-            eventViewer?.state.content.content = newValue
+            eventViewer?.content.content = newValue
         }
     }
 
     var storyStageDetailSpawn: Spawn<StageDetail>? {
-        eventViewer?.state.content.content.stagesViewer?.state.destination?.stageDetail
+        eventViewer?.content.content.stagesViewer?.state.destination?.stageDetail
     }
 
     var storyStageFormSpawn: Spawn<EditStage>? {
-        eventViewer?.state.content.content.destination?.stageForm
+        eventViewer?.content.content.destination?.stageForm
     }
 
     var storyEventWorkspaceSpawn: Spawn<EventWorkspace>? {
-        eventViewer?.state.content.content.eventWorkspace
+        eventViewer?.content.content.eventWorkspace
     }
 }
 

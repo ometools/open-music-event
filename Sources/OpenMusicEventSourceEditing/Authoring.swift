@@ -341,6 +341,12 @@ public struct Authoring<Content: FeatureProtocol> {
     }
 }
 
+extension Authoring.State: Identifiable where Content.State: Identifiable {
+    public var id: Content.State.ID {
+        content.id
+    }
+}
+
 private enum AuthoringEntryDiagnostics {
     #if canImport(OSLog)
     private static let logger = Logger(

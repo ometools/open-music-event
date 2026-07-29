@@ -85,7 +85,7 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
     .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
     .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged" /*"LazyInitializationByDefault"*/]),
-    .package(path: "/Users/woody/Developer/ometools/open-music-event/.build/checkouts/TCA26", traits: ["Dependencies"]),
+    .package(path: "/Users/woody/Developer/swift-packages/3rd-party/PointFree/TCA26", traits: ["Dependencies"]),
     .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),
     .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
