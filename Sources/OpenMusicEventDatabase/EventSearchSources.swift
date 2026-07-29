@@ -534,35 +534,63 @@ public enum FeatureEventSearchSource: EventSearchSource {
 
 public enum PerformanceEventSearchSource: EventSearchSource {
     public static func installTriggers(in db: Database) throws {
-        try OME.Performance
-            .createTemporaryTrigger(
-                "performances_eventSearchDocuments_insert",
-                ifNotExists: true,
-                after: .insert { new in
-                    insertDocument(for: new)
-                }
-            )
+        try #sql("""
+            CREATE TEMPORARY TRIGGER IF NOT EXISTS "performances_eventSearchDocuments_insert"
+            AFTER INSERT ON "scheduleItems"
+            FOR EACH ROW
+            WHEN NEW."kind" = 'performance'
+            BEGIN
+              INSERT INTO "eventSearchDocuments" (
+                "stableID", "organizerID", "eventID", "kind", "title", "subtitle",
+                "body", "keywords", "target", "baseRank"
+              ) VALUES (
+                'performance:' || NEW."organizerID" || ':' || NEW."eventID" || ':' || NEW."scheduleItemID",
+                NEW."organizerID", NEW."eventID", 'performance', NEW."title", 'Performance',
+                NEW."description", 'performance set show music lineup',
+                json_object('performance', json_object('_0', NEW."scheduleItemID")), 950
+              );
+            END
+            """)
             .execute(db)
 
-        try OME.Performance
-            .createTemporaryTrigger(
-                "performances_eventSearchDocuments_update",
-                ifNotExists: true,
-                after: .update { old, new in
-                    deleteDocument(for: old)
-                    insertDocument(for: new)
-                }
-            )
+        try #sql("""
+            CREATE TEMPORARY TRIGGER IF NOT EXISTS "performances_eventSearchDocuments_update"
+            AFTER UPDATE ON "scheduleItems"
+            FOR EACH ROW
+            WHEN OLD."kind" = 'performance' OR NEW."kind" = 'performance'
+            BEGIN
+              DELETE FROM "eventSearchDocuments"
+              WHERE "stableID" = (
+                'performance:' || OLD."organizerID" || ':' || OLD."eventID" || ':' || OLD."scheduleItemID"
+              )
+              AND OLD."kind" = 'performance';
+
+              INSERT INTO "eventSearchDocuments" (
+                "stableID", "organizerID", "eventID", "kind", "title", "subtitle",
+                "body", "keywords", "target", "baseRank"
+              )
+              SELECT
+                'performance:' || NEW."organizerID" || ':' || NEW."eventID" || ':' || NEW."scheduleItemID",
+                NEW."organizerID", NEW."eventID", 'performance', NEW."title", 'Performance',
+                NEW."description", 'performance set show music lineup',
+                json_object('performance', json_object('_0', NEW."scheduleItemID")), 950
+              WHERE NEW."kind" = 'performance';
+            END
+            """)
             .execute(db)
 
-        try OME.Performance
-            .createTemporaryTrigger(
-                "performances_eventSearchDocuments_delete",
-                ifNotExists: true,
-                after: .delete { old in
-                    deleteDocument(for: old)
-                }
-            )
+        try #sql("""
+            CREATE TEMPORARY TRIGGER IF NOT EXISTS "performances_eventSearchDocuments_delete"
+            AFTER DELETE ON "scheduleItems"
+            FOR EACH ROW
+            WHEN OLD."kind" = 'performance'
+            BEGIN
+              DELETE FROM "eventSearchDocuments"
+              WHERE "stableID" = (
+                'performance:' || OLD."organizerID" || ':' || OLD."eventID" || ':' || OLD."scheduleItemID"
+              );
+            END
+            """)
             .execute(db)
     }
 
@@ -584,111 +612,6 @@ public enum PerformanceEventSearchSource: EventSearchSource {
               950
             FROM "performances"
             """).execute(db)
-    }
-
-    private static func deleteDocument(
-        for performance: TemporaryTrigger<OME.Performance>.Operation.Old
-    ) -> some Statement<Void> {
-        EventSearchDocument
-            .where { $0.stableID.eq(stableID(for: performance)) }
-            .delete()
-    }
-
-    private static func insertDocument(
-        for performance: TemporaryTrigger<OME.Performance>.Operation.New
-    ) -> some Statement<Void> {
-        #sql("""
-            INSERT INTO "eventSearchDocuments" (
-              "stableID", "organizerID", "eventID", "kind", "title", "subtitle", "body", "keywords", "target", "baseRank"
-            ) VALUES (
-              'performance:' || \(performance.id.organizerID) || ':' || \(performance.id.eventID) || ':' || \(performance.id.performanceID),
-              \(performance.id.organizerID), \(performance.id.eventID), 'performance', \(performance.title), 'Performance', \(performance.description),
-              'performance set show music lineup',
-              json_object('performance', json_object('_0', \(performance.id.performanceID))),
-              950
-            )
-            """)
-    }
-
-    private static func columns(
-        for performance: OME.Performance.TableColumns
-    ) -> EventSearchDocument.Columns {
-        EventSearchDocument.Columns(
-            id: #sql("NULL", as: EventSearchDocument.ID.self),
-            stableID: stableID(for: performance),
-            organizerID: performance.id.organizerID,
-            eventID: performance.id.eventID,
-            kind: #sql("'performance'", as: EventSearchDocument.Kind.self),
-            title: performance.title,
-            subtitle: #sql("'Performance'", as: String?.self),
-            body: performance.description,
-            keywords: #sql("'performance set show music lineup'", as: String.self),
-            target: target(for: performance),
-            baseRank: #sql("950", as: Int.self)
-        )
-    }
-
-    private static func columns(
-        for performance: TemporaryTrigger<OME.Performance>.Operation.New
-    ) -> EventSearchDocument.Columns {
-        EventSearchDocument.Columns(
-            id: #sql("NULL", as: EventSearchDocument.ID.self),
-            stableID: stableID(for: performance),
-            organizerID: performance.id.organizerID,
-            eventID: performance.id.eventID,
-            kind: #sql("'performance'", as: EventSearchDocument.Kind.self),
-            title: performance.title,
-            subtitle: #sql("'Performance'", as: String?.self),
-            body: performance.description,
-            keywords: #sql("'performance set show music lineup'", as: String.self),
-            target: target(for: performance),
-            baseRank: #sql("950", as: Int.self)
-        )
-    }
-
-    private static func stableID(
-        for performance: OME.Performance.TableColumns
-    ) -> some QueryExpression<EventSearchDocument.StableID> {
-        #sql(
-            "'performance:' || \(performance.id.organizerID) || ':' || \(performance.id.eventID) || ':' || \(performance.id.performanceID)",
-            as: EventSearchDocument.StableID.self
-        )
-    }
-
-    private static func stableID(
-        for performance: TemporaryTrigger<OME.Performance>.Operation.New
-    ) -> some QueryExpression<EventSearchDocument.StableID> {
-        #sql(
-            "'performance:' || \(performance.id.organizerID) || ':' || \(performance.id.eventID) || ':' || \(performance.id.performanceID)",
-            as: EventSearchDocument.StableID.self
-        )
-    }
-
-    private static func stableID(
-        for performance: TemporaryTrigger<OME.Performance>.Operation.Old
-    ) -> some QueryExpression<EventSearchDocument.StableID> {
-        #sql(
-            "'performance:' || \(performance.id.organizerID) || ':' || \(performance.id.eventID) || ':' || \(performance.id.performanceID)",
-            as: EventSearchDocument.StableID.self
-        )
-    }
-
-    private static func target(
-        for performance: OME.Performance.TableColumns
-    ) -> some QueryExpression<EventSearchDocument.Target.JSONRepresentation> {
-        #sql(
-            "json_object('performance', json_object('_0', \(performance.id.performanceID)))",
-            as: EventSearchDocument.Target.JSONRepresentation.self
-        )
-    }
-
-    private static func target(
-        for performance: TemporaryTrigger<OME.Performance>.Operation.New
-    ) -> some QueryExpression<EventSearchDocument.Target.JSONRepresentation> {
-        #sql(
-            "json_object('performance', json_object('_0', \(performance.id.performanceID)))",
-            as: EventSearchDocument.Target.JSONRepresentation.self
-        )
     }
 }
 

@@ -83,6 +83,67 @@ struct SourcePatchInvalidationTests {
     }
 
     @Test
+    func migratedPerformanceUpdateStillPublishesScheduleSourceInvalidation() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = try seedEvent(in: database)
+
+        try await database.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO "stages" (
+                      "organizerID", "eventID", "stageID", "name", "color"
+                    ) VALUES (?, ?, 'main-stage', 'Main Stage', 0)
+                    """,
+                arguments: [
+                    String(describing: eventID.organizerID),
+                    eventID.eventID.rawValue.rawValue,
+                ]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO "performances" (
+                      "organizerID", "eventID", "performanceID", "stageID",
+                      "startTime", "endTime", "title", "recordings"
+                    ) VALUES (
+                      ?, ?, 'opening-set', 'main-stage',
+                      '2027-01-15T08:00:00Z', '2027-01-15T09:00:00Z', 'Opening Set', '[]'
+                    )
+                    """,
+                arguments: [
+                    String(describing: eventID.organizerID),
+                    eventID.eventID.rawValue.rawValue,
+                ]
+            )
+        }
+
+        let invalidations = try installSourcePatchInvalidations(in: database)
+        let invalidationTask = nextInvalidationTask(from: invalidations.stream())
+
+        try await database.write { db in
+            try db.execute(
+                sql: """
+                    UPDATE "performances"
+                    SET "title" = 'Updated Opening Set'
+                    WHERE "organizerID" = ?
+                      AND "eventID" = ?
+                      AND "performanceID" = 'opening-set'
+                    """,
+                arguments: [
+                    String(describing: eventID.organizerID),
+                    eventID.eventID.rawValue.rawValue,
+                ]
+            )
+        }
+
+        let invalidation = try await nextInvalidation(from: invalidationTask)
+        #expect(invalidation == SourcePatchInvalidation(
+            eventID: eventID,
+            operation: .update,
+            tableName: OME.Performance.tableName
+        ))
+    }
+
+    @Test
     func calendarUpdatePublishesCalendarInvalidation() async throws {
         let database = try makePreparedDatabase()
         let eventID = try seedEvent(in: database)

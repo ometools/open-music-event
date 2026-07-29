@@ -528,6 +528,264 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Migrate OpenMusicEvent performances to schedule items") { db in
+                try #sql("""
+                    CREATE TABLE "scheduleItems" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "scheduleItemID" TEXT NOT NULL,
+                      "stageID" TEXT NOT NULL,
+                      "scheduleID" TEXT,
+                      "kind" TEXT NOT NULL,
+                      "startTime" TEXT NOT NULL,
+                      "endTime" TEXT NOT NULL,
+                      "title" TEXT NOT NULL,
+                      "description" TEXT,
+                      PRIMARY KEY ("organizerID", "eventID", "scheduleItemID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID")
+                        REFERENCES "events"("organizerID", "eventID")
+                        ON DELETE CASCADE,
+                      FOREIGN KEY ("organizerID", "eventID", "stageID")
+                        REFERENCES "stages"("organizerID", "eventID", "stageID")
+                        ON DELETE CASCADE,
+                      FOREIGN KEY ("organizerID", "eventID", "scheduleID")
+                        REFERENCES "schedules"("organizerID", "eventID", "scheduleID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TABLE "scheduleItemPerformanceDetails" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "scheduleItemID" TEXT NOT NULL,
+                      "recordings" TEXT NOT NULL,
+                      PRIMARY KEY ("organizerID", "eventID", "scheduleItemID") ON CONFLICT REPLACE,
+                      FOREIGN KEY ("organizerID", "eventID", "scheduleItemID")
+                        REFERENCES "scheduleItems"("organizerID", "eventID", "scheduleItemID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TABLE "scheduleItemContributors" (
+                      "organizerID" TEXT NOT NULL,
+                      "eventID" TEXT NOT NULL,
+                      "scheduleItemID" TEXT NOT NULL,
+                      "contributorID" TEXT,
+                      "anonymousName" TEXT,
+                      "contributorActor" TEXT,
+                      "billing" TEXT NOT NULL,
+                      "role" TEXT,
+                      "sortIndex" INTEGER NOT NULL,
+                      FOREIGN KEY ("organizerID", "eventID", "scheduleItemID")
+                        REFERENCES "scheduleItems"("organizerID", "eventID", "scheduleItemID")
+                        ON DELETE CASCADE,
+                      FOREIGN KEY ("organizerID", "eventID", "contributorID")
+                        REFERENCES "contributors"("organizerID", "eventID", "contributorID")
+                        ON DELETE CASCADE
+                    ) STRICT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    INSERT INTO "scheduleItems" (
+                      "organizerID", "eventID", "scheduleItemID", "stageID", "scheduleID",
+                      "kind", "startTime", "endTime", "title", "description"
+                    )
+                    SELECT
+                      "organizerID", "eventID", "performanceID", "stageID", "scheduleID",
+                      'performance', "startTime", "endTime", "title", "description"
+                    FROM "performances"
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    INSERT INTO "scheduleItemPerformanceDetails" (
+                      "organizerID", "eventID", "scheduleItemID", "recordings"
+                    )
+                    SELECT "organizerID", "eventID", "performanceID", "recordings"
+                    FROM "performances"
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    INSERT INTO "scheduleItemContributors" (
+                      "organizerID", "eventID", "scheduleItemID", "contributorID",
+                      "anonymousName", "contributorActor", "billing", "role", "sortIndex"
+                    )
+                    SELECT
+                      "organizerID", "eventID", "performanceID", "contributorID",
+                      "anonymousName", "contributorActor", "billing", "role", "sortIndex"
+                    FROM "performanceContributors"
+                    """)
+                    .execute(db)
+
+                try #sql("DROP TABLE \"performanceContributors\"").execute(db)
+                try #sql("DROP TABLE \"performances\"").execute(db)
+
+                try #sql("""
+                    CREATE VIEW "performances" AS
+                    SELECT
+                      "scheduleItems"."organizerID",
+                      "scheduleItems"."eventID",
+                      "scheduleItems"."scheduleItemID" AS "performanceID",
+                      "scheduleItems"."stageID",
+                      "scheduleItems"."scheduleID",
+                      "scheduleItems"."startTime",
+                      "scheduleItems"."endTime",
+                      "scheduleItems"."title",
+                      "scheduleItems"."description",
+                      "scheduleItemPerformanceDetails"."recordings"
+                    FROM "scheduleItems"
+                    JOIN "scheduleItemPerformanceDetails" USING (
+                      "organizerID", "eventID", "scheduleItemID"
+                    )
+                    WHERE "scheduleItems"."kind" = 'performance'
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performances_insert"
+                    INSTEAD OF INSERT ON "performances"
+                    BEGIN
+                      INSERT OR REPLACE INTO "scheduleItems" (
+                        "organizerID", "eventID", "scheduleItemID", "stageID", "scheduleID",
+                        "kind", "startTime", "endTime", "title", "description"
+                      ) VALUES (
+                        NEW."organizerID", NEW."eventID", NEW."performanceID", NEW."stageID",
+                        NEW."scheduleID", 'performance', NEW."startTime", NEW."endTime",
+                        NEW."title", NEW."description"
+                      );
+
+                      INSERT OR REPLACE INTO "scheduleItemPerformanceDetails" (
+                        "organizerID", "eventID", "scheduleItemID", "recordings"
+                      ) VALUES (
+                        NEW."organizerID", NEW."eventID", NEW."performanceID", NEW."recordings"
+                      );
+                    END
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performances_update"
+                    INSTEAD OF UPDATE ON "performances"
+                    BEGIN
+                      UPDATE "scheduleItems"
+                      SET
+                        "stageID" = NEW."stageID",
+                        "scheduleID" = NEW."scheduleID",
+                        "startTime" = NEW."startTime",
+                        "endTime" = NEW."endTime",
+                        "title" = NEW."title",
+                        "description" = NEW."description"
+                      WHERE "organizerID" = OLD."organizerID"
+                        AND "eventID" = OLD."eventID"
+                        AND "scheduleItemID" = OLD."performanceID";
+
+                      UPDATE "scheduleItemPerformanceDetails"
+                      SET "recordings" = NEW."recordings"
+                      WHERE "organizerID" = OLD."organizerID"
+                        AND "eventID" = OLD."eventID"
+                        AND "scheduleItemID" = OLD."performanceID";
+                    END
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performances_delete"
+                    INSTEAD OF DELETE ON "performances"
+                    BEGIN
+                      DELETE FROM "scheduleItems"
+                      WHERE "organizerID" = OLD."organizerID"
+                        AND "eventID" = OLD."eventID"
+                        AND "scheduleItemID" = OLD."performanceID";
+                    END
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE VIEW "performanceContributors" AS
+                    SELECT
+                      "scheduleItemContributors"."organizerID",
+                      "scheduleItemContributors"."eventID",
+                      "scheduleItemContributors"."scheduleItemID" AS "performanceID",
+                      "scheduleItemContributors"."contributorID",
+                      "scheduleItemContributors"."anonymousName",
+                      "scheduleItemContributors"."contributorActor",
+                      "scheduleItemContributors"."billing",
+                      "scheduleItemContributors"."role",
+                      "scheduleItemContributors"."sortIndex"
+                    FROM "scheduleItemContributors"
+                    JOIN "scheduleItems" USING (
+                      "organizerID", "eventID", "scheduleItemID"
+                    )
+                    WHERE "scheduleItems"."kind" = 'performance'
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performanceContributors_insert"
+                    INSTEAD OF INSERT ON "performanceContributors"
+                    BEGIN
+                      INSERT INTO "scheduleItemContributors" (
+                        "organizerID", "eventID", "scheduleItemID", "contributorID",
+                        "anonymousName", "contributorActor", "billing", "role", "sortIndex"
+                      ) VALUES (
+                        NEW."organizerID", NEW."eventID", NEW."performanceID", NEW."contributorID",
+                        NEW."anonymousName", NEW."contributorActor", NEW."billing", NEW."role",
+                        NEW."sortIndex"
+                      );
+                    END
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performanceContributors_update"
+                    INSTEAD OF UPDATE ON "performanceContributors"
+                    BEGIN
+                      UPDATE "scheduleItemContributors"
+                      SET
+                        "contributorID" = NEW."contributorID",
+                        "anonymousName" = NEW."anonymousName",
+                        "contributorActor" = NEW."contributorActor",
+                        "billing" = NEW."billing",
+                        "role" = NEW."role",
+                        "sortIndex" = NEW."sortIndex"
+                      WHERE "organizerID" = OLD."organizerID"
+                        AND "eventID" = OLD."eventID"
+                        AND "scheduleItemID" = OLD."performanceID"
+                        AND "contributorID" IS OLD."contributorID"
+                        AND "anonymousName" IS OLD."anonymousName"
+                        AND "contributorActor" IS OLD."contributorActor"
+                        AND "billing" = OLD."billing"
+                        AND "role" IS OLD."role"
+                        AND "sortIndex" = OLD."sortIndex";
+                    END
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    CREATE TRIGGER "performanceContributors_delete"
+                    INSTEAD OF DELETE ON "performanceContributors"
+                    BEGIN
+                      DELETE FROM "scheduleItemContributors"
+                      WHERE "organizerID" = OLD."organizerID"
+                        AND "eventID" = OLD."eventID"
+                        AND "scheduleItemID" = OLD."performanceID"
+                        AND "contributorID" IS OLD."contributorID"
+                        AND "anonymousName" IS OLD."anonymousName"
+                        AND "contributorActor" IS OLD."contributorActor"
+                        AND "billing" = OLD."billing"
+                        AND "role" IS OLD."role"
+                        AND "sortIndex" = OLD."sortIndex";
+                    END
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

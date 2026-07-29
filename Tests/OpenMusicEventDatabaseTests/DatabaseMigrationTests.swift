@@ -8,6 +8,253 @@ import Testing
 
 struct DatabaseMigrationTests {
     @Test
+    func migratesPerformanceIntoPerformanceScheduleItemWithoutChangingItsScheduleData() async throws {
+        let database = try SQLiteData.defaultDatabase()
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Create OpenMusicEvent relationship schema")
+
+        try await database.write { db in
+            try db.execute(sql: """
+                INSERT INTO "organizers" ("id")
+                VALUES ('did:plc:festival');
+
+                INSERT INTO "events" (
+                  "organizerID", "eventID", "name", "timeZone"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'Summer Festival', 'America/Denver'
+                );
+
+                INSERT INTO "stages" (
+                  "organizerID", "eventID", "stageID", "name", "color"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'main-stage', 'Main Stage', 0
+                );
+
+                INSERT INTO "schedules" (
+                  "organizerID", "eventID", "scheduleID", "date"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'friday', '2026-07-31'
+                );
+
+                INSERT INTO "contributors" (
+                  "organizerID", "eventID", "contributorID", "name", "did"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'example-band',
+                  'The Example Band', 'did:plc:exampleband'
+                );
+
+                INSERT INTO "performances" (
+                  "organizerID", "eventID", "performanceID", "stageID", "scheduleID",
+                  "startTime", "endTime", "title", "description", "recordings"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'friday-main-1900',
+                  'main-stage', 'friday',
+                  '2026-07-31T19:00:00Z', '2026-07-31T20:00:00Z',
+                  'The Example Band', 'Opening-night performance',
+                  '[{"url":"https://example.com/live-set"}]'
+                );
+
+                INSERT INTO "performanceContributors" (
+                  "organizerID", "eventID", "performanceID", "contributorID",
+                  "contributorActor", "billing", "role", "sortIndex"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'friday-main-1900',
+                  'example-band', 'did:plc:exampleband', 'primary', 'performer', 3
+                );
+                """)
+        }
+
+        try migrator.migrate(database)
+
+        try await database.write { db in
+            // The migrated database must still complete the app's search bootstrap.
+            try EventSearchTextTriggers.install(in: db)
+            try EventSearchSources.installTriggers(in: db)
+            try EventSearchSources.rebuild(in: db)
+
+            #expect(try db.tableExists("scheduleItems"))
+            #expect(try db.tableExists("scheduleItemPerformanceDetails"))
+            #expect(try db.tableExists("scheduleItemContributors"))
+            #expect(!(try db.tableExists("performances")))
+            #expect(!(try db.tableExists("performanceContributors")))
+
+            let legacyObjectTypes = try String.fetchAll(
+                db,
+                sql: """
+                    SELECT "type"
+                    FROM "sqlite_schema"
+                    WHERE "name" IN ('performances', 'performanceContributors')
+                    ORDER BY "name"
+                    """
+            )
+            expectNoDifference(legacyObjectTypes, ["view", "view"])
+
+            let scheduleItem = try String.fetchOne(
+                db,
+                sql: """
+                    SELECT json_object(
+                      'organizerID', "organizerID",
+                      'eventID', "eventID",
+                      'scheduleItemID', "scheduleItemID",
+                      'stageID', "stageID",
+                      'scheduleID', "scheduleID",
+                      'kind', "kind",
+                      'startTime', "startTime",
+                      'endTime', "endTime",
+                      'title', "title",
+                      'description', "description"
+                    )
+                    FROM "scheduleItems"
+                    """
+            )
+            expectNoDifference(
+                scheduleItem,
+                #"{"organizerID":"did:plc:festival","eventID":"summer-2026","scheduleItemID":"friday-main-1900","stageID":"main-stage","scheduleID":"friday","kind":"performance","startTime":"2026-07-31T19:00:00Z","endTime":"2026-07-31T20:00:00Z","title":"The Example Band","description":"Opening-night performance"}"#
+            )
+
+            let recordings = try String.fetchOne(
+                db,
+                sql: #"SELECT "recordings" FROM "scheduleItemPerformanceDetails""#
+            )
+            expectNoDifference(recordings, #"[{"url":"https://example.com/live-set"}]"#)
+
+            let contributor = try String.fetchOne(
+                db,
+                sql: """
+                    SELECT json_object(
+                      'scheduleItemID', "scheduleItemID",
+                      'contributorID', "contributorID",
+                      'contributorActor', "contributorActor",
+                      'billing', "billing",
+                      'role', "role",
+                      'sortIndex', "sortIndex"
+                    )
+                    FROM "scheduleItemContributors"
+                    """
+            )
+            expectNoDifference(
+                contributor,
+                #"{"scheduleItemID":"friday-main-1900","contributorID":"example-band","contributorActor":"did:plc:exampleband","billing":"primary","role":"performer","sortIndex":3}"#
+            )
+
+            #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItems""#) == 1)
+            #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItemPerformanceDetails""#) == 1)
+            #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItemContributors""#) == 1)
+
+            // The current app can keep using its shipped performance model while call sites migrate.
+            try db.execute(sql: """
+                UPDATE "performances"
+                SET
+                  "title" = 'The Example Band - Updated',
+                  "recordings" = '[{"url":"https://example.com/encore"}]'
+                WHERE "organizerID" = 'did:plc:festival'
+                  AND "eventID" = 'summer-2026'
+                  AND "performanceID" = 'friday-main-1900'
+                """)
+
+            #expect(
+                try String.fetchOne(
+                    db,
+                    sql: #"SELECT "title" FROM "scheduleItems""#
+                ) == "The Example Band - Updated"
+            )
+            #expect(
+                try String.fetchOne(
+                    db,
+                    sql: #"SELECT "recordings" FROM "scheduleItemPerformanceDetails""#
+                ) == #"[{"url":"https://example.com/encore"}]"#
+            )
+            #expect(
+                try String.fetchOne(
+                    db,
+                    sql: #"SELECT "title" FROM "eventSearchDocuments" WHERE "stableID" = 'performance:did:plc:festival:summer-2026:friday-main-1900'"#
+                ) == "The Example Band - Updated"
+            )
+
+            try db.execute(sql: """
+                DELETE FROM "performances"
+                WHERE "organizerID" = 'did:plc:festival'
+                  AND "eventID" = 'summer-2026'
+                  AND "performanceID" = 'friday-main-1900'
+                """)
+
+            #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItems""#) == 0)
+            #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItemPerformanceDetails""#) == 0)
+            #expect(try Int.fetchOne(db, sql: #"SELECT COUNT(*) FROM "scheduleItemContributors""#) == 0)
+            #expect(
+                try String.fetchOne(
+                    db,
+                    sql: #"SELECT "title" FROM "eventSearchDocuments" WHERE "stableID" = 'performance:did:plc:festival:summer-2026:friday-main-1900'"#
+                ) == nil
+            )
+        }
+    }
+
+    @Test
+    func failedScheduleItemMigrationLeavesThePerformanceSchemaRecoverable() async throws {
+        let database = try SQLiteData.defaultDatabase()
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Create OpenMusicEvent relationship schema")
+
+        try await database.write { db in
+            try db.execute(sql: """
+                INSERT INTO "organizers" ("id")
+                VALUES ('did:plc:festival');
+
+                INSERT INTO "events" (
+                  "organizerID", "eventID", "name", "timeZone"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'Summer Festival', 'America/Denver'
+                );
+
+                INSERT INTO "stages" (
+                  "organizerID", "eventID", "stageID", "name", "color"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'main-stage', 'Main Stage', 0
+                );
+
+                INSERT INTO "performances" (
+                  "organizerID", "eventID", "performanceID", "stageID",
+                  "startTime", "endTime", "title", "recordings"
+                ) VALUES (
+                  'did:plc:festival', 'summer-2026', 'friday-main-1900', 'main-stage',
+                  '2026-07-31T19:00:00Z', '2026-07-31T20:00:00Z',
+                  'The Example Band', '[]'
+                );
+
+                CREATE TABLE "scheduleItemPerformanceDetails" ("sentinel" TEXT);
+                INSERT INTO "scheduleItemPerformanceDetails" ("sentinel") VALUES ('keep me');
+                """)
+        }
+
+        #expect(throws: (any Error).self) {
+            try migrator.migrate(database)
+        }
+
+        try await database.read { db in
+            let scheduleItemsExist = try db.tableExists("scheduleItems")
+            let performancesExist = try db.tableExists("performances")
+            let performanceTitle = try String.fetchOne(
+                db,
+                sql: #"SELECT "title" FROM "performances" WHERE "performanceID" = 'friday-main-1900'"#
+            )
+            let sentinel = try String.fetchOne(
+                db,
+                sql: #"SELECT "sentinel" FROM "scheduleItemPerformanceDetails""#
+            )
+
+            #expect(!scheduleItemsExist)
+            #expect(performancesExist)
+            #expect(performanceTitle == "The Example Band")
+            #expect(sentinel == "keep me")
+        }
+    }
+
+    @Test
     func eventReportingLinkMigrationAddsNullableColumn() async throws {
         let database = try SQLiteData.defaultDatabase()
 
