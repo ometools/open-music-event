@@ -15,7 +15,10 @@ struct ScheduleTimelineCardView: View {
     @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage
+    let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
+    let userScheduleMembershipAction: (UserSchedule.ID) -> Void
+    let newUserScheduleAction: () -> Void
     let editAction: () -> Void
     let deleteAction: () -> Void
     let action: () -> Void
@@ -25,7 +28,8 @@ struct ScheduleTimelineCardView: View {
             cardContent
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(performance.title)
+        .opacity(userScheduleOverlay.isDimmed(performanceID: performance.id.performanceID) ? 0.38 : 1)
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(performance.timeRangeText)
         .contextMenu {
             PerformanceReactionMenuContent(
@@ -33,7 +37,44 @@ struct ScheduleTimelineCardView: View {
                 context: reactionMenuContext
             )
 
+            if let selectedSchedule = userScheduleOverlay.selectedSchedule {
+                Button {
+                    userScheduleMembershipAction(selectedSchedule.id)
+                } label: {
+                    Label(
+                        quickActionTitle(selectedSchedule),
+                        systemImage: userScheduleOverlay.isMember(
+                            performanceID: performance.id.performanceID
+                        ) ? "checkmark-circle" : "calendar"
+                    )
+                }
+
+                Divider()
+            }
+
+            ForEach(userScheduleOverlay.schedules) { schedule in
+                Button {
+                    userScheduleMembershipAction(schedule.id)
+                } label: {
+                    Label(
+                        quickActionTitle(schedule),
+                        systemImage: userScheduleOverlay.contains(
+                            performanceID: performance.id.performanceID,
+                            in: schedule.id
+                        ) ? "checkmark-circle" : "calendar"
+                    )
+                }
+            }
+
+            Button {
+                newUserScheduleAction()
+            } label: {
+                Label("Add to a new schedule", systemImage: "plus")
+            }
+
             if showsAuthoringControls {
+                Divider()
+
                 Button {
                     editAction()
                 } label: {
@@ -57,6 +98,12 @@ struct ScheduleTimelineCardView: View {
                     .lineLimit(2)
 
                 Spacer(minLength: 0)
+
+                if userScheduleOverlay.isMember(performanceID: performance.id.performanceID) {
+                    Image(systemName: "checkmark-circle")
+                        .font(.caption)
+                        .accessibilityHidden(true)
+                }
 
                 if !performance.recordings.isEmpty {
                     Image(systemName: "play.circle.fill")
@@ -86,6 +133,24 @@ struct ScheduleTimelineCardView: View {
             ScheduleTimelineCardBackground(stageColor: stage.color.swiftUIColor)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    var accessibilityLabel: String {
+        guard let selectedSchedule = userScheduleOverlay.selectedSchedule else {
+            return performance.title
+        }
+        let membership = userScheduleOverlay.isMember(
+            performanceID: performance.id.performanceID
+        ) ? "In" : "Not in"
+        return "\(performance.title), \(membership) \(selectedSchedule.title)"
+    }
+
+    func quickActionTitle(_ schedule: UserSchedule) -> String {
+        let prefix = userScheduleOverlay.contains(
+            performanceID: performance.id.performanceID,
+            in: schedule.id
+        ) ? "Remove from" : "Add to"
+        return "\(prefix) \(schedule.title)"
     }
 }
 

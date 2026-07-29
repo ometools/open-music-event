@@ -20,7 +20,7 @@ Community calendar records give OpenMusicEvent a useful interoperability path be
 ## Phase Boundary
 
 ```gpt-5
-This is not part of the Wicked Woods launch-critical org publishing slice. Wicked Woods should first prove source-managed OME records, [[OME-068-wicked-woods-local-attendee-state|local attendee favorites/personal schedule state]], and an [[OME-070-wicked-woods-appview-event-snapshot|OME event snapshot AppView surface]]. Community-calendar publishing, public RSVP/attendance semantics, atmo.rsvp, Smoke Signal, public favorites, and cross-app social behavior are intentionally later interoperability/community work.
+This is not part of the Wicked Woods launch-critical org publishing slice. Wicked Woods should first prove source-managed OME records, [[OME-068-wicked-woods-local-attendee-state|local personal schedules]], and an [[OME-070-wicked-woods-appview-event-snapshot|OME event snapshot AppView surface]]. Community-calendar publishing, public RSVP/attendance semantics, atmo.rsvp, Smoke Signal, public favorites, and cross-app social behavior are intentionally later interoperability/community work.
 ```
 
 ## Rough Shape

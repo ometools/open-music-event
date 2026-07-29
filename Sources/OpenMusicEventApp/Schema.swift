@@ -221,7 +221,6 @@ public enum OpenMusicEventAppDatabaseMigrations {
             """)
             .execute(db)
     }
-
     migrator.registerMigration("Add local performance reactions") { db in
         // Reactions intentionally have no foreign key to performances. Source imports replace
         // performance rows, while this device-local state is keyed by their stable identity.
@@ -263,6 +262,52 @@ public enum OpenMusicEventAppDatabaseMigrations {
         try #sql("""
             ALTER TABLE "scheduleViewerState"
             DROP COLUMN "filteringInterested"
+            """)
+            .execute(db)
+    }
+
+    migrator.registerMigration("Create OpenMusicEvent user schedule schema") { db in
+        try #sql("""
+            CREATE TABLE "userSchedules" (
+              "id" TEXT PRIMARY KEY NOT NULL,
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "title" TEXT NOT NULL CHECK (
+                "title" = trim(
+                  "title",
+                  char(9) || char(10) || char(11) || char(12) || char(13) || ' '
+                )
+                AND length("title") BETWEEN 1 AND 80
+              ),
+              "userDID" TEXT
+            ) STRICT
+            """)
+            .execute(db)
+
+        try #sql("""
+            CREATE UNIQUE INDEX "userSchedules_event_title"
+            ON "userSchedules" ("organizerID", "eventID", "title" COLLATE NOCASE)
+            """)
+            .execute(db)
+
+        try #sql("""
+            CREATE TABLE "userSchedulePerformances" (
+              "scheduleID" TEXT NOT NULL REFERENCES "userSchedules" ("id") ON DELETE CASCADE,
+              "performanceID" TEXT NOT NULL,
+              PRIMARY KEY ("scheduleID", "performanceID")
+            ) STRICT
+            """)
+            .execute(db)
+
+        try #sql("""
+            ALTER TABLE "eventViewerState"
+            ADD COLUMN "selectedUserScheduleID" TEXT
+            """)
+            .execute(db)
+
+        try #sql("""
+            ALTER TABLE "eventViewerState"
+            ADD COLUMN "didInitializeUserSchedules" INTEGER NOT NULL DEFAULT 0
             """)
             .execute(db)
     }

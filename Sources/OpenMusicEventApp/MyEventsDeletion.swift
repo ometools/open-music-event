@@ -145,6 +145,10 @@ enum MyEventsDeletion {
                 .where { $0.id.eq(eventID) }
                 .delete()
                 .execute(db)
+            try UserSchedule
+                .where { $0.eventID.eq(eventID) }
+                .delete()
+                .execute(db)
             try ScheduleViewerState
                 .where { $0.id.eventID.eq(eventID) }
                 .delete()

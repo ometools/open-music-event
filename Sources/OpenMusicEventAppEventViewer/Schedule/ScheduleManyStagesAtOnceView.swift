@@ -78,7 +78,12 @@ public struct ScheduleManyStagesAtOnce {
     public enum Action {
         case deletePerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case userScheduleMembershipButtonTapped(
+            OMERecord.ID<OMERecord.Performance>,
+            UserSchedule.ID
+        )
     }
 
     public var body: some Feature {
@@ -102,11 +107,32 @@ public struct ScheduleManyStagesAtOnce {
                     await task?.value
                 }
 
+            case let .newUserScheduleButtonTapped(performanceID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceNewUserScheduleRequested.self,
+                        value: performanceID
+                    )
+                    await task?.value
+                }
+
             case let .performanceButtonTapped(performanceID):
                 store.addTask {
                     let task = try store.post(
                         key: SchedulePerformanceDetailRequested.self,
                         value: performanceID
+                    )
+                    await task?.value
+                }
+
+            case let .userScheduleMembershipButtonTapped(performanceID, scheduleID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceUserScheduleMembershipRequested.self,
+                        value: SchedulePerformanceUserScheduleMembershipRequest(
+                            performanceID: performanceID,
+                            scheduleID: scheduleID
+                        )
                     )
                     await task?.value
                 }
@@ -118,6 +144,7 @@ public struct ScheduleManyStagesAtOnce {
 public struct ScheduleManyStagesAtOnceView: View {
     @Bindable var store: StoreOf<ScheduleManyStagesAtOnce>
     @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
 
     let minimumStageLaneWidth: CGFloat = 132
@@ -135,10 +162,12 @@ public struct ScheduleManyStagesAtOnceView: View {
     public init(
         store: StoreOf<ScheduleManyStagesAtOnce>,
         selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>,
+        userScheduleOverlay: UserScheduleOverlay,
         showsAuthoringControls: Bool
     ) {
         self.store = store
         self._selectedScheduleID = selectedScheduleID
+        self.userScheduleOverlay = userScheduleOverlay
         self.showsAuthoringControls = showsAuthoringControls
     }
 
@@ -419,7 +448,19 @@ public struct ScheduleManyStagesAtOnceView: View {
             ScheduleTimelineCardView(
                 performance: card.performance,
                 stage: card.stage,
+                userScheduleOverlay: userScheduleOverlay,
                 showsAuthoringControls: showsAuthoringControls,
+                userScheduleMembershipAction: { scheduleID in
+                    store.send(
+                        .userScheduleMembershipButtonTapped(
+                            card.id,
+                            scheduleID
+                        )
+                    )
+                },
+                newUserScheduleAction: {
+                    store.send(.newUserScheduleButtonTapped(card.id))
+                },
                 editAction: {
                     store.send(.editPerformanceButtonTapped(card.id))
                 },

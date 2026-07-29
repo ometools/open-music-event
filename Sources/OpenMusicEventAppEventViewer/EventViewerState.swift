@@ -1,6 +1,7 @@
 #if canImport(Combine)
 @preconcurrency import Combine
 #endif
+import Foundation
 import Sharing
 import SQLiteData
 
@@ -8,14 +9,20 @@ import SQLiteData
 public struct EventViewerState: Equatable, Sendable, Identifiable {
     public init(
         id: OMERecord.Event.ID,
-        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>? = nil
+        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>? = nil,
+        selectedUserScheduleID: UUID? = nil,
+        didInitializeUserSchedules: Bool = false
     ) {
         self.id = id
         self.selectedScheduleID = selectedScheduleID
+        self.selectedUserScheduleID = selectedUserScheduleID
+        self.didInitializeUserSchedules = didInitializeUserSchedules
     }
 
     public var id: OMERecord.Event.ID
     public var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    public var selectedUserScheduleID: UUID?
+    public var didInitializeUserSchedules = false
 }
 
 struct EventViewerStateKey: SharedKey {

@@ -122,7 +122,12 @@ public struct ScheduleSingleStageAtOnce {
     public enum Action {
         case deletePerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case userScheduleMembershipButtonTapped(
+            OMERecord.ID<OMERecord.Performance>,
+            UserSchedule.ID
+        )
     }
 
     public var body: some Feature {
@@ -146,11 +151,32 @@ public struct ScheduleSingleStageAtOnce {
                     await task?.value
                 }
 
+            case let .newUserScheduleButtonTapped(performanceID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceNewUserScheduleRequested.self,
+                        value: performanceID
+                    )
+                    await task?.value
+                }
+
             case let .performanceButtonTapped(performanceID):
                 store.addTask {
                     let task = try store.post(
                         key: SchedulePerformanceDetailRequested.self,
                         value: performanceID
+                    )
+                    await task?.value
+                }
+
+            case let .userScheduleMembershipButtonTapped(performanceID, scheduleID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceUserScheduleMembershipRequested.self,
+                        value: SchedulePerformanceUserScheduleMembershipRequest(
+                            performanceID: performanceID,
+                            scheduleID: scheduleID
+                        )
                     )
                     await task?.value
                 }
@@ -162,6 +188,7 @@ public struct ScheduleSingleStageAtOnce {
 public struct ScheduleSingleStageAtOnceView: View {
     @Bindable var store: StoreOf<ScheduleSingleStageAtOnce>
     @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
@@ -171,10 +198,12 @@ public struct ScheduleSingleStageAtOnceView: View {
     public init(
         store: StoreOf<ScheduleSingleStageAtOnce>,
         selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>,
+        userScheduleOverlay: UserScheduleOverlay,
         showsAuthoringControls: Bool
     ) {
         self.store = store
         self._selectedScheduleID = selectedScheduleID
+        self.userScheduleOverlay = userScheduleOverlay
         self.showsAuthoringControls = showsAuthoringControls
     }
 
@@ -247,7 +276,19 @@ public struct ScheduleSingleStageAtOnceView: View {
                 ),
                 timeRange: timeRange,
                 pageHeight: scheduleHeight(for: timeRange),
+                userScheduleOverlay: userScheduleOverlay,
                 showsAuthoringControls: showsAuthoringControls,
+                onUserScheduleMembershipTapped: { performanceID, scheduleID in
+                    store.send(
+                        .userScheduleMembershipButtonTapped(
+                            performanceID,
+                            scheduleID
+                        )
+                    )
+                },
+                onNewUserScheduleTapped: { performanceID in
+                    store.send(.newUserScheduleButtonTapped(performanceID))
+                },
                 onEditPerformanceTapped: { performanceID in
                     store.send(.editPerformanceButtonTapped(performanceID))
                 },
@@ -316,7 +357,13 @@ struct ScheduleStageTimelinePager: View {
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
     let pageHeight: CGFloat
+    let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
+    let onUserScheduleMembershipTapped: (
+        OMERecord.ID<OMERecord.Performance>,
+        UserSchedule.ID
+    ) -> Void
+    let onNewUserScheduleTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
@@ -332,7 +379,10 @@ struct ScheduleStageTimelinePager: View {
                                 performances: performances(for: stage),
                                 timeRange: timeRange,
                                 pageHeight: pageHeight,
+                                userScheduleOverlay: userScheduleOverlay,
                                 showsAuthoringControls: showsAuthoringControls,
+                                onUserScheduleMembershipTapped: onUserScheduleMembershipTapped,
+                                onNewUserScheduleTapped: onNewUserScheduleTapped,
                                 onEditPerformanceTapped: { performanceID in
                                     onEditPerformanceTapped(performanceID)
                                 },
@@ -378,7 +428,13 @@ struct ScheduleFixedStageTimeline: View {
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
     let pageHeight: CGFloat
+    let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
+    let onUserScheduleMembershipTapped: (
+        OMERecord.ID<OMERecord.Performance>,
+        UserSchedule.ID
+    ) -> Void
+    let onNewUserScheduleTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
@@ -388,7 +444,10 @@ struct ScheduleFixedStageTimeline: View {
             stage: stage,
             performances: performances,
             timeRange: timeRange,
+            userScheduleOverlay: userScheduleOverlay,
             showsAuthoringControls: showsAuthoringControls,
+            onUserScheduleMembershipTapped: onUserScheduleMembershipTapped,
+            onNewUserScheduleTapped: onNewUserScheduleTapped,
             onEditPerformanceTapped: onEditPerformanceTapped,
             onDeletePerformanceTapped: onDeletePerformanceTapped,
             onPerformanceTapped: onPerformanceTapped
@@ -404,7 +463,13 @@ struct ScheduleStageTimelinePage: View {
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
+    let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
+    let onUserScheduleMembershipTapped: (
+        OMERecord.ID<OMERecord.Performance>,
+        UserSchedule.ID
+    ) -> Void
+    let onNewUserScheduleTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
@@ -414,7 +479,14 @@ struct ScheduleStageTimelinePage: View {
             ScheduleTimelineCardView(
                 performance: card.item.performance,
                 stage: stage,
+                userScheduleOverlay: userScheduleOverlay,
                 showsAuthoringControls: showsAuthoringControls,
+                userScheduleMembershipAction: { scheduleID in
+                    onUserScheduleMembershipTapped(card.item.id, scheduleID)
+                },
+                newUserScheduleAction: {
+                    onNewUserScheduleTapped(card.item.id)
+                },
                 editAction: {
                     onEditPerformanceTapped(card.item.id)
                 },

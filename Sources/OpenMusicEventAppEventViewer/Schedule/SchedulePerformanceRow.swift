@@ -5,15 +5,22 @@ public struct SchedulePerformanceRow: View {
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
     let row: PerformanceRow
     let subtitle: String
+    let userScheduleOverlay: UserScheduleOverlay
     var now: Date?
 
     public init(
         row: PerformanceRow,
         subtitle: String,
+        userScheduleOverlay: UserScheduleOverlay = UserScheduleOverlay(
+            schedules: [],
+            memberships: [],
+            selectedScheduleID: nil
+        ),
         now: Date? = nil
     ) {
         self.row = row
         self.subtitle = subtitle
+        self.userScheduleOverlay = userScheduleOverlay
         self.now = now
     }
 
@@ -48,11 +55,18 @@ public struct SchedulePerformanceRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
+
+            if userScheduleOverlay.isMember(performanceID: row.performanceID) {
+                Image(systemName: "checkmark-circle")
+                    .accessibilityHidden(true)
+            }
         }
         .frame(height: 60)
         .padding(.horizontal, 5)
         .padding(.vertical, 4)
         .foregroundStyle(.primary)
+        .opacity(userScheduleOverlay.isDimmed(performanceID: row.performanceID) ? 0.38 : 1)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     @ViewBuilder
@@ -75,5 +89,15 @@ public struct SchedulePerformanceRow: View {
             endTime: row.performance.endTime,
             now: now
         )
+    }
+
+    var accessibilityLabel: String {
+        guard let selectedSchedule = userScheduleOverlay.selectedSchedule else {
+            return "\(row.title), \(subtitle)"
+        }
+        let membership = userScheduleOverlay.isMember(performanceID: row.performanceID)
+            ? "In"
+            : "Not in"
+        return "\(row.title), \(membership) \(selectedSchedule.title), \(subtitle)"
     }
 }

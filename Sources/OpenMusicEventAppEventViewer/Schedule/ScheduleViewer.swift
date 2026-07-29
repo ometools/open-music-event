@@ -2,6 +2,7 @@ import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
@@ -41,6 +42,7 @@ public struct ScheduleViewer {
                     scheduleDivision: scheduleDivision
                 )
             )
+            self._eventViewerState = Shared(.eventViewerState(eventID))
             self.singleStageAtOnce = Spawn(
                 ScheduleSingleStageAtOnce.State(
                     eventID: eventID,
@@ -77,6 +79,12 @@ public struct ScheduleViewer {
             _reactionUsage = FetchAll(
                 PerformanceReactionEmojiUsage.ranked
             )
+            _userSchedules = FetchAll(
+                UserSchedule.all(eventID: eventID)
+            )
+            _userSchedulePerformances = FetchAll(
+                UserSchedule.Performance.all
+            )
         }
 
         public let eventID: OMERecord.Event.ID
@@ -88,6 +96,7 @@ public struct ScheduleViewer {
         public var manyStagesAtOnce: Spawn<ScheduleManyStagesAtOnce>
         public var performanceList: Spawn<SchedulePerformanceList>
         @Shared public var scheduleViewerState: ScheduleViewerState
+        @Shared public var eventViewerState: EventViewerState
 
         @FetchOne public var event: OMERecord.Event?
         public var scheduleKind: ScheduleKind {
@@ -132,6 +141,16 @@ public struct ScheduleViewer {
         @FetchAll public var stages: [OMERecord.Stage]
         @FetchAll public var reactions: [PerformanceReaction]
         @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
+        @FetchAll public var userSchedules: [UserSchedule]
+        @FetchAll public var userSchedulePerformances: [UserSchedule.Performance]
+
+        public var userScheduleOverlay: UserScheduleOverlay {
+            UserScheduleOverlay(
+                schedules: userSchedules,
+                memberships: userSchedulePerformances,
+                selectedScheduleID: eventViewerState.selectedUserScheduleID
+            )
+        }
 
         public var performances: [OMERecord.Performance] {
             performanceRows.map(\.performance)
@@ -235,10 +254,17 @@ public struct ScheduleViewer {
     public enum Action {
         case addPerformanceButtonTapped(OMERecord.ID<OMERecord.Schedule>?)
         case addScheduleButtonTapped
+        case addToNewUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case destination(Destination.Action)
         case otherReactionButtonTapped(OMERecord.Performance.ID)
         case reactionButtonTapped(OMERecord.Performance.ID, PerformanceReaction.Emoji)
         case scheduleKindButtonTapped(ScheduleKind)
+        case schedulesButtonTapped
+        case userScheduleButtonTapped(UserSchedule.ID?)
+        case userScheduleMembershipButtonTapped(
+            performanceID: OMERecord.ID<OMERecord.Performance>,
+            scheduleID: UserSchedule.ID
+        )
     }
 
     @Feature
@@ -246,6 +272,8 @@ public struct ScheduleViewer {
         case deletePerformanceConfirmation(DeletePerformanceConfirmation)
         case performanceDetail(Spawn<PerformanceDetail>)
         case reactionEntry(PerformanceReactionEntry)
+        case userScheduleForm(Spawn<UserScheduleForm>)
+        case userSchedulesList(Spawn<UserSchedulesList>)
     }
 
     @Feature
@@ -266,6 +294,7 @@ public struct ScheduleViewer {
 
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.date.now) var now
+    @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.uuid) var uuid
 
     static func eventPerformancesQuery(
@@ -561,6 +590,19 @@ public struct ScheduleViewer {
                     await task?.value
                 }
 
+            case let .addToNewUserScheduleButtonTapped(performanceID):
+                guard state.performanceRows.contains(where: { $0.performanceID == performanceID }) else {
+                    return
+                }
+                state.destination = .userScheduleForm(
+                    Spawn(
+                        UserScheduleForm.State(
+                            eventID: state.eventID,
+                            performanceID: performanceID
+                        )
+                    )
+                )
+
             case let .destination(.deletePerformanceConfirmation(.deleteButtonTapped(performanceID))):
                 let eventID = state.eventID
                 store.addTask {
@@ -604,6 +646,45 @@ public struct ScheduleViewer {
 
             case let .scheduleKindButtonTapped(scheduleKind):
                 state.scheduleKind = scheduleKind
+
+            case .schedulesButtonTapped:
+                state.destination = .userSchedulesList(
+                    Spawn(UserSchedulesList.State(eventID: state.eventID))
+                )
+
+            case let .userScheduleButtonTapped(scheduleID):
+                guard scheduleID == nil
+                    || state.userSchedules.contains(where: { $0.id == scheduleID })
+                else { return }
+                state.$eventViewerState.withLock {
+                    $0.selectedUserScheduleID = scheduleID
+                }
+
+            case let .userScheduleMembershipButtonTapped(performanceID, scheduleID):
+                guard state.performanceRows.contains(where: { $0.performanceID == performanceID }),
+                      state.userSchedules.contains(where: { $0.id == scheduleID })
+                else { return }
+                let membership = UserSchedule.Performance(
+                    scheduleID: scheduleID,
+                    performanceID: performanceID
+                )
+                let isMember = state.userSchedulePerformances.contains { $0.id == membership.id }
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            if isMember {
+                                try UserSchedule.Performance
+                                    .find(membership.id)
+                                    .delete()
+                                    .execute(db)
+                            } else {
+                                try UserSchedule.Performance.insert { membership }.execute(db)
+                            }
+                        }
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
             }
         }
         .ifLet(\.destination, action: \.destination) {
@@ -649,6 +730,83 @@ public struct ScheduleViewer {
                     )
                 )
                 await task?.value
+            }
+        }
+        .onEvent(SchedulePerformanceUserScheduleMembershipRequested.self) { request, state in
+            guard state.performanceRows.contains(where: { $0.performanceID == request.performanceID }),
+                  state.userSchedules.contains(where: { $0.id == request.scheduleID })
+            else { return }
+            let membership = UserSchedule.Performance(
+                scheduleID: request.scheduleID,
+                performanceID: request.performanceID
+            )
+            let isMember = state.userSchedulePerformances.contains { $0.id == membership.id }
+            store.addTask {
+                do {
+                    try await database.write { db in
+                        if isMember {
+                            try UserSchedule.Performance.find(membership.id).delete().execute(db)
+                        } else {
+                            try UserSchedule.Performance.insert { membership }.execute(db)
+                        }
+                    }
+                } catch {
+                    reportIssue(error)
+                }
+            }
+        }
+        .onEvent(SchedulePerformanceNewUserScheduleRequested.self) { performanceID, state in
+            guard state.performanceRows.contains(where: { $0.performanceID == performanceID }) else {
+                return
+            }
+            state.destination = .userScheduleForm(
+                Spawn(
+                    UserScheduleForm.State(
+                        eventID: state.eventID,
+                        performanceID: performanceID
+                    )
+                )
+            )
+        }
+        .onChange(of: store.userSchedules, initial: true) { _, schedules, state in
+            guard let selectedScheduleID = state.eventViewerState.selectedUserScheduleID,
+                  !schedules.contains(where: { $0.id == selectedScheduleID })
+            else { return }
+            state.$eventViewerState.withLock {
+                $0.selectedUserScheduleID = nil
+            }
+        }
+        .onMount { state in
+            guard !state.eventViewerState.didInitializeUserSchedules else { return }
+            let eventID = state.eventID
+            let scheduleID = uuid()
+            let userDID = getSelectedOAuthSessionID()?.rawValue
+            store.addTask {
+                do {
+                    try await database.write { db in
+                        var viewerState = try EventViewerStateRequest(eventID: eventID).fetch(db)
+                        guard !viewerState.didInitializeUserSchedules else { return }
+
+                        try UserSchedule.insert {
+                            UserSchedule(
+                                id: scheduleID,
+                                eventID: eventID,
+                                title: "My Schedule",
+                                userDID: userDID
+                            )
+                        }
+                        .execute(db)
+                        viewerState.didInitializeUserSchedules = true
+                        try EventViewerState.upsert { viewerState }.execute(db)
+                    }
+                    try store.modify {
+                        $0.$eventViewerState.withLock {
+                            $0.didInitializeUserSchedules = true
+                        }
+                    }
+                } catch {
+                    reportIssue(error)
+                }
             }
         }
     }

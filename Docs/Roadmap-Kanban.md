@@ -16,7 +16,7 @@ kanban-plugin: board
 - [ ] [[roadmap/OME-066-event-rollover-creation-workflow|OME-066: Event Rollover Creation Workflow]]
 - [ ] [[roadmap/OME-064-openmusicevent-feedback-board|OME-064: OpenMusicEvent.app Feedback Board]]
 - [ ] [[roadmap/OME-065-attendee-social-publishing-controls|OME-065: Attendee Social Publishing Controls]]
-- [ ] [[roadmap/OME-068-wicked-woods-local-attendee-state|OME-068: Wicked Woods Local Attendee State]]
+- [ ] [[roadmap/OME-068-wicked-woods-local-attendee-state|OME-068: Personal Schedules Within the Schedule Feature]]
 - [ ] [[roadmap/OME-069-source-release-to-ome-publish-pipeline|OME-069: Source Release to OME Publish Pipeline]]
 - [ ] [[roadmap/OME-070-wicked-woods-appview-event-snapshot|OME-070: Wicked Woods AppView Event Snapshot]]
 - [ ] [[roadmap/OME-071-schedule-authoring-workflow|OME-071: Schedule Authoring Workflow]]

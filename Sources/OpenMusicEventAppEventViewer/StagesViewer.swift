@@ -1111,7 +1111,14 @@ struct StageScheduleView: View {
                     performances: store.selectedSchedulePerformances,
                     timeRange: timeRange,
                     pageHeight: scheduleHeight(for: timeRange),
+                    userScheduleOverlay: UserScheduleOverlay(
+                        schedules: [],
+                        memberships: [],
+                        selectedScheduleID: nil
+                    ),
                     showsAuthoringControls: false,
+                    onUserScheduleMembershipTapped: { _, _ in },
+                    onNewUserScheduleTapped: { _ in },
                     onEditPerformanceTapped: { _ in },
                     onDeletePerformanceTapped: { _ in },
                     onPerformanceTapped: { performanceID in

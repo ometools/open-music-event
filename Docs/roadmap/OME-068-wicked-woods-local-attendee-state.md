@@ -13,43 +13,48 @@ priority: high
 created: "2026-06-17"
 ---
 
-# Wicked Woods Local Attendee State
+# Personal Schedules Within the Schedule Feature
 
 ## Summary
 
 ```gpt-5
-Implement attendee-facing saved/favorited event state locally first for Wicked Woods, without making public ATProto social records part of the launch-critical path.
+Add local, attendee-created `UserSchedule` overlays to the published Schedule feature. Keep Event Schedule as the default complete timeline and let attendees create, rename, select, and delete personal schedules without adding a new event feature or tab.
 ```
 
 ## Why
 
 ```gpt-5
-Wicked Woods needs practical attendee behavior such as saving performances and building a personal schedule before the broader community/social publishing model is ready. Public favorites, public attendance, and cross-app social semantics should not block the first event-ready app.
+Wicked Woods attendees need to plan performances while retaining the event's complete published schedule. Personal schedules are private app-database state, independent of organizer publishing and public social records.
 ```
 
 ## Rough Shape
 
 ```gpt-5
-- Let attendees favorite/save performances locally.
-- Use stable local IDs that can later map to AT URIs when performances become public OME records.
-- Keep the state device-local or private-sync oriented in the first slice.
-- Make the UI feel event-ready: saved performance state should be visible in schedule rows, performance details, and any "my schedule" surface.
-- Do not publish `app.openmusicevent.performanceFavorite`, attendance, RSVP, or public interest records in this slice.
-- Leave the future public action semantics explicit: favorite, interest, planned attendance, and actual attendance are separate concepts.
-- Code pointers: `Sources/OpenMusicEventAppEventViewer/Schedule`, `Sources/OpenMusicEventAppEventViewer/EventViewerState.swift`, `Sources/OpenMusicEventLexicon/MusicEvent.swift`.
+- Add local `UserSchedule` and `UserSchedule.Performance` models. A schedule captures the currently selected account DID when it is created, or `nil` when no account is selected; login remains optional.
+- Create `My Schedule` exactly once on the first Schedule mount while leaving Event Schedule selected. It remains an ordinary renamable and deletable schedule.
+- Add a Schedule toolbar menu for Event Schedule, personal schedules, and a Schedules list. Do not add an `EventFeature`, tab, serialized feature value, or public route.
+- Preserve the complete timeline in every layout. When a personal schedule is selected, dim non-members while keeping them tappable and show membership with both a visible indicator and accessibility text.
+- Support schedule CRUD and membership actions from schedule cards and performance detail, including atomic "Add to a new schedule."
+- Preserve unavailable membership references through source refresh and allow explicit local removal.
+- Keep these tables out of source snapshots, patches, organizer publishing, AppView snapshots, and ATProto records.
+- Sharing, importing, cloud sync, collaboration, reminders, artist following, and public publishing are outside this slice.
+- Code pointers: `Sources/OpenMusicEventAppEventViewer/Schedule`, `Sources/OpenMusicEventAppEventViewer/EventViewerState.swift`, `Sources/OpenMusicEventApp/Schema.swift`.
 ```
 
-## Open Questions
+## Persistence Rules
 
 ```gpt-5
-- Should local saved performances live in the main event database, a user-state table, or a separate private sync bundle?
-- Should saved state be per event, per performance, or both?
-- Does "favorite" mean visual bookmarking, personal schedule planning, or recommendation signal in the Wicked Woods app?
-- How should local saved state migrate when a performance gains a public AT URI later?
+- Schedule titles are trimmed, 1–80 characters, and case-insensitively unique per event.
+- A performance may belong to multiple personal schedules but only once per schedule.
+- `EventViewerState.selectedUserScheduleID == nil` means Event Schedule; selection persists and falls back to Event Schedule when invalid.
+- `didInitializeUserSchedules` distinguishes first use from intentionally deleting every personal schedule.
+- A schedule keeps the DID captured at creation when it is renamed or its memberships change.
+- Memberships cascade only with their `UserSchedule`. They do not foreign-key to source-owned event, performance, or contributor rows.
+- Explicit event deletion removes its personal schedules, memberships, and selection/initialization state.
 ```
 
 ## Next Step
 
 ```gpt-5
-Define the local saved-performance table/model and wire it through the schedule row and performance detail surfaces before adding any public ATProto action records.
+Validate the forward migration, persistence invariants, Schedule story flows, full-timeline overlay behavior, and the `OpenMusicEventApp` target. Android runtime remains a temporary gate unless requested.
 ```

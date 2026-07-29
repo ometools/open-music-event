@@ -7,6 +7,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventImages
 import OpenMusicEventViewers
+import Sharing
 import SQLiteData
 import SwiftUI
 import Tagged
@@ -26,6 +27,7 @@ public struct PerformanceDetail {
             self.eventID = eventID ?? defaultEventID
             self.performanceID = performanceID
             self.timeZone = defaultEventTimeZone
+            self._eventViewerState = Shared(.eventViewerState(self.eventID))
             _contributors = FetchAll(
                 PerformanceDetail.contributorsQuery(
                     performanceID: performanceID,
@@ -62,6 +64,12 @@ public struct PerformanceDetail {
             _reactionUsage = FetchAll(
                 PerformanceReactionEmojiUsage.ranked
             )
+            _userSchedules = FetchAll(
+                UserSchedule.all(eventID: self.eventID)
+            )
+            _userSchedulePerformances = FetchAll(
+                UserSchedule.Performance.all
+            )
         }
 
         public let eventID: OMERecord.Event.ID
@@ -71,12 +79,23 @@ public struct PerformanceDetail {
 
         @FetchAll var contributors: [ContributorProfile]
         public var destination: Destination.State?
+        @Shared public var eventViewerState: EventViewerState
         @FetchOne public var performance: OMERecord.Performance?
         @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
         @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
         @FetchAll public var reactions: [PerformanceReaction]
         @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
+        @FetchAll public var userSchedules: [UserSchedule]
+        @FetchAll public var userSchedulePerformances: [UserSchedule.Performance]
+
+        public var userScheduleOverlay: UserScheduleOverlay {
+            UserScheduleOverlay(
+                schedules: userSchedules,
+                memberships: userSchedulePerformances,
+                selectedScheduleID: eventViewerState.selectedUserScheduleID
+            )
+        }
 
         public var id: OMERecord.ID<OMERecord.Performance> { performanceID }
 
@@ -177,12 +196,15 @@ public struct PerformanceDetail {
         case editButtonTapped
         case otherReactionButtonTapped
         case reactionButtonTapped(PerformanceReaction.Emoji)
+        case newUserScheduleButtonTapped
+        case userScheduleMembershipButtonTapped(UserSchedule.ID)
     }
 
     @Feature
     public enum Destination {
         case contributorDetail(Spawn<ContributorDetail>)
         case reactionEntry(PerformanceReactionEntry)
+        case userScheduleForm(Spawn<UserScheduleForm>)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
@@ -271,6 +293,40 @@ public struct PerformanceDetail {
                                 date: date,
                                 in: db
                             )
+                        }
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
+
+            case .newUserScheduleButtonTapped:
+                guard state.performance != nil else { return }
+                state.destination = .userScheduleForm(
+                    Spawn(
+                        UserScheduleForm.State(
+                            eventID: state.eventID,
+                            performanceID: state.performanceID
+                        )
+                    )
+                )
+
+            case let .userScheduleMembershipButtonTapped(scheduleID):
+                guard state.performance != nil,
+                      state.userSchedules.contains(where: { $0.id == scheduleID })
+                else { return }
+                let membership = UserSchedule.Performance(
+                    scheduleID: scheduleID,
+                    performanceID: state.performanceID
+                )
+                let isMember = state.userSchedulePerformances.contains { $0.id == membership.id }
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            if isMember {
+                                try UserSchedule.Performance.find(membership.id).delete().execute(db)
+                            } else {
+                                try UserSchedule.Performance.insert { membership }.execute(db)
+                            }
                         }
                     } catch {
                         reportIssue(error)
@@ -377,6 +433,9 @@ public struct PerformanceDetailView: View {
 
                 }
                 .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        PerformanceUserScheduleMenu(store: store)
+                    }
                     if showsAuthoringControls {
                         ToolbarItem(placement: .primaryAction) {
                             Button {
@@ -413,6 +472,9 @@ public struct PerformanceDetailView: View {
         .sheet(item: $store.scope(\.destination, action: \.destination).reactionEntry) { entryStore in
             PerformanceReactionEntryView(store: entryStore)
         }
+        .navigationDestination(item: $store.scope(\.destination, action: \.destination).userScheduleForm) { formStore in
+            UserScheduleFormView(store: formStore)
+        }
     }
 
     var reactionMenuContext: PerformanceReactionMenuContext {
@@ -426,6 +488,53 @@ public struct PerformanceDetailView: View {
                 store.send(.otherReactionButtonTapped)
             }
         )
+    }
+}
+
+public struct PerformanceUserScheduleMenu: View {
+    @Bindable var store: StoreOf<PerformanceDetail>
+
+    public init(store: StoreOf<PerformanceDetail>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Menu {
+            if let selectedSchedule = store.state.userScheduleOverlay.selectedSchedule {
+                membershipButton(schedule: selectedSchedule)
+                Divider()
+            }
+
+            ForEach(store.userSchedules) { schedule in
+                membershipButton(schedule: schedule)
+            }
+
+            Button {
+                store.send(.newUserScheduleButtonTapped)
+            } label: {
+                Label("Add to a new schedule", systemImage: "plus")
+            }
+        } label: {
+            Label("Personal Schedules", systemImage: "calendar")
+                .labelStyle(.iconOnly)
+        }
+        .accessibilityLabel("Personal schedules")
+    }
+
+    @ViewBuilder
+    func membershipButton(schedule: UserSchedule) -> some View {
+        let isMember = store.state.userScheduleOverlay.contains(
+            performanceID: store.performanceID,
+            in: schedule.id
+        )
+        Button {
+            store.send(.userScheduleMembershipButtonTapped(schedule.id))
+        } label: {
+            Label(
+                "\(isMember ? "Remove from" : "Add to") \(schedule.title)",
+                systemImage: isMember ? "checkmark-circle" : "calendar"
+            )
+        }
     }
 }
 

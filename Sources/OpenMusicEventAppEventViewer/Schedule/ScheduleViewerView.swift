@@ -131,6 +131,59 @@ public struct ScheduleKindMenu: View {
     }
 }
 
+public struct UserScheduleFilterMenu: View {
+    @Bindable var store: StoreOf<ScheduleViewer>
+
+    public init(store: StoreOf<ScheduleViewer>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        Menu {
+            Button {
+                store.send(.userScheduleButtonTapped(nil))
+            } label: {
+                selectionLabel(
+                    title: "Event Schedule",
+                    isSelected: store.state.userScheduleOverlay.selectedSchedule == nil
+                )
+            }
+
+            ForEach(store.userSchedules) { schedule in
+                Button {
+                    store.send(.userScheduleButtonTapped(schedule.id))
+                } label: {
+                    selectionLabel(
+                        title: schedule.title,
+                        isSelected: store.state.userScheduleOverlay.selectedSchedule?.id == schedule.id
+                    )
+                }
+            }
+
+            Divider()
+
+            Button {
+                store.send(.schedulesButtonTapped)
+            } label: {
+                Label("Schedules…", systemImage: "calendar")
+            }
+        } label: {
+            Label(store.state.userScheduleOverlay.selectedTitle, systemImage: "calendar")
+                .labelStyle(.iconOnly)
+        }
+        .accessibilityLabel("Schedule filter, \(store.state.userScheduleOverlay.selectedTitle)")
+    }
+
+    @ViewBuilder
+    func selectionLabel(title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
+    }
+}
+
 public struct ScheduleViewerView: View {
     @Dependency(\.date.now) var now
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
@@ -173,6 +226,9 @@ public struct ScheduleViewerView: View {
                             selectedScheduleID: selectedScheduleID
                         )
                     }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    UserScheduleFilterMenu(store: store)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     ScheduleKindMenu(store: store)
@@ -221,6 +277,12 @@ public struct ScheduleViewerView: View {
             .sheet(item: $store.scope(\.destination, action: \.destination).reactionEntry) { entryStore in
                 PerformanceReactionEntryView(store: entryStore)
             }
+            .navigationDestination(item: $store.scope(\.destination, action: \.destination).userSchedulesList) { schedulesStore in
+                UserSchedulesListView(store: schedulesStore)
+            }
+            .navigationDestination(item: $store.scope(\.destination, action: \.destination).userScheduleForm) { formStore in
+                UserScheduleFormView(store: formStore)
+            }
             .environment(\.showStageNameLabels, store.showStageNameLabels)
             .environment(\.scheduleNowScrollRequest, nowScrollRequest)
             .environment(
@@ -256,6 +318,7 @@ public struct ScheduleViewerView: View {
                     ScheduleSingleStageAtOnceView(
                         store: store.spawn(\.singleStageAtOnce),
                         selectedScheduleID: _selectedScheduleID,
+                        userScheduleOverlay: store.state.userScheduleOverlay,
                         showsAuthoringControls: showsAuthoringControls
                     )
 
@@ -263,6 +326,7 @@ public struct ScheduleViewerView: View {
                     ScheduleManyStagesAtOnceView(
                         store: store.spawn(\.manyStagesAtOnce),
                         selectedScheduleID: _selectedScheduleID,
+                        userScheduleOverlay: store.state.userScheduleOverlay,
                         showsAuthoringControls: showsAuthoringControls
                     )
 
@@ -270,6 +334,7 @@ public struct ScheduleViewerView: View {
                     SchedulePerformanceListView(
                         store: store.spawn(\.performanceList),
                         selectedScheduleID: selectedScheduleID,
+                        userScheduleOverlay: store.state.userScheduleOverlay,
                         showsAuthoringControls: showsAuthoringControls
                     )
                 }

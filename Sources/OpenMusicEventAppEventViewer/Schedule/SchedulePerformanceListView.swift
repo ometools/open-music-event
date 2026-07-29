@@ -82,17 +82,43 @@ public struct SchedulePerformanceList {
     }
 
     public enum Action {
+        case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case userScheduleMembershipButtonTapped(
+            OMERecord.ID<OMERecord.Performance>,
+            UserSchedule.ID
+        )
     }
 
     public var body: some Feature {
         Update { _, action in
             switch action {
+            case let .newUserScheduleButtonTapped(performanceID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceNewUserScheduleRequested.self,
+                        value: performanceID
+                    )
+                    await task?.value
+                }
+
             case let .performanceButtonTapped(performanceID):
                 store.addTask {
                     let task = try store.post(
                         key: SchedulePerformanceDetailRequested.self,
                         value: performanceID
+                    )
+                    await task?.value
+                }
+
+            case let .userScheduleMembershipButtonTapped(performanceID, scheduleID):
+                store.addTask {
+                    let task = try store.post(
+                        key: SchedulePerformanceUserScheduleMembershipRequested.self,
+                        value: SchedulePerformanceUserScheduleMembershipRequest(
+                            performanceID: performanceID,
+                            scheduleID: scheduleID
+                        )
                     )
                     await task?.value
                 }
@@ -107,15 +133,18 @@ public struct SchedulePerformanceListView: View {
     @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     @Bindable var store: StoreOf<SchedulePerformanceList>
     let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
 
     public init(
         store: StoreOf<SchedulePerformanceList>,
         selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
+        userScheduleOverlay: UserScheduleOverlay,
         showsAuthoringControls: Bool
     ) {
         self.store = store
         self.selectedScheduleID = selectedScheduleID
+        self.userScheduleOverlay = userScheduleOverlay
         self.showsAuthoringControls = showsAuthoringControls
     }
 
@@ -141,6 +170,7 @@ public struct SchedulePerformanceListView: View {
                                     timeZone: store.timeZone,
                                     policy: dateTimeRangeResolutionPolicy
                                 ),
+                                userScheduleOverlay: userScheduleOverlay,
                                 now: context.date
                             )
                         }
@@ -151,6 +181,27 @@ public struct SchedulePerformanceListView: View {
                                 performanceID: row.performance.id,
                                 context: reactionMenuContext
                             )
+
+                            if let selectedSchedule = userScheduleOverlay.selectedSchedule {
+                                membershipButton(
+                                    row: row,
+                                    schedule: selectedSchedule
+                                )
+                                Divider()
+                            }
+
+                            ForEach(userScheduleOverlay.schedules) { schedule in
+                                membershipButton(
+                                    row: row,
+                                    schedule: schedule
+                                )
+                            }
+
+                            Button {
+                                store.send(.newUserScheduleButtonTapped(row.performanceID))
+                            } label: {
+                                Label("Add to a new schedule", systemImage: "plus")
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -166,6 +217,30 @@ public struct SchedulePerformanceListView: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    func membershipButton(
+        row: PerformanceRow,
+        schedule: UserSchedule
+    ) -> some View {
+        let isMember = userScheduleOverlay.contains(
+            performanceID: row.performanceID,
+            in: schedule.id
+        )
+        Button {
+            store.send(
+                .userScheduleMembershipButtonTapped(
+                    row.performanceID,
+                    schedule.id
+                )
+            )
+        } label: {
+            Label(
+                "\(isMember ? "Remove from" : "Add to") \(schedule.title)",
+                systemImage: isMember ? "checkmark-circle" : "calendar"
+            )
         }
     }
 }
