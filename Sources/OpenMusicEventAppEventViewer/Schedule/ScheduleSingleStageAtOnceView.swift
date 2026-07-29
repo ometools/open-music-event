@@ -124,6 +124,7 @@ public struct ScheduleSingleStageAtOnce {
         case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
             OMERecord.ID<OMERecord.Performance>,
             UserSchedule.ID
@@ -165,6 +166,14 @@ public struct ScheduleSingleStageAtOnce {
                     let task = try store.post(
                         key: SchedulePerformanceDetailRequested.self,
                         value: performanceID
+                    )
+                    await task?.value
+                }
+            case let .scheduleDivisionButtonTapped(division):
+                store.addTask {
+                    let task = try store.post(
+                        key: ScheduleDivisionRequested.self,
+                        value: division
                     )
                     await task?.value
                 }
@@ -245,7 +254,8 @@ public struct ScheduleSingleStageAtOnceView: View {
     var stageSelector: some View {
         if shouldShowStageSelector {
             OMEScheduleStageSelector(
-                stages: store.visibleStages,
+                stages: visibleStages,
+                unavailableStageIDs: unavailableStageIDs,
                 selectedStageID: $store.selectedStageID
             )
         }
@@ -261,7 +271,7 @@ public struct ScheduleSingleStageAtOnceView: View {
 
     @ViewBuilder
     var timeline: some View {
-        if store.visibleStages.isEmpty {
+        if visibleStages.isEmpty {
             ContentUnavailableView(
                 store.scheduleDivision.title,
                 systemImage: "music.note.list",
@@ -270,13 +280,14 @@ public struct ScheduleSingleStageAtOnceView: View {
         } else if let timeRange {
             ScheduleStageTimelinePager(
                 selectedStageID: $store.selectedStageID,
-                stages: store.visibleStages,
-                performances: store.state.visiblePerformances(
-                    selectedScheduleID: selectedScheduleID
-                ),
+                stages: visibleStages,
+                performances: visiblePerformances,
                 timeRange: timeRange,
                 pageHeight: scheduleHeight(for: timeRange),
                 userScheduleOverlay: userScheduleOverlay,
+                scheduleDivision: store.scheduleDivision,
+                scheduleTitle: selectedScheduleTitle,
+                otherScheduleDivisions: otherScheduleDivisions,
                 showsAuthoringControls: showsAuthoringControls,
                 onUserScheduleMembershipTapped: { performanceID, scheduleID in
                     store.send(
@@ -297,20 +308,55 @@ public struct ScheduleSingleStageAtOnceView: View {
                 },
                 onPerformanceTapped: { performanceID in
                     store.send(.performanceButtonTapped(performanceID))
+                },
+                onScheduleDivisionTapped: { division in
+                    store.send(.scheduleDivisionButtonTapped(division))
                 }
             )
-        } else {
-            ContentUnavailableView(
-                emptyStageTitle,
-                systemImage: "calendar.day.timeline.leading",
-                description: Text(emptyStageDescription)
+        } else if let selectedStage {
+            ScheduleEmptyStageView(
+                title: emptyStageTitle(for: selectedStage),
+                otherScheduleDivisions: otherScheduleDivisions,
+                onScheduleDivisionTapped: { division in
+                    store.send(.scheduleDivisionButtonTapped(division))
+                }
             )
         }
     }
 
+    var visiblePerformances: [OMERecord.Performance] {
+        store.state.visiblePerformances(selectedScheduleID: selectedScheduleID)
+    }
+
+    var visibleStages: [OMERecord.Stage] {
+        ScheduleViewer.orderedStages(
+            store.visibleStages,
+            performances: visiblePerformances
+        )
+    }
+
+    var unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>> {
+        ScheduleViewer.unavailableStageIDs(
+            stages: visibleStages,
+            performances: visiblePerformances
+        )
+    }
+
+    var otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] {
+        ScheduleViewer.scheduleDivisions(stages: store.stages)
+            .filter { $0 != store.scheduleDivision }
+    }
+
+    var selectedScheduleTitle: String {
+        guard let scheduleID = store.state.resolvedSelectedScheduleID(selectedScheduleID),
+              let schedule = store.schedules.first(where: { $0.id.scheduleID == scheduleID })
+        else { return "Select Schedule" }
+        return ScheduleViewer.scheduleTitle(schedule)
+    }
+
     var timeRange: DateInterval? {
         ScheduleStageTimelinePage.timeRange(
-            for: store.state.visiblePerformances(selectedScheduleID: selectedScheduleID),
+            for: visiblePerformances,
             buffer: scheduleTimeBuffer
         )
     }
@@ -323,29 +369,64 @@ public struct ScheduleSingleStageAtOnceView: View {
     }
 
     var shouldShowStageSelector: Bool {
-        needsStageDisambiguation && !store.visibleStages.isEmpty
+        needsStageDisambiguation && !visibleStages.isEmpty
     }
 
     var resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>? {
-        store.resolvedSelectedStageID
+        ScheduleViewer.resolvedSelectedStageID(
+            selectedStageID: store.state.scheduleViewerState.selectedStageID,
+            stages: visibleStages
+        )
+    }
+
+    var selectedStage: OMERecord.Stage? {
+        guard let resolvedSelectedStageID else { return nil }
+        return visibleStages.first { $0.id.stageID == resolvedSelectedStageID }
     }
 
     func resolveSelectedStage() {
-        guard !store.visibleStages.isEmpty else { return }
+        guard !visibleStages.isEmpty else { return }
         guard store.state.scheduleViewerState.selectedStageID != resolvedSelectedStageID else { return }
         $store.selectedStageID.wrappedValue = resolvedSelectedStageID
     }
 
-    var emptyStageTitle: String {
-        needsStageDisambiguation
-            ? store.selectedStage?.name ?? store.scheduleDivision.title
-            : store.scheduleDivision.title
+    func emptyStageTitle(for stage: OMERecord.Stage) -> String {
+        ScheduleViewer.emptyStageTitle(
+            scheduleDivision: store.scheduleDivision,
+            scheduleTitle: selectedScheduleTitle,
+            stage: stage
+        )
+    }
+}
+
+struct ScheduleEmptyStageView: View {
+    let title: String
+    let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
+    let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ContentUnavailableView(
+                title,
+                systemImage: "calendar.day.timeline.leading"
+            )
+
+            if !otherScheduleDivisions.isEmpty {
+                scheduleDivisionButtons
+            }
+        }
     }
 
-    var emptyStageDescription: String {
-        needsStageDisambiguation
-            ? "No performances have been added to this stage yet."
-            : "No performances have been added yet."
+    var scheduleDivisionButtons: some View {
+        VStack(spacing: 8) {
+            ForEach(otherScheduleDivisions) { division in
+                Button {
+                    onScheduleDivisionTapped(division)
+                } label: {
+                    Label(division.title, systemImage: division.systemImage)
+                }
+            }
+        }
     }
 }
 
@@ -358,6 +439,9 @@ struct ScheduleStageTimelinePager: View {
     let timeRange: DateInterval
     let pageHeight: CGFloat
     let userScheduleOverlay: UserScheduleOverlay
+    let scheduleDivision: ScheduleViewer.ScheduleDivision
+    let scheduleTitle: String
+    let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
     let showsAuthoringControls: Bool
     let onUserScheduleMembershipTapped: (
         OMERecord.ID<OMERecord.Performance>,
@@ -367,6 +451,7 @@ struct ScheduleStageTimelinePager: View {
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -374,28 +459,7 @@ struct ScheduleStageTimelinePager: View {
                 ScrollView {
                     HorizontalPageView(page: $selectedStageID) {
                         ForEach(stages) { stage in
-                            ScheduleFixedStageTimeline(
-                                stage: stage,
-                                performances: performances(for: stage),
-                                timeRange: timeRange,
-                                pageHeight: pageHeight,
-                                userScheduleOverlay: userScheduleOverlay,
-                                showsAuthoringControls: showsAuthoringControls,
-                                onUserScheduleMembershipTapped: onUserScheduleMembershipTapped,
-                                onNewUserScheduleTapped: onNewUserScheduleTapped,
-                                onEditPerformanceTapped: { performanceID in
-                                    onEditPerformanceTapped(performanceID)
-                                },
-                                onDeletePerformanceTapped: { performanceID in
-                                    onDeletePerformanceTapped(performanceID)
-                                },
-                                onPerformanceTapped: { performanceID in
-                                    onPerformanceTapped(performanceID)
-                                }
-                            )
-                            .id(stage.id.stageID)
-                            .tag(Optional(stage.id.stageID))
-                            .frame(width: geometry.size.width)
+                            stagePage(stage, width: geometry.size.width)
                         }
                     }
                     .frame(height: pageHeight)
@@ -406,6 +470,32 @@ struct ScheduleStageTimelinePager: View {
                 scrollToCurrentTime(proxy: proxy, animated: request.animated)
             }
         }
+    }
+
+    func stagePage(_ stage: OMERecord.Stage, width: CGFloat) -> some View {
+        ScheduleFixedStageTimeline(
+            stage: stage,
+            performances: performances(for: stage),
+            timeRange: timeRange,
+            pageHeight: pageHeight,
+            userScheduleOverlay: userScheduleOverlay,
+            emptyTitle: ScheduleViewer.emptyStageTitle(
+                scheduleDivision: scheduleDivision,
+                scheduleTitle: scheduleTitle,
+                stage: stage
+            ),
+            otherScheduleDivisions: otherScheduleDivisions,
+            showsAuthoringControls: showsAuthoringControls,
+            onUserScheduleMembershipTapped: onUserScheduleMembershipTapped,
+            onNewUserScheduleTapped: onNewUserScheduleTapped,
+            onEditPerformanceTapped: onEditPerformanceTapped,
+            onDeletePerformanceTapped: onDeletePerformanceTapped,
+            onPerformanceTapped: onPerformanceTapped,
+            onScheduleDivisionTapped: onScheduleDivisionTapped
+        )
+        .id(stage.id.stageID)
+        .tag(Optional(stage.id.stageID))
+        .frame(width: width)
     }
 
     func scrollToCurrentTime(proxy: ScrollViewProxy, animated: Bool) {
@@ -429,6 +519,8 @@ struct ScheduleFixedStageTimeline: View {
     let timeRange: DateInterval
     let pageHeight: CGFloat
     let userScheduleOverlay: UserScheduleOverlay
+    let emptyTitle: String?
+    let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
     let showsAuthoringControls: Bool
     let onUserScheduleMembershipTapped: (
         OMERecord.ID<OMERecord.Performance>,
@@ -438,6 +530,42 @@ struct ScheduleFixedStageTimeline: View {
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
+
+    init(
+        stage: OMERecord.Stage,
+        performances: [OMERecord.Performance],
+        timeRange: DateInterval,
+        pageHeight: CGFloat,
+        userScheduleOverlay: UserScheduleOverlay,
+        emptyTitle: String? = nil,
+        otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] = [],
+        showsAuthoringControls: Bool,
+        onUserScheduleMembershipTapped: @escaping (
+            OMERecord.ID<OMERecord.Performance>,
+            UserSchedule.ID
+        ) -> Void,
+        onNewUserScheduleTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void,
+        onEditPerformanceTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void,
+        onDeletePerformanceTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void,
+        onPerformanceTapped: @escaping (OMERecord.ID<OMERecord.Performance>) -> Void,
+        onScheduleDivisionTapped: @escaping (ScheduleViewer.ScheduleDivision) -> Void = { _ in }
+    ) {
+        self.stage = stage
+        self.performances = performances
+        self.timeRange = timeRange
+        self.pageHeight = pageHeight
+        self.userScheduleOverlay = userScheduleOverlay
+        self.emptyTitle = emptyTitle
+        self.otherScheduleDivisions = otherScheduleDivisions
+        self.showsAuthoringControls = showsAuthoringControls
+        self.onUserScheduleMembershipTapped = onUserScheduleMembershipTapped
+        self.onNewUserScheduleTapped = onNewUserScheduleTapped
+        self.onEditPerformanceTapped = onEditPerformanceTapped
+        self.onDeletePerformanceTapped = onDeletePerformanceTapped
+        self.onPerformanceTapped = onPerformanceTapped
+        self.onScheduleDivisionTapped = onScheduleDivisionTapped
+    }
 
     var body: some View {
         ScheduleStageTimelinePage(
@@ -445,12 +573,15 @@ struct ScheduleFixedStageTimeline: View {
             performances: performances,
             timeRange: timeRange,
             userScheduleOverlay: userScheduleOverlay,
+            emptyTitle: emptyTitle,
+            otherScheduleDivisions: otherScheduleDivisions,
             showsAuthoringControls: showsAuthoringControls,
             onUserScheduleMembershipTapped: onUserScheduleMembershipTapped,
             onNewUserScheduleTapped: onNewUserScheduleTapped,
             onEditPerformanceTapped: onEditPerformanceTapped,
             onDeletePerformanceTapped: onDeletePerformanceTapped,
-            onPerformanceTapped: onPerformanceTapped
+            onPerformanceTapped: onPerformanceTapped,
+            onScheduleDivisionTapped: onScheduleDivisionTapped
         )
         .frame(height: pageHeight)
         .environment(\.scheduleHeight, pageHeight)
@@ -464,6 +595,8 @@ struct ScheduleStageTimelinePage: View {
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
     let userScheduleOverlay: UserScheduleOverlay
+    let emptyTitle: String?
+    let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
     let showsAuthoringControls: Bool
     let onUserScheduleMembershipTapped: (
         OMERecord.ID<OMERecord.Performance>,
@@ -473,6 +606,7 @@ struct ScheduleStageTimelinePage: View {
     let onEditPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onDeletePerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
+    let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
 
     var body: some View {
         SchedulePageView(timelineCards) { card in
@@ -498,6 +632,20 @@ struct ScheduleStageTimelinePage: View {
                 }
             )
         } emptyContent: {
+            emptyContent
+        }
+    }
+
+    @ViewBuilder
+    var emptyContent: some View {
+        if let emptyTitle {
+            ScheduleEmptyStageView(
+                title: emptyTitle,
+                otherScheduleDivisions: otherScheduleDivisions,
+                onScheduleDivisionTapped: onScheduleDivisionTapped
+            )
+            .padding()
+        } else {
             ContentUnavailableView(
                 stage.name,
                 systemImage: "calendar.day.timeline.leading",

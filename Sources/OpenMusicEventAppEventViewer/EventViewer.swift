@@ -861,6 +861,11 @@ public struct EventViewer {
                 enterOrRequestAuthoring(.intent(intent), state: &state)
             }
         }
+        .onEvent(ScheduleDivisionRequested.self) { division, state in
+            let feature = EventFeature.schedule(division)
+            guard state.installedFeatures.contains(feature) else { return }
+            state.selectedFeature = feature
+        }
         .onEvent(SourceDataRefreshRequested.self) { request, state in
             guard request.eventID == state.eventID else { return }
             store.addTask(id: sourceDataRefreshTask) {

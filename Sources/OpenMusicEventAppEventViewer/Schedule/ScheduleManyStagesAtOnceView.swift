@@ -172,7 +172,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     }
 
     public var body: some View {
-        if store.visibleStages.isEmpty {
+        if visibleStages.isEmpty {
             emptyView(
                 title: store.scheduleDivision.title,
                 description: "No stages have been added to this schedule division yet."
@@ -347,7 +347,8 @@ public struct ScheduleManyStagesAtOnceView: View {
         laneHeight: CGFloat
     ) -> some View {
         ScheduleManyStagesStageRail(
-            stages: store.visibleStages,
+            stages: visibleStages,
+            unavailableStageIDs: unavailableStageIDs,
             width: width,
             laneHeight: laneHeight
         )
@@ -435,7 +436,8 @@ public struct ScheduleManyStagesAtOnceView: View {
 
     func laneHeader(availableWidth: CGFloat) -> some View {
         ScheduleManyStagesLaneHeader(
-            stages: store.visibleStages,
+            stages: visibleStages,
+            unavailableStageIDs: unavailableStageIDs,
             contentWidth: contentWidth(for: availableWidth),
             height: stageLaneHeaderHeight,
             minimumStageLaneWidth: minimumStageLaneWidth
@@ -477,7 +479,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     }
 
     var timelineGroups: [Int] {
-        Self.timelineGroups(stageCount: store.visibleStages.count)
+        Self.timelineGroups(stageCount: visibleStages.count)
     }
 
     static func timelineGroups(stageCount: Int) -> [Int] {
@@ -503,7 +505,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     func horizontalStageLaneHeight(availableHeight: CGFloat) -> CGFloat {
         Self.horizontalStageLaneHeight(
             availableHeight: availableHeight,
-            stageCount: store.visibleStages.count,
+            stageCount: visibleStages.count,
             hourLabelsHeight: hourLabelsHeight,
             minimumStageLaneHeight: minimumResolvedHorizontalStageLaneHeight
         )
@@ -525,7 +527,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     }
 
     func horizontalTimelineHeight(stageLaneHeight: CGFloat) -> CGFloat {
-        CGFloat(store.visibleStages.count) * stageLaneHeight
+        CGFloat(visibleStages.count) * stageLaneHeight
     }
 
     var horizontalPointsPerHour: CGFloat {
@@ -565,10 +567,30 @@ public struct ScheduleManyStagesAtOnceView: View {
 
     var timelineCards: [ScheduleManyStagesTimelineCard] {
         Self.timelineCards(
-            performanceRows: store.state.visiblePerformanceRows(
-                selectedScheduleID: selectedScheduleID
-            ),
-            stages: store.visibleStages
+            performanceRows: visiblePerformanceRows,
+            stages: visibleStages
+        )
+    }
+
+    var visiblePerformanceRows: [PerformanceRow] {
+        store.state.visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
+    }
+
+    var visiblePerformances: [OMERecord.Performance] {
+        visiblePerformanceRows.map(\.performance)
+    }
+
+    var visibleStages: [OMERecord.Stage] {
+        ScheduleViewer.orderedStages(
+            store.visibleStages,
+            performances: visiblePerformances
+        )
+    }
+
+    var unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>> {
+        ScheduleViewer.unavailableStageIDs(
+            stages: visibleStages,
+            performances: visiblePerformances
         )
     }
 
@@ -582,7 +604,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     func contentWidth(for availableWidth: CGFloat) -> CGFloat {
         Self.contentWidth(
             availableWidth: availableWidth,
-            stageCount: store.visibleStages.count,
+            stageCount: visibleStages.count,
             minimumStageLaneWidth: minimumStageLaneWidth,
             compactVisibleStageLaneCount: compactVisibleStageLaneCount,
             compactStageRevealMaxAvailableWidth: compactStageRevealMaxAvailableWidth
@@ -693,6 +715,7 @@ struct ScheduleManyStagesTimelineCard: TimelineCard {
 
 struct ScheduleManyStagesLaneHeader: View {
     let stages: [OMERecord.Stage]
+    let unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>>
     let contentWidth: CGFloat
     let height: CGFloat
     let minimumStageLaneWidth: CGFloat
@@ -708,6 +731,7 @@ struct ScheduleManyStagesLaneHeader: View {
                 stageHeaderCell(for: stage)
                     .frame(width: stageSelectorCellWidth)
                     .frame(width: stageLaneWidth)
+                    .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
             }
         }
         .padding(.vertical, 8)
@@ -778,6 +802,7 @@ struct ScheduleManyStagesLaneHeader: View {
 
 struct ScheduleManyStagesStageRail: View {
     let stages: [OMERecord.Stage]
+    let unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>>
     let width: CGFloat
     let laneHeight: CGFloat
 
@@ -792,6 +817,7 @@ struct ScheduleManyStagesStageRail: View {
             ForEach(stages) { stage in
                 stageRailCell(for: stage)
                     .frame(width: width, height: laneHeight)
+                    .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
             }
         }
         .frame(width: width, alignment: .top)

@@ -18,6 +18,7 @@ extension EnvironmentValues {
 
 struct OMEScheduleStageSelector: View {
     let stages: [OMERecord.Stage]
+    let unavailableStageIDs: Set<OMERecord.ID<OMERecord.Stage>>
     @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
 
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
@@ -65,6 +66,7 @@ struct OMEScheduleStageSelector: View {
                     ScheduleStageIcon(stage: stage)
                 }
                 .pickerItemColor(stage.color.swiftUIColor)
+                .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
                 .tag(Optional(stage.id.stageID))
             }
         }
@@ -108,6 +110,7 @@ struct OMEScheduleStageSelector: View {
                             }
                         }
                         .frame(width: showStageNameLabels ? 112 : 76)
+                        .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(stage.name)

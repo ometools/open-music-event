@@ -343,6 +343,14 @@ public struct ScheduleViewer {
         return schedule.date.formatted(dateFormat: "EEEE")
     }
 
+    static func emptyStageTitle(
+        scheduleDivision: ScheduleDivision,
+        scheduleTitle: String,
+        stage: OMERecord.Stage
+    ) -> String {
+        "No \(scheduleDivision.title) on \(scheduleTitle) at \(stage.name)"
+    }
+
     static func performanceRowSubtitle(
         for performance: OMERecord.Performance,
         timeZone: TimeZone,
@@ -525,6 +533,23 @@ public struct ScheduleViewer {
         division: ScheduleDivision
     ) -> [OMERecord.Stage] {
         stages.filter { $0.category == division.category }
+    }
+
+    static func orderedStages(
+        _ stages: [OMERecord.Stage],
+        performances: [OMERecord.Performance]
+    ) -> [OMERecord.Stage] {
+        let stageIDsWithPerformances = Set(performances.map(\.stageID))
+        return stages.filter { stageIDsWithPerformances.contains($0.id.stageID) }
+            + stages.filter { !stageIDsWithPerformances.contains($0.id.stageID) }
+    }
+
+    static func unavailableStageIDs(
+        stages: [OMERecord.Stage],
+        performances: [OMERecord.Performance]
+    ) -> Set<OMERecord.ID<OMERecord.Stage>> {
+        let stageIDsWithPerformances = Set(performances.map(\.stageID))
+        return Set(stages.map(\.id.stageID)).subtracting(stageIDsWithPerformances)
     }
 
     static func canAddPerformance(

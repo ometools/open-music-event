@@ -3914,6 +3914,88 @@ struct NavigationTests {
     }
 
     @Test
+    func `stages with performances are shown before empty stages`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("sparse-friday")
+        let date = try #require(LocalDate("2026-08-07"))
+        let timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Sparse Friday", timeZone: timeZone)
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "friday", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow", sortIndex: 1)
+            try Self.insertStage(db, eventID: eventID, stageID: "amp", name: "Amp", sortIndex: 2)
+            try Self.insertStage(db, eventID: eventID, stageID: "grove", name: "Grove", sortIndex: 3)
+            try Self.insertStage(db, eventID: eventID, stageID: "lake", name: "Lake", sortIndex: 4)
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "amp-opening",
+                stageID: "amp",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 18, in: timeZone)),
+                endTime: try #require(date.at(hour: 19, in: timeZone)),
+                title: "Amp Opening"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "lake-opening",
+                stageID: "lake",
+                scheduleID: "friday",
+                startTime: try #require(date.at(hour: 19, in: timeZone)),
+                endTime: try #require(date.at(hour: 20, in: timeZone)),
+                title: "Lake Opening"
+            )
+        }
+
+        // Friday opens at Amp and Lake, so those stages lead without losing their configured order.
+        let stages = try await database.read { db in
+            try ScheduleViewer.stagesQuery(eventID: eventID).fetchAll(db)
+        }
+        let performances = try await database.read { db in
+            try PerformanceRow.all(
+                eventID: eventID,
+                scheduleID: scheduleLocalID("friday")
+            )
+            .fetchAll(db)
+            .map(\.performance)
+        }
+        let orderedStages = ScheduleViewer.orderedStages(
+            stages,
+            performances: performances
+        )
+
+        expectNoDifference(
+            orderedStages.map(\.id.stageID),
+            [
+                stageLocalID("amp"),
+                stageLocalID("lake"),
+                stageLocalID("meadow"),
+                stageLocalID("grove"),
+            ]
+        )
+        expectNoDifference(
+            ScheduleViewer.unavailableStageIDs(
+                stages: orderedStages,
+                performances: performances
+            ),
+            Set([stageLocalID("meadow"), stageLocalID("grove")])
+        )
+
+        // The empty-stage message names the schedule category, day, and stage exactly.
+        let meadow = try #require(stages.first { $0.id.stageID == stageLocalID("meadow") })
+        expectNoDifference(
+            ScheduleViewer.emptyStageTitle(
+                scheduleDivision: .schedule,
+                scheduleTitle: "Friday",
+                stage: meadow
+            ),
+            "No Schedule on Friday at Meadow"
+        )
+    }
+
+    @Test
     func manyStagesTimelineGroupsKeepEmptyStageLanes() {
         #expect(ScheduleManyStagesAtOnceView.timelineGroups(stageCount: 4) == [0, 1, 2, 3])
     }
@@ -4604,6 +4686,52 @@ struct NavigationTests {
         #expect(state.installedFeatures.contains(.settings))
         #expect(state.eventWorkspace?.eventID == eventID)
         #expect(state.eventSettings?.eventID == eventID)
+    }
+
+    @Test
+    func `empty stage links open another schedule category`() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("schedule-category-link")
+        let workshopDivision = ScheduleViewer.ScheduleDivision(
+            category: OMERecord.Stage.Category("workshop")
+        )
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Category Links")
+            try Self.insertStage(db, eventID: eventID, stageID: "main", name: "Main", sortIndex: 1)
+            try Self.insertStage(
+                db,
+                eventID: eventID,
+                stageID: "workshop",
+                name: "Workshop",
+                category: workshopDivision.category,
+                sortIndex: 2
+            )
+        }
+
+        // The attendee starts on the regular Schedule and taps the Workshops link below an empty stage.
+        let store = withDependencies {
+            $0.context = .test
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            Store(initialState: EventViewer.State(eventID: eventID)) {
+                EventViewer()
+            }
+        }
+        let scheduleStore = try #require(
+            store.spawn(\.scheduleViewers).first {
+                $0.scheduleDivision == .schedule
+            }
+        )
+        let singleStageStore = scheduleStore.spawn(\.singleStageAtOnce)
+
+        await singleStageStore.send(
+            .scheduleDivisionButtonTapped(workshopDivision)
+        )?.value
+
+        expectNoDifference(store.selectedFeature, .schedule(workshopDivision))
     }
 
     @Test

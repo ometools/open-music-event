@@ -1,5 +1,9 @@
 import ComposableArchitecture2
 
+public enum ScheduleDivisionRequested: FeatureEventKey {
+    public typealias Value = ScheduleViewer.ScheduleDivision
+}
+
 public enum SchedulePerformanceDeleteRequested: FeatureEventKey {
     public typealias Value = OMERecord.ID<OMERecord.Performance>
 }
