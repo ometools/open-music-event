@@ -210,6 +210,7 @@ public struct PerformanceDetail {
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.date.now) var now
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.uuid) var uuid
 
     static func contributorsQuery(
@@ -283,6 +284,7 @@ public struct PerformanceDetail {
                 let performanceID = state.fullPerformanceID
                 let id = uuid()
                 let date = now
+                let userDID = getSelectedOAuthSessionID()?.rawValue
                 store.addTask {
                     do {
                         try await database.write { db in
@@ -291,6 +293,7 @@ public struct PerformanceDetail {
                                 emoji: emoji,
                                 id: id,
                                 date: date,
+                                userDID: userDID,
                                 in: db
                             )
                         }

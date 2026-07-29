@@ -466,17 +466,17 @@ struct WhiteLabelRootActionsMenu: View {
         Menu {
             if let authoringStore = store.spawn(\.teamWorkspaceDetail),
                !authoringStore.access.canEditContent {
-                Button {
-                    authoringStore.send(.enterButtonTapped)
-                } label: {
-                    Label(
-                        authoringStore.entry.isRunning
-                            ? "Preparing Workspace"
-                            : "Enter Authoring",
-                        systemImage: "square.and.pencil"
-                    )
-                }
-                .disabled(authoringStore.entry.isRunning)
+//                Button {
+//                    authoringStore.send(.enterButtonTapped)
+//                } label: {
+//                    Label(
+//                        authoringStore.entry.isRunning
+//                            ? "Preparing Workspace"
+//                            : "Enter Authoring",
+//                        systemImage: "square.and.pencil"
+//                    )
+//                }
+//                .disabled(authoringStore.entry.isRunning)
             }
 
             if let authoringStore = store.spawn(\.teamWorkspaceDetail),

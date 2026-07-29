@@ -197,6 +197,7 @@ var targets: [Target] = [
             "OpenMusicEventSource",
             "OpenMusicEventSourceEditing",
             "OpenMusicEventTimeZones",
+            .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "SQLiteData", package: "sqlite-data"),

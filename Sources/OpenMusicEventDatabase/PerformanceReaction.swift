@@ -1,3 +1,4 @@
+import ATProto
 import Foundation
 import OpenMusicEventLexicon
 import SQLiteData
@@ -8,18 +9,21 @@ public struct PerformanceReaction: Equatable, Sendable, Identifiable {
         id: UUID,
         performanceID: OME.Performance.ID,
         emoji: Emoji,
-        reactedAt: Date
+        reactedAt: Date,
+        userDID: DID? = nil
     ) {
         self.id = id
         self.performanceID = performanceID
         self.emoji = emoji
         self.reactedAt = reactedAt
+        self.userDID = userDID
     }
 
     @Column(primaryKey: true) public var id: UUID
     public var performanceID: OME.Performance.ID
     public var emoji: Emoji
     public var reactedAt: Date
+    public var userDID: DID?
 }
 
 extension PerformanceReaction {
@@ -79,6 +83,7 @@ extension PerformanceReaction {
         emoji: Emoji,
         id: UUID,
         date: Date,
+        userDID: DID? = nil,
         in db: Database
     ) throws {
         let existingReaction = try Self
@@ -95,6 +100,7 @@ extension PerformanceReaction {
             emoji: emoji,
             id: id,
             date: date,
+            userDID: userDID,
             in: db
         )
     }
@@ -104,6 +110,7 @@ extension PerformanceReaction {
         emoji: Emoji,
         id: UUID,
         date: Date,
+        userDID: DID? = nil,
         in db: Database
     ) throws {
         let isSelected = try Self
@@ -117,7 +124,8 @@ extension PerformanceReaction {
                 id: id,
                 performanceID: performanceID,
                 emoji: emoji,
-                reactedAt: date
+                reactedAt: date,
+                userDID: userDID
             )
         }
         .execute(db)

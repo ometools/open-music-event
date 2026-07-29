@@ -232,6 +232,7 @@ public enum OpenMusicEventAppDatabaseMigrations {
               "performanceID" TEXT NOT NULL,
               "emoji" TEXT NOT NULL,
               "reactedAt" TEXT NOT NULL,
+              "userDID" TEXT,
               UNIQUE ("organizerID", "eventID", "performanceID", "emoji")
             ) STRICT
             """)

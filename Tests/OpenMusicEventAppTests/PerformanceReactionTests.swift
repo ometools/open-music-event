@@ -3,6 +3,7 @@ import ComposableArchitecture2
 import Dependencies
 import DependenciesTestSupport
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import SQLiteData
 import Testing
@@ -356,12 +357,14 @@ struct PerformanceReactionTests {
     func scheduleAndDetailActionsShareStateWithoutTriggeringNavigation() async throws {
         let database = try preparedDatabase()
         let reactionDate = Date(timeIntervalSince1970: 40)
+        let userDID = try #require(DID("did:plc:reaction-user"))
 
         try await withDependencies {
             $0.context = .test
             $0.date = .constant(reactionDate)
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
+            $0.getSelectedOAuthSessionID = { Atmosphere.Account.ID(userDID) }
             $0.uuid = .incrementing
         } operation: {
             let scheduleStore = Store(
@@ -399,6 +402,7 @@ struct PerformanceReactionTests {
                     .fetchAll(db)
             }
             #expect(Set(scheduleReactions.map(\.emoji)) == [.heart, .fire])
+            #expect(Set(scheduleReactions.compactMap(\.userDID)) == [userDID])
         }
     }
 

@@ -16,7 +16,7 @@ struct UserScheduleTests {
     let organizerID = OMERecord.Organizer.ID("did:web:user-schedule-tests.example")!
 
     @Test
-    func migrationPreservesPreviouslyShippedStateAndSentinelPreferences() async throws {
+    func migrationPreservesShippedStateWhileApplyingAttendeeMigrations() async throws {
         let database = try SQLiteData.defaultDatabase()
         var migrator = DatabaseMigrator()
         OpenMusicEventAppDatabaseMigrations.register(into: &migrator)
@@ -90,12 +90,7 @@ struct UserScheduleTests {
             )
             #expect(selectedScheduleID == "published-friday")
 
-            let preference = try Row.fetchOne(
-                db,
-                sql: #"SELECT "interested", "seen" FROM "performancePreferences""#
-            )
-            #expect(preference?["interested"] as Int? == 1)
-            #expect(preference?["seen"] as Int? == 1)
+            #expect(!(try db.tableExists("performancePreferences")))
 
             let favorite = try Int.fetchOne(
                 db,
@@ -103,12 +98,12 @@ struct UserScheduleTests {
             )
             #expect(favorite == 1)
 
-            let filters = try Row.fetchOne(
+            let scheduleViewerColumns = try String.fetchAll(
                 db,
-                sql: #"SELECT "filteringFavorites", "filteringInterested" FROM "scheduleViewerState""#
+                sql: #"SELECT "name" FROM pragma_table_info('scheduleViewerState')"#
             )
-            #expect(filters?["filteringFavorites"] as Int? == 1)
-            #expect(filters?["filteringInterested"] as Int? == 1)
+            #expect(scheduleViewerColumns.contains("filteringFavorites"))
+            #expect(!scheduleViewerColumns.contains("filteringInterested"))
         }
     }
 
@@ -484,10 +479,19 @@ struct UserScheduleTests {
             $0.getSelectedOAuthSessionID = { Atmosphere.Account.ID(userDID) }
             $0.uuid = .incrementing
         } operation: {
-            let store = TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+            let store = Store(initialState: ScheduleViewer.State(eventID: eventID)) {
                 ScheduleViewer()
             }
-            await store.dismount()
+            for _ in 0..<100 {
+                let didInitialize = try? await database.read { db in
+                    try EventViewerStateRequest(eventID: eventID)
+                        .fetch(db)
+                        .didInitializeUserSchedules
+                }
+                if didInitialize == true { break }
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            _ = store
         }
 
         var result = try await database.read { db in

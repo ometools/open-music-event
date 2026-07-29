@@ -653,6 +653,7 @@ public struct ScheduleViewer {
             case let .reactionButtonTapped(performanceID, emoji):
                 let id = uuid()
                 let date = now
+                let userDID = getSelectedOAuthSessionID()?.rawValue
                 store.addTask {
                     do {
                         try await database.write { db in
@@ -661,6 +662,7 @@ public struct ScheduleViewer {
                                 emoji: emoji,
                                 id: id,
                                 date: date,
+                                userDID: userDID,
                                 in: db
                             )
                         }
@@ -829,6 +831,8 @@ public struct ScheduleViewer {
                             $0.didInitializeUserSchedules = true
                         }
                     }
+                } catch is CancellationError {
+                    return
                 } catch {
                     reportIssue(error)
                 }

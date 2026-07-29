@@ -105,6 +105,7 @@ public struct PerformanceReactionEntry {
 
     @Dependency(\.date.now) var now
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.uuid) var uuid
 
     public var body: some Feature {
@@ -120,6 +121,7 @@ public struct PerformanceReactionEntry {
                 let performanceID = state.performanceID
                 let id = uuid()
                 let date = now
+                let userDID = getSelectedOAuthSessionID()?.rawValue
                 state.isSaving = true
                 state.errorMessage = nil
 
@@ -131,6 +133,7 @@ public struct PerformanceReactionEntry {
                                 emoji: emoji,
                                 id: id,
                                 date: date,
+                                userDID: userDID,
                                 in: db
                             )
                         }
