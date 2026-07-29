@@ -19,12 +19,25 @@ enum PerformanceTimingStatus: Equatable, Sendable {
         }
     }
 
-    var title: String {
+    static let maximumCountdownInterval: TimeInterval = 48 * 60 * 60
+
+    var chipTitle: String? {
+        switch self {
+        case .nowPlaying:
+            "Now Playing"
+        case let .startsIn(interval) where interval <= Self.maximumCountdownInterval:
+            Self.remainingText(for: interval)
+        case .startsIn:
+            nil
+        }
+    }
+
+    var accessibilityTitle: String {
         switch self {
         case .nowPlaying:
             "Now Playing"
         case let .startsIn(interval):
-            "Starts In \(Self.remainingText(for: interval))"
+            "Starts in \(Self.remainingText(for: interval))"
         }
     }
 
@@ -75,8 +88,8 @@ struct PerformanceTimingChip: View {
     }
 
     var body: some View {
-        if let status {
-            Text(status.title)
+        if let status, let title = status.chipTitle {
+            Text(title)
                 .font(.caption2.weight(.semibold))
                 .lineLimit(1)
                 .foregroundStyle(foregroundStyle(for: status))
@@ -86,7 +99,7 @@ struct PerformanceTimingChip: View {
                     Capsule()
                         .fill(backgroundStyle(for: status))
                 }
-                .accessibilityLabel(status.title)
+                .accessibilityLabel(status.accessibilityTitle)
         }
     }
 

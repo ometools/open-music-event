@@ -104,9 +104,25 @@ public struct EventSearchDashboard: Equatable, Sendable {
                 comingNextRows: comingNextRows
             )
         }
+        let orderedStageRows = stageRows.enumerated().sorted { lhs, rhs in
+            let lhsStartTime = lhs.element.comingNextRows.first?.performance.startTime
+            let rhsStartTime = rhs.element.comingNextRows.first?.performance.startTime
+
+            switch (lhsStartTime, rhsStartTime) {
+            case let (lhsStartTime?, rhsStartTime?) where lhsStartTime != rhsStartTime:
+                return lhsStartTime < rhsStartTime
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                return lhs.offset < rhs.offset
+            }
+        }
+        .map(\.element)
 
         return Self(
-            stageRows: stageRows,
+            stageRows: orderedStageRows,
             featureRows: EventSearchFeature.indexedFeatures.map(FeatureShortcutRow.init(feature:)),
             channelRows: channels.map(ChannelShortcutRow.init(channel:)),
             nowPlayingRows: nowPlayingRows,

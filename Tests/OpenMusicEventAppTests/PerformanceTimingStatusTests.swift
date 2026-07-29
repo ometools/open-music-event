@@ -40,10 +40,12 @@ struct PerformanceTimingStatusTests {
     }
 
     @Test
-    func startsInTitleUsesCompactRemainingTime() {
-        #expect(PerformanceTimingStatus.startsIn(30).title == "Starts In <1m")
-        #expect(PerformanceTimingStatus.startsIn(15 * 60).title == "Starts In 15m")
-        #expect(PerformanceTimingStatus.startsIn((2 * 60 + 10) * 60).title == "Starts In 2h 10m")
-        #expect(PerformanceTimingStatus.startsIn((24 + 3) * 60 * 60).title == "Starts In 1d 3h")
+    func startsInChipTitleUsesCompactRemainingTimeForTheFinalTwoDays() {
+        #expect(PerformanceTimingStatus.startsIn(30).chipTitle == "<1m")
+        #expect(PerformanceTimingStatus.startsIn(15 * 60).chipTitle == "15m")
+        #expect(PerformanceTimingStatus.startsIn((2 * 60 + 10) * 60).chipTitle == "2h 10m")
+        #expect(PerformanceTimingStatus.startsIn((24 + 3) * 60 * 60).chipTitle == "1d 3h")
+        #expect(PerformanceTimingStatus.startsIn(48 * 60 * 60).chipTitle == "2d")
+        #expect(PerformanceTimingStatus.startsIn(48 * 60 * 60 + 1).chipTitle == nil)
     }
 }

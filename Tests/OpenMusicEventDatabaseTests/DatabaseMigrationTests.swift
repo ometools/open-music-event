@@ -559,6 +559,75 @@ struct DatabaseMigrationTests {
     }
 
     @Test
+    func eventSearchDashboardOrdersStagesByTheirNextPerformance() async throws {
+        let database = try migratedDatabase()
+        let eventID = try await seedSearchEvent(in: database)
+        let now = Date(timeIntervalSince1970: 1_800_038_700)
+
+        try await database.write { db in
+            // The configured stage order does not match the order in which attendees need them.
+            try insertStage(
+                eventID: eventID,
+                stageID: "later",
+                name: "Later Stage",
+                sortIndex: 0,
+                in: db
+            )
+            try insertStage(
+                eventID: eventID,
+                stageID: "finished",
+                name: "Finished Stage",
+                sortIndex: 1,
+                in: db
+            )
+            try insertStage(
+                eventID: eventID,
+                stageID: "sooner",
+                name: "Sooner Stage",
+                sortIndex: 2,
+                in: db
+            )
+
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "later-performance",
+                title: "Later Performance",
+                stageID: "later",
+                startTime: now.addingTimeInterval(2 * 60 * 60),
+                endTime: now.addingTimeInterval(3 * 60 * 60),
+                in: db
+            )
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "finished-performance",
+                title: "Finished Performance",
+                stageID: "finished",
+                startTime: now.addingTimeInterval(-2 * 60 * 60),
+                endTime: now.addingTimeInterval(-60 * 60),
+                in: db
+            )
+            try insertPerformance(
+                eventID: eventID,
+                performanceID: "sooner-performance",
+                title: "Sooner Performance",
+                stageID: "sooner",
+                startTime: now.addingTimeInterval(30 * 60),
+                endTime: now.addingTimeInterval(90 * 60),
+                in: db
+            )
+
+            let dashboard = try EventSearchDashboard.fetch(eventID: eventID, now: now, db: db)
+
+            // Stages with scheduled activity come first by start time. Finished stages come last.
+            expectNoDifference(dashboard.stageRows.map(\.stage.id.stageID), [
+                localID("sooner"),
+                localID("later"),
+                localID("finished"),
+            ])
+        }
+    }
+
+    @Test
     func eventSearchDashboardKeepsUnsortedStageNamesStable() async throws {
         let database = try migratedDatabase()
         let eventID = try await seedSearchEvent(in: database)

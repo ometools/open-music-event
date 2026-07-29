@@ -189,7 +189,10 @@ public struct EventSearch {
                         try State.content(eventID: eventID, query: query, now: now, db: db)
                     }
                     try store.modify {
-                        guard $0.eventID == eventID, $0.query == query else { return }
+                        guard $0.eventID == eventID,
+                              $0.query == query,
+                              $0.content != content
+                        else { return }
                         $0.content = content
                     }
                 }
@@ -203,7 +206,10 @@ public struct EventSearch {
                     try State.content(eventID: eventID, query: query, now: currentDate, db: db)
                 }
                 try store.modify {
-                    guard $0.eventID == eventID, $0.query == query else { return }
+                    guard $0.eventID == eventID,
+                          $0.query == query,
+                          $0.content != content
+                    else { return }
                     $0.content = content
                 }
             }
@@ -225,7 +231,7 @@ public struct EventSearchView: View {
 
     public var body: some View {
         NavigationStack {
-            TimelineView(.periodic(from: Date.now, by: 1)) { context in
+            TimelineView(.periodic(from: Date.now, by: 60)) { context in
                 EventSearchContentView(
                     content: store.content,
                     now: context.date,
@@ -418,11 +424,13 @@ struct EventSearchStageCard: View {
                 performanceSection(title: "Now", performance: performance)
             }
 
-            performanceSection(
-                title: "Up next",
-                performance: row.comingNextRows.first,
-                showsStartTime: true
-            )
+            if let performance = row.comingNextRows.first {
+                performanceSection(
+                    title: "Up next",
+                    performance: performance,
+                    showsStartTime: true
+                )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(14)
@@ -434,6 +442,7 @@ struct EventSearchStageCard: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(stageColor.opacity(0.22))
         }
+        .opacity(isClosed ? 0.45 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .accessibilityLabel(row.stage.name)
         .onTapGesture {
@@ -444,7 +453,7 @@ struct EventSearchStageCard: View {
     @ViewBuilder
     func performanceSection(
         title: String,
-        performance: PerformanceDashboardRow?,
+        performance: PerformanceDashboardRow,
         showsStartTime: Bool = false
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -452,46 +461,44 @@ struct EventSearchStageCard: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            if let performance {
-                HStack(spacing: 10) {
-                    if let contributor = leadContributors[performance.performanceID],
-                       let asset = contributor.artworkAsset {
-                        ContributorArtworkView(
-                            asset: asset,
-                            cacheContext: contributor.artworkCacheContext,
-                            size: 54
-                        )
-                    }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(performance.title)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                        if showsStartTime {
-                            Text("Starts \(startTimeText(for: performance.performance.startTime))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        PerformanceTimingChip(
-                            status: PerformanceTimingStatus(
-                                startTime: performance.performance.startTime,
-                                endTime: performance.performance.endTime,
-                                now: now
-                            )
-                        )
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 10) {
+                if let contributor = leadContributors[performance.performanceID],
+                   let asset = contributor.artworkAsset {
+                    ContributorArtworkView(
+                        asset: asset,
+                        cacheContext: contributor.artworkCacheContext,
+                        size: 54
+                    )
                 }
-            } else {
-                Text("No next set announced")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(performance.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+                    if showsStartTime {
+                        Text("Starts \(startTimeText(for: performance.performance.startTime))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    PerformanceTimingChip(
+                        status: PerformanceTimingStatus(
+                            startTime: performance.performance.startTime,
+                            endTime: performance.performance.endTime,
+                            now: now
+                        )
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
     var stageColor: Color {
         row.stage.color.swiftUIColor
+    }
+
+    var isClosed: Bool {
+        row.nowPlayingRows.isEmpty && row.comingNextRows.isEmpty
     }
 
     func startTimeText(for startTime: Date) -> String {
