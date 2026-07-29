@@ -380,7 +380,7 @@ struct SourceActorDIDConverterTests {
     }
 
     private func actorDescriptions(in schedule: ScheduleDTO) throws -> [String] {
-        let contributors = try #require(schedule.performances["main"]?.first?.contributors)
+        let contributors = try #require(schedule.scheduleItems["main"]?.first?.contributors)
         return contributors.compactMap { contributor in
             guard case let .actor(actor) = contributor.subject else { return nil }
             return actor.description

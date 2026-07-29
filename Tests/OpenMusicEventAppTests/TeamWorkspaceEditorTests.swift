@@ -924,7 +924,8 @@ struct TeamWorkspaceEditorTests {
         #expect(eventYML.contains("2026-08-01"))
         #expect(eventYML.contains("timeZone: America/Denver"))
         #expect(eventYML.contains("schedule:"))
-        #expect(eventYML.contains("performances:"))
+        #expect(eventYML.contains("scheduleItems: {}"))
+        #expect(!eventYML.contains("performances:"))
         #expect(!eventYML.contains("  date:"))
         #expect(!eventYML.contains("id:"))
         let stageYMLURL = repositoryURL
@@ -1457,9 +1458,9 @@ private func writeRolloverSourceEvent(
                 fileType: "yml",
                 data: ScheduleDTO(
                     date: startDate,
-                    performances: [
+                    scheduleItems: [
                         "main": [
-                            ScheduleDTO.Performance(
+                            ScheduleDTO.ScheduleItem(
                                 title: "Old Set",
                                 startTime: "18:00",
                                 endTime: "19:00"

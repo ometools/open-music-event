@@ -206,7 +206,7 @@ struct OpenMusicEventSourceTests {
         #expect(schedule.data.id == nil)
         #expect(schedule.data.date.description == "2026-08-01")
 
-        let performances = try #require(schedule.data.performances["meadow"])
+        let performances = try #require(schedule.data.scheduleItems["meadow"])
         expectNoDifference(
             performances.map(\.id?.rawValue.rawValue),
             [
@@ -218,7 +218,7 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(
             performances[0].contributors,
             [
-                ScheduleDTO.Performance.Contributor(
+                ScheduleDTO.ScheduleItem.Contributor(
                     subject: .id(OME.ID<OME.Contributor>(.init("artist-one")))
                 )
             ]
@@ -240,7 +240,7 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(
             performances[1].contributors,
             [
-                ScheduleDTO.Performance.Contributor(
+                ScheduleDTO.ScheduleItem.Contributor(
                     subject: .name("Guest Artist")
                 )
             ]
@@ -393,9 +393,9 @@ struct OpenMusicEventSourceTests {
                             contactNumbers: nil,
                             categoryConfigs: nil,
                             schedule: InlineScheduleDTO(
-                                performances: [
+                                scheduleItems: [
                                     "main": [
-                                        ScheduleDTO.Performance(
+                                        ScheduleDTO.ScheduleItem(
                                             title: "Opening Set",
                                             startTime: "20:00",
                                             endTime: "21:00"
@@ -422,7 +422,7 @@ struct OpenMusicEventSourceTests {
             encoding: .utf8
         )
         #expect(eventText.contains("schedule:"))
-        #expect(eventText.contains("performances:"))
+        #expect(eventText.contains("scheduleItems:"))
         #expect(!eventText.contains("  date:"))
         #expect(
             !FileManager.default.fileExists(
@@ -433,6 +433,146 @@ struct OpenMusicEventSourceTests {
                     .path()
             )
         )
+    }
+
+    @Test
+    func legacyPerformancesBecomeCanonicalPerformanceScheduleItemsWithoutChangingTheSchedule() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "legacy-schedule", directoryHint: .isDirectory)
+        let scheduleURL = eventURL
+            .appending(path: "schedules", directoryHint: .isDirectory)
+            .appending(path: "saturday.yml")
+        try FileManager.default.createDirectory(
+            at: eventURL.appending(path: "stages", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: scheduleURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        try """
+        name: Legacy Schedule
+        timeZone: America/Denver
+        """
+        .write(to: eventURL.appending(path: "event.yml"), atomically: true, encoding: .utf8)
+
+        try """
+        name: Main
+        color: "0x00aaee"
+        """
+        .write(
+            to: eventURL
+                .appending(path: "stages", directoryHint: .isDirectory)
+                .appending(path: "main.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let legacySchedule = """
+        date: 2026-08-01
+        performances:
+          main:
+            - id: opening-set
+              title: "Opening: Live"
+              description: The exact first description.
+              startTime: "18:00"
+              endTime: "19:00"
+            - id: closing-set
+              title: Closing Set
+              description: The exact second description.
+              startTime: "19:00"
+              endTime: "20:00"
+        """
+        try legacySchedule.write(to: scheduleURL, atomically: true, encoding: .utf8)
+        let originalScheduleData = try Data(contentsOf: scheduleURL)
+
+        // An existing organizer source opens as ordered performance schedule items.
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let repository = try tree.read(from: repositoryURL).output.requiredValue
+        let scheduleItems = try #require(
+            repository.events.first?.components.schedules?.first?.data.scheduleItems["main"]
+        )
+        expectNoDifference(scheduleItems.map(\.kind), [.performance, .performance])
+        expectNoDifference(scheduleItems.map(\.id?.rawValue.rawValue), ["opening-set", "closing-set"])
+        expectNoDifference(scheduleItems.map(\.title), ["Opening: Live", "Closing Set"])
+        expectNoDifference(
+            scheduleItems.map(\.description),
+            ["The exact first description.", "The exact second description."]
+        )
+
+        // Opening and saving without a semantic edit must not churn the organizer's source file.
+        _ = try tree.rewrite(repository, at: repositoryURL)
+        expectNoDifference(try Data(contentsOf: scheduleURL), originalScheduleData)
+
+        // A newly written source uses only the canonical schedule-item vocabulary.
+        let canonicalRepositoryURL = try temporaryRepositoryURL()
+        _ = try tree.write(repository, to: canonicalRepositoryURL)
+        let canonicalScheduleText = try String(
+            contentsOf: canonicalRepositoryURL
+                .appending(path: "events", directoryHint: .isDirectory)
+                .appending(path: "legacy-schedule", directoryHint: .isDirectory)
+                .appending(path: "schedules", directoryHint: .isDirectory)
+                .appending(path: "saturday.yml"),
+            encoding: .utf8
+        )
+        #expect(canonicalScheduleText.contains("scheduleItems:"))
+        #expect(!canonicalScheduleText.contains("performances:"))
+        #expect(canonicalScheduleText.components(separatedBy: "kind: performance").count == 3)
+        #expect(
+            try #require(canonicalScheduleText.range(of: "Opening: Live")).lowerBound
+                < #require(canonicalScheduleText.range(of: "Closing Set")).lowerBound
+        )
+        expectNoDifference(
+            try tree.read(from: canonicalRepositoryURL).output.requiredValue,
+            repository
+        )
+    }
+
+    @Test
+    func scheduleRejectsCanonicalAndLegacyItemCollectionsTogether() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "ambiguous-schedule", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: eventURL.appending(path: "schedules", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        try """
+        name: Ambiguous Schedule
+        timeZone: America/Denver
+        """
+        .write(to: eventURL.appending(path: "event.yml"), atomically: true, encoding: .utf8)
+        try """
+        date: 2026-08-01
+        scheduleItems:
+          main:
+            - kind: performance
+              title: Canonical Set
+              startTime: "18:00"
+              endTime: "19:00"
+        performances:
+          main:
+            - title: Legacy Set
+              startTime: "19:00"
+              endTime: "20:00"
+        """
+        .write(
+            to: eventURL
+                .appending(path: "schedules", directoryHint: .isDirectory)
+                .appending(path: "saturday.yml"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let result = try OpenMusicEventSourceRepositoryFileTree().read(from: repositoryURL)
+        #expect(result.output.isInvalid)
+        let diagnosticMessages = result.diagnostics.diagnostics.map(\.message).joined(separator: "\n")
+        #expect(diagnosticMessages.contains("scheduleItems"))
+        #expect(diagnosticMessages.contains("performances"))
     }
 
     @Test
@@ -553,7 +693,7 @@ struct OpenMusicEventSourceTests {
             )
         )
 
-        let performance = try #require(event.schedules?.first?.data.performances["main"]?.first)
+        let performance = try #require(event.schedules?.first?.data.scheduleItems["main"]?.first)
         expectNoDifference(
             performance.contributors?.map(\.subject),
             [
@@ -628,20 +768,20 @@ struct OpenMusicEventSourceTests {
         let tree = OpenMusicEventSourceRepositoryFileTree()
         let repository = try tree.read(from: repositoryURL).output.requiredValue
         let performance = try #require(
-            repository.events.first?.components.schedules?.first?.data.performances["main"]?.first
+            repository.events.first?.components.schedules?.first?.data.scheduleItems["main"]?.first
         )
 
         expectNoDifference(
             performance.contributors,
             [
-                ScheduleDTO.Performance.Contributor(
+                ScheduleDTO.ScheduleItem.Contributor(
                     subject: .id(OME.ID<OME.Contributor>(.init("headliner")))
                 ),
-                ScheduleDTO.Performance.Contributor(
+                ScheduleDTO.ScheduleItem.Contributor(
                     subject: .actor(try #require(OME.Contributor.Actor("headliner.bsky.social"))),
                     role: "dj"
                 ),
-                ScheduleDTO.Performance.Contributor(
+                ScheduleDTO.ScheduleItem.Contributor(
                     subject: .name("Dance Crew"),
                     billing: .supporting,
                     role: "dancer"
@@ -725,19 +865,19 @@ struct OpenMusicEventSourceTests {
         let tree = OpenMusicEventSourceRepositoryFileTree()
         let repository = try tree.read(from: repositoryURL).output.requiredValue
         let performance = try #require(
-            repository.events.first?.components.schedules?.first?.data.performances["main"]?.first
+            repository.events.first?.components.schedules?.first?.data.scheduleItems["main"]?.first
         )
 
         expectNoDifference(
             performance.contributors,
             [
-                ScheduleDTO.Performance.Contributor(
+                ScheduleDTO.ScheduleItem.Contributor(
                     subject: .id(OME.ID<OME.Contributor>(.init("headliner")))
                 ),
-                ScheduleDTO.Performance.Contributor(
+                ScheduleDTO.ScheduleItem.Contributor(
                     subject: .name("Dance Crew")
                 ),
-                ScheduleDTO.Performance.Contributor(
+                ScheduleDTO.ScheduleItem.Contributor(
                     subject: .actor(try #require(OME.Contributor.Actor("headliner.bsky.social")))
                 ),
             ]

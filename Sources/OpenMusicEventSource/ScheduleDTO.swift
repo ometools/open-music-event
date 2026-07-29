@@ -8,7 +8,7 @@ public struct ScheduleDTO: Codable, Equatable, Sendable {
     public var startsAt: String?
     public var endsAt: String?
     public var customTitle: String?
-    public var performances: [String: [Performance]]
+    public var scheduleItems: [String: [ScheduleItem]]
 
     public init(
         id: OMERecord.ID<OMERecord.Schedule>? = nil,
@@ -17,7 +17,7 @@ public struct ScheduleDTO: Codable, Equatable, Sendable {
         startsAt: String? = nil,
         endsAt: String? = nil,
         customTitle: String? = nil,
-        performances: [String: [Performance]]
+        scheduleItems: [String: [ScheduleItem]]
     ) {
         self.id = id
         self.eventID = eventID
@@ -25,7 +25,44 @@ public struct ScheduleDTO: Codable, Equatable, Sendable {
         self.startsAt = startsAt
         self.endsAt = endsAt
         self.customTitle = customTitle
-        self.performances = performances
+        self.scheduleItems = scheduleItems
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case eventID
+        case date
+        case startsAt
+        case endsAt
+        case customTitle
+        case scheduleItems
+        case performances
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(OMERecord.ID<OMERecord.Schedule>.self, forKey: .id)
+        self.eventID = try container.decodeIfPresent(OMERecord.ID<OMERecord.Event>.self, forKey: .eventID)
+        self.date = try container.decode(LocalDate.self, forKey: .date)
+        self.startsAt = try container.decodeIfPresent(String.self, forKey: .startsAt)
+        self.endsAt = try container.decodeIfPresent(String.self, forKey: .endsAt)
+        self.customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
+        self.scheduleItems = try decodeScheduleItems(
+            from: container,
+            scheduleItemsKey: .scheduleItems,
+            legacyPerformancesKey: .performances
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(eventID, forKey: .eventID)
+        try container.encode(date, forKey: .date)
+        try container.encodeIfPresent(startsAt, forKey: .startsAt)
+        try container.encodeIfPresent(endsAt, forKey: .endsAt)
+        try container.encodeIfPresent(customTitle, forKey: .customTitle)
+        try container.encode(scheduleItems, forKey: .scheduleItems)
     }
 }
 
@@ -34,26 +71,64 @@ public struct InlineScheduleDTO: Codable, Equatable, Sendable {
     public var startsAt: String?
     public var endsAt: String?
     public var customTitle: String?
-    public var performances: [String: [ScheduleDTO.Performance]]
+    public var scheduleItems: [String: [ScheduleDTO.ScheduleItem]]
 
     public init(
         date: LocalDate? = nil,
         startsAt: String? = nil,
         endsAt: String? = nil,
         customTitle: String? = nil,
-        performances: [String: [ScheduleDTO.Performance]]
+        scheduleItems: [String: [ScheduleDTO.ScheduleItem]]
     ) {
         self.date = date
         self.startsAt = startsAt
         self.endsAt = endsAt
         self.customTitle = customTitle
-        self.performances = performances
+        self.scheduleItems = scheduleItems
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case date
+        case startsAt
+        case endsAt
+        case customTitle
+        case scheduleItems
+        case performances
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.date = try container.decodeIfPresent(LocalDate.self, forKey: .date)
+        self.startsAt = try container.decodeIfPresent(String.self, forKey: .startsAt)
+        self.endsAt = try container.decodeIfPresent(String.self, forKey: .endsAt)
+        self.customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
+        self.scheduleItems = try decodeScheduleItems(
+            from: container,
+            scheduleItemsKey: .scheduleItems,
+            legacyPerformancesKey: .performances
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(date, forKey: .date)
+        try container.encodeIfPresent(startsAt, forKey: .startsAt)
+        try container.encodeIfPresent(endsAt, forKey: .endsAt)
+        try container.encodeIfPresent(customTitle, forKey: .customTitle)
+        try container.encode(scheduleItems, forKey: .scheduleItems)
     }
 }
 
 extension ScheduleDTO {
-    public struct Performance: Codable, Equatable, Sendable {
-        public var id: OMERecord.ID<OMERecord.Performance>?
+    public struct ScheduleItem: Codable, Equatable, Sendable {
+        public typealias ID = OMERecord.ID<ScheduleItem>
+
+        public enum Kind: String, Codable, Equatable, Sendable {
+            case performance
+        }
+
+        public var kind: Kind
+        public var id: ID?
         public var title: String
         public var description: String?
         public var startTime: String
@@ -62,7 +137,8 @@ extension ScheduleDTO {
         public var recordings: [ExternalPlatform.Asset]?
 
         public init(
-            id: OMERecord.ID<OMERecord.Performance>? = nil,
+            kind: Kind = .performance,
+            id: ID? = nil,
             title: String,
             description: String? = nil,
             startTime: String,
@@ -70,6 +146,7 @@ extension ScheduleDTO {
             contributors: [Contributor]? = nil,
             recordings: [ExternalPlatform.Asset]? = nil
         ) {
+            self.kind = kind
             self.id = id
             self.title = title
             self.description = description
@@ -80,6 +157,7 @@ extension ScheduleDTO {
         }
 
         private enum CodingKeys: String, CodingKey {
+            case kind
             case id
             case title
             case description
@@ -94,8 +172,19 @@ extension ScheduleDTO {
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            try self.init(
+                kind: container.decode(Kind.self, forKey: .kind),
+                from: container
+            )
+        }
+
+        private init(
+            kind: Kind,
+            from container: KeyedDecodingContainer<CodingKeys>
+        ) throws {
+            self.kind = kind
             self.id = try container.decodeIfPresent(
-                OMERecord.ID<OMERecord.Performance>.self,
+                ID.self,
                 forKey: .id
             )
             self.title = try container.decode(String.self, forKey: .title)
@@ -109,6 +198,7 @@ extension ScheduleDTO {
 
         public func encode(to encoder: any Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(kind, forKey: .kind)
             try container.encodeIfPresent(id, forKey: .id)
             try container.encode(title, forKey: .title)
             try container.encodeIfPresent(description, forKey: .description)
@@ -186,7 +276,7 @@ extension ScheduleDTO {
                     throw DecodingError.dataCorruptedError(
                         forKey: .id,
                         in: container,
-                        debugDescription: "Performance contributor must contain exactly one of id, name, or actor."
+                        debugDescription: "Schedule item contributor must contain exactly one of id, name, or actor."
                     )
                 }
 
@@ -219,5 +309,46 @@ extension ScheduleDTO {
                 try container.encodeIfPresent(role, forKey: .role)
             }
         }
+
+        fileprivate static func legacyPerformance(from decoder: any Decoder) throws -> Self {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            return try Self(kind: .performance, from: container)
+        }
     }
+}
+
+private struct LegacyPerformanceScheduleItem: Decodable {
+    var scheduleItem: ScheduleDTO.ScheduleItem
+
+    init(from decoder: any Decoder) throws {
+        self.scheduleItem = try ScheduleDTO.ScheduleItem.legacyPerformance(from: decoder)
+    }
+}
+
+private func decodeScheduleItems<Key: CodingKey>(
+    from container: KeyedDecodingContainer<Key>,
+    scheduleItemsKey: Key,
+    legacyPerformancesKey: Key
+) throws -> [String: [ScheduleDTO.ScheduleItem]] {
+    let containsScheduleItems = container.contains(scheduleItemsKey)
+    let containsLegacyPerformances = container.contains(legacyPerformancesKey)
+
+    guard !(containsScheduleItems && containsLegacyPerformances) else {
+        throw DecodingError.dataCorruptedError(
+            forKey: scheduleItemsKey,
+            in: container,
+            debugDescription: "A schedule cannot contain both scheduleItems and performances."
+        )
+    }
+
+    if containsLegacyPerformances {
+        return try container
+            .decode([String: [LegacyPerformanceScheduleItem]].self, forKey: legacyPerformancesKey)
+            .mapValues { $0.map(\.scheduleItem) }
+    }
+
+    return try container.decode(
+        [String: [ScheduleDTO.ScheduleItem]].self,
+        forKey: scheduleItemsKey
+    )
 }

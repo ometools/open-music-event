@@ -482,10 +482,10 @@ public extension OME {
         private static func inferredStageFiles(
             for sourceEvent: OpenMusicEventSourceEvent
         ) throws -> [FileContent<StageDTO>] {
-            let inlinePerformances = sourceEvent.event.schedule.map { [$0.performances] } ?? []
-            let scheduleFilePerformances = sourceEvent.schedules?.map(\.data.performances) ?? []
+            let inlineScheduleItems = sourceEvent.event.schedule.map { [$0.scheduleItems] } ?? []
+            let scheduleFileItems = sourceEvent.schedules?.map(\.data.scheduleItems) ?? []
             let stageIDs = Set(
-                (inlinePerformances + scheduleFilePerformances)
+                (inlineScheduleItems + scheduleFileItems)
                     .flatMap(\.keys)
             )
             let fileNames = stageIDs.isEmpty
@@ -518,7 +518,7 @@ public extension OME {
             var startsAt: String?
             var endsAt: String?
             var customTitle: String?
-            var performances: [String: [ScheduleDTO.Performance]]
+            var scheduleItems: [String: [ScheduleDTO.ScheduleItem]]
 
             init(
                 _ schedule: ScheduleDTO,
@@ -529,7 +529,7 @@ public extension OME {
                 self.startsAt = schedule.startsAt
                 self.endsAt = schedule.endsAt
                 self.customTitle = schedule.customTitle
-                self.performances = schedule.performances
+                self.scheduleItems = schedule.scheduleItems
             }
 
             init(
@@ -545,7 +545,7 @@ public extension OME {
                 self.startsAt = schedule.startsAt
                 self.endsAt = schedule.endsAt
                 self.customTitle = schedule.customTitle
-                self.performances = schedule.performances
+                self.scheduleItems = schedule.scheduleItems
             }
         }
 
@@ -583,81 +583,85 @@ public extension OME {
                 )
             )
 
-            for stageIDString in sourceSchedule.performances.keys.sorted() {
-                let sourcePerformances = sourceSchedule.performances[stageIDString] ?? []
+            for stageIDString in sourceSchedule.scheduleItems.keys.sorted() {
+                let sourceScheduleItems = sourceSchedule.scheduleItems[stageIDString] ?? []
                 let stageID = OME.ID<OME.Stage>(.init(stageIDString))
-                let resolvedStarts = try sourcePerformances.resolvedStartTimes(
+                let resolvedStarts = try sourceScheduleItems.resolvedStartTimes(
                     on: sourceSchedule.date,
                     in: timeZone
                 )
 
-                for (offset, sourcePerformance) in sourcePerformances.enumerated() {
-                    let index = offset + 1
-                    let performanceID = sourcePerformance.id
-                        ?? Self.localID("\(scheduleID.rawValue.rawValue)-\(stageID.rawValue.rawValue)-\(index)")
-                    let scopedPerformanceID = OME.Performance.ID(
-                        organizerID: organizerID,
-                        eventID: eventID,
-                        performanceID: performanceID
-                    )
-                    let startTime = resolvedStarts[offset]
-                    let endTime: Date
-
-                    if let explicitEndTime = sourcePerformance.endTime {
-                        endTime = try explicitEndTime.localTimeDate(
-                            on: sourceSchedule.date,
-                            in: timeZone
-                        ).advancedPast(startTime, in: timeZone)
-                    } else if sourcePerformances.indices.contains(offset + 1) {
-                        endTime = resolvedStarts[offset + 1]
-                    } else {
-                        throw Error.missingPerformanceEndTime(
-                            scheduleID: scopedScheduleID,
-                            stageID: stageID,
-                            performanceIndex: index
+                for (offset, sourceScheduleItem) in sourceScheduleItems.enumerated() {
+                    switch sourceScheduleItem.kind {
+                    case .performance:
+                        let index = offset + 1
+                        let scheduleItemID = sourceScheduleItem.id
+                            ?? Self.localID("\(scheduleID.rawValue.rawValue)-\(stageID.rawValue.rawValue)-\(index)")
+                        let performanceID = OME.ID<OME.Performance>(scheduleItemID.rawValue)
+                        let scopedPerformanceID = OME.Performance.ID(
+                            organizerID: organizerID,
+                            eventID: eventID,
+                            performanceID: performanceID
                         )
-                    }
+                        let startTime = resolvedStarts[offset]
+                        let endTime: Date
 
-                    performances.append(
-                        OME.Performance.Draft(
-                            id: scopedPerformanceID,
-                            stageID: stageID,
-                            scheduleID: scheduleID,
-                            startTime: startTime,
-                            endTime: endTime,
-                            title: sourcePerformance.title,
-                            description: sourcePerformance.description,
-                            recordings: sourcePerformance.recordings ?? []
-                        )
-                    )
+                        if let explicitEndTime = sourceScheduleItem.endTime {
+                            endTime = try explicitEndTime.localTimeDate(
+                                on: sourceSchedule.date,
+                                in: timeZone
+                            ).advancedPast(startTime, in: timeZone)
+                        } else if sourceScheduleItems.indices.contains(offset + 1) {
+                            endTime = resolvedStarts[offset + 1]
+                        } else {
+                            throw Error.missingPerformanceEndTime(
+                                scheduleID: scopedScheduleID,
+                                stageID: stageID,
+                                performanceIndex: index
+                            )
+                        }
 
-                    for (sortIndex, contributor) in (sourcePerformance.contributors ?? []).enumerated() {
-                        let contributorID = try Self.contributorID(
-                            for: contributor,
-                            in: scheduleContributorIndex,
-                            scheduleID: scopedScheduleID,
-                            stageID: stageID,
-                            performanceIndex: index
+                        performances.append(
+                            OME.Performance.Draft(
+                                id: scopedPerformanceID,
+                                stageID: stageID,
+                                scheduleID: scheduleID,
+                                startTime: startTime,
+                                endTime: endTime,
+                                title: sourceScheduleItem.title,
+                                description: sourceScheduleItem.description,
+                                recordings: sourceScheduleItem.recordings ?? []
+                            )
                         )
-                        let contributorActor = Self.actor(for: contributor)
-                        let projection = OME.Performance.Contributors.Draft(
-                            performanceID: scopedPerformanceID,
-                            contributorID: contributorID,
-                            anonymousName: Self.anonymousName(for: contributor),
-                            contributorActor: contributorActor,
-                            billing: contributor.billing,
-                            role: contributor.role,
-                            sortIndex: sortIndex
-                        )
-                        performanceContributors.append(projection)
 
-                        if let relationship = Self.performanceContributorRelationship(
-                            performanceID: scopedPerformanceID,
-                            contributorID: contributorID,
-                            contributorActor: contributorActor,
-                            role: contributor.role
-                        ) {
-                            relationships.append(relationship)
+                        for (sortIndex, contributor) in (sourceScheduleItem.contributors ?? []).enumerated() {
+                            let contributorID = try Self.contributorID(
+                                for: contributor,
+                                in: scheduleContributorIndex,
+                                scheduleID: scopedScheduleID,
+                                stageID: stageID,
+                                performanceIndex: index
+                            )
+                            let contributorActor = Self.actor(for: contributor)
+                            let projection = OME.Performance.Contributors.Draft(
+                                performanceID: scopedPerformanceID,
+                                contributorID: contributorID,
+                                anonymousName: Self.anonymousName(for: contributor),
+                                contributorActor: contributorActor,
+                                billing: contributor.billing,
+                                role: contributor.role,
+                                sortIndex: sortIndex
+                            )
+                            performanceContributors.append(projection)
+
+                            if let relationship = Self.performanceContributorRelationship(
+                                performanceID: scopedPerformanceID,
+                                contributorID: contributorID,
+                                contributorActor: contributorActor,
+                                role: contributor.role
+                            ) {
+                                relationships.append(relationship)
+                            }
                         }
                     }
                 }
@@ -683,7 +687,7 @@ public extension OME {
             }
 
             mutating func addGeneratedContributor(
-                for contributor: ScheduleDTO.Performance.Contributor,
+                for contributor: ScheduleDTO.ScheduleItem.Contributor,
                 organizerID: OME.Organizer.ID,
                 eventID: OME.ID<OME.Event>,
                 usedContributorIDs: inout Set<OME.ID<OME.Contributor>>
@@ -749,14 +753,14 @@ public extension OME {
             }
 
             mutating func addGeneratedScheduleContributors(
-                from performancesByStageID: [String: [ScheduleDTO.Performance]],
+                from scheduleItemsByStageID: [String: [ScheduleDTO.ScheduleItem]],
                 organizerID: OME.Organizer.ID,
                 eventID: OME.ID<OME.Event>,
                 usedContributorIDs: inout Set<OME.ID<OME.Contributor>>
             ) {
-                for stageID in performancesByStageID.keys.sorted() {
-                    for performance in performancesByStageID[stageID] ?? [] {
-                        for contributor in performance.contributors ?? [] {
+                for stageID in scheduleItemsByStageID.keys.sorted() {
+                    for scheduleItem in scheduleItemsByStageID[stageID] ?? [] {
+                        for contributor in scheduleItem.contributors ?? [] {
                             addGeneratedContributor(
                                 for: contributor,
                                 organizerID: organizerID,
@@ -800,7 +804,7 @@ public extension OME {
 
             if let inlineSchedule = sourceEvent.event.schedule {
                 index.addGeneratedScheduleContributors(
-                    from: inlineSchedule.performances,
+                    from: inlineSchedule.scheduleItems,
                     organizerID: organizerID,
                     eventID: eventID,
                     usedContributorIDs: &usedContributorIDs
@@ -809,7 +813,7 @@ public extension OME {
 
             for schedule in sourceEvent.schedules ?? [] {
                 index.addGeneratedScheduleContributors(
-                    from: schedule.data.performances,
+                    from: schedule.data.scheduleItems,
                     organizerID: organizerID,
                     eventID: eventID,
                     usedContributorIDs: &usedContributorIDs
@@ -820,7 +824,7 @@ public extension OME {
         }
 
         private static func contributorID(
-            for contributor: ScheduleDTO.Performance.Contributor,
+            for contributor: ScheduleDTO.ScheduleItem.Contributor,
             in index: ScheduleContributorIndex,
             scheduleID: OME.Schedule.ID,
             stageID: OME.ID<OME.Stage>,
@@ -845,14 +849,14 @@ public extension OME {
         }
 
         private static func anonymousName(
-            for contributor: ScheduleDTO.Performance.Contributor
+            for contributor: ScheduleDTO.ScheduleItem.Contributor
         ) -> String? {
             guard case let .name(name) = contributor.subject else { return nil }
             return name
         }
 
         private static func actor(
-            for contributor: ScheduleDTO.Performance.Contributor
+            for contributor: ScheduleDTO.ScheduleItem.Contributor
         ) -> OME.Contributor.Actor? {
             guard case let .actor(actor) = contributor.subject else { return nil }
             return actor
@@ -1048,13 +1052,13 @@ private extension OME.Contributor.Actor {
     }
 }
 
-private extension Array where Element == ScheduleDTO.Performance {
+private extension Array where Element == ScheduleDTO.ScheduleItem {
     func resolvedStartTimes(on date: LocalDate, in timeZone: TimeZone) throws -> [Date] {
         var resolved: [Date] = []
         resolved.reserveCapacity(count)
 
-        for performance in self {
-            var startTime = try performance.startTime.localTimeDate(
+        for scheduleItem in self {
+            var startTime = try scheduleItem.startTime.localTimeDate(
                 on: date,
                 in: timeZone
             )

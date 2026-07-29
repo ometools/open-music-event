@@ -446,13 +446,13 @@ public struct SourceActorDIDConverter: Sendable {
 
             for scheduleIndex in schedules.indices {
                 let schedule = schedules[scheduleIndex]
-                for stageID in schedule.data.performances.keys.sorted() {
-                    guard let performances = schedule.data.performances[stageID] else {
+                for stageID in schedule.data.scheduleItems.keys.sorted() {
+                    guard let scheduleItems = schedule.data.scheduleItems[stageID] else {
                         continue
                     }
-                    for performanceIndex in performances.indices {
-                        let performance = performances[performanceIndex]
-                        guard let contributors = performance.contributors else {
+                    for performanceIndex in scheduleItems.indices {
+                        let scheduleItem = scheduleItems[performanceIndex]
+                        guard let contributors = scheduleItem.contributors else {
                             continue
                         }
 
@@ -466,7 +466,7 @@ public struct SourceActorDIDConverter: Sendable {
                                 scheduleFileName: schedule.path.rawValue,
                                 stageID: stageID,
                                 performanceIndex: performanceIndex,
-                                performanceTitle: performance.title,
+                                performanceTitle: scheduleItem.title,
                                 actorIndex: contributorIndex
                             )
                             occurrences.append(
@@ -591,21 +591,21 @@ public struct SourceActorDIDConverter: Sendable {
         else { return }
 
         var schedule = schedules[occurrence.scheduleIndex]
-        var performancesByStage = schedule.data.performances
-        guard var performances = performancesByStage[occurrence.stageID],
-              performances.indices.contains(occurrence.performanceIndex)
+        var scheduleItemsByStage = schedule.data.scheduleItems
+        guard var scheduleItems = scheduleItemsByStage[occurrence.stageID],
+              scheduleItems.indices.contains(occurrence.performanceIndex)
         else { return }
 
-        var performance = performances[occurrence.performanceIndex]
-        guard var contributors = performance.contributors,
+        var scheduleItem = scheduleItems[occurrence.performanceIndex]
+        guard var contributors = scheduleItem.contributors,
               contributors.indices.contains(occurrence.actorIndex)
         else { return }
 
         contributors[occurrence.actorIndex].subject = .actor(actor)
-        performance.contributors = contributors
-        performances[occurrence.performanceIndex] = performance
-        performancesByStage[occurrence.stageID] = performances
-        schedule.data.performances = performancesByStage
+        scheduleItem.contributors = contributors
+        scheduleItems[occurrence.performanceIndex] = scheduleItem
+        scheduleItemsByStage[occurrence.stageID] = scheduleItems
+        schedule.data.scheduleItems = scheduleItemsByStage
         schedules[occurrence.scheduleIndex] = schedule
         event.components.schedules = schedules
         repository.events[occurrence.eventIndex] = event

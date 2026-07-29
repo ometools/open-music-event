@@ -492,7 +492,7 @@ private func makeSourceFile(
     guard let rollover = request.rollover, let rolloverSource else {
         sourceFile.stages = [try EventSingletonStage.sourceFile()]
         if request.startDate != nil {
-            sourceFile.event.schedule = InlineScheduleDTO(performances: [:])
+            sourceFile.event.schedule = InlineScheduleDTO(scheduleItems: [:])
         }
         return sourceFile
     }
@@ -552,7 +552,7 @@ private func makeSourceFile(
     sourceFile.posters = nil
     sourceFile.schedules = nil
     if request.startDate != nil {
-        sourceFile.event.schedule = InlineScheduleDTO(performances: [:])
+        sourceFile.event.schedule = InlineScheduleDTO(scheduleItems: [:])
     }
     return sourceFile
 }

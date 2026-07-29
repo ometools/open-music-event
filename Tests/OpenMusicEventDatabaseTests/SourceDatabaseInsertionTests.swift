@@ -331,7 +331,7 @@ struct SourceDatabaseInsertionTests {
                     startsAt: nil,
                     endsAt: nil,
                     customTitle: nil,
-                    performances: [:]
+                    scheduleItems: [:]
                 )
             )
         ]
@@ -571,7 +571,7 @@ struct SourceDatabaseInsertionTests {
     func actorOnlyPerformancesCreatePerformanceContributorRowsWithoutContributors() throws {
         let actor = try #require(OME.Contributor.Actor("ARTIST.BSKY.SOCIAL"))
         var source = try makeSourceRepository(
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("actor-set"),
@@ -615,7 +615,7 @@ struct SourceDatabaseInsertionTests {
         let artistID = try #require(DID("did:plc:artist123"))
         let actor = try #require(OME.Contributor.Actor("did:plc:artist123"))
         var source = try makeSourceRepository(
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("did-set"),
@@ -664,7 +664,7 @@ struct SourceDatabaseInsertionTests {
     @Test
     func performanceContributorCreditsPreserveBillingRoleAndOrder() throws {
         let source = try makeSourceRepository(
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("credited-set"),
@@ -747,7 +747,7 @@ struct SourceDatabaseInsertionTests {
         let source = try makeSourceRepository(
             eventPolicies: scheduleContributorListingPolicy(),
             includeDefaultContributor: false,
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("guest-set"),
@@ -826,7 +826,7 @@ struct SourceDatabaseInsertionTests {
     func throwsWhenScheduleReferencesMissingContributorID() throws {
         let source = try makeSourceRepository(
             includeDefaultContributor: false,
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("missing-contributor-set"),
@@ -876,7 +876,7 @@ struct SourceDatabaseInsertionTests {
         let source = try makeSourceRepository(
             eventPolicies: scheduleContributorListingPolicy(),
             includeDefaultContributor: false,
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("actor-set"),
@@ -933,7 +933,7 @@ struct SourceDatabaseInsertionTests {
     func explicitContributorsWinOverScheduleContributorListing() throws {
         let source = try makeSourceRepository(
             eventPolicies: scheduleContributorListingPolicy(),
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("artist-set"),
@@ -2741,7 +2741,7 @@ struct SourceDatabaseInsertionTests {
     func resolvesAfterMidnightPerformanceTimes() throws {
         let source = try makeSourceRepository(
             eventDirectoryName: "2025",
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("late-night"),
@@ -2820,7 +2820,7 @@ struct SourceDatabaseInsertionTests {
             )
         )
         let source = try makeSourceRepository(
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(
                         id: id("recorded-set"),
@@ -2854,7 +2854,7 @@ struct SourceDatabaseInsertionTests {
     @Test
     func throwsWhenFinalPerformanceHasNoEndTime() throws {
         let source = try makeSourceRepository(
-            performances: [
+            scheduleItems: [
                 "meadow": [
                     .init(title: "No End", startTime: "18:00")
                 ]
@@ -3666,7 +3666,7 @@ struct SourceDatabaseInsertionTests {
         contributorDID: DID? = nil,
         contributorImages: [SourceImageAsset]? = nil,
         includeDefaultContributor: Bool = true,
-        performances: [String: [ScheduleDTO.Performance]] = [
+        scheduleItems: [String: [ScheduleDTO.ScheduleItem]] = [
             "meadow": [
                 .init(
                     id: id("opening-set"),
@@ -3779,7 +3779,7 @@ struct SourceDatabaseInsertionTests {
                                     startsAt: "18:00",
                                     endsAt: "22:30",
                                     customTitle: "Saturday",
-                                    performances: performances
+                                    scheduleItems: scheduleItems
                                 )
                             )
                         ],
@@ -3807,9 +3807,9 @@ struct SourceDatabaseInsertionTests {
 
     private func makeInlineScheduleSourceRepository() throws -> OpenMusicEventSourceRepository {
         var source = try makeSourceRepository()
-        let performances = try #require(source.events[0].components.schedules?.first?.data.performances)
+        let scheduleItems = try #require(source.events[0].components.schedules?.first?.data.scheduleItems)
         source.events[0].components.event.schedule = InlineScheduleDTO(
-            performances: performances
+            scheduleItems: scheduleItems
         )
         source.events[0].components.schedules = nil
         return source
