@@ -309,6 +309,7 @@ public struct ScheduleSingleStageAtOnceView: View {
 }
 
 struct ScheduleStageTimelinePager: View {
+    @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
     @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
 
     let stages: [OMERecord.Stage]
@@ -321,33 +322,49 @@ struct ScheduleStageTimelinePager: View {
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                HorizontalPageView(page: $selectedStageID) {
-                    ForEach(stages) { stage in
-                        ScheduleFixedStageTimeline(
-                            stage: stage,
-                            performances: performances(for: stage),
-                            timeRange: timeRange,
-                            pageHeight: pageHeight,
-                            showsAuthoringControls: showsAuthoringControls,
-                            onEditPerformanceTapped: { performanceID in
-                                onEditPerformanceTapped(performanceID)
-                            },
-                            onDeletePerformanceTapped: { performanceID in
-                                onDeletePerformanceTapped(performanceID)
-                            },
-                            onPerformanceTapped: { performanceID in
-                                onPerformanceTapped(performanceID)
-                            }
-                        )
-                        .id(stage.id.stageID)
-                        .tag(Optional(stage.id.stageID))
-                        .frame(width: geometry.size.width)
+        ScrollViewReader { proxy in
+            GeometryReader { geometry in
+                ScrollView {
+                    HorizontalPageView(page: $selectedStageID) {
+                        ForEach(stages) { stage in
+                            ScheduleFixedStageTimeline(
+                                stage: stage,
+                                performances: performances(for: stage),
+                                timeRange: timeRange,
+                                pageHeight: pageHeight,
+                                showsAuthoringControls: showsAuthoringControls,
+                                onEditPerformanceTapped: { performanceID in
+                                    onEditPerformanceTapped(performanceID)
+                                },
+                                onDeletePerformanceTapped: { performanceID in
+                                    onDeletePerformanceTapped(performanceID)
+                                },
+                                onPerformanceTapped: { performanceID in
+                                    onPerformanceTapped(performanceID)
+                                }
+                            )
+                            .id(stage.id.stageID)
+                            .tag(Optional(stage.id.stageID))
+                            .frame(width: geometry.size.width)
+                        }
                     }
+                    .frame(height: pageHeight)
                 }
-                .frame(height: pageHeight)
             }
+            .onChange(of: scheduleNowScrollRequest) { _, request in
+                guard let request else { return }
+                scrollToCurrentTime(proxy: proxy, animated: request.animated)
+            }
+        }
+    }
+
+    func scrollToCurrentTime(proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation {
+                proxy.scrollTo(ScheduleScrollTarget.currentTime, anchor: .center)
+            }
+        } else {
+            proxy.scrollTo(ScheduleScrollTarget.currentTime, anchor: .center)
         }
     }
 

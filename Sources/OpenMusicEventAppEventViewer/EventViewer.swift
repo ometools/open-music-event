@@ -97,6 +97,10 @@ public struct EventViewer {
 
     public typealias EventFeature = OpenMusicEventViewers.EventFeature
 
+    public enum ScheduleLaunchAction: Equatable, Sendable {
+        case jumpToCurrentTime
+    }
+
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
     @StoreTaskID var sourceDataRefreshTask
@@ -118,7 +122,8 @@ public struct EventViewer {
             eventID: OMERecord.Event.ID,
             authoringGrant: SharedReader<AuthoringGrant?>,
             features: [EventFeature],
-            pendingAuthoringEntry: EditorEntry? = nil
+            pendingAuthoringEntry: EditorEntry? = nil,
+            pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) {
             let eventTimeZone = Self.eventTimeZone(eventID: eventID)
 
@@ -131,6 +136,7 @@ public struct EventViewer {
             self.selectedFeature = features.first ?? .schedule(.schedule)
             self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
             self.pendingAuthoringEntry = pendingAuthoringEntry
+            self.pendingScheduleLaunchAction = pendingScheduleLaunchAction
             self.installFeatureStores(features)
         }
 
@@ -261,7 +267,8 @@ public struct EventViewer {
 
         public static func route(
             eventID: OMERecord.Event.ID,
-            target: EventTarget?
+            target: EventTarget?,
+            pendingScheduleLaunchAction: ScheduleLaunchAction? = nil
         ) -> Self {
             let authoringGrant = Self.authoringGrant()
             let access = authoringGrant.wrappedValue?.access ?? .attendee
@@ -271,7 +278,8 @@ public struct EventViewer {
                 features: EventFeature.features(
                     eventID: eventID,
                     authoringAccess: access
-                )
+                ),
+                pendingScheduleLaunchAction: pendingScheduleLaunchAction
             )
             if let target, target.eventFeature.isEditorFeature, !state.showsAuthoringControls {
                 state.pendingAuthoringEntry = .target(target)
@@ -306,6 +314,7 @@ public struct EventViewer {
 
         public var destination: Destination.State?
         public var pendingAuthoringEntry: EditorEntry?
+        public var pendingScheduleLaunchAction: ScheduleLaunchAction?
 
         public var id: OMERecord.Event.ID { eventID }
 
@@ -1044,6 +1053,7 @@ public struct EventViewerView: View {
                         ScheduleViewerView(
                             store: featureStore,
                             selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                            pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
                             showsAuthoringControls: store.showsAuthoringControls
                         )
                     }
@@ -1266,6 +1276,7 @@ public struct EventViewerView: View {
                     ScheduleViewerView(
                         store: featureStore,
                         selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                        pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }
@@ -1386,6 +1397,7 @@ public struct EventViewerView: View {
                     ScheduleViewerView(
                         store: featureStore,
                         selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                        pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
                         showsAuthoringControls: store.showsAuthoringControls
                     )
                 }

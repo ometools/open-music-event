@@ -379,6 +379,7 @@ struct NavigationTests {
         }
         #expect(appState?.selectedEventID == eventID)
         #expect(store.state.root.eventViewer?.state.content.eventID == eventID)
+        #expect(store.state.root.eventViewer?.state.content.pendingScheduleLaunchAction == nil)
     }
 
     @Test
@@ -4110,6 +4111,173 @@ struct NavigationTests {
     }
 
     @Test
+    func scheduleNowDestinationPrefersSelectedCurrentScheduleAndActivePerformance() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("schedule-now-selected")
+        let date = try #require(LocalDate("2026-08-07"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Schedule Now")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "first", date: date)
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "selected", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "first-active",
+                stageID: "meadow",
+                scheduleID: "first",
+                startTime: Date(timeIntervalSince1970: 100),
+                endTime: Date(timeIntervalSince1970: 300),
+                title: "First Active"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "selected-active",
+                stageID: "meadow",
+                scheduleID: "selected",
+                startTime: Date(timeIntervalSince1970: 120),
+                endTime: Date(timeIntervalSince1970: 320),
+                title: "Selected Active"
+            )
+        }
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            ScheduleViewer.State(eventID: eventID)
+        }
+        let destination = state.currentTimeDestination(
+            currentDate: Date(timeIntervalSince1970: 200),
+            selectedScheduleID: scheduleLocalID("selected"),
+            buffer: 3_600
+        )
+
+        expectNoDifference(destination?.scheduleID, scheduleLocalID("selected"))
+        expectNoDifference(destination?.performanceID, performanceLocalID("selected-active"))
+    }
+
+    @Test
+    func scheduleNowDestinationSwitchesSchedulesAndTargetsNextThenLastPerformance() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("schedule-now-switch")
+        let date = try #require(LocalDate("2026-08-07"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Schedule Now")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "past", date: date)
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "current", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "past-set",
+                stageID: "meadow",
+                scheduleID: "past",
+                startTime: Date(timeIntervalSince1970: 0),
+                endTime: Date(timeIntervalSince1970: 3_600),
+                title: "Past Set"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "opening",
+                stageID: "meadow",
+                scheduleID: "current",
+                startTime: Date(timeIntervalSince1970: 10_000),
+                endTime: Date(timeIntervalSince1970: 11_000),
+                title: "Opening"
+            )
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "closing",
+                stageID: "meadow",
+                scheduleID: "current",
+                startTime: Date(timeIntervalSince1970: 12_000),
+                endTime: Date(timeIntervalSince1970: 13_000),
+                title: "Closing"
+            )
+        }
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            ScheduleViewer.State(eventID: eventID)
+        }
+        let nextDestination = state.currentTimeDestination(
+            currentDate: Date(timeIntervalSince1970: 9_000),
+            selectedScheduleID: scheduleLocalID("past"),
+            buffer: 3_600
+        )
+        let lastDestination = state.currentTimeDestination(
+            currentDate: Date(timeIntervalSince1970: 15_500),
+            selectedScheduleID: scheduleLocalID("past"),
+            buffer: 3_600
+        )
+
+        expectNoDifference(nextDestination?.scheduleID, scheduleLocalID("current"))
+        expectNoDifference(nextDestination?.performanceID, performanceLocalID("opening"))
+        expectNoDifference(lastDestination?.scheduleID, scheduleLocalID("current"))
+        expectNoDifference(lastDestination?.performanceID, performanceLocalID("closing"))
+    }
+
+    @Test
+    func scheduleNowDestinationHandlesOvernightRangesAndHidesOutsideRenderedTime() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("schedule-now-overnight")
+        let date = try #require(LocalDate("2026-08-07"))
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Schedule Now")
+            try Self.insertSchedule(db, eventID: eventID, scheduleID: "overnight", date: date)
+            try Self.insertStage(db, eventID: eventID, stageID: "meadow", name: "Meadow")
+            try Self.insertPerformance(
+                db,
+                eventID: eventID,
+                performanceID: "late-set",
+                stageID: "meadow",
+                scheduleID: "overnight",
+                startTime: Date(timeIntervalSince1970: 86_000),
+                endTime: Date(timeIntervalSince1970: 90_000),
+                title: "Late Set"
+            )
+        }
+
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+        } operation: {
+            ScheduleViewer.State(eventID: eventID)
+        }
+        let overnightDestination = state.currentTimeDestination(
+            currentDate: Date(timeIntervalSince1970: 88_000),
+            selectedScheduleID: nil,
+            buffer: 3_600
+        )
+        let outsideDestination = state.currentTimeDestination(
+            currentDate: Date(timeIntervalSince1970: 94_000),
+            selectedScheduleID: nil,
+            buffer: 3_600
+        )
+        let unavailableDestination = state.currentTimeDestination(
+            currentDate: nil,
+            selectedScheduleID: nil,
+            buffer: 3_600
+        )
+
+        expectNoDifference(overnightDestination?.performanceID, performanceLocalID("late-set"))
+        #expect(outsideDestination == nil)
+        #expect(unavailableDestination == nil)
+    }
+
+    @Test
     func scheduleViewerStatePersistsModeAndStagePerDivision() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -6852,6 +7020,10 @@ struct NavigationTests {
             selectedEventIDAtLaunch: eventID
         )
         #expect(store.state.root.eventViewer?.state.content.eventID == eventID)
+        expectNoDifference(
+            store.state.root.eventViewer?.state.content.pendingScheduleLaunchAction,
+            .jumpToCurrentTime
+        )
     }
 
     @Test
@@ -7177,6 +7349,10 @@ struct NavigationTests {
         }
 
         #expect(state.eventViewer?.state.content.eventID == eventID)
+        expectNoDifference(
+            state.eventViewer?.state.content.pendingScheduleLaunchAction,
+            .jumpToCurrentTime
+        )
     }
 
     @Test

@@ -30,7 +30,8 @@ public struct OpenMusicEventAppRoot {
                 self.eventViewer = Spawn(
                     OpenMusicEventAppRoot.makeWorkspaceEventViewerState(
                         eventID: selectedEventIDAtLaunch,
-                        target: nil
+                        target: nil,
+                        pendingScheduleLaunchAction: .jumpToCurrentTime
                     )
                 )
             }
@@ -342,7 +343,8 @@ private extension OpenMusicEventAppRoot {
     static func makeWorkspaceEventViewerState(
         eventID: OMERecord.Event.ID,
         target: EventTarget?,
-        mountedAuthoring: MountedAuthoring? = nil
+        mountedAuthoring: MountedAuthoring? = nil,
+        pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction? = nil
     ) -> WorkspaceEventViewer.State {
         if let mountedAuthoring {
             return WorkspaceEventViewer.State(
@@ -350,14 +352,22 @@ private extension OpenMusicEventAppRoot {
                 grant: mountedAuthoring.grant,
                 initiallyRequestsEntry: target?.eventFeature.isEditorFeature == true
             ) {
-                EventViewer.State.route(eventID: eventID, target: target)
+                EventViewer.State.route(
+                    eventID: eventID,
+                    target: target,
+                    pendingScheduleLaunchAction: pendingScheduleLaunchAction
+                )
             }
         }
         return WorkspaceEventViewer.State(
             workspaceID: workspaceID(for: eventID),
             initiallyRequestsEntry: target?.eventFeature.isEditorFeature == true
         ) {
-            EventViewer.State.route(eventID: eventID, target: target)
+            EventViewer.State.route(
+                eventID: eventID,
+                target: target,
+                pendingScheduleLaunchAction: pendingScheduleLaunchAction
+            )
         }
     }
 

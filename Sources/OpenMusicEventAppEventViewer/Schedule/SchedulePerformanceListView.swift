@@ -103,6 +103,7 @@ public struct SchedulePerformanceList {
 
 public struct SchedulePerformanceListView: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
+    @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
     @Bindable var store: StoreOf<SchedulePerformanceList>
     let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     let showsAuthoringControls: Bool
@@ -127,23 +128,36 @@ public struct SchedulePerformanceListView: View {
             )
         } else {
             TimelineView(.periodic(from: Date.now, by: 1)) { context in
-                List(rows) { row in
-                    Button {
-                        store.send(.performanceButtonTapped(row.performanceID))
-                    } label: {
-                        SchedulePerformanceRow(
-                            row: row,
-                            subtitle: ScheduleViewer.performanceRowSubtitle(
-                                for: row.performance,
-                                timeZone: store.timeZone,
-                                policy: dateTimeRangeResolutionPolicy
-                            ),
-                            now: context.date
-                        )
+                ScrollViewReader { proxy in
+                    List(rows) { row in
+                        Button {
+                            store.send(.performanceButtonTapped(row.performanceID))
+                        } label: {
+                            SchedulePerformanceRow(
+                                row: row,
+                                subtitle: ScheduleViewer.performanceRowSubtitle(
+                                    for: row.performance,
+                                    timeZone: store.timeZone,
+                                    policy: dateTimeRangeResolutionPolicy
+                                ),
+                                now: context.date
+                            )
+                        }
+                        .id(row.performanceID)
+                        .navigationLinkListRowStyle()
                     }
-                    .navigationLinkListRowStyle()
+                    .listStyle(.plain)
+                    .onChange(of: scheduleNowScrollRequest) { _, request in
+                        guard let request else { return }
+                        if request.animated {
+                            withAnimation {
+                                proxy.scrollTo(request.performanceID, anchor: .center)
+                            }
+                        } else {
+                            proxy.scrollTo(request.performanceID, anchor: .center)
+                        }
+                    }
                 }
-                .listStyle(.plain)
             }
         }
     }

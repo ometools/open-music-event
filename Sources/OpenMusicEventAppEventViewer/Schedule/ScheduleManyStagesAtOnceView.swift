@@ -127,6 +127,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     let minimumHorizontalPointsPerHour: CGFloat = 160
 
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
+    @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
     @Environment(\.showStageNameLabels) var showStageNameLabels
@@ -296,13 +297,19 @@ public struct ScheduleManyStagesAtOnceView: View {
         totalHeight: CGFloat,
         timeRange: DateInterval
     ) -> some View {
-        ScrollView(.horizontal) {
-            timelinePage
-                .frame(width: timelineWidth, height: totalHeight)
-                .environment(\.scheduleTimelineOrientation, .horizontalTime)
-                .environment(\.scheduleHeight, timelineHeight)
-                .environment(\.scheduleTimeRange, timeRange)
-                .environment(\.shouldShowTimeIndicator, true)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                timelinePage
+                    .frame(width: timelineWidth, height: totalHeight)
+                    .environment(\.scheduleTimelineOrientation, .horizontalTime)
+                    .environment(\.scheduleHeight, timelineHeight)
+                    .environment(\.scheduleTimeRange, timeRange)
+                    .environment(\.shouldShowTimeIndicator, true)
+            }
+            .onChange(of: scheduleNowScrollRequest) { _, request in
+                guard let request else { return }
+                scrollToCurrentTime(proxy: proxy, animated: request.animated)
+            }
         }
     }
 
@@ -369,15 +376,31 @@ public struct ScheduleManyStagesAtOnceView: View {
         availableWidth: CGFloat,
         timeRange: DateInterval
     ) -> some View {
-        ScrollView(.vertical) {
-            timelinePage
-            .frame(
-                width: contentWidth(for: availableWidth),
-                height: scheduleHeight(for: timeRange)
-            )
-            .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
-            .environment(\.scheduleTimeRange, timeRange)
-            .environment(\.shouldShowTimeIndicator, true)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                timelinePage
+                .frame(
+                    width: contentWidth(for: availableWidth),
+                    height: scheduleHeight(for: timeRange)
+                )
+                .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
+                .environment(\.scheduleTimeRange, timeRange)
+                .environment(\.shouldShowTimeIndicator, true)
+            }
+            .onChange(of: scheduleNowScrollRequest) { _, request in
+                guard let request else { return }
+                scrollToCurrentTime(proxy: proxy, animated: request.animated)
+            }
+        }
+    }
+
+    func scrollToCurrentTime(proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation {
+                proxy.scrollTo(ScheduleScrollTarget.currentTime, anchor: .center)
+            }
+        } else {
+            proxy.scrollTo(ScheduleScrollTarget.currentTime, anchor: .center)
         }
     }
 

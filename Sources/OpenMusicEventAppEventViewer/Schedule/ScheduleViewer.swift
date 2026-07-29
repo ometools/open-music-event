@@ -20,6 +20,11 @@ public struct ScheduleViewer {
     public typealias ScheduleDivision = OpenMusicEventViewers.ScheduleDivision
     public typealias ScheduleKind = ScheduleViewerState.ScheduleKind
 
+    struct CurrentTimeDestination: Equatable, Sendable {
+        let scheduleID: OMERecord.ID<OMERecord.Schedule>
+        let performanceID: OMERecord.ID<OMERecord.Performance>
+    }
+
     public struct State {
         public init(
             eventID: OMERecord.Event.ID,
@@ -161,6 +166,21 @@ public struct ScheduleViewer {
             guard let selectedStageID = resolvedSelectedStageID else { return [] }
             return visiblePerformances(selectedScheduleID: selectedScheduleID)
                 .filter { $0.stageID == selectedStageID }
+        }
+
+        func currentTimeDestination(
+            currentDate: Date?,
+            selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
+            buffer: TimeInterval
+        ) -> CurrentTimeDestination? {
+            ScheduleViewer.currentTimeDestination(
+                currentDate: currentDate,
+                selectedScheduleID: selectedScheduleID,
+                schedules: schedules,
+                performanceRows: performanceRows,
+                stages: visibleStages,
+                buffer: buffer
+            )
         }
 
         func resolvedSelectedScheduleID(
@@ -406,6 +426,56 @@ public struct ScheduleViewer {
             $0.performance.scheduleID == scheduleID
                 && visibleStageIDs.contains($0.performance.stageID)
         }
+    }
+
+    static func currentTimeDestination(
+        currentDate: Date?,
+        selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?,
+        schedules: [OMERecord.Schedule],
+        performanceRows: [PerformanceRow],
+        stages: [OMERecord.Stage],
+        buffer: TimeInterval
+    ) -> CurrentTimeDestination? {
+        guard let currentDate else { return nil }
+
+        let candidates = schedules.compactMap { schedule -> CurrentTimeDestination? in
+            let rows = visiblePerformances(
+                performanceRows: performanceRows,
+                scheduleID: schedule.id.scheduleID,
+                stages: stages
+            )
+            guard
+                let firstStart = rows.map(\.performance.startTime).min(),
+                let lastEnd = rows.map(\.performance.endTime).max()
+            else { return nil }
+
+            let renderedRange = DateInterval(
+                start: firstStart.addingTimeInterval(-buffer),
+                end: lastEnd.addingTimeInterval(buffer)
+            )
+            guard renderedRange.contains(currentDate) else { return nil }
+
+            let row = rows.first {
+                $0.performance.startTime <= currentDate
+                    && currentDate < $0.performance.endTime
+            } ?? rows.first {
+                currentDate < $0.performance.startTime
+            } ?? rows.last
+            guard let row else { return nil }
+
+            return CurrentTimeDestination(
+                scheduleID: schedule.id.scheduleID,
+                performanceID: row.performanceID
+            )
+        }
+
+        if let selectedScheduleID,
+           let selectedDestination = candidates.first(where: {
+               $0.scheduleID == selectedScheduleID
+           }) {
+            return selectedDestination
+        }
+        return candidates.first
     }
 
     static func visibleStages(

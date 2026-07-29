@@ -1,6 +1,24 @@
 import ComposableArchitecture2
+import Dependencies
 import Sharing
 import SwiftUI
+
+struct ScheduleNowScrollRequest: Equatable {
+    let sequence: Int
+    let performanceID: OMERecord.ID<OMERecord.Performance>
+    let animated: Bool
+}
+
+enum ScheduleNowScrollRequestEnvironmentKey: EnvironmentKey {
+    static let defaultValue: ScheduleNowScrollRequest? = nil
+}
+
+extension EnvironmentValues {
+    var scheduleNowScrollRequest: ScheduleNowScrollRequest? {
+        get { self[ScheduleNowScrollRequestEnvironmentKey.self] }
+        set { self[ScheduleNowScrollRequestEnvironmentKey.self] = newValue }
+    }
+}
 
 public struct ScheduleAddMenu: View {
     @Bindable var store: StoreOf<ScheduleViewer>
@@ -114,17 +132,24 @@ public struct ScheduleKindMenu: View {
 }
 
 public struct ScheduleViewerView: View {
+    @Dependency(\.date.now) var now
+    @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
     @Bindable var store: StoreOf<ScheduleViewer>
     @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction?
+    @State var nowScrollRequest: ScheduleNowScrollRequest?
+    @State var nowScrollSequence = 0
     let showsAuthoringControls: Bool
 
     public init(
         store: StoreOf<ScheduleViewer>,
         selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>,
+        pendingScheduleLaunchAction: Binding<EventViewer.ScheduleLaunchAction?>,
         showsAuthoringControls: Bool = true
     ) {
         self.store = store
         self._selectedScheduleID = selectedScheduleID
+        self._pendingScheduleLaunchAction = pendingScheduleLaunchAction
         self.showsAuthoringControls = showsAuthoringControls
     }
 
@@ -134,6 +159,13 @@ public struct ScheduleViewerView: View {
                 store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID)
             )
             .toolbar {
+                if currentTimeDestination != nil {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Now") {
+                            jumpToCurrentTime(animated: true)
+                        }
+                    }
+                }
                 if showsAuthoringControls {
                     ToolbarItem(placement: .primaryAction) {
                         ScheduleAddMenu(
@@ -187,6 +219,10 @@ public struct ScheduleViewerView: View {
                 )
             }
             .environment(\.showStageNameLabels, store.showStageNameLabels)
+            .environment(\.scheduleNowScrollRequest, nowScrollRequest)
+            .onAppear {
+                consumePendingScheduleLaunchAction()
+            }
     }
 
     @ViewBuilder
@@ -223,5 +259,32 @@ public struct ScheduleViewerView: View {
                 }
             }
         }
+    }
+
+    var currentTimeDestination: ScheduleViewer.CurrentTimeDestination? {
+        store.state.currentTimeDestination(
+            currentDate: now,
+            selectedScheduleID: selectedScheduleID,
+            buffer: scheduleTimeBuffer
+        )
+    }
+
+    func consumePendingScheduleLaunchAction() {
+        guard pendingScheduleLaunchAction == .jumpToCurrentTime else { return }
+        pendingScheduleLaunchAction = nil
+        jumpToCurrentTime(animated: false)
+    }
+
+    func jumpToCurrentTime(animated: Bool) {
+        guard let destination = currentTimeDestination else { return }
+        $selectedScheduleID.withLock {
+            $0 = destination.scheduleID
+        }
+        nowScrollSequence += 1
+        nowScrollRequest = ScheduleNowScrollRequest(
+            sequence: nowScrollSequence,
+            performanceID: destination.performanceID,
+            animated: animated
+        )
     }
 }

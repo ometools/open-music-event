@@ -41,6 +41,7 @@ struct TimeIndicatorView: View {
                                     in: scheduleTimeRange
                                 )
                             )
+                            .id(ScheduleScrollTarget.currentTime)
 
                     case .horizontalTime:
                         horizontalTimeIndicator(at: context.date, height: geometry.size.height)
@@ -51,6 +52,7 @@ struct TimeIndicatorView: View {
                                 ),
                                 y: geometry.size.height / 2
                             )
+                            .id(ScheduleScrollTarget.currentTime)
                     }
                 }
             }

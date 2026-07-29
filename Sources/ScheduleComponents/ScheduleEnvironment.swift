@@ -5,6 +5,10 @@ public enum ScheduleTimelineOrientation: Hashable, Sendable {
     case horizontalTime
 }
 
+public enum ScheduleScrollTarget: Hashable, Sendable {
+    case currentTime
+}
+
 private enum ScheduleHeightEnvironmentKey: EnvironmentKey {
     static let defaultValue: CGFloat = 1500
 }
