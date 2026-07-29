@@ -7,6 +7,10 @@ import Crypto
 #endif
 import Dependencies
 import Foundation
+import HTTPClient
+#if canImport(OSLog)
+import OSLog
+#endif
 #if os(Android)
 import SkipSharing
 #else
@@ -17,8 +21,22 @@ import XRPCClient
 
 #if os(Linux)
 private let tangledSSHCredentialsStorage = Shared<TangledStoredSSHCredentials?>(value: nil)
+#elseif os(Android)
+private let tangledSSHCredentialsStorage = Shared<TangledStoredSSHCredentials?>(
+    wrappedValue: nil,
+    .appStorage("fm_woody_openMusicEvent_tangled_ssh_credentials")
+)
 #else
 private let tangledSSHCredentialsStorage = Shared<TangledStoredSSHCredentials?>(
+    wrappedValue: nil,
+    KeychainSharedKey(
+        item: KeychainStorageItem(
+            service: "fm.woody.openMusicEvent",
+            account: "tangled.sshCredentials"
+        )
+    )
+)
+private let tangledSSHCredentialsLegacyStorage = Shared<TangledStoredSSHCredentials?>(
     wrappedValue: nil,
     .appStorage("fm_woody_openMusicEvent_tangled_ssh_credentials")
 )
@@ -26,13 +44,16 @@ private let tangledSSHCredentialsStorage = Shared<TangledStoredSSHCredentials?>(
 
 public struct TangledSSHCredentialsClient: Sendable {
     public var credentials: @Sendable () async throws -> Credentials
+    public var readyCredentials: @Sendable (ATProto.PDSHost) async throws -> Credentials
     public var reset: @Sendable () -> Void
 
     public init(
         credentials: @escaping @Sendable () async throws -> Credentials,
+        readyCredentials: (@Sendable (ATProto.PDSHost) async throws -> Credentials)? = nil,
         reset: @escaping @Sendable () -> Void = {}
     ) {
         self.credentials = credentials
+        self.readyCredentials = readyCredentials ?? { _ in try await credentials() }
         self.reset = reset
     }
 }
@@ -83,40 +104,130 @@ public struct TangledSSHKeyPair: Equatable, Sendable {
 
 public extension TangledSSHCredentialsClient {
     static var live: Self {
+        #if os(Linux) || os(Android)
         live(
             storage: tangledSSHCredentialsStorage,
             generateKeyPair: {
                 try TangledSSHKeyPair.ed25519(comment: "Open Music Event")
             }
         )
+        #else
+        live(
+            storage: tangledSSHCredentialsStorage,
+            legacyStorage: tangledSSHCredentialsLegacyStorage,
+            generateKeyPair: {
+                try TangledSSHKeyPair.ed25519(comment: "Open Music Event")
+            }
+        )
+        #endif
     }
 
     static func live(
         storage: Shared<TangledStoredSSHCredentials?>,
+        legacyStorage: Shared<TangledStoredSSHCredentials?>? = nil,
         generateKeyPair: @escaping @Sendable () throws -> TangledSSHKeyPair
     ) -> Self {
-        Self {
-            if var stored = storage.withLock({ $0 }) {
-                if stored.recordURI == nil {
-                    stored = try await registeredCredentials(stored, storage: storage)
+        let provider = LiveTangledSSHCredentialsProvider(
+            storage: storage,
+            legacyStorage: legacyStorage,
+            generateKeyPair: generateKeyPair
+        )
+        return Self(
+            credentials: {
+                try await provider.credentials()
+            },
+            readyCredentials: { knotHost in
+                try await provider.credentials(readyOn: knotHost)
+            },
+            reset: {
+                storage.withLock { $0 = nil }
+                legacyStorage?.withLock { $0 = nil }
+            }
+        )
+    }
+}
+
+private actor LiveTangledSSHCredentialsProvider {
+    let storage: Shared<TangledStoredSSHCredentials?>
+    let legacyStorage: Shared<TangledStoredSSHCredentials?>?
+    let generateKeyPair: @Sendable () throws -> TangledSSHKeyPair
+
+    init(
+        storage: Shared<TangledStoredSSHCredentials?>,
+        legacyStorage: Shared<TangledStoredSSHCredentials?>?,
+        generateKeyPair: @escaping @Sendable () throws -> TangledSSHKeyPair
+    ) {
+        self.storage = storage
+        self.legacyStorage = legacyStorage
+        self.generateKeyPair = generateKeyPair
+    }
+
+    func credentials(readyOn knotHost: ATProto.PDSHost? = nil) async throws -> Credentials {
+        TangledSSHCredentialsDiagnostics.logPreparationStarted(knotHost: knotHost)
+        do {
+            var stored = try storedCredentials()
+            var knotInventoryAvailable = knotHost != nil
+
+            if let knotHost {
+                let inventory = try await knotKeyInventory(
+                    for: stored,
+                    knotHost: knotHost,
+                    attempt: 1
+                )
+                knotInventoryAvailable = inventory != nil
+                if inventory?.containsStoredKey == true {
+                    TangledSSHCredentialsDiagnostics.logPreparationDone(
+                        knotHost: knotHost,
+                        source: "existing knot key"
+                    )
+                    return stored.sourceControlCredentials
                 }
-                return stored.sourceControlCredentials
             }
 
-            let keyPair = try generateKeyPair()
-            let createdAt = iso8601String(now())
-            var stored = TangledStoredSSHCredentials(
-                publicKey: keyPair.publicKey,
-                privateKey: keyPair.privateKey,
-                name: "Open Music Event",
-                createdAt: createdAt
+            if knotHost != nil || stored.recordURI == nil {
+                stored = try await registeredCredentials(stored, storage: storage)
+            } else {
+                TangledSSHCredentialsDiagnostics.logPDSLookupSkipped()
+            }
+
+            if let knotHost, knotInventoryAvailable {
+                try await waitForKnotKey(stored, knotHost: knotHost)
+            }
+
+            TangledSSHCredentialsDiagnostics.logPreparationDone(
+                knotHost: knotHost,
+                source: stored.recordURI == nil ? "local key" : "registered key"
             )
-            storage.withLock { $0 = stored }
-            stored = try await registeredCredentials(stored, storage: storage)
             return stored.sourceControlCredentials
-        } reset: {
-            storage.withLock { $0 = nil }
+        } catch {
+            TangledSSHCredentialsDiagnostics.logPreparationFailed(error, knotHost: knotHost)
+            throw error
         }
+    }
+
+    private func storedCredentials() throws -> TangledStoredSSHCredentials {
+        if let stored = storage.withLock({ $0 }) {
+            TangledSSHCredentialsDiagnostics.logLocalKeyFound()
+            return stored
+        }
+        if let stored = legacyStorage?.withLock({ $0 }) {
+            storage.withLock { $0 = stored }
+            legacyStorage?.withLock { $0 = nil }
+            TangledSSHCredentialsDiagnostics.logLegacyKeyMigrationDone()
+            return stored
+        }
+
+        TangledSSHCredentialsDiagnostics.logLocalKeyGenerationStarted()
+        let keyPair = try generateKeyPair()
+        let stored = TangledStoredSSHCredentials(
+            publicKey: keyPair.publicKey,
+            privateKey: keyPair.privateKey,
+            name: "Open Music Event",
+            createdAt: iso8601String(now())
+        )
+        storage.withLock { $0 = stored }
+        TangledSSHCredentialsDiagnostics.logLocalKeyGenerationDone()
+        return stored
     }
 }
 
@@ -141,6 +252,7 @@ private enum TangledSSHCredentialsClientKey: DependencyKey {
 
 public enum TangledSSHCredentialsError: Equatable, Error, Sendable {
     case invalidEd25519KeyLength
+    case knotKeyNotReady(String)
     case notConfigured
 }
 
@@ -205,14 +317,18 @@ private func registeredCredentials(
     _ stored: TangledStoredSSHCredentials,
     storage: Shared<TangledStoredSSHCredentials?>
 ) async throws -> TangledStoredSSHCredentials {
+    TangledSSHCredentialsDiagnostics.logPDSLookupStarted()
     if let registered = try await existingCredentialsRecord(stored) {
         storage.withLock { $0 = registered }
+        TangledSSHCredentialsDiagnostics.logPDSLookupDone(found: true)
         return registered
     }
+    TangledSSHCredentialsDiagnostics.logPDSLookupDone(found: false)
 
     var stored = stored
     @Dependency(\.getDefaultSession) var getDefaultSession
     @Dependency(XRPC.Client.self) var xrpcClient
+    TangledSSHCredentialsDiagnostics.logPDSRegistrationStarted()
     let output = try await xrpcClient.run(
         TangledCreateRecordRequest(
             input: TangledCreateRecordInput(
@@ -230,6 +346,7 @@ private func registeredCredentials(
     stored.recordURI = output.uri.description
     stored.recordCID = output.cid.description
     storage.withLock { $0 = stored }
+    TangledSSHCredentialsDiagnostics.logPDSRegistrationDone()
     return stored
 }
 
@@ -259,6 +376,254 @@ private func existingCredentialsRecord(
     } while cursor != nil
 
     return nil
+}
+
+private struct TangledKnotKeyInventory: Equatable, Sendable {
+    var accountKeyCount: Int
+    var containsStoredKey: Bool
+}
+
+private func knotKeyInventory(
+    for stored: TangledStoredSSHCredentials,
+    knotHost: ATProto.PDSHost,
+    attempt: Int
+) async throws -> TangledKnotKeyInventory? {
+    @Dependency(\.getDefaultSession) var getDefaultSession
+    @Dependency(XRPC.Client.self) var xrpcClient
+    let accountDID = getDefaultSession().accountID.rawValue.description
+    var accountKeyCount = 0
+    var containsStoredKey = false
+    var cursor: String?
+
+    TangledSSHCredentialsDiagnostics.logKnotLookupStarted(
+        knotHost: knotHost,
+        attempt: attempt
+    )
+    repeat {
+        let output: TangledKnotListKeysOutput
+        do {
+            output = try await xrpcClient.run(
+                TangledKnotListKeysRequest(knotHost: knotHost, cursor: cursor)
+            )
+        } catch let HTTPError.httpError(status, _, _) where status.code == 404 {
+            TangledSSHCredentialsDiagnostics.logKnotLookupUnavailable(
+                knotHost: knotHost,
+                attempt: attempt
+            )
+            return nil
+        }
+        for key in output.keys where key.did == accountDID {
+            accountKeyCount += 1
+            containsStoredKey = containsStoredKey || key.key == stored.publicKey
+        }
+        cursor = output.cursor
+    } while cursor != nil
+
+    let inventory = TangledKnotKeyInventory(
+        accountKeyCount: accountKeyCount,
+        containsStoredKey: containsStoredKey
+    )
+    TangledSSHCredentialsDiagnostics.logKnotLookupDone(
+        inventory,
+        knotHost: knotHost,
+        attempt: attempt
+    )
+    return inventory
+}
+
+private func waitForKnotKey(
+    _ stored: TangledStoredSSHCredentials,
+    knotHost: ATProto.PDSHost
+) async throws {
+    @Dependency(\.continuousClock) var clock
+    let maximumAttempts = 8
+    TangledSSHCredentialsDiagnostics.logReadinessStarted(
+        knotHost: knotHost,
+        maximumAttempts: maximumAttempts
+    )
+
+    for attempt in 1...maximumAttempts {
+        let inventory = try await knotKeyInventory(
+            for: stored,
+            knotHost: knotHost,
+            attempt: attempt
+        )
+        guard let inventory else {
+            TangledSSHCredentialsDiagnostics.logReadinessUnavailable(knotHost: knotHost)
+            return
+        }
+        if inventory.containsStoredKey {
+            TangledSSHCredentialsDiagnostics.logReadinessDone(
+                knotHost: knotHost,
+                attempt: attempt
+            )
+            return
+        }
+        if attempt < maximumAttempts {
+            try await clock.sleep(for: .seconds(1))
+        }
+    }
+
+    let error = TangledSSHCredentialsError.knotKeyNotReady(knotHost.rawValue)
+    TangledSSHCredentialsDiagnostics.logReadinessFailed(error, knotHost: knotHost)
+    throw error
+}
+
+private enum TangledSSHCredentialsDiagnostics {
+    #if canImport(OSLog)
+    private static let logger = Logger(
+        subsystem: "fm.woody.openmusicevent",
+        category: "TangledSSHCredentials"
+    )
+    #endif
+
+    static func logPreparationStarted(knotHost: ATProto.PDSHost?) {
+        notice("""
+        Tangled SSH credential preparation started
+        knot: \(knotHost?.rawValue ?? "none")
+        """)
+    }
+
+    static func logPreparationDone(knotHost: ATProto.PDSHost?, source: String) {
+        notice("""
+        Tangled SSH credential preparation done
+        knot: \(knotHost?.rawValue ?? "none")
+        source: \(source)
+        """)
+    }
+
+    static func logPreparationFailed(_ error: Error, knotHost: ATProto.PDSHost?) {
+        failure("""
+        Tangled SSH credential preparation failed
+        knot: \(knotHost?.rawValue ?? "none")
+        error: \(String(describing: error))
+        """)
+    }
+
+    static func logLocalKeyFound() {
+        notice("Tangled local SSH key lookup done\nfound: true")
+    }
+
+    static func logLocalKeyGenerationStarted() {
+        notice("Tangled local SSH key generation started")
+    }
+
+    static func logLocalKeyGenerationDone() {
+        notice("Tangled local SSH key generation done")
+    }
+
+    static func logLegacyKeyMigrationDone() {
+        notice("Tangled local SSH key migration done\nsource: app storage\ndestination: keychain")
+    }
+
+    static func logPDSLookupStarted() {
+        notice("Tangled PDS public-key lookup started")
+    }
+
+    static func logPDSLookupDone(found: Bool) {
+        notice("""
+        Tangled PDS public-key lookup done
+        matching local key: \(found)
+        """)
+    }
+
+    static func logPDSLookupSkipped() {
+        notice("""
+        Tangled PDS public-key lookup done
+        matching local key: true
+        source: stored record
+        """)
+    }
+
+    static func logPDSRegistrationStarted() {
+        notice("Tangled PDS public-key registration started")
+    }
+
+    static func logPDSRegistrationDone() {
+        notice("Tangled PDS public-key registration done")
+    }
+
+    static func logKnotLookupStarted(knotHost: ATProto.PDSHost, attempt: Int) {
+        notice("""
+        Tangled knot public-key lookup started
+        knot: \(knotHost.rawValue)
+        attempt: \(attempt)
+        """)
+    }
+
+    static func logKnotLookupDone(
+        _ inventory: TangledKnotKeyInventory,
+        knotHost: ATProto.PDSHost,
+        attempt: Int
+    ) {
+        notice("""
+        Tangled knot public-key lookup done
+        knot: \(knotHost.rawValue)
+        attempt: \(attempt)
+        account keys: \(inventory.accountKeyCount)
+        matching local key: \(inventory.containsStoredKey)
+        """)
+    }
+
+    static func logKnotLookupUnavailable(knotHost: ATProto.PDSHost, attempt: Int) {
+        notice("""
+        Tangled knot public-key lookup done
+        knot: \(knotHost.rawValue)
+        attempt: \(attempt)
+        status: unavailable (endpoint not supported)
+        """)
+    }
+
+    static func logReadinessStarted(
+        knotHost: ATProto.PDSHost,
+        maximumAttempts: Int
+    ) {
+        notice("""
+        Tangled SSH key readiness started
+        knot: \(knotHost.rawValue)
+        maximum attempts: \(maximumAttempts)
+        """)
+    }
+
+    static func logReadinessDone(knotHost: ATProto.PDSHost, attempt: Int) {
+        notice("""
+        Tangled SSH key readiness done
+        knot: \(knotHost.rawValue)
+        attempt: \(attempt)
+        """)
+    }
+
+    static func logReadinessUnavailable(knotHost: ATProto.PDSHost) {
+        notice("""
+        Tangled SSH key readiness unavailable
+        knot: \(knotHost.rawValue)
+        reason: knot does not expose key inventory
+        """)
+    }
+
+    static func logReadinessFailed(_ error: Error, knotHost: ATProto.PDSHost) {
+        failure("""
+        Tangled SSH key readiness failed
+        knot: \(knotHost.rawValue)
+        error: \(String(describing: error))
+        """)
+    }
+
+    private static func notice(_ message: String) {
+        #if canImport(OSLog)
+        logger.notice("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
+
+    private static func failure(_ message: String) {
+        #if canImport(OSLog)
+        logger.error("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
 }
 
 private func now() -> Date {

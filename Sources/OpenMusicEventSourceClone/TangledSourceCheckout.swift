@@ -64,13 +64,42 @@ public extension TangledSourceCheckoutClient {
 
     static var git: Self {
         Self { request in
+            TangledSourceCheckoutDiagnostics.logCheckoutStarted(request)
             @Dependency(\.tangledSSHCredentials) var tangledSSHCredentials
-            return try await git(credentials: tangledSSHCredentials.credentials())
+            do {
+                if Self.isGitRepository(request.outputURL) {
+                    let credentials = try await tangledSSHCredentials.credentials()
+                    let checkout = try await git(credentials: credentials).checkout(request)
+                    TangledSourceCheckoutDiagnostics.logCheckoutDone(checkout)
+                    return checkout
+                }
+
+                TangledSourceCheckoutDiagnostics.logTargetResolutionStarted(request.repository)
+                let target = try await request.repository.resolvedTangledRepositoryTarget()
+                TangledSourceCheckoutDiagnostics.logTargetResolutionDone(target)
+                let credentials = try await tangledSSHCredentials.readyCredentials(target.knotHost)
+                let checkout = try await git(
+                    credentials: credentials,
+                    resolvedTarget: target
+                )
                 .checkout(request)
+                TangledSourceCheckoutDiagnostics.logCheckoutDone(checkout)
+                return checkout
+            } catch {
+                TangledSourceCheckoutDiagnostics.logCheckoutFailure(error, request: request)
+                throw error
+            }
         }
     }
 
     static func git(credentials: Credentials?) -> Self {
+        git(credentials: credentials, resolvedTarget: nil)
+    }
+
+    private static func git(
+        credentials: Credentials?,
+        resolvedTarget: TangledRepositoryTarget?
+    ) -> Self {
         Self { request in
             @Dependency(\.sourceControl) var sourceControl
 
@@ -92,7 +121,12 @@ public extension TangledSourceCheckoutClient {
             }
 
             try TangledSourceArchiveExtractor.validateOutputDoesNotExist(request.outputURL)
-            let target = try await request.repository.resolvedTangledRepositoryTarget()
+            let target: TangledRepositoryTarget
+            if let resolvedTarget {
+                target = resolvedTarget
+            } else {
+                target = try await request.repository.resolvedTangledRepositoryTarget()
+            }
             let cloneRequest = request.repository.sourceControlCloneRequest(
                 repoDID: target.repositoryDID.description,
                 destinationURL: request.outputURL,
@@ -101,8 +135,16 @@ public extension TangledSourceCheckoutClient {
                 credentials: credentials
             )
             do {
+                TangledSourceCheckoutDiagnostics.logCloneStarted(
+                    remote: cloneRequest.remote.url,
+                    attempt: 1
+                )
                 _ = try await sourceControl.clone(cloneRequest)
-            } catch where error.isSSHSessionStartFailure {
+                TangledSourceCheckoutDiagnostics.logCloneDone(
+                    remote: cloneRequest.remote.url,
+                    attempt: 1
+                )
+            } catch where error.isTransientSSHSessionFailure {
                 TangledSourceCheckoutDiagnostics.logCloneFailure(
                     error,
                     remote: cloneRequest.remote.url,
@@ -123,7 +165,15 @@ public extension TangledSourceCheckoutClient {
                     throw error
                 }
                 do {
+                    TangledSourceCheckoutDiagnostics.logCloneStarted(
+                        remote: cloneRequest.remote.url,
+                        attempt: 2
+                    )
                     _ = try await sourceControl.clone(cloneRequest)
+                    TangledSourceCheckoutDiagnostics.logCloneDone(
+                        remote: cloneRequest.remote.url,
+                        attempt: 2
+                    )
                 } catch {
                     TangledSourceCheckoutDiagnostics.logCloneFailure(
                         error,
@@ -341,12 +391,16 @@ private struct TangledRepositoryOwnerResolution: Sendable {
 }
 
 private extension Error {
-    var isSSHSessionStartFailure: Bool {
+    var isTransientSSHSessionFailure: Bool {
         guard let sourceControlError = self as? SourceControlError,
               case let .operationFailed(message) = sourceControlError else {
             return false
         }
         return message.localizedCaseInsensitiveContains("failed to start ssh session")
+            || (
+                message.localizedCaseInsensitiveContains("failed to authenticate ssh session")
+                    && message.localizedCaseInsensitiveContains("timed out waiting on socket")
+            )
     }
 }
 
@@ -357,6 +411,64 @@ private enum TangledSourceCheckoutDiagnostics {
         category: "TangledSourceCheckout"
     )
     #endif
+
+    static func logCheckoutStarted(_ request: TangledSourceCheckoutRequest) {
+        notice("""
+        Tangled source checkout started
+        repository: \(request.repository.normalizedReference)
+        ref: \(request.ref)
+        """)
+    }
+
+    static func logCheckoutDone(_ checkout: TangledSourceCheckout) {
+        notice("""
+        Tangled source checkout done
+        repository: \(checkout.repositoryURL.path(percentEncoded: false))
+        """)
+    }
+
+    static func logCheckoutFailure(
+        _ error: Error,
+        request: TangledSourceCheckoutRequest
+    ) {
+        failure("""
+        Tangled source checkout failed
+        repository: \(request.repository.normalizedReference)
+        ref: \(request.ref)
+        error: \(String(describing: error))
+        """)
+    }
+
+    static func logTargetResolutionStarted(_ repository: TangledRepositoryReference) {
+        notice("""
+        Tangled repository target resolution started
+        repository: \(repository.normalizedReference)
+        """)
+    }
+
+    static func logTargetResolutionDone(_ target: TangledRepositoryTarget) {
+        notice("""
+        Tangled repository target resolution done
+        repository DID: \(target.repositoryDID.description)
+        knot: \(target.knotHost.rawValue)
+        """)
+    }
+
+    static func logCloneStarted(remote: RemoteURL, attempt: Int) {
+        notice("""
+        Tangled source checkout clone started
+        remote: \(remote.rawValue)
+        attempt: \(attempt)
+        """)
+    }
+
+    static func logCloneDone(remote: RemoteURL, attempt: Int) {
+        notice("""
+        Tangled source checkout clone done
+        remote: \(remote.rawValue)
+        attempt: \(attempt)
+        """)
+    }
 
     static func logCloneFailure(
         _ error: Error,
@@ -371,11 +483,7 @@ private enum TangledSourceCheckoutDiagnostics {
         retrying: \(willRetry)
         error: \(String(describing: error))
         """
-        #if canImport(OSLog)
-        logger.error("\(message, privacy: .public)")
-        #else
-        print(message)
-        #endif
+        failure(message)
     }
 
     static func logRetryCleanupFailure(_ error: Error, outputURL: URL) {
@@ -384,6 +492,18 @@ private enum TangledSourceCheckoutDiagnostics {
         destination: \(outputURL.path(percentEncoded: false))
         error: \(String(describing: error))
         """
+        failure(message)
+    }
+
+    private static func notice(_ message: String) {
+        #if canImport(OSLog)
+        logger.notice("\(message, privacy: .public)")
+        #else
+        print(message)
+        #endif
+    }
+
+    private static func failure(_ message: String) {
         #if canImport(OSLog)
         logger.error("\(message, privacy: .public)")
         #else

@@ -381,7 +381,7 @@ private enum AuthoringEntryDiagnostics {
         if isError {
             logger.error("\(message, privacy: .public)")
         } else {
-            logger.log("\(message, privacy: .public)")
+            logger.notice("\(message, privacy: .public)")
         }
         #else
         print(message)

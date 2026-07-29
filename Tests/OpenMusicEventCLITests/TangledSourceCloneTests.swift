@@ -205,8 +205,13 @@ struct TangledSourceCloneTests {
         #expect(request.checkout == nil)
     }
 
-    @Test
-    func gitCheckoutRetriesAFailedSSHSessionAfterRemovingPartialClone() async throws {
+    @Test(arguments: [
+        "failed to start SSH session",
+        "failed to authenticate SSH session: Timed out waiting on socket",
+    ])
+    func gitCheckoutRetriesATransientSSHFailureAfterRemovingPartialClone(
+        failureMessage: String
+    ) async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let ownerHandle = Atmosphere.Account.Handle("woody.fm")
         let outputURL = FileManager.default.temporaryDirectory
@@ -289,9 +294,7 @@ struct TangledSourceCloneTests {
                             at: request.destinationURL,
                             withIntermediateDirectories: true
                         )
-                        throw SourceControlError.operationFailed(
-                            "failed to start SSH session"
-                        )
+                        throw SourceControlError.operationFailed(failureMessage)
                     }
                     #expect(
                         !FileManager.default.fileExists(

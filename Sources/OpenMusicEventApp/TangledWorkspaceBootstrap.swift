@@ -275,7 +275,7 @@ public extension TangledWorkspaceBootstrapClient {
                 )
             )
 
-            let credentials = try await tangledSSHCredentials.credentials()
+            let credentials = try await tangledSSHCredentials.readyCredentials(knotHost)
             let checkoutURL = SourceRepositoryStorageClient
                 .temporaryDownloadURL(uuid: uuid())
             do {

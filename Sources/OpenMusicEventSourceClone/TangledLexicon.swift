@@ -39,6 +39,61 @@ public struct TangledPublicKeyRecord: Encodable, Decodable, Equatable, Sendable 
     }
 }
 
+public struct TangledKnotPublicKey: Decodable, Equatable, Sendable {
+    public var did: String
+    public var key: String
+    public var createdAt: String
+
+    public init(did: String, key: String, createdAt: String) {
+        self.did = did
+        self.key = key
+        self.createdAt = createdAt
+    }
+}
+
+public struct TangledKnotListKeysOutput: Decodable, Equatable, Sendable {
+    public var cursor: String?
+    public var keys: [TangledKnotPublicKey]
+
+    public init(cursor: String? = nil, keys: [TangledKnotPublicKey]) {
+        self.cursor = cursor
+        self.keys = keys
+    }
+}
+
+public struct TangledKnotListKeysRequest: XRPC.Request, Sendable {
+    public static var nsid: ATProto.NSID { ATProto.NSID("sh.tangled.knot.listKeys") }
+    public static var type: XRPC.RequestType { .query }
+
+    public typealias Input = Never
+    public typealias Output = TangledKnotListKeysOutput
+    public typealias Parameters = Never
+
+    public var cursor: String?
+    public var knotHost: ATProto.PDSHost
+    public var authorizationPolicy: XRPC.AuthorizationPolicy { .none }
+
+    public init(knotHost: ATProto.PDSHost, cursor: String? = nil) {
+        self.knotHost = knotHost
+        self.cursor = cursor
+    }
+
+    public var routing: XRPC.Routing {
+        XRPC.Routing(
+            unauthenticated: .host(knotHost),
+            authenticated: .host(knotHost)
+        )
+    }
+
+    public var queryItems: [URLQueryItem] {
+        var items = [URLQueryItem(name: "limit", value: "1000")]
+        if let cursor {
+            items.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        return items
+    }
+}
+
 public struct TangledRepositoryTarget: Equatable, Sendable {
     public var recordURI: ATProto.URI
     public var repositoryDID: DID

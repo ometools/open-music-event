@@ -262,7 +262,7 @@ private extension TangledSourcePatchPublisher {
                 "repository: \(repository.host)/\(targetRepository.repositoryDID.description)",
             ]
         ) {
-            try await tangledSSHCredentials.credentials()
+            try await tangledSSHCredentials.readyCredentials(targetRepository.knotHost)
         }
         let checkoutURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid())
         let ref = preparedPatch.request.location.remote?.ref ?? "HEAD"
@@ -415,7 +415,7 @@ private extension TangledSourcePatchPublisher {
                     "repository: \(repositoryReference.host)/\(targetRepository.repositoryDID.description)",
                 ]
             ) {
-                try await tangledSSHCredentials.credentials()
+                try await tangledSSHCredentials.readyCredentials(targetRepository.knotHost)
             }
         }
         let pushRequest = PushRequest(
