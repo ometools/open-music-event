@@ -534,6 +534,7 @@ targets.append(contentsOf: [
     .target(
         name: "OpenMusicEventImages",
         dependencies: [
+            "OpenMusicEventComponents",
             "OpenMusicEventDatabase",
             "OpenMusicEventLexicon",
             .product(name: "Dependencies", package: "swift-dependencies"),

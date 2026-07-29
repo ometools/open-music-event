@@ -1,4 +1,5 @@
 import ATProto
+import OpenMusicEventComponents
 import SwiftUI
 
 public enum WorkspaceActorIdentity: Equatable, Sendable {
@@ -172,15 +173,16 @@ struct WorkspaceActorAvatar: View {
     let size: CGFloat
 
     var body: some View {
-        AsyncImage(url: identity?.avatar) { phase in
+        CachedRemoteImage(
+            url: identity?.avatar,
+            targetSize: CGSize(width: size, height: size)
+        ) { phase in
             switch phase {
             case let .success(image):
                 image
                     .resizable()
                     .scaledToFill()
-            case .empty, .failure:
-                placeholder
-            @unknown default:
+            case .empty, .failure, .unavailable:
                 placeholder
             }
         }

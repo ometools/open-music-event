@@ -3487,15 +3487,26 @@ struct SourceDatabaseInsertionTests {
         }
 
         let fileWrites = Mutex(0)
-        let recordingFileStore = LocalImageFileStoreClient { assetKey, data, _ in
-            fileWrites.withLock { $0 += 1 }
-            let fileURL = testLocalImageFileURL(
-                directory: cacheDirectoryURL,
-                assetKey: assetKey
-            )
-            try data.write(to: fileURL, options: .atomic)
-            return fileURL
-        }
+        let recordingFileStore = LocalImageFileStoreClient(
+            existingFileURL: { assetKey, _ in
+                let fileURL = testLocalImageFileURL(
+                    directory: cacheDirectoryURL,
+                    assetKey: assetKey
+                )
+                return FileManager.default.fileExists(atPath: fileURL.path)
+                    ? fileURL
+                    : nil
+            },
+            write: { assetKey, data, _ in
+                fileWrites.withLock { $0 += 1 }
+                let fileURL = testLocalImageFileURL(
+                    directory: cacheDirectoryURL,
+                    assetKey: assetKey
+                )
+                try data.write(to: fileURL, options: .atomic)
+                return fileURL
+            }
+        )
 
         // Repeated view mounts resolve the same image without copying its bytes again.
         let resolvedLogos = try await withDependencies {
@@ -4226,11 +4237,22 @@ private enum TestImageCacheError: Error {
 private let testImageCacheDate = Date(timeIntervalSince1970: 1_700_000_000)
 
 private func testLocalImageFileStore(directory: URL) -> LocalImageFileStoreClient {
-    LocalImageFileStoreClient { assetKey, data, _ in
-        let fileURL = testLocalImageFileURL(directory: directory, assetKey: assetKey)
-        try data.write(to: fileURL, options: .atomic)
-        return fileURL
-    }
+    LocalImageFileStoreClient(
+        existingFileURL: { assetKey, _ in
+            let fileURL = testLocalImageFileURL(
+                directory: directory,
+                assetKey: assetKey
+            )
+            return FileManager.default.fileExists(atPath: fileURL.path)
+                ? fileURL
+                : nil
+        },
+        write: { assetKey, data, _ in
+            let fileURL = testLocalImageFileURL(directory: directory, assetKey: assetKey)
+            try data.write(to: fileURL, options: .atomic)
+            return fileURL
+        }
+    )
 }
 
 private func testLocalImageFileURL(directory: URL, assetKey: String) -> URL {

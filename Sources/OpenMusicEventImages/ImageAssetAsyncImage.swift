@@ -1,4 +1,5 @@
 import Dependencies
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SwiftUI
@@ -15,12 +16,10 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     var contentMode: ContentMode?
     var focusSafeAreaInsets: EdgeInsets
     @ViewBuilder var placeholder: (ImageAssetPlaceholderReason) -> Placeholder
-    @Dependency(\.lazyImageCache) var lazyImageCache
-    @Dependency(\.localImageDisplayCache) var localImageDisplayCache
-    @State var cachedAsset: OME.ImageAsset?
-    @State var cachedTaskID: String?
+    @Dependency(\.imageAssetResolver) var imageAssetResolver
+    @State var resolvedAsset: OME.ImageAsset?
+    @State var resolvedTaskID: String?
     @State var failedTaskID: String?
-    @State var cacheMissTaskID: String?
 
     public init(
         asset: OME.ImageAsset?,
@@ -77,18 +76,19 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     }
 
     public var body: some View {
-        if shouldShowCachePlaceholder {
+        if shouldResolveAsset {
             placeholder(.loading)
-                .task(id: cacheTaskID) {
-                    await cacheLazyImageIfNeeded()
+                .task(id: resolutionTaskID) {
+                    await resolveAsset()
                 }
-        } else if shouldResolveDisplayCache {
-            placeholder(.loading)
-                .task(id: cacheTaskID) {
-                    await resolveCachedImageIfAvailable()
-                }
-        } else if let url = displayAsset?.url {
-            AsyncImage(url: url) { phase in
+        } else if failedTaskID == resolutionTaskID {
+            placeholder(.failure)
+        } else if let displayAsset,
+                  let url = displayAsset.url {
+            CachedRemoteImage(
+                url: url,
+                cacheKey: renderingCacheKey
+            ) { phase in
                 switch phase {
                 case .empty:
                     placeholder(.loading)
@@ -96,7 +96,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
                     renderedImage(image, asset: displayAsset)
                 case .failure:
                     placeholder(.failure)
-                @unknown default:
+                case .unavailable:
                     placeholder(.unavailable)
                 }
             }
@@ -105,24 +105,18 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         }
     }
 
-    private var displayAsset: OME.ImageAsset? {
-        if cachedTaskID == cacheTaskID {
-            return cachedAsset ?? asset
+    var displayAsset: OME.ImageAsset? {
+        if resolvedTaskID == resolutionTaskID {
+            return resolvedAsset
         }
-
-        if shouldResolveDisplayCache {
-            return nil
-        }
-
         return asset
     }
 
-    private var shouldShowCachePlaceholder: Bool {
+    var shouldResolveAsset: Bool {
         guard let asset,
               cacheContext != nil,
-              asset.materializationPolicy == .lazy,
-              cachedTaskID != cacheTaskID,
-              failedTaskID != cacheTaskID else {
+              resolvedTaskID != resolutionTaskID,
+              failedTaskID != resolutionTaskID else {
             return false
         }
 
@@ -135,33 +129,16 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         return true
     }
 
-    private var shouldResolveDisplayCache: Bool {
-        guard let asset,
-              cacheContext != nil,
-              asset.materializationPolicy == .prefetchOnOpen,
-              cachedTaskID != cacheTaskID,
-              failedTaskID != cacheTaskID,
-              cacheMissTaskID != cacheTaskID else {
-            return false
-        }
-
-        if let url = asset.url,
-           url.isFileURL,
-           FileManager.default.fileExists(atPath: url.path) {
-            return false
-        }
-
-        return true
-    }
-
-    private var cacheTaskID: String {
-        let assetID = asset?.assetKey ?? asset?.url?.absoluteString ?? "nil"
+    var resolutionTaskID: String {
         let organizerID = cacheContext?.organizerID.description ?? "nil"
         let eventID = cacheContext?.eventID?.rawValue.rawValue ?? "nil"
         let parentKind = cacheContext?.parentKind.rawValue ?? "nil"
         let parentLocalID = cacheContext?.parentLocalID ?? "nil"
         return [
-            assetID,
+            asset?.assetKey ?? "nil",
+            asset?.url?.absoluteString ?? "nil",
+            asset?.role.rawValue ?? "nil",
+            asset?.renderKind.rawValue ?? "nil",
             organizerID,
             eventID,
             parentKind,
@@ -169,7 +146,14 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         ].joined(separator: "|")
     }
 
-    private var resolvedContentMode: ContentMode {
+    var renderingCacheKey: String {
+        [
+            resolutionTaskID,
+            displayAsset?.url?.absoluteString ?? "nil",
+        ].joined(separator: "|")
+    }
+
+    var resolvedContentMode: ContentMode {
         if let contentMode {
             return contentMode
         }
@@ -177,7 +161,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     }
 
     @ViewBuilder
-    private func renderedImage(
+    func renderedImage(
         _ image: Image,
         asset: OME.ImageAsset?
     ) -> some View {
@@ -199,41 +183,23 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         }
     }
 
-    private func cacheLazyImageIfNeeded() async {
+    func resolveAsset() async {
         guard let asset,
               let cacheContext,
-              shouldShowCachePlaceholder else {
+              shouldResolveAsset else {
             return
         }
 
         do {
-            let cachedAsset = try await lazyImageCache.cache(asset, cacheContext)
-            self.cachedAsset = cachedAsset
-            self.cachedTaskID = cacheTaskID
+            let taskID = resolutionTaskID
+            let resolvedAsset = try await imageAssetResolver.resolve(asset, cacheContext)
+            guard !Task.isCancelled else { return }
+            self.resolvedAsset = resolvedAsset
+            self.resolvedTaskID = taskID
             self.failedTaskID = nil
         } catch {
-            self.failedTaskID = cacheTaskID
-        }
-    }
-
-    private func resolveCachedImageIfAvailable() async {
-        guard let asset,
-              let cacheContext,
-              shouldResolveDisplayCache else {
-            return
-        }
-
-        do {
-            if let cachedAsset = try await localImageDisplayCache.resolve(asset, cacheContext) {
-                self.cachedAsset = cachedAsset
-                self.cachedTaskID = cacheTaskID
-                self.failedTaskID = nil
-                self.cacheMissTaskID = nil
-            } else {
-                self.cacheMissTaskID = cacheTaskID
-            }
-        } catch {
-            self.failedTaskID = cacheTaskID
+            guard !Task.isCancelled else { return }
+            self.failedTaskID = resolutionTaskID
         }
     }
 }

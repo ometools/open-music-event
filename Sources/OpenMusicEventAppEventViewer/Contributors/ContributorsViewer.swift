@@ -1469,17 +1469,17 @@ struct ContributorActorAvatar: View {
     let identity: ActorIdentity
 
     var body: some View {
-        AsyncImage(url: identity.avatar) { phase in
+        CachedRemoteImage(
+            url: identity.avatar,
+            targetSize: CGSize(width: 44, height: 44)
+        ) { phase in
             switch phase {
             case let .success(image):
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
 
-            case .empty, .failure:
-                ContributorActorAvatarPlaceholder(identity: identity)
-
-            @unknown default:
+            case .empty, .failure, .unavailable:
                 ContributorActorAvatarPlaceholder(identity: identity)
             }
         }

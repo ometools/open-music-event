@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUI
@@ -487,13 +488,18 @@ public struct CommsPostDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let headerImageURL = store.post.headerImageURL {
-                    AsyncImage(url: headerImageURL) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    } placeholder: {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
+                    CachedRemoteImage(url: headerImageURL) { phase in
+                        switch phase {
+                        case let .success(image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                        case .empty:
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                        case .failure, .unavailable:
+                            Color.clear
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .frame(maxHeight: 300)
