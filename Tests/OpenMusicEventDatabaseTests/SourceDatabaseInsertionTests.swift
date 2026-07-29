@@ -10,6 +10,7 @@ import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SQLiteData
 import SourceEditing
+import Synchronization
 import Testing
 
 @Suite(.serialized)
@@ -3444,6 +3445,203 @@ struct SourceDatabaseInsertionTests {
         #expect(FileManager.default.fileExists(atPath: cachedLogoURL.path))
         expectNoDifference(try Data(contentsOf: cachedLogoURL), remoteData)
         expectNoDifference(stageAfterDisplayCache, insertedStage)
+    }
+
+    @Test
+    func `display cache reuses the existing materialized file without rewriting it`() async throws {
+        let remoteLogoURL = try #require(URL(string: "https://example.com/meadow-logo.png"))
+        let source = try makeSourceRepository(
+            stageImages: [
+                SourceImageAsset(
+                    source: .url(remoteLogoURL),
+                    role: .logo,
+                    renderKind: .transparent,
+                    materializationPolicy: .prefetchOnOpen
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let openedEventID = eventID("testival-2026", organizerID: organizerID)
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let insertedStage = try #require(await database.read { db in
+            try OME.Stage.fetchOne(db)
+        })
+        let originalLogo = try #require(insertedStage.images?.first)
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let remoteData = Data("remote-stage-logo".utf8)
+
+        // Opening the event materializes the logo once for later display.
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.eventImagePrefetch = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, _, _ in remoteData }
+        } operation: {
+            @Dependency(\.eventImagePrefetch) var eventImagePrefetch
+            try await eventImagePrefetch.prefetchAssetsOnOpen(openedEventID)
+        }
+
+        let fileWrites = Mutex(0)
+        let recordingFileStore = LocalImageFileStoreClient { assetKey, data, _ in
+            fileWrites.withLock { $0 += 1 }
+            let fileURL = testLocalImageFileURL(
+                directory: cacheDirectoryURL,
+                assetKey: assetKey
+            )
+            try data.write(to: fileURL, options: .atomic)
+            return fileURL
+        }
+
+        // Repeated view mounts resolve the same image without copying its bytes again.
+        let resolvedLogos = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.localImageDisplayCache = .live
+            $0.localImageFileStore = recordingFileStore
+        } operation: {
+            @Dependency(\.localImageDisplayCache) var localImageDisplayCache
+            let context = LocalImageCacheContext(stageID: insertedStage.id)
+            return try await (
+                localImageDisplayCache.resolve(originalLogo, context),
+                localImageDisplayCache.resolve(originalLogo, context)
+            )
+        }
+
+        let firstURL = try #require(resolvedLogos.0?.url)
+        let secondURL = try #require(resolvedLogos.1?.url)
+        #expect(firstURL == secondURL)
+        #expect(fileWrites.withLock { $0 } == 0)
+        expectNoDifference(try Data(contentsOf: firstURL), remoteData)
+    }
+
+    @Test
+    func `concurrent lazy requests share one download`() async throws {
+        let contributorPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let source = try makeSourceRepository(
+            contributorImages: [
+                SourceImageAsset(
+                    source: .url(contributorPhotoURL),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let contributor = try #require(await database.read { db in
+            try OME.Contributor.fetchOne(db)
+        })
+        let originalImage = try #require(contributor.images?.first)
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let remoteData = Data("lazy-contributor-photo".utf8)
+        let requests = Mutex(0)
+
+        // Two bubbles asking for the same image at once share one transport operation.
+        let resolvedImages = try await withDependencies {
+            $0.date.now = testImageCacheDate
+            $0.defaultDatabase = database
+            $0.lazyImageCache = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, _, _ in
+                requests.withLock { $0 += 1 }
+                Thread.sleep(forTimeInterval: 0.05)
+                return remoteData
+            }
+        } operation: {
+            @Dependency(\.lazyImageCache) var lazyImageCache
+            let context = LocalImageCacheContext(contributorID: contributor.id)
+            let cache = lazyImageCache.cache
+            async let first = cache(originalImage, context)
+            async let second = cache(originalImage, context)
+            return try await (first, second)
+        }
+
+        #expect(requests.withLock { $0 } == 1)
+        #expect(resolvedImages.0.url == resolvedImages.1.url)
+        let resolvedURL = try #require(resolvedImages.0.url)
+        expectNoDifference(try Data(contentsOf: resolvedURL), remoteData)
+    }
+
+    @Test
+    func `a changed source URL replaces bytes stored under the same asset key`() async throws {
+        let originalPhotoURL = try #require(URL(string: "https://example.com/artist-one.jpg"))
+        let replacementPhotoURL = try #require(URL(string: "https://example.com/artist-one-v2.jpg"))
+        let source = try makeSourceRepository(
+            contributorImages: [
+                SourceImageAsset(
+                    source: .url(originalPhotoURL),
+                    role: .photo,
+                    renderKind: .fullImage,
+                    materializationPolicy: .lazy
+                )
+            ]
+        )
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: source, organizerID: organizerID)
+        )
+        let database = try makeCoreDatabase()
+        try await insertion.insert(into: database)
+
+        let contributor = try #require(await database.read { db in
+            try OME.Contributor.fetchOne(db)
+        })
+        let originalImage = try #require(contributor.images?.first)
+        let context = LocalImageCacheContext(contributorID: contributor.id)
+        let cacheDirectoryURL = try temporaryDirectoryURL()
+        let originalData = Data("lazy-contributor-photo".utf8)
+
+        // The original source is materialized under the contributor's stable asset key.
+        _ = try await withDependencies {
+            $0.date.now = testImageCacheDate
+            $0.defaultDatabase = database
+            $0.lazyImageCache = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, _, _ in originalData }
+        } operation: {
+            @Dependency(\.lazyImageCache) var lazyImageCache
+            return try await lazyImageCache.cache(originalImage, context)
+        }
+
+        var replacementImage = originalImage
+        replacementImage.source = .url(replacementPhotoURL)
+        let replacementData = Data("replacement-contributor-photo".utf8)
+        let replacementRequests = Mutex(0)
+
+        // Changing the source URL invalidates the old blob even though its asset key is stable.
+        let resolvedImage = try await withDependencies {
+            $0.date.now = testImageCacheDate.addingTimeInterval(60)
+            $0.defaultDatabase = database
+            $0.lazyImageCache = .live
+            $0.localImageFileStore = testLocalImageFileStore(directory: cacheDirectoryURL)
+            $0.httpClient = .testClient { _, path, _ in
+                replacementRequests.withLock { $0 += 1 }
+                #expect(path == "/artist-one-v2.jpg")
+                return replacementData
+            }
+        } operation: {
+            @Dependency(\.lazyImageCache) var lazyImageCache
+            return try await lazyImageCache.cache(replacementImage, context)
+        }
+
+        let blob = try #require(await database.read { db in
+            try LocalImageBlob.fetchOne(db)
+        })
+        let resolvedURL = try #require(resolvedImage.url)
+        #expect(replacementRequests.withLock { $0 } == 1)
+        #expect(blob.sourceURL == replacementPhotoURL)
+        expectNoDifference(blob.data, replacementData)
+        expectNoDifference(try Data(contentsOf: resolvedURL), replacementData)
     }
 
     @Test
