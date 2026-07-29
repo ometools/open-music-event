@@ -218,8 +218,24 @@ public struct ScheduleViewerView: View {
                     showsAuthoringControls: showsAuthoringControls
                 )
             }
+            .sheet(item: $store.scope(\.destination, action: \.destination).reactionEntry) { entryStore in
+                PerformanceReactionEntryView(store: entryStore)
+            }
             .environment(\.showStageNameLabels, store.showStageNameLabels)
             .environment(\.scheduleNowScrollRequest, nowScrollRequest)
+            .environment(
+                \.performanceReactionMenuContext,
+                PerformanceReactionMenuContext(
+                    reactions: store.reactions,
+                    usage: store.reactionUsage,
+                    toggle: { performanceID, emoji in
+                        store.send(.reactionButtonTapped(performanceID, emoji))
+                    },
+                    showOther: { performanceID in
+                        store.send(.otherReactionButtonTapped(performanceID))
+                    }
+                )
+            )
             .onAppear {
                 consumePendingScheduleLaunchAction()
             }

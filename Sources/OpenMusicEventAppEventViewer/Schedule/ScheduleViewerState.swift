@@ -11,14 +11,12 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         selectedStageID: OMERecord.ID<OMERecord.Stage>? = nil,
         showStageNameLabels: Bool = false,
         filteringFavorites: Bool = false,
-        filteringInterested: Bool = false,
         scheduleKind: ScheduleKind = .singleStageAtOnce
     ) {
         self.id = id
         self.selectedStageID = selectedStageID
         self.showStageNameLabels = showStageNameLabels
         self.filteringFavorites = filteringFavorites
-        self.filteringInterested = filteringInterested
         self.scheduleKind = scheduleKind
         self.legacyManyStagesOrientation = scheduleKind.legacyManyStagesOrientation
     }
@@ -158,7 +156,6 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
     public var selectedStageID: OMERecord.ID<OMERecord.Stage>?
     public var showStageNameLabels = false
     public var filteringFavorites = false
-    public var filteringInterested = false
     @Column("scheduleKind") public var scheduleKind: ScheduleKind = .singleStageAtOnce
     @Column("manyStagesOrientation") var legacyManyStagesOrientation: ScheduleKind.Orientation = .vertical
 

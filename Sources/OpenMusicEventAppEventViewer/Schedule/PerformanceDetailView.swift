@@ -51,6 +51,17 @@ public struct PerformanceDetail {
             _stages = FetchAll(
                 ScheduleViewer.stagesQuery(eventID: self.eventID)
             )
+            let fullPerformanceID = OMERecord.Performance.ID(
+                organizerID: self.eventID.organizerID,
+                eventID: self.eventID.eventID,
+                performanceID: performanceID
+            )
+            _reactions = FetchAll(
+                PerformanceReaction.forPerformance(performanceID: fullPerformanceID)
+            )
+            _reactionUsage = FetchAll(
+                PerformanceReactionEmojiUsage.ranked
+            )
         }
 
         public let eventID: OMERecord.Event.ID
@@ -64,8 +75,18 @@ public struct PerformanceDetail {
         @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
         @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
+        @FetchAll public var reactions: [PerformanceReaction]
+        @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
 
         public var id: OMERecord.ID<OMERecord.Performance> { performanceID }
+
+        public var fullPerformanceID: OMERecord.Performance.ID {
+            OMERecord.Performance.ID(
+                organizerID: eventID.organizerID,
+                eventID: eventID.eventID,
+                performanceID: performanceID
+            )
+        }
 
         public var canEditPerformance: Bool {
             performance != nil && schedule != nil
@@ -154,14 +175,20 @@ public struct PerformanceDetail {
         case contributorButtonTapped(OMERecord.ID<OMERecord.Contributor>)
         case destination(Destination.Action)
         case editButtonTapped
+        case otherReactionButtonTapped
+        case reactionButtonTapped(PerformanceReaction.Emoji)
     }
 
     @Feature
     public enum Destination {
         case contributorDetail(Spawn<ContributorDetail>)
+        case reactionEntry(PerformanceReactionEntry)
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+    @Dependency(\.date.now) var now
+    @Dependency(\.defaultDatabase) var database
+    @Dependency(\.uuid) var uuid
 
     static func contributorsQuery(
         performanceID: OMERecord.ID<OMERecord.Performance>,
@@ -222,6 +249,33 @@ public struct PerformanceDetail {
                     )
                     await task?.value
                 }
+
+            case .otherReactionButtonTapped:
+                state.destination = .reactionEntry(
+                    PerformanceReactionEntry.State(
+                        performanceID: state.fullPerformanceID
+                    )
+                )
+
+            case let .reactionButtonTapped(emoji):
+                let performanceID = state.fullPerformanceID
+                let id = uuid()
+                let date = now
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            try PerformanceReaction.toggle(
+                                performanceID: performanceID,
+                                emoji: emoji,
+                                id: id,
+                                date: date,
+                                in: db
+                            )
+                        }
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
             }
         }
         .ifLet(\.destination, action: \.destination) {
@@ -277,7 +331,18 @@ public struct PerformanceDetailView: View {
                         contributors: store.headlineContributors,
                         timeZone: store.timeZone
                     )
-                    
+
+                    Section {
+                        Menu {
+                            PerformanceReactionMenuContent(
+                                performanceID: store.fullPerformanceID,
+                                context: reactionMenuContext
+                            )
+                        } label: {
+                            Text("React")
+                        }
+                        .accessibilityLabel("React to this performance")
+                    }
 
                     if let description = performance.displayDescription {
                         Section("About") {
@@ -345,6 +410,22 @@ public struct PerformanceDetailView: View {
                 showsAuthoringControls: showsAuthoringControls
             )
         }
+        .sheet(item: $store.scope(\.destination, action: \.destination).reactionEntry) { entryStore in
+            PerformanceReactionEntryView(store: entryStore)
+        }
+    }
+
+    var reactionMenuContext: PerformanceReactionMenuContext {
+        PerformanceReactionMenuContext(
+            reactions: store.reactions,
+            usage: store.reactionUsage,
+            toggle: { _, emoji in
+                store.send(.reactionButtonTapped(emoji))
+            },
+            showOther: { _ in
+                store.send(.otherReactionButtonTapped)
+            }
+        )
     }
 }
 

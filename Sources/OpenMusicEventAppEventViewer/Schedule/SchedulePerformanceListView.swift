@@ -104,6 +104,7 @@ public struct SchedulePerformanceList {
 public struct SchedulePerformanceListView: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
+    @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     @Bindable var store: StoreOf<SchedulePerformanceList>
     let selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     let showsAuthoringControls: Bool
@@ -145,6 +146,12 @@ public struct SchedulePerformanceListView: View {
                         }
                         .id(row.performanceID)
                         .navigationLinkListRowStyle()
+                        .contextMenu {
+                            PerformanceReactionMenuContent(
+                                performanceID: row.performance.id,
+                                context: reactionMenuContext
+                            )
+                        }
                     }
                     .listStyle(.plain)
                     .onChange(of: scheduleNowScrollRequest) { _, request in

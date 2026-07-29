@@ -154,9 +154,9 @@ enum MyEventsDeletion {
                 .where { $0.id.eventID.eq(eventID.eventID) }
                 .delete()
                 .execute(db)
-            try PerformancePreferences
-                .where { $0.id.organizerID.eq(eventID.organizerID) }
-                .where { $0.id.eventID.eq(eventID.eventID) }
+            try PerformanceReaction
+                .where { $0.performanceID.organizerID.eq(eventID.organizerID) }
+                .where { $0.performanceID.eventID.eq(eventID.eventID) }
                 .delete()
                 .execute(db)
             try ChannelPreferences

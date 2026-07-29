@@ -71,6 +71,12 @@ public struct ScheduleViewer {
             _stages = FetchAll(
                 ScheduleViewer.stagesQuery(eventID: eventID)
             )
+            _reactions = FetchAll(
+                PerformanceReaction.forEvent(eventID: eventID)
+            )
+            _reactionUsage = FetchAll(
+                PerformanceReactionEmojiUsage.ranked
+            )
         }
 
         public let eventID: OMERecord.Event.ID
@@ -124,6 +130,8 @@ public struct ScheduleViewer {
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [OMERecord.Schedule]
         @FetchAll public var stages: [OMERecord.Stage]
+        @FetchAll public var reactions: [PerformanceReaction]
+        @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
 
         public var performances: [OMERecord.Performance] {
             performanceRows.map(\.performance)
@@ -228,6 +236,8 @@ public struct ScheduleViewer {
         case addPerformanceButtonTapped(OMERecord.ID<OMERecord.Schedule>?)
         case addScheduleButtonTapped
         case destination(Destination.Action)
+        case otherReactionButtonTapped(OMERecord.Performance.ID)
+        case reactionButtonTapped(OMERecord.Performance.ID, PerformanceReaction.Emoji)
         case scheduleKindButtonTapped(ScheduleKind)
     }
 
@@ -235,6 +245,7 @@ public struct ScheduleViewer {
     public enum Destination {
         case deletePerformanceConfirmation(DeletePerformanceConfirmation)
         case performanceDetail(Spawn<PerformanceDetail>)
+        case reactionEntry(PerformanceReactionEntry)
     }
 
     @Feature
@@ -254,6 +265,8 @@ public struct ScheduleViewer {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
+    @Dependency(\.uuid) var uuid
 
     static func eventPerformancesQuery(
         eventID: OMERecord.Event.ID
@@ -564,6 +577,30 @@ public struct ScheduleViewer {
 
             case .destination:
                 break
+
+            case let .otherReactionButtonTapped(performanceID):
+                state.destination = .reactionEntry(
+                    PerformanceReactionEntry.State(performanceID: performanceID)
+                )
+
+            case let .reactionButtonTapped(performanceID, emoji):
+                let id = uuid()
+                let date = now
+                store.addTask {
+                    do {
+                        try await database.write { db in
+                            try PerformanceReaction.toggle(
+                                performanceID: performanceID,
+                                emoji: emoji,
+                                id: id,
+                                date: date,
+                                in: db
+                            )
+                        }
+                    } catch {
+                        reportIssue(error)
+                    }
+                }
 
             case let .scheduleKindButtonTapped(scheduleKind):
                 state.scheduleKind = scheduleKind

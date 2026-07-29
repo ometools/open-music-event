@@ -221,6 +221,51 @@ public enum OpenMusicEventAppDatabaseMigrations {
             """)
             .execute(db)
     }
+
+    migrator.registerMigration("Add local performance reactions") { db in
+        // Reactions intentionally have no foreign key to performances. Source imports replace
+        // performance rows, while this device-local state is keyed by their stable identity.
+        try #sql("""
+            CREATE TABLE "performanceReactions" (
+              "id" TEXT PRIMARY KEY NOT NULL,
+              "organizerID" TEXT NOT NULL,
+              "eventID" TEXT NOT NULL,
+              "performanceID" TEXT NOT NULL,
+              "emoji" TEXT NOT NULL,
+              "reactedAt" TEXT NOT NULL,
+              UNIQUE ("organizerID", "eventID", "performanceID", "emoji")
+            ) STRICT
+            """)
+            .execute(db)
+
+        try #sql("""
+            CREATE INDEX "performanceReactionsByEvent"
+            ON "performanceReactions" ("organizerID", "eventID")
+            """)
+            .execute(db)
+
+        try #sql("""
+            CREATE INDEX "performanceReactionsByPerformance"
+            ON "performanceReactions" ("organizerID", "eventID", "performanceID")
+            """)
+            .execute(db)
+
+        try #sql("""
+            CREATE TABLE "performanceReactionEmojiUsage" (
+              "emoji" TEXT PRIMARY KEY NOT NULL,
+              "selectionCount" INTEGER NOT NULL,
+              "lastUsedAt" TEXT NOT NULL
+            ) STRICT
+            """)
+            .execute(db)
+
+        try #sql("DROP TABLE \"performancePreferences\"").execute(db)
+        try #sql("""
+            ALTER TABLE "scheduleViewerState"
+            DROP COLUMN "filteringInterested"
+            """)
+            .execute(db)
+    }
     }
 }
 
@@ -254,13 +299,6 @@ public struct OrganizerPreferences: Equatable, Sendable, Identifiable {
 struct ContributorPreferences: Equatable, Sendable, Identifiable {
     var id: OMERecord.Contributor.ID
     var isFavorite = false
-}
-
-@Table("performancePreferences")
-struct PerformancePreferences: Equatable, Sendable, Identifiable {
-    var id: OMERecord.Performance.ID
-    var interested = false
-    var seen = false
 }
 
 @Table("posterPreferences")

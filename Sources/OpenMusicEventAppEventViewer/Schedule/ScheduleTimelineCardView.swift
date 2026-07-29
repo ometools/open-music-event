@@ -12,6 +12,7 @@ struct SchedulePerformanceTimelineCard: DateIntervalRepresentable, Equatable, Id
 }
 
 struct ScheduleTimelineCardView: View {
+    @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage
     let showsAuthoringControls: Bool
@@ -27,6 +28,11 @@ struct ScheduleTimelineCardView: View {
         .accessibilityLabel(performance.title)
         .accessibilityHint(performance.timeRangeText)
         .contextMenu {
+            PerformanceReactionMenuContent(
+                performanceID: performance.id,
+                context: reactionMenuContext
+            )
+
             if showsAuthoringControls {
                 Button {
                     editAction()
