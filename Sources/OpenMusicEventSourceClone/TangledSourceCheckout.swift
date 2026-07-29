@@ -2,6 +2,7 @@ import ATProto
 import Dependencies
 import Foundation
 import SourceControlClient
+import TangledLexicon
 import XRPCClient
 
 public struct TangledSourceCheckoutRequest: Equatable, Sendable {
@@ -69,7 +70,6 @@ public extension TangledSourceCheckoutClient {
     static func git(credentials: Credentials?) -> Self {
         Self { request in
             @Dependency(\.sourceControl) var sourceControl
-            let credentials = request.repository.sourceControlCredentials(credentials)
 
             if Self.isGitRepository(request.outputURL) {
                 let repository = try await sourceControl.open(request.outputURL)
@@ -89,10 +89,9 @@ public extension TangledSourceCheckoutClient {
             }
 
             try TangledSourceArchiveExtractor.validateOutputDoesNotExist(request.outputURL)
-            let repoDID = try await request.repository.resolvedTangledRepositoryDID()
+            let target = try await request.repository.resolvedTangledRepositoryTarget()
             _ = try await sourceControl.clone(
-                request.repository.sourceControlCloneRequest(
-                    repoDID: repoDID,
+                target.sourceControlCloneRequest(
                     destinationURL: request.outputURL,
                     ref: request.ref,
                     depth: 1,
@@ -128,7 +127,7 @@ public extension TangledRepositoryReference {
         CloneRequest(
             remote: sourceControlRemote(repoDID: repoDID),
             destinationURL: destinationURL,
-            checkout: sourceControlCheckoutRef(ref),
+            checkout: tangledSourceControlCheckoutRef(ref),
             depth: depth,
             credentials: sourceControlCredentials(credentials)
         )
@@ -152,15 +151,6 @@ public extension TangledRepositoryReference {
         }
     }
 
-    private func sourceControlCheckoutRef(_ ref: String) -> RefName? {
-        let trimmedRef = ref.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedRef.isEmpty, trimmedRef != "HEAD" else { return nil }
-        if trimmedRef.hasPrefix("refs/heads/") {
-            return RefName(rawValue: String(trimmedRef.dropFirst("refs/heads/".count)))
-        }
-        return RefName(rawValue: trimmedRef)
-    }
-
     func sourceControlFetchedCheckoutRef(_ ref: String) -> RefName {
         let trimmedRef = ref.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRef.isEmpty, trimmedRef != "HEAD" else {
@@ -175,7 +165,7 @@ public extension TangledRepositoryReference {
         return RefName(rawValue: "origin/\(trimmedRef)")
     }
 
-    func resolvedTangledRepositoryDID() async throws -> String {
+    func resolvedTangledRepositoryTarget() async throws -> TangledRepositoryTarget {
         let owner = try await resolvedTangledRepositoryOwner()
 
         @Dependency(XRPC.Client.self) var xrpcClient
@@ -183,29 +173,33 @@ public extension TangledRepositoryReference {
 
         repeat {
             let output = try await xrpcClient.run(
-                TangledListRecordsRequest<TangledRepositoryRecord>(
+                TangledListRecordsRequest<TangledRepoRecord>(
                     repo: owner.did.description,
-                    collection: TangledRepositoryRecord.collection,
+                    collection: TangledRepoRecord.collection.rawValue,
                     cursor: cursor,
                     pdsHost: owner.pdsHost
                 )
             )
 
             if let record = output.records.first(where: { listedRecord in
-                listedRecord.value.matches(self)
+                listedRecord.value.name == repository
                     || listedRecord.uri.rkey?.rawValue == repository
             }) {
-                guard let repoDID = record.value.repoDid else {
-                    throw TangledSourceCheckoutError
+                guard let repositoryDID = record.value.repoDid else {
+                    throw TangledRepositoryResolutionError
                         .repositoryRecordMissingRepoDID(record.uri.description)
                 }
-                return repoDID
+                return TangledRepositoryTarget(
+                    recordURI: record.uri,
+                    repositoryDID: repositoryDID,
+                    knotHost: ATProto.PDSHost(record.value.knot)
+                )
             }
 
             cursor = output.cursor
         } while cursor != nil
 
-        throw TangledSourceCheckoutError.repositoryRecordNotFound(
+        throw TangledRepositoryResolutionError.repositoryRecordNotFound(
             owner: owner.did.description,
             repository: repository
         )
@@ -224,7 +218,7 @@ public extension TangledRepositoryReference {
             (account, document) = try await accountClient.resolveDID(did)
         } else {
             guard !owner.isEmpty else {
-                throw TangledSourceCheckoutError.repositoryRecordNotFound(
+                throw TangledRepositoryResolutionError.repositoryRecordNotFound(
                     owner: self.owner,
                     repository: repository
                 )
@@ -235,13 +229,46 @@ public extension TangledRepositoryReference {
         }
 
         guard let pdsHost = document.pdsHost else {
-            throw TangledSourceCheckoutError
+            throw TangledRepositoryResolutionError
                 .missingRepositoryPDS(account.id.rawValue.description)
         }
 
         return TangledRepositoryOwnerResolution(
             did: account.id.rawValue,
             pdsHost: pdsHost
+        )
+    }
+}
+
+public extension TangledRepositoryTarget {
+    func sourceControlRemote() -> Remote {
+        Remote(
+            url: RemoteURL(
+                rawValue: "git@\(knotHost.rawValue):\(repositoryDID.description)"
+            )
+        )
+    }
+
+    func sourceControlCloneRequest(
+        destinationURL: URL,
+        ref: String,
+        depth: Int? = nil,
+        credentials: Credentials? = nil
+    ) -> CloneRequest {
+        CloneRequest(
+            remote: sourceControlRemote(),
+            destinationURL: destinationURL,
+            checkout: tangledSourceControlCheckoutRef(ref),
+            depth: depth,
+            credentials: sourceControlCredentials(credentials)
+        )
+    }
+
+    func sourceControlCredentials(_ credentials: Credentials?) -> Credentials? {
+        tangledSourceControlCredentials(
+            credentials,
+            host: knotHost.rawValue,
+            port: nil
         )
     }
 }
@@ -253,24 +280,48 @@ public extension TangledRepositoryReference {
     )
 
     var sourceControlHostKeyPolicy: HostKeyPolicy {
-        guard host.caseInsensitiveCompare("tangled.org") == .orderedSame, port == nil else {
-            return .defaultValidation
-        }
-        return .pinnedSHA256(Self.tangledOrgEd25519HostKeySHA256)
+        tangledSourceControlHostKeyPolicy(host: host, port: port)
     }
 
     func sourceControlCredentials(_ credentials: Credentials?) -> Credentials? {
-        guard var credentials else { return nil }
-        guard credentials.hostKeyPolicy == .defaultValidation else { return credentials }
-        credentials.hostKeyPolicy = sourceControlHostKeyPolicy
-        return credentials
+        tangledSourceControlCredentials(credentials, host: host, port: port)
     }
 }
 
-public enum TangledSourceCheckoutError: Equatable, Error, Sendable {
+public enum TangledRepositoryResolutionError: Equatable, Error, Sendable {
     case missingRepositoryPDS(String)
     case repositoryRecordMissingRepoDID(String)
     case repositoryRecordNotFound(owner: String, repository: String)
+}
+
+private func tangledSourceControlCheckoutRef(_ ref: String) -> RefName? {
+    let trimmedRef = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedRef.isEmpty, trimmedRef != "HEAD" else { return nil }
+    if trimmedRef.hasPrefix("refs/heads/") {
+        return RefName(rawValue: String(trimmedRef.dropFirst("refs/heads/".count)))
+    }
+    return RefName(rawValue: trimmedRef)
+}
+
+private func tangledSourceControlHostKeyPolicy(
+    host: String,
+    port: Int?
+) -> HostKeyPolicy {
+    guard host.caseInsensitiveCompare("tangled.org") == .orderedSame, port == nil else {
+        return .defaultValidation
+    }
+    return .pinnedSHA256(TangledRepositoryReference.tangledOrgEd25519HostKeySHA256)
+}
+
+private func tangledSourceControlCredentials(
+    _ credentials: Credentials?,
+    host: String,
+    port: Int?
+) -> Credentials? {
+    guard var credentials else { return nil }
+    guard credentials.hostKeyPolicy == .defaultValidation else { return credentials }
+    credentials.hostKeyPolicy = tangledSourceControlHostKeyPolicy(host: host, port: port)
+    return credentials
 }
 
 private struct TangledRepositoryOwnerResolution: Sendable {

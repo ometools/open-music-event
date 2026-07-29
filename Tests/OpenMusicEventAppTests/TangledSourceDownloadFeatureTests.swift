@@ -977,7 +977,7 @@ struct TangledSourceDownloadFeatureTests {
                             "$type": "sh.tangled.repo",
                             "name": "shambhala-ome",
                             "repoDid": "did:plc:targetrepo",
-                            "knot": "tangled.org",
+                            "knot": "knot1.tangled.sh",
                             "createdAt": "2026-07-08T12:00:00Z"
                           }
                         }
@@ -1037,9 +1037,9 @@ struct TangledSourceDownloadFeatureTests {
 
         let cloneRequest = try #require(await sourceControlRequests.cloneRequests.first)
         #expect(cloneRequest.destinationURL == outputURL.standardizedFileURL)
-        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:targetrepo")
+        #expect(cloneRequest.remote.url == "git@knot1.tangled.sh:did:plc:targetrepo")
         #expect(cloneRequest.checkout == nil)
-        #expect(cloneRequest.credentials == repository.sourceControlCredentials(credentials))
+        #expect(cloneRequest.credentials == credentials)
         #expect(await sourceControlRequests.fetchRequests.isEmpty)
         #expect(await sourceControlRequests.checkoutRequests.isEmpty)
     }
@@ -1734,7 +1734,7 @@ struct TangledSourceDownloadFeatureTests {
                             "$type": "sh.tangled.repo",
                             "name": "wicked-woods-ome",
                             "repoDid": "did:plc:workspace123",
-                            "knot": "tangled.org",
+                            "knot": "knot1.tangled.sh",
                             "createdAt": "2026-07-21T12:00:00Z"
                           }
                         }
@@ -1787,7 +1787,7 @@ struct TangledSourceDownloadFeatureTests {
             cloneRequest.destinationURL
                 == SourceRepositoryStorageClient.temporaryDownloadURL(uuid: checkoutUUID)
         )
-        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:workspace123")
+        #expect(cloneRequest.remote.url == "git@knot1.tangled.sh:did:plc:workspace123")
         #expect(cloneRequest.checkout == "main")
         #expect(
             FileManager.default.fileExists(atPath: storedRepositoryURL.appending(path: ".git").path)

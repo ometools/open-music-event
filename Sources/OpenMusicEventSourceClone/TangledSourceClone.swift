@@ -4,6 +4,7 @@ import Dependencies
 import Foundation
 import Gzip
 import HTTPClient
+import TangledLexicon
 import Tar
 
 public struct TangledSourceCloneCommand: AsyncParsableCommand {
@@ -99,7 +100,7 @@ public struct TangledRepositoryRecordReference: Equatable, Sendable {
     public var rkey: ATProto.Record.Key
 
     public init(uri: ATProto.URI) throws {
-        guard uri.collection?.rawValue == TangledRepositoryRecord.collection,
+        guard uri.collection?.rawValue == TangledRepoRecord.collection.rawValue,
               let rkey = uri.rkey
         else {
             throw ValidationError("Tangled repository AT URI must identify a sh.tangled.repo record.")

@@ -43,8 +43,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         )
         let gitBackedPatch = try await gitBackedPreparedPatch(
             preparedPatch,
-            repository: repository,
-            repoDID: targetRepository.repoDID
+            targetRepository: targetRepository
         )
         defer {
             if let cleanupURL = gitBackedPatch.cleanupURL {
@@ -58,7 +57,7 @@ public struct TangledSourcePatchPublisher: Sendable {
         let sourceBranch = Self.proposalBranchName()
         let commit = try await pushBranch(
             publishingPatch,
-            repository: repository,
+            targetRepository: targetRepository,
             branchName: sourceBranch,
             credentials: gitBackedPatch.credentials,
             title: title
@@ -103,13 +102,9 @@ public struct TangledSourcePatchPublisher: Sendable {
             try await uploadPatchBlob(patchData)
         }
         let description = preparedPatch.request.description
-        guard let targetRepositoryDID = DID(targetRepository.repoDID) else {
-            throw TangledSourcePatchPublisherError
-                .repositoryRecordInvalidRepoDID(targetRepository.recordURI)
-        }
         let record = TangledPullRecord(
             target: TangledPullRecord.Target(
-                repo: targetRepositoryDID,
+                repo: targetRepository.repositoryDID,
                 branch: targetBranch
             ),
             title: title,
@@ -160,7 +155,6 @@ public enum TangledSourcePatchPublisherError: Equatable, Error, Sendable {
     case missingRepositoryPDS(String)
     case missingGitRepository(URL)
     case repositoryRecordMissingKey(String)
-    case repositoryRecordInvalidRepoDID(String)
     case repositoryRecordMissingRepoDID(String)
     case repositoryRecordNotFound(owner: String, repository: String)
     case unsupportedRemoteKind(String)
@@ -178,48 +172,27 @@ extension TangledSourcePatchPublisher {
     func targetRepositoryDID(
         _ repository: TangledRepositoryReference
     ) async throws -> String {
-        try await targetRepository(repository).repoDID
+        try await targetRepository(repository).repositoryDID.description
     }
 
     func targetRepository(
         _ repository: TangledRepositoryReference
     ) async throws -> TangledRepositoryTarget {
-        let owner = try await resolvedOwner(for: repository)
-
-        @Dependency(XRPC.Client.self) var xrpcClient
-        var cursor: String?
-
-        repeat {
-            let output = try await xrpcClient.run(
-                TangledListRecordsRequest<TangledRepositoryRecord>(
-                    repo: owner.did.description,
-                    collection: TangledRepositoryRecord.collection,
-                    cursor: cursor,
-                    pdsHost: owner.pdsHost
-                )
-            )
-
-            if let record = output.records.first(where: { listedRecord in
-                listedRecord.value.matches(repository)
-                    || listedRecord.uri.rkey?.rawValue == repository.repository
-            }) {
-                guard let repoDID = record.value.repoDid else {
-                    throw TangledSourcePatchPublisherError
-                        .repositoryRecordMissingRepoDID(record.uri.description)
-                }
-                return TangledRepositoryTarget(
-                    recordURI: record.uri.description,
-                    repoDID: repoDID
+        do {
+            return try await repository.resolvedTangledRepositoryTarget()
+        } catch let error as TangledRepositoryResolutionError {
+            switch error {
+            case let .missingRepositoryPDS(did):
+                throw TangledSourcePatchPublisherError.missingRepositoryPDS(did)
+            case let .repositoryRecordMissingRepoDID(uri):
+                throw TangledSourcePatchPublisherError.repositoryRecordMissingRepoDID(uri)
+            case let .repositoryRecordNotFound(owner, repository):
+                throw TangledSourcePatchPublisherError.repositoryRecordNotFound(
+                    owner: owner,
+                    repository: repository
                 )
             }
-
-            cursor = output.cursor
-        } while cursor != nil
-
-        throw TangledSourcePatchPublisherError.repositoryRecordNotFound(
-            owner: owner.did.description,
-            repository: repository.repository
-        )
+        }
     }
 }
 
@@ -260,8 +233,7 @@ private extension TangledSourcePatchPublisher {
 
     func gitBackedPreparedPatch(
         _ preparedPatch: PreparedSourcePatch,
-        repository: TangledRepositoryReference,
-        repoDID: String
+        targetRepository: TangledRepositoryTarget
     ) async throws -> GitBackedPreparedPatch {
         guard !Self.isGitRepository(preparedPatch.workingTree.workingRepositoryURL) else {
             TangledSourcePatchPublisherDiagnostics.log(
@@ -288,15 +260,14 @@ private extension TangledSourcePatchPublisher {
             operation: "tangledSSHCredentials.credentials",
             details: [
                 "reason: clone temporary git checkout",
-                "repository: \(repository.host)/\(repository.owner)/\(repository.repository)",
+                "repository: \(targetRepository.knotHost.rawValue)/\(targetRepository.repositoryDID.description)",
             ]
         ) {
             try await tangledSSHCredentials.credentials()
         }
         let checkoutURL = SourceRepositoryStorageClient.temporaryDownloadURL(uuid: uuid())
         let ref = preparedPatch.request.location.remote?.ref ?? "HEAD"
-        let cloneRequest = repository.sourceControlCloneRequest(
-            repoDID: repoDID,
+        let cloneRequest = targetRepository.sourceControlCloneRequest(
             destinationURL: checkoutURL,
             ref: ref,
             credentials: credentials
@@ -356,7 +327,7 @@ private extension TangledSourcePatchPublisher {
 
     func pushBranch(
         _ preparedPatch: PreparedSourcePatch,
-        repository repositoryReference: TangledRepositoryReference,
+        targetRepository: TangledRepositoryTarget,
         branchName: BranchName,
         credentials: Credentials?,
         title: String
@@ -440,7 +411,7 @@ private extension TangledSourcePatchPublisher {
                 operation: "tangledSSHCredentials.credentials",
                 details: [
                     "reason: prepare git push",
-                    "repository: \(repositoryReference.host)/\(repositoryReference.owner)/\(repositoryReference.repository)",
+                    "repository: \(targetRepository.knotHost.rawValue)/\(targetRepository.repositoryDID.description)",
                 ]
             ) {
                 try await tangledSSHCredentials.credentials()
@@ -450,7 +421,7 @@ private extension TangledSourcePatchPublisher {
             repository: repository,
             localBranch: branch.name,
             remoteBranch: branch.name,
-            credentials: repositoryReference.sourceControlCredentials(
+            credentials: targetRepository.sourceControlCredentials(
                 pushCredentials
             )
         )
@@ -624,47 +595,6 @@ private struct GitBackedPreparedPatch: Sendable {
     var preparedPatch: PreparedSourcePatch
     var credentials: Credentials?
     var cleanupURL: URL?
-}
-
-private struct TangledRepositoryOwnerResolution: Sendable {
-    var did: DID
-    var pdsHost: ATProto.PDSHost
-}
-
-private func resolvedOwner(
-    for repository: TangledRepositoryReference
-) async throws -> TangledRepositoryOwnerResolution {
-    let owner = repository.owner.hasPrefix("@")
-        ? String(repository.owner.dropFirst())
-        : repository.owner
-
-    @Dependency(Atmosphere.Account.Client.self) var accountClient
-    let account: Atmosphere.Account
-    let document: DID.Document
-
-    if let did = DID(owner) {
-        (account, document) = try await accountClient.resolveDID(did)
-    } else {
-        guard !owner.isEmpty else {
-            throw TangledSourcePatchPublisherError.repositoryRecordNotFound(
-                owner: repository.owner,
-                repository: repository.repository
-            )
-        }
-        (account, document) = try await accountClient.resolveHandle(
-            Atmosphere.Account.Handle(owner)
-        )
-    }
-
-    guard let pdsHost = document.pdsHost else {
-        throw TangledSourcePatchPublisherError
-            .missingRepositoryPDS(account.id.rawValue.description)
-    }
-
-    return TangledRepositoryOwnerResolution(
-        did: account.id.rawValue,
-        pdsHost: pdsHost
-    )
 }
 
 private extension TangledRepositoryReference {

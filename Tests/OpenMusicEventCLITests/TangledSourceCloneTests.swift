@@ -206,7 +206,7 @@ struct TangledSourceCloneTests {
     }
 
     @Test
-    func gitCheckoutResolvesRepositoryDIDAndClonesSource() async throws {
+    func gitCheckoutResolvesRepositoryTargetAndClonesSource() async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let ownerHandle = Atmosphere.Account.Handle("woody.fm")
         let outputURL = FileManager.default.temporaryDirectory
@@ -266,7 +266,7 @@ struct TangledSourceCloneTests {
                             "$type": "sh.tangled.repo",
                             "name": "wicked-woods-ome",
                             "repoDid": "did:plc:targetrepo",
-                            "knot": "tangled.org",
+                            "knot": "knot1.tangled.sh",
                             "createdAt": "2026-05-26T17:30:42Z"
                           }
                         }
@@ -306,11 +306,11 @@ struct TangledSourceCloneTests {
 
         #expect(checkout.repositoryURL == outputURL)
         let request = try #require(cloneRequests.withLock { $0.first })
-        #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
+        #expect(request.remote.url == "git@knot1.tangled.sh:did:plc:targetrepo")
         #expect(request.checkout == "main")
         #expect(request.destinationURL == outputURL)
         #expect(request.depth == 1)
-        #expect(request.credentials == repository.sourceControlCredentials(credentials))
+        #expect(request.credentials == credentials)
     }
 
     @Test

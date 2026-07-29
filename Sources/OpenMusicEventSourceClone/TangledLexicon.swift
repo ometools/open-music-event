@@ -39,31 +39,19 @@ public struct TangledPublicKeyRecord: Encodable, Decodable, Equatable, Sendable 
     }
 }
 
-public struct TangledRepositoryRecord: Decodable, Equatable, Sendable {
-    public static let collection = "sh.tangled.repo"
-
-    public var name: String?
-    public var repo: String?
-    public var repoDid: String?
-
-    public init(name: String? = nil, repo: String? = nil, repoDid: String? = nil) {
-        self.name = name
-        self.repo = repo
-        self.repoDid = repoDid
-    }
-
-    public func matches(_ reference: TangledRepositoryReference) -> Bool {
-        (name ?? repo) == reference.repository
-    }
-}
-
 public struct TangledRepositoryTarget: Equatable, Sendable {
-    public var recordURI: String
-    public var repoDID: String
+    public var recordURI: ATProto.URI
+    public var repositoryDID: DID
+    public var knotHost: ATProto.PDSHost
 
-    public init(recordURI: String, repoDID: String) {
+    public init(
+        recordURI: ATProto.URI,
+        repositoryDID: DID,
+        knotHost: ATProto.PDSHost
+    ) {
         self.recordURI = recordURI
-        self.repoDID = repoDID
+        self.repositoryDID = repositoryDID
+        self.knotHost = knotHost
     }
 }
 

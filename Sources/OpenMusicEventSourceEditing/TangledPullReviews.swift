@@ -263,11 +263,7 @@ public extension TangledPullReviewClient {
                 )
                 let targetRepository = try await TangledSourcePatchPublisher()
                     .targetRepository(repository)
-                guard let subject = DID(targetRepository.repoDID) else {
-                    throw TangledPullReviewClientError.invalidRepositoryDID(
-                        targetRepository.repoDID
-                    )
-                }
+                let subject = targetRepository.repositoryDID
 
                 switch listSource {
                 case .tangledXRPC:

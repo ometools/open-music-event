@@ -277,7 +277,7 @@ struct TangledSourcePatchPublisherTests {
                                 "$type": "sh.tangled.repo",
                                 "name": "wicked-woods-ome",
                                 "repoDid": "did:plc:targetrepo",
-                                "knot": "tangled.org",
+                                "knot": "knot1.tangled.sh",
                                 "createdAt": "2026-05-26T17:30:42Z"
                               }
                             }
@@ -415,10 +415,7 @@ struct TangledSourcePatchPublisherTests {
         let pushRequest = try #require(pushRequests.withLock { $0.first })
         #expect(pushRequest.localBranch == branchName)
         #expect(pushRequest.remoteBranch == branchName)
-        let repositoryReference = try TangledRepositoryReference(
-            parsing: "tangled.org/woody.fm/wicked-woods-ome"
-        )
-        #expect(pushRequest.credentials == repositoryReference.sourceControlCredentials(credentials))
+        #expect(pushRequest.credentials == credentials)
 
         let requests = await requestRecorder.requests
         let uploadRequest = try #require(
@@ -778,7 +775,7 @@ struct TangledSourcePatchPublisherTests {
                                 "$type": "sh.tangled.repo",
                                 "name": "wicked-woods-ome",
                                 "repoDid": "did:plc:targetrepo",
-                                "knot": "tangled.org",
+                                "knot": "knot1.tangled.sh",
                                 "createdAt": "2026-05-26T17:30:42Z"
                               }
                             }
@@ -897,17 +894,14 @@ struct TangledSourcePatchPublisherTests {
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
         #expect(publishEvents.withLock { $0 } == ["authorize", "credentials"])
         let cloneRequest = try #require(cloneRequests.withLock { $0.first })
-        #expect(cloneRequest.remote.url == "git@tangled.org:did:plc:targetrepo")
+        #expect(cloneRequest.remote.url == "git@knot1.tangled.sh:did:plc:targetrepo")
         #expect(cloneRequest.checkout == "main")
-        let repositoryReference = try TangledRepositoryReference(
-            parsing: "woody.fm/wicked-woods-ome"
-        )
-        #expect(cloneRequest.credentials == repositoryReference.sourceControlCredentials(credentials))
+        #expect(cloneRequest.credentials == credentials)
         #expect(openRequests.withLock { $0 } == [cloneRequest.destinationURL])
         let pushRequest = try #require(pushRequests.withLock { $0.first })
         #expect(pushRequest.localBranch == branchName)
         #expect(pushRequest.remoteBranch == branchName)
-        #expect(pushRequest.credentials == repositoryReference.sourceControlCredentials(credentials))
+        #expect(pushRequest.credentials == credentials)
 
         let requests = await requestRecorder.requests
         #expect(requests.contains { $0.url?.path.hasSuffix("/com.atproto.repo.uploadBlob") == true })
