@@ -9,6 +9,7 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import OpenMusicEventAppEventViewer
+import OpenMusicEventAuthentication
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import OpenMusicEventLexicon
@@ -34,7 +35,7 @@ struct FetchLoadFailure: Identifiable {
 
 @Feature
 public struct MyEvents {
-    public typealias TeamWorkspace = OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>
+    public typealias TeamWorkspace = OpenMusicEventAuthoring<TeamWorkspaceDetail>
 
     public struct State {
         var deleteCreatedEventIDs: [OMERecord.Event.ID] = []
@@ -138,7 +139,7 @@ public struct MyEvents {
                             $0.errorMessage = nil
                             if let teamWorkspaceDetail = $0.teamWorkspaceDetail,
                                sourceBaselineIDs.contains(
-                                   teamWorkspaceDetail.content.sourceBaselineID
+                                   teamWorkspaceDetail.content.content.sourceBaselineID
                                ) {
                                 $0.teamWorkspaceDetail = nil
                             }
@@ -217,9 +218,12 @@ public struct MyEvents {
             OrganizerDetail()
         }
         .ifLet(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail) {
-            TeamWorkspace {
-                TeamWorkspaceDetail()
+            TeamWorkspace(storage: OpenMusicEventOAuth.storage) {
+                OpenMusicEventSourceEditing.Authoring {
+                    TeamWorkspaceDetail()
+                }
             }
+            .invalidatingAuthoringWhenAuthorizationIsLost()
         }
         .onEvent(SourceImportCompleted.self) { importedSource, state in
             state.destination = nil
@@ -242,9 +246,13 @@ public struct MyEvents {
 private extension MyEvents.State {
     mutating func openTeamWorkspace(_ sourceBaselineID: SourceBaselineRecord.ID) {
         teamWorkspaceDetail = MyEvents.TeamWorkspace.State(
-            workspaceID: EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+            storage: OpenMusicEventOAuth.storage
         ) {
-            TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
+            OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
+                workspaceID: EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+            ) {
+                TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
+            }
         }
     }
 }

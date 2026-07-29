@@ -18,7 +18,7 @@ import SafariServices
 public struct OpenMusicEventAppRoot {
     public init() {}
 
-    public typealias WorkspaceEventViewer = OpenMusicEventSourceEditing.Authoring<EventViewer>
+    public typealias WorkspaceEventViewer = OpenMusicEventAuthoring<EventViewer>
 
     public struct State {
         public init(
@@ -42,7 +42,6 @@ public struct OpenMusicEventAppRoot {
             }
         }
 
-        public var authentication = AuthenticationCoordinator.State()
         public var browser = Spawn(OpenMusicEventBrowser.State())
         public var errorNotifications = Spawn(ErrorNotifications.State())
         public var eventViewer: Spawn<WorkspaceEventViewer>?
@@ -60,7 +59,6 @@ public struct OpenMusicEventAppRoot {
     }
 
     public enum Action {
-        case authentication(AuthenticationCoordinator.Action)
         case handleNavigationRequest(NavigationRequest)
         case localEventDeletionRequested(OMERecord.Event.ID)
         case openRoute(AppRoute)
@@ -115,17 +113,6 @@ public struct OpenMusicEventAppRoot {
             prefetchAssetsOnOpen(eventID)
         }
 
-        let reportAuthenticationError: ((any Error)?) -> Void = { error in
-            guard let error else { return }
-            store.addTask {
-                await store.reportError(
-                    error,
-                    fallbackMessage: .authenticationAuthorizationFailed,
-                    operation: .authenticationAuthorization
-                )
-            }
-        }
-
         let handleNavigationRequest:
             (NavigationRequest, inout State) -> Void = { request, state in
             switch request {
@@ -140,9 +127,6 @@ public struct OpenMusicEventAppRoot {
         Features {
             Update { state, action in
                 switch action {
-                case .authentication:
-                    break
-
                 case .handleNavigationRequest(let request):
                     handleNavigationRequest(request, &state)
 
@@ -158,7 +142,7 @@ public struct OpenMusicEventAppRoot {
                         }
                         guard didDelete != nil else { return }
                         try store.modify {
-                            if $0.eventViewer?.state.content.eventID == eventID {
+                            if $0.eventViewer?.state.content.content.eventID == eventID {
                                 $0.eventViewer = nil
                             }
                         }
@@ -170,14 +154,6 @@ public struct OpenMusicEventAppRoot {
                     }
 
                 case .openURL(let url):
-                    if OpenMusicEventOAuth.isCallbackURL(url) {
-                        store.addTask {
-                            await Task.yield()
-                            try store.send(.authentication(.handleOpenURL(.init(url))))
-                        }
-                        return
-                    }
-
                     if let route = AppRoute(url: url) {
                         store.addTask {
                             await Task.yield()
@@ -188,26 +164,16 @@ public struct OpenMusicEventAppRoot {
                     }
 
                 case .task:
-                    if let eventID = state.eventViewer?.state.content.eventID {
+                    if let eventID = state.eventViewer?.state.content.content.eventID {
                         prefetchAssetsOnOpen(eventID)
                     }
                 }
             }
-
-            Scope(\.authentication, action: \.authentication) {
-                AuthenticationCoordinator()
-            }
         }
-        .onChange(of: store.eventViewer?.state.content.eventID) { oldValue, newValue, state in
+        .onChange(of: store.eventViewer?.state.content.content.eventID) { oldValue, newValue, state in
             if state.persistsSelectedEvent, oldValue != nil, newValue == nil {
                 clearSelectedEvent()
             }
-        }
-        .onChange(of: store.authentication.authorization?.error) { _, error, _ in
-            reportAuthenticationError(error?.originalError)
-        }
-        .onChange(of: store.authentication.directAuthorization?.error) { _, error, _ in
-            reportAuthenticationError(error?.originalError)
         }
         .onEvent(NavigationRequested.self) { request, state in
             handleNavigationRequest(request, &state)
@@ -229,10 +195,12 @@ public struct OpenMusicEventAppRoot {
             WhiteLabelRoot()
         }
         .ifLet(\.eventViewer) {
-            WorkspaceEventViewer {
-                EventViewer()
+            WorkspaceEventViewer(storage: OpenMusicEventOAuth.storage) {
+                OpenMusicEventSourceEditing.Authoring {
+                    EventViewer()
+                }
             }
-            .openMusicEventAuthenticatedSession()
+            .invalidatingAuthoringWhenAuthorizationIsLost()
         }
     }
 }
@@ -247,32 +215,25 @@ public struct OpenMusicEventAppRootView: View {
     @Bindable var store: StoreOf<OpenMusicEventAppRoot>
 
     public var body: some View {
-        AuthenticationCoordinatorView(
-            store: store.scope(\.authentication, action: \.authentication),
-            isPresentationEnabled: store.eventViewer == nil
-        ) {
-            OpenMusicEventAppSurfaceView(store: store)
-        }
+        OpenMusicEventAppSurfaceView(store: store)
         .openMusicEventViewerPresentation(item: eventViewerPresentation) { authoringStore in
-            let eventViewerStore = authoringStore.scope(\.content, action: \.content)
-            AuthenticationCoordinatorView(
-                store: store.scope(\.authentication, action: \.authentication)
-            ) {
+            OpenMusicEventAuthorizationView(store: authoringStore) { authoringStore in
+                let eventViewerStore = authoringStore.scope(\.content, action: \.content)
                 EventViewerView(store: eventViewerStore)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if authoringStore.entry.isRunning {
-                    ProgressView("Preparing workspace")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .background(.bar)
-                } else if let entryFailure = authoringStore.entryFailure {
-                    Text(entryFailure.message)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .background(.bar)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if authoringStore.entry.isRunning {
+                            ProgressView("Preparing workspace")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding()
+                                .background(.bar)
+                        } else if let entryFailure = authoringStore.entryFailure {
+                            Text(entryFailure.message)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding()
+                                .background(.bar)
+                        }
                 }
             }
         }
@@ -348,8 +309,26 @@ private extension OpenMusicEventAppRoot {
     ) -> WorkspaceEventViewer.State {
         if let mountedAuthoring {
             return WorkspaceEventViewer.State(
+                storage: OpenMusicEventOAuth.storage
+            ) {
+                OpenMusicEventSourceEditing.Authoring<EventViewer>.State(
+                    workspaceID: workspaceID(for: eventID),
+                    grant: mountedAuthoring.grant,
+                    initiallyRequestsEntry: target?.eventFeature.isEditorFeature == true
+                ) {
+                    EventViewer.State.route(
+                        eventID: eventID,
+                        target: target,
+                        pendingScheduleLaunchAction: pendingScheduleLaunchAction
+                    )
+                }
+            }
+        }
+        return WorkspaceEventViewer.State(
+            storage: OpenMusicEventOAuth.storage
+        ) {
+            OpenMusicEventSourceEditing.Authoring<EventViewer>.State(
                 workspaceID: workspaceID(for: eventID),
-                grant: mountedAuthoring.grant,
                 initiallyRequestsEntry: target?.eventFeature.isEditorFeature == true
             ) {
                 EventViewer.State.route(
@@ -358,16 +337,6 @@ private extension OpenMusicEventAppRoot {
                     pendingScheduleLaunchAction: pendingScheduleLaunchAction
                 )
             }
-        }
-        return WorkspaceEventViewer.State(
-            workspaceID: workspaceID(for: eventID),
-            initiallyRequestsEntry: target?.eventFeature.isEditorFeature == true
-        ) {
-            EventViewer.State.route(
-                eventID: eventID,
-                target: target,
-                pendingScheduleLaunchAction: pendingScheduleLaunchAction
-            )
         }
     }
 
@@ -391,17 +360,17 @@ private extension OpenMusicEventAppRoot.State {
         for workspaceID: EditingWorkspaceRecord.ID
     ) -> OpenMusicEventAppRoot.MountedAuthoring? {
         if let eventViewer,
-           eventViewer.state.workspaceID == workspaceID {
+           eventViewer.state.content.workspaceID == workspaceID {
             return .init(
-                grant: eventViewer.state.$grant
+                grant: eventViewer.state.content.$grant
             )
         }
         if let whiteLabelAuthoring = whiteLabelRoot?
             .state
             .teamWorkspaceDetail,
-           whiteLabelAuthoring.state.workspaceID == workspaceID {
+           whiteLabelAuthoring.state.content.workspaceID == workspaceID {
             return .init(
-                grant: whiteLabelAuthoring.state.$grant
+                grant: whiteLabelAuthoring.state.content.$grant
             )
         }
         if let myEventsAuthoring = browser
@@ -409,9 +378,9 @@ private extension OpenMusicEventAppRoot.State {
             .myEvents
             .state
             .teamWorkspaceDetail,
-           myEventsAuthoring.workspaceID == workspaceID {
+           myEventsAuthoring.content.workspaceID == workspaceID {
             return .init(
-                grant: myEventsAuthoring.$grant
+                grant: myEventsAuthoring.content.$grant
             )
         }
         return nil

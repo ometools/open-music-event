@@ -393,10 +393,7 @@ struct TangledSourcePatchPublisherTests {
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
         #expect(publication.sourceChangeID == "at://did:plc:placeholder/sh.tangled.repo.pull/3pull")
-        #expect(
-            authorizedRequirements.withLock { $0 }
-                == [TangledOAuthRequirements.pullRequestWorkflowAuthRequirement]
-        )
+        #expect(authorizedRequirements.withLock { $0.isEmpty })
         #expect(cloneRequests.withLock { $0.isEmpty })
         #expect(openRequests.withLock { $0.map(\.standardizedFileURL) } == [repositoryURL.standardizedFileURL])
         let createBranchRequest = try #require(createBranchRequests.withLock { $0.first })
@@ -892,7 +889,7 @@ struct TangledSourcePatchPublisherTests {
         }
 
         #expect(publication.sourceChangeURL?.absoluteString == "https://tangled.org/woody.fm/wicked-woods-ome/pulls")
-        #expect(publishEvents.withLock { $0 } == ["authorize", "credentials"])
+        #expect(publishEvents.withLock { $0 } == ["credentials"])
         let cloneRequest = try #require(cloneRequests.withLock { $0.first })
         #expect(cloneRequest.remote.url == "git@knot1.tangled.sh:did:plc:targetrepo")
         #expect(cloneRequest.checkout == "main")

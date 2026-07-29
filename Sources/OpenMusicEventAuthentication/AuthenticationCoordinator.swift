@@ -16,6 +16,32 @@ public extension OAuthAuthenticationCoordinator.State {
     }
 }
 
+public struct OpenMusicEventAuthorizationView<
+    AuthorizedContent: FeatureProtocol,
+    Content: View
+>: View {
+    let content: (StoreOf<AuthorizedContent>) -> Content
+    let store: StoreOf<OAuthAuthorization<AuthorizedContent>>
+
+    public init(
+        store: StoreOf<OAuthAuthorization<AuthorizedContent>>,
+        @ViewBuilder content: @escaping (StoreOf<AuthorizedContent>) -> Content
+    ) {
+        self.store = store
+        self.content = content
+    }
+
+    public var body: some View {
+        OAuthAuthorizationView(
+            store: store,
+            authorizationContent: {
+                OpenMusicEventAuthorizationFlowSheetView(store: $0)
+            },
+            content: content
+        )
+    }
+}
+
 public struct AuthenticationCoordinatorView<Content: View>: View {
     @Bindable var store: StoreOf<AuthenticationCoordinator>
     let isPresentationEnabled: Bool

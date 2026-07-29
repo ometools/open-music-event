@@ -18,7 +18,7 @@ import SwiftUI
 public struct WhiteLabelRoot {
     public init() {}
 
-    public typealias TeamWorkspace = OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>
+    public typealias TeamWorkspace = OpenMusicEventAuthoring<TeamWorkspaceDetail>
 
     public struct State {
         public init(configuration: WhiteLabelAppConfiguration) {
@@ -35,7 +35,7 @@ public struct WhiteLabelRoot {
         public var teamWorkspaceDetail: Spawn<TeamWorkspace>?
 
         public var showsAuthoringControls: Bool {
-            teamWorkspaceDetail?.state.access.canEditContent == true
+            teamWorkspaceDetail?.state.content.access.canEditContent == true
         }
 
         public enum LoadingPhase: Equatable, Sendable {
@@ -110,9 +110,12 @@ public struct WhiteLabelRoot {
             OrganizationRoot()
         }
         .ifLet(\.teamWorkspaceDetail) {
-            TeamWorkspace {
-                TeamWorkspaceDetail()
+            TeamWorkspace(storage: OpenMusicEventOAuth.storage) {
+                OpenMusicEventSourceEditing.Authoring {
+                    TeamWorkspaceDetail()
+                }
             }
+            .invalidatingAuthoringWhenAuthorizationIsLost()
         }
         .onMount { state in
             guard !state.isLoading else { return }
@@ -323,17 +326,19 @@ public struct WhiteLabelRootView: View {
         let accountStore = store.spawn(\.account)
 
         Group {
-            if let authoringStore = store.spawn(\.teamWorkspaceDetail) {
-                let teamWorkspaceDetailStore = authoringStore.scope(
-                    \.content,
-                    action: \.content
-                )
-                NavigationStack {
-                    TeamWorkspaceDetailView(
-                        store: teamWorkspaceDetailStore,
-                        showsAuthoringControls: authoringStore.access.canEditContent
+            if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
+                OpenMusicEventAuthorizationView(store: authorizationStore) { authoringStore in
+                    let teamWorkspaceDetailStore = authoringStore.scope(
+                        \.content,
+                        action: \.content
                     )
-                    .whiteLabelRootActionsToolbar(store: store)
+                    NavigationStack {
+                        TeamWorkspaceDetailView(
+                            store: teamWorkspaceDetailStore,
+                            showsAuthoringControls: authoringStore.access.canEditContent
+                        )
+                        .whiteLabelRootActionsToolbar(store: store)
+                    }
                 }
             } else if let organizationRootStore = store.spawn(\.organizationRoot) {
                 OrganizationRootView(
@@ -348,9 +353,9 @@ public struct WhiteLabelRootView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if store.spawn(\.teamWorkspaceDetail)?.entry.isRunning == true {
+            if store.spawn(\.teamWorkspaceDetail)?.content.entry.isRunning == true {
                 AuthoringPreparationStatus()
-            } else if let entryFailure = store.spawn(\.teamWorkspaceDetail)?.entryFailure {
+            } else if let entryFailure = store.spawn(\.teamWorkspaceDetail)?.content.entryFailure {
                 Text(entryFailure.message)
                     .font(.footnote)
                     .foregroundStyle(.red)
@@ -464,32 +469,31 @@ struct WhiteLabelRootActionsMenu: View {
 
     var body: some View {
         Menu {
-            if let authoringStore = store.spawn(\.teamWorkspaceDetail),
-               !authoringStore.access.canEditContent {
-//                Button {
-//                    authoringStore.send(.enterButtonTapped)
-//                } label: {
-//                    Label(
-//                        authoringStore.entry.isRunning
-//                            ? "Preparing Workspace"
-//                            : "Enter Authoring",
-//                        systemImage: "square.and.pencil"
-//                    )
-//                }
-//                .disabled(authoringStore.entry.isRunning)
-            }
-
-            if let authoringStore = store.spawn(\.teamWorkspaceDetail),
-               authoringStore.access.canEditContent {
-                let teamWorkspaceDetailStore = authoringStore.scope(
-                    \.content,
-                    action: \.content
-                )
-                if teamWorkspaceDetailStore.canManageSource {
+            if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
+                let authoringStore = authorizationStore.scope(\.content, action: \.content)
+                if !authoringStore.access.canEditContent {
                     Button {
-                        teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
+                        authoringStore.send(.enterButtonTapped)
                     } label: {
-                        Label("Workspace", systemImage: EventFeature.workspace.systemImage)
+                        Label(
+                            authoringStore.entry.isRunning
+                                ? "Preparing Workspace"
+                                : "Enter Authoring",
+                            systemImage: "square.and.pencil"
+                        )
+                    }
+                    .disabled(authoringStore.entry.isRunning)
+                } else {
+                    let teamWorkspaceDetailStore = authoringStore.scope(
+                        \.content,
+                        action: \.content
+                    )
+                    if teamWorkspaceDetailStore.canManageSource {
+                        Button {
+                            teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
+                        } label: {
+                            Label("Workspace", systemImage: EventFeature.workspace.systemImage)
+                        }
                     }
                 }
             }
@@ -524,14 +528,18 @@ private extension WhiteLabelRoot.State {
     ) {
         if sourceBaselineIDs.count == 1, let sourceBaselineID = sourceBaselineIDs.first {
             organizationRoot = nil
-            if teamWorkspaceDetail?.state.content.sourceBaselineID != sourceBaselineID {
+            if teamWorkspaceDetail?.state.content.content.sourceBaselineID != sourceBaselineID {
                 teamWorkspaceDetail = Spawn(
                     WhiteLabelRoot.TeamWorkspace.State(
-                        workspaceID: EditingWorkspaceRecord.ID(
-                            sourceBaselineID: sourceBaselineID
-                        )
+                        storage: OpenMusicEventOAuth.storage
                     ) {
-                        TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
+                        OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
+                            workspaceID: EditingWorkspaceRecord.ID(
+                                sourceBaselineID: sourceBaselineID
+                            )
+                        ) {
+                            TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)
+                        }
                     }
                 )
             }

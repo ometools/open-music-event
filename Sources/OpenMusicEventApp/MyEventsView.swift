@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Foundation
+import OpenMusicEventAuthentication
 import OpenMusicEventComponents
 import OpenMusicEventImages
 import OpenMusicEventLexicon
@@ -42,36 +43,38 @@ struct MyEventsView: View {
                 OrganizerDetailView(store: detailStore)
             }
             .navigationDestination(item: $store.scope(\.teamWorkspaceDetail, action: \.teamWorkspaceDetail)) { detailStore in
-                let contentStore = detailStore.scope(\.content, action: \.content)
-                TeamWorkspaceDetailView(
-                    store: contentStore,
-                    showsAuthoringControls: detailStore.access.canEditContent
-                )
-                .toolbar {
-                    if !detailStore.access.canEditContent {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button {
-                                detailStore.send(.enterButtonTapped)
-                            } label: {
-                                Label(
-                                    detailStore.entry.isRunning
-                                        ? "Preparing Workspace"
-                                        : "Enter Authoring",
-                                    systemImage: "square.and.pencil"
-                                )
+                OpenMusicEventAuthorizationView(store: detailStore) { authoringStore in
+                    let contentStore = authoringStore.scope(\.content, action: \.content)
+                    TeamWorkspaceDetailView(
+                        store: contentStore,
+                        showsAuthoringControls: authoringStore.access.canEditContent
+                    )
+                    .toolbar {
+                        if !authoringStore.access.canEditContent {
+                            ToolbarItem(placement: .primaryAction) {
+                                Button {
+                                    authoringStore.send(.enterButtonTapped)
+                                } label: {
+                                    Label(
+                                        authoringStore.entry.isRunning
+                                            ? "Preparing Workspace"
+                                            : "Enter Authoring",
+                                        systemImage: "square.and.pencil"
+                                    )
+                                }
+                                .disabled(authoringStore.entry.isRunning)
                             }
-                            .disabled(detailStore.entry.isRunning)
                         }
                     }
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if let entryFailure = detailStore.entryFailure {
-                        Text(entryFailure.message)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
-                            .background(.bar)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if let entryFailure = authoringStore.entryFailure {
+                            Text(entryFailure.message)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding()
+                                .background(.bar)
+                        }
                     }
                 }
             }

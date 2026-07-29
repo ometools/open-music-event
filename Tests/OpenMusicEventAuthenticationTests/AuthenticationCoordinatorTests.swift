@@ -204,52 +204,35 @@ struct AuthenticationCoordinatorTests {
             )
             upgradedSession.accessToken = OAuth.AccessToken(rawValue: "merge-access-token")
             upgradedSession.refreshToken = OAuth.RefreshToken(rawValue: "merge-refresh-token")
+            let upgradedAccessToken = upgradedSession.accessToken
 
-            // Merge asks for an authorization upgrade instead of making the user sign in again.
-            let authorizationHarness = MergeAuthorizationUpgradeHarness()
-            let authorizationRequests = OpenMusicEventAuthorizationRequests
-                .mergeUpgradeHarness(authorizationHarness)
-                .openMusicEventAutoStartingAuthorizationUpgrades(
-                    session: { storage.session.wrappedValue },
-                    sessionStore: { storage.sessionStore.wrappedValue },
-                    appManifest: OpenMusicEventOAuth.appManifest
-                )
-            var dependencies = DependencyValues()
-            dependencies.openMusicEventAuthorizationRequests = authorizationRequests
-            dependencies.oauthAppConfiguration = OpenMusicEventOAuth.appConfiguration
-            dependencies.oauthAppManifest = OpenMusicEventOAuth.appManifest
-            dependencies.oauthAuthorizationBroker = authorizationRequests.broker()
+            var state = AuthenticationCoordinator.State(storage: storage)
+            state.directAuthorization = OpenMusicEventOAuth.authorizationFlowState(
+                for: AuthorizationPresentationRequest(
+                    loginHint: baseSession.accountID.rawValue.description,
+                    startsImmediately: true,
+                    requirement: OpenMusicEventOAuth.tangledPullMergeAuthRequirement
+                ),
+                session: baseSession,
+                sessionStore: initialSessionStore
+            )
             let store = withDependencies {
-                $0 = dependencies
                 $0[OAuth.Client.self] = successfulOAuthClient(session: upgradedSession)
                 $0.defaultPort = 443
+                $0.oauthAppConfiguration = OpenMusicEventOAuth.appConfiguration
+                $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
                 $0.oauthBrowserStrategy = .webAuthenticationSession
                 $0.webAuthenticationSession.open = { _, _ in testCallbackURL }
             } operation: {
-                Store(initialState: AuthenticationCoordinator.State(storage: storage)) {
+                Store(initialState: state) {
                     AuthenticationCoordinator()
                 }
             }
-            let mergeAuthorization = Task {
-                try await dependencies.oauthAuthorizationBroker.authorize(
-                    OpenMusicEventOAuth.tangledPullMergeAuthRequirement
-                )
-            }
-            defer { mergeAuthorization.cancel() }
 
-            try await waitForAsyncCondition {
-                await authorizationHarness.lastRequest != nil
+            await store.send(.directAuthorization(.submit))?.value
+            try await waitForCondition {
+                storage.session.wrappedValue?.accessToken == upgradedAccessToken
             }
-            let request = try #require(await authorizationHarness.lastRequest)
-            #expect(request.requirement == OpenMusicEventOAuth.tangledPullMergeAuthRequirement)
-            #expect(request.loginHint == baseSession.accountID.rawValue.description)
-            #expect(request.startsImmediately)
-
-            try await waitForAsyncCondition {
-                await authorizationHarness.didSucceed
-            }
-            try await mergeAuthorization.value
-            #expect(store.authorization == nil)
             #expect(store.directAuthorization == nil)
 
             // The upgraded selected session is saved to the same keychain-backed store the app
@@ -384,7 +367,7 @@ struct AuthenticationCoordinatorTests {
         await task?.value
 
         #expect(store.authorization == nil)
-        #expect(await recorder.events == [.fail(failure)])
+        #expect(await recorder.events == [.fail(String(describing: failure))])
     }
 
     @Test
@@ -599,84 +582,6 @@ private func waitForAsyncCondition(
     try #require(finalResult)
 }
 
-private actor MergeAuthorizationUpgradeHarness {
-    private var activeRequest: AuthorizationRequestCenter.Request?
-    private var requestObservers: [UUID: AsyncStream<AuthorizationRequestCenter.Request?>.Continuation] = [:]
-    private var waiter: CheckedContinuation<Void, any Error>?
-
-    private(set) var lastRequest: AuthorizationRequestCenter.Request?
-    private(set) var didSucceed = false
-
-    func authorizeWithLoginHint(
-        _ requirement: OAuth.AuthRequirement,
-        loginHint: String
-    ) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            waiter = continuation
-            let request = AuthorizationRequestCenter.Request(
-                loginHint: loginHint,
-                startsImmediately: true,
-                requirement: requirement
-            )
-            activeRequest = request
-            lastRequest = request
-            yield(request)
-        }
-    }
-
-    func requests() -> AsyncStream<AuthorizationRequestCenter.Request?> {
-        let observerID = UUID()
-        return AsyncStream { continuation in
-            requestObservers[observerID] = continuation
-            continuation.yield(activeRequest)
-            continuation.onTermination = { _ in
-                Task { await self.removeObserver(id: observerID) }
-            }
-        }
-    }
-
-    func succeed() {
-        didSucceed = true
-        finish(.success(()))
-    }
-
-    func fail(_ error: OAuth.AuthorizationRequired) {
-        finish(.failure(error))
-    }
-
-    func cancel() {
-        finish(.failure(CancellationError()))
-    }
-
-    private func removeObserver(id: UUID) {
-        requestObservers[id] = nil
-    }
-
-    private func finish(_ result: Result<Void, any Error>) {
-        let waiter = waiter
-        self.waiter = nil
-        activeRequest = nil
-        yield(nil)
-        for observer in requestObservers.values {
-            observer.finish()
-        }
-        requestObservers = [:]
-
-        switch result {
-        case .success:
-            waiter?.resume()
-        case .failure(let error):
-            waiter?.resume(throwing: error)
-        }
-    }
-
-    private func yield(_ request: AuthorizationRequestCenter.Request?) {
-        for observer in requestObservers.values {
-            observer.yield(request)
-        }
-    }
-}
-
 private extension OAuthAuthenticationCoordinator.State {
     static func localTestState() -> Self {
         Self(
@@ -692,7 +597,7 @@ private extension OAuthAuthenticationCoordinator.State {
 private actor AuthorizationRequestRecorder {
     enum Event: Equatable {
         case cancel
-        case fail(OAuth.AuthorizationRequired)
+        case fail(String)
         case succeed
     }
 
@@ -704,34 +609,6 @@ private actor AuthorizationRequestRecorder {
 }
 
 private extension OpenMusicEventAuthorizationRequests {
-    static func mergeUpgradeHarness(_ harness: MergeAuthorizationUpgradeHarness) -> Self {
-        Self(
-            authorizeWithLoginHint: { requirement, loginHint in
-                try await harness.authorizeWithLoginHint(requirement, loginHint: loginHint)
-            },
-            broker: {
-                OAuth.AuthorizationBroker { requirement in
-                    throw OAuth.AuthorizationRequired.signIn(requirement)
-                }
-            },
-            requests: {
-                await harness.requests()
-            },
-            signUp: { requirement, _ in
-                throw OAuth.AuthorizationRequired.signIn(requirement)
-            },
-            succeed: {
-                await harness.succeed()
-            },
-            fail: { error in
-                await harness.fail(error)
-            },
-            cancel: {
-                await harness.cancel()
-            }
-        )
-    }
-
     static func recording(_ recorder: AuthorizationRequestRecorder) -> Self {
         Self(
             broker: { .init { _ in } },
@@ -745,7 +622,7 @@ private extension OpenMusicEventAuthorizationRequests {
                 await recorder.record(.succeed)
             },
             fail: { error in
-                await recorder.record(.fail(error))
+                await recorder.record(.fail(String(describing: error)))
             },
             cancel: {
                 await recorder.record(.cancel)

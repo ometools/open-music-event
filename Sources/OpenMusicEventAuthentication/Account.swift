@@ -406,7 +406,6 @@ public struct Account {
         )
         case authenticationSheetDismissed
         case customSignUpServerOptionTapped
-        case loginResponse(Result<OAuth.Session, OAuthAccount.LoginFailure>)
         case selectedModeChanged(Mode)
         case signOutAllButtonTapped
         case signInActorIdentityTapped(ActorIdentity)
@@ -417,13 +416,11 @@ public struct Account {
         case signInFormSubmitted(SignInFormValue)
         case signUpForm(SignUpFormFeature.Action)
         case signUpFormSubmitted(SignUpFormValue)
-        case signUpResponse(Result<OAuth.Session, OAuthAccount.LoginFailure>)
         case signUpServerOptionTapped(OAuthSignUpServerOption.ID)
         case submitAuthenticationFormButtonTapped
     }
 
     @Dependency(\.actorIdentityLookup) var actorIdentityLookup
-    @Dependency(\.openMusicEventAccountAuthorizationClient) var accountAuthorizationClient
     @Dependency(\.openMusicEventAccountSessionValidationClient) var accountSessionValidationClient
     @Dependency(\.openMusicEventAuthorizationRequests) var authorizationRequests
     @Dependency(\.openMusicEventSignUpServerConfiguration) var signUpServerConfiguration
@@ -603,34 +600,6 @@ public struct Account {
                     state.usesCustomSignUpServerHost = true
                     state.signUpServerHost = ""
 
-                case .loginResponse(.success(let session)):
-                    state.oauth.state.isLoginInProgress = false
-                    state.oauth.state.errorMessage = nil
-                    state.oauth.state.$sessionStore.withLock {
-                        $0.upsert(session)
-                    }
-                    state.accountSessionValidationStatuses[session.accountID] = .accepted
-                    state.$selectedSessionID.withLock {
-                        $0 = session.accountID
-                    }
-                    state.syncRecentlyUsedAccountIDs(selectedAccountID: session.accountID)
-                    state.isAuthenticationSheetPresented = false
-                    let sessionStore = state.oauth.state.$sessionStore
-                    let selectedSessionID = state.$selectedSessionID
-                    store.addTask {
-                        await saveOpenMusicEventAuthenticationStorage(
-                            sessionStore: sessionStore,
-                            selectedSessionID: selectedSessionID
-                        )
-                    }
-
-                case .loginResponse(.failure(.cancelled)):
-                    state.oauth.state.isLoginInProgress = false
-
-                case .loginResponse(.failure(.failed)):
-                    state.oauth.state.isLoginInProgress = false
-                    state.oauth.state.errorMessage = "Sign in failed."
-
                 case .selectedModeChanged(let mode):
                     state.selectedMode = mode
 
@@ -673,22 +642,36 @@ public struct Account {
                     guard !state.isSignUpInProgress else { return }
                     let loginHint = value.handle.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !loginHint.isEmpty else { return }
-                    let sessionStore = state.oauth.state.sessionStore
                     let authRequirement = state.authRequirement
+                    let sessionStore = state.oauth.state.$sessionStore
+                    let selectedSessionID = state.$selectedSessionID
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = true
                     store.addTask {
                         do {
-                            let session = try await accountAuthorizationClient.signIn(
+                            try await authorizationRequests.authorizeWithLoginHint(
                                 authRequirement,
-                                loginHint,
-                                sessionStore
+                                loginHint
                             )
-                            try store.send(.loginResponse(.success(session)))
+                            guard let session = sessionStore.wrappedValue.selectedSession else {
+                                throw OAuth.AuthorizationRequired.signIn(authRequirement)
+                            }
+                            try store.modify {
+                                $0.finishAuthentication(session)
+                            }
+                            await saveOpenMusicEventAuthenticationStorage(
+                                sessionStore: sessionStore,
+                                selectedSessionID: selectedSessionID
+                            )
                         } catch is CancellationError {
-                            try store.send(.loginResponse(.failure(.cancelled)))
+                            try store.modify {
+                                $0.oauth.state.isLoginInProgress = false
+                            }
                         } catch {
-                            try store.send(.loginResponse(.failure(.failed(error.localizedDescription))))
+                            try store.modify {
+                                $0.oauth.state.isLoginInProgress = false
+                                $0.oauth.state.errorMessage = "Sign in failed."
+                            }
                         }
                     }
 
@@ -700,49 +683,37 @@ public struct Account {
                     let serverHost = value.serverHost.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !serverHost.isEmpty else { return }
                     let authRequirement = state.authRequirement
+                    let sessionStore = state.oauth.state.$sessionStore
+                    let selectedSessionID = state.$selectedSessionID
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isSignUpInProgress = true
                     store.addTask {
                         do {
-                            let session = try await accountAuthorizationClient.signUp(
+                            try await authorizationRequests.signUp(
                                 authRequirement,
                                 serverHost
                             )
-                            try store.send(.signUpResponse(.success(session)))
+                            guard let session = sessionStore.wrappedValue.selectedSession else {
+                                throw OAuth.AuthorizationRequired.signIn(authRequirement)
+                            }
+                            try store.modify {
+                                $0.finishAuthentication(session)
+                            }
+                            await saveOpenMusicEventAuthenticationStorage(
+                                sessionStore: sessionStore,
+                                selectedSessionID: selectedSessionID
+                            )
                         } catch is CancellationError {
-                            try store.send(.signUpResponse(.failure(.cancelled)))
+                            try store.modify {
+                                $0.oauth.state.isSignUpInProgress = false
+                            }
                         } catch {
-                            try store.send(.signUpResponse(.failure(.failed(error.localizedDescription))))
+                            try store.modify {
+                                $0.oauth.state.isSignUpInProgress = false
+                                $0.oauth.state.errorMessage = "Sign up failed."
+                            }
                         }
                     }
-
-                case .signUpResponse(.success(let session)):
-                    state.oauth.state.isSignUpInProgress = false
-                    state.oauth.state.errorMessage = nil
-                    state.oauth.state.$sessionStore.withLock {
-                        $0.upsert(session)
-                    }
-                    state.accountSessionValidationStatuses[session.accountID] = .accepted
-                    state.$selectedSessionID.withLock {
-                        $0 = session.accountID
-                    }
-                    state.syncRecentlyUsedAccountIDs(selectedAccountID: session.accountID)
-                    state.isAuthenticationSheetPresented = false
-                    let sessionStore = state.oauth.state.$sessionStore
-                    let selectedSessionID = state.$selectedSessionID
-                    store.addTask {
-                        await saveOpenMusicEventAuthenticationStorage(
-                            sessionStore: sessionStore,
-                            selectedSessionID: selectedSessionID
-                        )
-                    }
-
-                case .signUpResponse(.failure(.cancelled)):
-                    state.oauth.state.isSignUpInProgress = false
-
-                case .signUpResponse(.failure(.failed)):
-                    state.oauth.state.isSignUpInProgress = false
-                    state.oauth.state.errorMessage = "Sign up failed."
 
                 case .signUpServerOptionTapped(let id):
                     guard let option = state.signUpServerConfiguration.availableOption(id: id),
@@ -834,6 +805,23 @@ public struct Account {
         ],
         minimumQueryLength: 2
     )
+}
+
+private extension Account.State {
+    mutating func finishAuthentication(_ session: OAuth.Session) {
+        oauth.state.isLoginInProgress = false
+        oauth.state.isSignUpInProgress = false
+        oauth.state.errorMessage = nil
+        oauth.state.$sessionStore.withLock {
+            $0.upsert(session)
+        }
+        accountSessionValidationStatuses[session.accountID] = .accepted
+        $selectedSessionID.withLock {
+            $0 = session.accountID
+        }
+        syncRecentlyUsedAccountIDs(selectedAccountID: session.accountID)
+        isAuthenticationSheetPresented = false
+    }
 }
 
 private extension Account.SignInFormFeature {

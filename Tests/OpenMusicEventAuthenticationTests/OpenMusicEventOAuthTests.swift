@@ -7,6 +7,7 @@ import Foundation
 import HTTPClient
 import HTTPTypes
 import Sharing
+import Synchronization
 import TCATProtoAuthentication
 import Testing
 import WebMetadataClient
@@ -408,65 +409,23 @@ struct OpenMusicEventOAuthTests {
     }
 
     @Test
-    func preparedAuthorizationBrokerAutoStartsStoredSessionPermissionUpgrade() async throws {
-        OpenMusicEventOAuth.resetStoredSession()
-        let session = openMusicEventTestSession(
-            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
-        )
-        OpenMusicEventOAuth.sessionStore.withLock {
-            $0.upsert(session)
+    func preparedDependenciesPreserveSharedAuthorizationBroker() async throws {
+        let recordedRequirements = Mutex([OAuth.AuthRequirement]())
+        let broker = OAuth.AuthorizationBroker { requirement in
+            recordedRequirements.withLock { $0.append(requirement) }
         }
-        OpenMusicEventOAuth.selectedSessionID.withLock {
-            $0 = session.accountID
-        }
-        defer {
-            OpenMusicEventOAuth.resetStoredSession()
-        }
-        let center = AuthorizationRequestCenter()
         var dependencies = DependencyValues()
-        dependencies.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
-            center: center
-        )
+        dependencies.oauthAuthorizationBroker = broker
         OpenMusicEventOAuth.prepareDependencies(&dependencies)
-        let broker = dependencies.oauthAuthorizationBroker
-        let observedRequest = await observeAuthorizationRequest(from: center)
-        let authorization = Task {
-            try await broker.authorize(OpenMusicEventOAuth.proposalAuthRequirement)
-        }
 
-        let request = try #require(await observedRequest.value)
-        await center.cancel()
-        _ = await authorization.result
-
-        #expect(request.requirement == OpenMusicEventOAuth.proposalAuthRequirement)
-        #expect(request.loginHint == session.accountID.rawValue.description)
-        #expect(request.startsImmediately)
-    }
-
-    @Test
-    func preparedAuthorizationBrokerKeepsLoggedOutAuthorizationRequestManual() async throws {
-        OpenMusicEventOAuth.resetStoredSession()
-        defer {
-            OpenMusicEventOAuth.resetStoredSession()
-        }
-        let center = AuthorizationRequestCenter()
-        var dependencies = DependencyValues()
-        dependencies.openMusicEventAuthorizationRequests = OpenMusicEventAuthorizationRequests(
-            center: center
+        try await dependencies.oauthAuthorizationBroker.authorize(
+            OpenMusicEventOAuth.proposalAuthRequirement
         )
-        OpenMusicEventOAuth.prepareDependencies(&dependencies)
-        let broker = dependencies.oauthAuthorizationBroker
-        let observedRequest = await observeAuthorizationRequest(from: center)
-        let authorization = Task {
-            try await broker.authorize(OpenMusicEventOAuth.proposalAuthRequirement)
-        }
 
-        let request = try #require(await observedRequest.value)
-        await center.cancel()
-        _ = await authorization.result
-
-        #expect(request.requirement == OpenMusicEventOAuth.proposalAuthRequirement)
-        #expect(request.startsImmediately == false)
+        expectNoDifference(
+            recordedRequirements.withLock { $0 },
+            [OpenMusicEventOAuth.proposalAuthRequirement]
+        )
     }
 
     @Test
@@ -760,21 +719,6 @@ private let testSignUpServerConfiguration = OAuthSignUpServerConfiguration(
 
 private func signUpServerFaviconURL(host: String) -> URL {
     URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=128")!
-}
-
-private func observeAuthorizationRequest(
-    from center: AuthorizationRequestCenter
-) async -> Task<AuthorizationRequestCenter.Request?, Never> {
-    let stream = await center.requests()
-    return Task {
-        var iterator = stream.makeAsyncIterator()
-        while let yieldedRequest = await iterator.next() {
-            if let request = yieldedRequest {
-                return request
-            }
-        }
-        return nil
-    }
 }
 
 private func openMusicEventTestSession(

@@ -86,13 +86,18 @@ struct TangledSourceDownloadFeatureTests {
         // Opening the downloaded workspace remains attendee-only even when policy allows authoring.
         store.send(.didTapTeamWorkspace(sourceBaselineID))
 
-        #expect(store.state.teamWorkspaceDetail?.content.sourceBaselineID == sourceBaselineID)
-        #expect(store.state.teamWorkspaceDetail?.access == .attendee)
+        #expect(
+            store.state.teamWorkspaceDetail?.content.content.sourceBaselineID
+                == sourceBaselineID
+        )
+        #expect(store.state.teamWorkspaceDetail?.content.access == .attendee)
         #expect(authoringRequests.withLock { $0.isEmpty })
         #expect(preparedWorkspaceIDs.withLock { $0.isEmpty })
 
         // The explicit authoring action authorizes and promotes the archive to an editable source.
-        let entryTask = store.send(.teamWorkspaceDetail(.enterButtonTapped))
+        let entryTask = store.send(
+            .teamWorkspaceDetail(.content(.enterButtonTapped))
+        )
         await entryTask?.value
 
         expectNoDifference(
@@ -103,7 +108,10 @@ struct TangledSourceDownloadFeatureTests {
             preparedWorkspaceIDs.withLock { $0 },
             [workspaceID]
         )
-        #expect(store.state.teamWorkspaceDetail?.access == .authoring([.editContent]))
+        #expect(
+            store.state.teamWorkspaceDetail?.content.access
+                == .authoring([.editContent])
+        )
     }
 
     @Test
@@ -228,11 +236,15 @@ struct TangledSourceDownloadFeatureTests {
         } operation: {
             var initialState = MyEvents.State()
             initialState.teamWorkspaceDetail = MyEvents.TeamWorkspace.State(
-                workspaceID: EditingWorkspaceRecord.ID(
-                    sourceBaselineID: firstSourceBaselineID
-                )
+                storage: OpenMusicEventOAuth.storage
             ) {
-                TeamWorkspaceDetail.State(sourceBaselineID: firstSourceBaselineID)
+                OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
+                    workspaceID: EditingWorkspaceRecord.ID(
+                        sourceBaselineID: firstSourceBaselineID
+                    )
+                ) {
+                    TeamWorkspaceDetail.State(sourceBaselineID: firstSourceBaselineID)
+                }
             }
             return TestStore(initialState: initialState) {
                 MyEvents()

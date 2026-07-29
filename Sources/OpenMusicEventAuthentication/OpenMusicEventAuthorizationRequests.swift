@@ -38,59 +38,6 @@ public extension DependencyValues {
 }
 
 public extension OpenMusicEventAuthorizationRequests {
-    func openMusicEventAutoStartingAuthorizationUpgrades(
-        session: @escaping @Sendable () -> OAuth.Session?,
-        sessionStore: @escaping @Sendable () -> OAuth.SessionStore,
-        appManifest: OAuth.AppManifest
-    ) -> Self {
-        let authorizeWithLoginHint = authorizeWithLoginHint
-        let broker = broker
-        let requests = requests
-        let signUp = signUp
-        let signUpWithConfiguration = signUpWithConfiguration
-        let succeed = succeed
-        let fail = fail
-        let cancel = cancel
-
-        return Self(
-            authorizeWithLoginHint: authorizeWithLoginHint,
-            broker: {
-                let upstreamBroker = broker()
-                return OAuth.AuthorizationBroker { requirement in
-                    guard let currentSession = session() ?? sessionStore().selectedSession
-                    else {
-                        try await upstreamBroker.authorize(requirement)
-                        return
-                    }
-
-                    switch OAuth.authorizationStatus(
-                        for: requirement,
-                        session: currentSession,
-                        manifest: appManifest
-                    ) {
-                    case .satisfied:
-                        return
-
-                    case .upgradeAvailable:
-                        try await authorizeWithLoginHint(
-                            requirement,
-                            currentSession.accountID.rawValue.description
-                        )
-
-                    case .signInRequired, .wrongAccount, .impossible:
-                        try await upstreamBroker.authorize(requirement)
-                    }
-                }
-            },
-            requests: requests,
-            signUp: signUp,
-            signUpWithConfiguration: signUpWithConfiguration,
-            succeed: succeed,
-            fail: fail,
-            cancel: cancel
-        )
-    }
-
     func openMusicEventDefaultingSignUpServerConfiguration(
         _ signUpServerConfiguration: OAuthSignUpServerConfiguration
     ) -> Self {

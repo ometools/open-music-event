@@ -16,6 +16,7 @@ import OpenMusicEventWhiteLabel
 import SourceControlClient
 import SourceControlClientGit
 import SourceEditing
+import TCATProtoAuthentication
 
 /// A logger for the OpenMusicEventApp module.
 let logger: Logger = Logger(subsystem: "fm.woody.openmusicevent", category: "OpenMusicEventApp")
@@ -97,12 +98,14 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 /// The shared top-level view for the app, loaded from the platform-specific App delegates below.
 ///
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
+public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventAppRoot>
+
 /* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
     @MainActor
     private static let genericStore = makeStore(variant: .generic)
 
     private let eventViewerPresentationLaunchAnimation: EventViewerPresentationLaunchAnimation
-    let store: StoreOf<OpenMusicEventAppRoot>
+    let store: StoreOf<OpenMusicEventApplication>
     @AppStorage(TechnicalDetails.userDefaultsKey) var technicalDetailsUserPreference = false
 
     /* SKIP @bridge */public init() {
@@ -112,7 +115,7 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
     }
 
     @MainActor
-    public init(store: StoreOf<OpenMusicEventAppRoot>) {
+    public init(store: StoreOf<OpenMusicEventApplication>) {
         self.eventViewerPresentationLaunchAnimation = Self.launchAnimation(for: store)
         self.store = store
     }
@@ -125,7 +128,9 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
     }
 
     public var body: some View {
-        OpenMusicEventAppRootView(store: store)
+        OpenMusicEventAuthorizationView(store: store) { rootStore in
+            OpenMusicEventAppRootView(store: rootStore)
+        }
             .environment(
                 \.eventViewerPresentationLaunchAnimation,
                 eventViewerPresentationLaunchAnimation
@@ -142,14 +147,19 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
     @MainActor
     public static func makeStore(
         variant: OpenMusicEventAppVariant
-    ) -> StoreOf<OpenMusicEventAppRoot> {
-        StoreOf<OpenMusicEventAppRoot>(
-            initialState: .init(
-                variant: variant,
-                selectedEventIDAtLaunch: selectedEventIDAtLaunch(for: variant)
-            )
+    ) -> StoreOf<OpenMusicEventApplication> {
+        StoreOf<OpenMusicEventApplication>(
+            initialState: .init(storage: OpenMusicEventOAuth.storage) {
+                OpenMusicEventAppRoot.State(
+                    variant: variant,
+                    selectedEventIDAtLaunch: selectedEventIDAtLaunch(for: variant)
+                )
+            }
         ) {
-            OpenMusicEventAppRoot()
+            OpenMusicEventApplication(storage: OpenMusicEventOAuth.storage) {
+                OpenMusicEventAppRoot()
+            }
+            .presentAuthorizationFailures()
         }
     }
 
@@ -170,9 +180,9 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 
     @MainActor
     private static func launchAnimation(
-        for store: StoreOf<OpenMusicEventAppRoot>
+        for store: StoreOf<OpenMusicEventApplication>
     ) -> EventViewerPresentationLaunchAnimation {
-        store.eventViewer == nil ? .automatic : .disabled
+        store.content.eventViewer == nil ? .automatic : .disabled
     }
 }
 

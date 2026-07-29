@@ -241,6 +241,11 @@ public struct Authoring<Content: FeatureProtocol> {
         public var workspaceID: EditingWorkspaceRecord.ID {
             attendeeWorkspace.id
         }
+
+        public mutating func invalidateAuthoring() {
+            $grant.withLock { $0 = nil }
+            entryFailure = nil
+        }
     }
 
     public enum Action {
@@ -262,8 +267,7 @@ public struct Authoring<Content: FeatureProtocol> {
                 enterAuthoring(state: &state)
 
             case .exitButtonTapped:
-                state.$grant.withLock { $0 = nil }
-                state.entryFailure = nil
+                state.invalidateAuthoring()
             }
         }
         Scope(\.content, action: \.content) {

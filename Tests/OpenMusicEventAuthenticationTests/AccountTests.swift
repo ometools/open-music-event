@@ -180,7 +180,7 @@ struct AccountTests {
 
     @Test
     func `selecting a sign-in autofill starts web authorization`() async throws {
-        let accountAuthorization = AccountDirectAuthorizationRecorder(
+        let authorizationRequests = AccountAuthorizationRecorder(
             signInContinuation: .suspended
         )
         let typeaheadQueries = AccountObservationRecorder<String>()
@@ -190,6 +190,9 @@ struct AccountTests {
             displayName: "Alice Example",
             source: .typeahead
         )
+        let state = Account.State.localTestState(
+            isAuthenticationSheetPresented: true
+        )
         let store = withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
@@ -197,13 +200,12 @@ struct AccountTests {
                 await typeaheadQueries.record(query.normalizedText)
                 return [identity]
             }
-            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                authorizationRequests,
+                sessionStore: state.oauth.state.$sessionStore
+            )
         } operation: {
-            Store(
-                initialState: Account.State.localTestState(
-                    isAuthenticationSheetPresented: true
-                )
-            ) { Account() }
+            Store(initialState: state) { Account() }
         }
 
         // The user searches for their account and sees Alice's profile offered as an autofill.
@@ -222,20 +224,19 @@ struct AccountTests {
 
         #expect(store.signInLoginHint == "alice.bsky.social")
         #expect(store.signInActorSearchResults.isEmpty)
-        let signInRequests = await accountAuthorization.signInRequests
+        let signInRequests = await authorizationRequests.loginRequests
         expectNoDifference(
             signInRequests,
             [
-                AccountDirectAuthorizationRecorder.SignInRequest(
+                AccountAuthorizationRecorder.LoginRequest(
                     requirement: OpenMusicEventOAuth.baseAuthRequirement,
-                    loginHint: "alice.bsky.social",
-                    sessionStore: OAuth.SessionStore()
+                    loginHint: "alice.bsky.social"
                 )
             ]
         )
 
         // Completing the web flow signs the user in and closes the sheet.
-        await accountAuthorization.resumeSignIn(returning: .placeholder)
+        await authorizationRequests.resumeSignIn(returning: .placeholder)
         await selectionTask?.value
         try await waitForCondition {
             store.session == .placeholder && !store.isAuthenticationSheetPresented
@@ -700,37 +701,40 @@ struct AccountTests {
     }
 
     @Test
-    func signInFormLaunchesDirectAuthorizationWithLoginHint() async {
-        let accountAuthorization = AccountDirectAuthorizationRecorder()
+    func signInFormLaunchesSharedAuthorizationWithLoginHint() async throws {
         let authorizationRequests = AccountAuthorizationRecorder()
+        let state = Account.State.localTestState(
+            isAuthenticationSheetPresented: true,
+            signInLoginHint: "  woody.fm  "
+        )
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
-            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
-            $0.openMusicEventAuthorizationRequests = .recording(authorizationRequests)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                authorizationRequests,
+                sessionStore: state.oauth.state.$sessionStore
+            )
         } operation: {
-            Store(
-                initialState: Account.State.localTestState(
-                    isAuthenticationSheetPresented: true,
-                    signInLoginHint: "  woody.fm  "
-                )
-            ) {
+            Store(initialState: state) {
                 Account()
             }
         }
 
         let task = store.send(.submitAuthenticationFormButtonTapped)
         await task?.value
+        try await waitForCondition {
+            store.session == .placeholder
+                && !store.isAuthenticationSheetPresented
+                && !store.isLoginInProgress
+        }
 
         #expect(
-            await accountAuthorization.signInRequests == [
-                AccountDirectAuthorizationRecorder.SignInRequest(
+            await authorizationRequests.loginRequests == [
+                AccountAuthorizationRecorder.LoginRequest(
                     requirement: OpenMusicEventOAuth.baseAuthRequirement,
-                    loginHint: "woody.fm",
-                    sessionStore: OAuth.SessionStore()
+                    loginHint: "woody.fm"
                 )
             ]
         )
-        #expect(await authorizationRequests.loginRequests.isEmpty)
         #expect(store.session == .placeholder)
         #expect(store.isAuthenticationSheetPresented == false)
         #expect(store.isLoginInProgress == false)
@@ -743,21 +747,24 @@ struct AccountTests {
         let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(alice)
-        let accountAuthorization = AccountDirectAuthorizationRecorder(
+        let sessionStore = Shared(value: sessionStoreValue)
+        let authorizationRequests = AccountAuthorizationRecorder(
             signInContinuation: .suspended
+        )
+        let state = Account.State.localTestState(
+            isAuthenticationSheetPresented: true,
+            signInLoginHint: "bob.example.com",
+            sessionStore: sessionStore,
+            selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
         )
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
-            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                authorizationRequests,
+                sessionStore: sessionStore
+            )
         } operation: {
-            Store(
-                initialState: Account.State.localTestState(
-                    isAuthenticationSheetPresented: true,
-                    signInLoginHint: "bob.example.com",
-                    sessionStore: Shared(value: sessionStoreValue),
-                    selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
-                )
-            ) {
+            Store(initialState: state) {
                 Account()
             }
         }
@@ -767,16 +774,15 @@ struct AccountTests {
             store.isLoginInProgress
         }
         #expect(
-            await accountAuthorization.signInRequests == [
-                AccountDirectAuthorizationRecorder.SignInRequest(
+            await authorizationRequests.loginRequests == [
+                AccountAuthorizationRecorder.LoginRequest(
                     requirement: OpenMusicEventOAuth.baseAuthRequirement,
-                    loginHint: "bob.example.com",
-                    sessionStore: sessionStoreValue
+                    loginHint: "bob.example.com"
                 )
             ]
         )
 
-        await accountAuthorization.resumeSignIn(returning: bob)
+        await authorizationRequests.resumeSignIn(returning: bob)
         await task?.value
         try await waitForCondition {
             store.session == bob
@@ -790,19 +796,21 @@ struct AccountTests {
 
     @Test
     func signInFormKeepsSheetPresentedWhileAuthorizationIsInFlight() async throws {
-        let accountAuthorization = AccountDirectAuthorizationRecorder(
+        let authorizationRequests = AccountAuthorizationRecorder(
             signInContinuation: .suspended
+        )
+        let state = Account.State.localTestState(
+            isAuthenticationSheetPresented: true,
+            signInLoginHint: "woody.fm"
         )
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
-            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                authorizationRequests,
+                sessionStore: state.oauth.state.$sessionStore
+            )
         } operation: {
-            Store(
-                initialState: Account.State.localTestState(
-                    isAuthenticationSheetPresented: true,
-                    signInLoginHint: "woody.fm"
-                )
-            ) {
+            Store(initialState: state) {
                 Account()
             }
         }
@@ -816,10 +824,12 @@ struct AccountTests {
         #expect(store.isLoginInProgress)
         #expect(store.errorMessage == nil)
 
-        await accountAuthorization.resumeSignIn(returning: .placeholder)
+        await authorizationRequests.resumeSignIn(returning: .placeholder)
         await task?.value
         try await waitForCondition {
             store.session == .placeholder
+                && !store.isAuthenticationSheetPresented
+                && !store.isLoginInProgress
         }
 
         #expect(store.isAuthenticationSheetPresented == false)
@@ -829,19 +839,21 @@ struct AccountTests {
 
     @Test
     func signInCancellationClearsProgressWithoutError() async throws {
-        let accountAuthorization = AccountDirectAuthorizationRecorder(
+        let authorizationRequests = AccountAuthorizationRecorder(
             signInContinuation: .suspended
+        )
+        let state = Account.State.localTestState(
+            isAuthenticationSheetPresented: true,
+            signInLoginHint: "woody.fm"
         )
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
-            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                authorizationRequests,
+                sessionStore: state.oauth.state.$sessionStore
+            )
         } operation: {
-            Store(
-                initialState: Account.State.localTestState(
-                    isAuthenticationSheetPresented: true,
-                    signInLoginHint: "woody.fm"
-                )
-            ) {
+            Store(initialState: state) {
                 Account()
             }
         }
@@ -850,7 +862,7 @@ struct AccountTests {
         try await waitForCondition {
             store.isLoginInProgress
         }
-        await accountAuthorization.resumeSignIn(throwing: CancellationError())
+        await authorizationRequests.resumeSignIn(throwing: CancellationError())
         await task?.value
         try await waitForCondition {
             !store.isLoginInProgress
@@ -863,38 +875,40 @@ struct AccountTests {
     }
 
     @Test
-    func signUpFormLaunchesDirectAuthorizationWithSelectedServer() async {
-        let accountAuthorization = AccountDirectAuthorizationRecorder()
+    func signUpFormLaunchesSharedAuthorizationWithSelectedServer() async throws {
         let authorizationRequests = AccountAuthorizationRecorder()
+        let state = Account.State.localTestState(
+            isAuthenticationSheetPresented: true,
+            selectedMode: .signUp
+        )
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
-            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
-            $0.openMusicEventAuthorizationRequests = .recording(authorizationRequests)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                authorizationRequests,
+                sessionStore: state.oauth.state.$sessionStore
+            )
         } operation: {
-            Store(
-                initialState: Account.State.localTestState(
-                    isAuthenticationSheetPresented: true,
-                    selectedMode: .signUp
-                )
-            ) {
+            Store(initialState: state) {
                 Account()
             }
         }
 
         let task = store.send(.submitAuthenticationFormButtonTapped)
         await task?.value
+        try await waitForCondition {
+            store.session == .placeholder
+                && !store.isAuthenticationSheetPresented
+                && !store.isSignUpInProgress
+        }
 
         #expect(
-            await accountAuthorization.signUpRequests == [
-                AccountDirectAuthorizationRecorder.SignUpRequest(
+            await authorizationRequests.signUpRequests == [
+                AccountAuthorizationRecorder.SignUpRequest(
                     requirement: OpenMusicEventOAuth.baseAuthRequirement,
-                    serverHost: OpenMusicEventOAuth
-                        .signUpServerConfiguration
-                        .defaultServerHost
+                    serverHost: state.signUpServerConfiguration.defaultServerHost
                 )
             ]
         )
-        #expect(await authorizationRequests.signUpRequests.isEmpty)
         #expect(store.session == .placeholder)
         #expect(store.isAuthenticationSheetPresented == false)
         #expect(store.isSignUpInProgress == false)
@@ -920,7 +934,7 @@ struct AccountTests {
             wrappedValue: Atmosphere.Account.ID?.none,
             KeychainSharedKey(item: selectedSessionIDItem)
         )
-        let accountAuthorization = AccountDirectAuthorizationRecorder()
+        let authorizationRequests = AccountAuthorizationRecorder()
         let state = Account.State.localTestState(
             selectedMode: .signUp,
             sessionStore: sessionStore,
@@ -929,7 +943,10 @@ struct AccountTests {
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
             $0.keychainStorage = .inMemory(keychainStorage)
-            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                authorizationRequests,
+                sessionStore: sessionStore
+            )
         } operation: {
             Store(initialState: state) {
                 Account()
@@ -939,7 +956,7 @@ struct AccountTests {
         let task = store.send(.submitAuthenticationFormButtonTapped)
         await task?.value
         try await waitForCondition {
-            store.session == .placeholder
+            store.session == .placeholder && !store.isSignUpInProgress
         }
 
         #expect(store.session == .placeholder)
@@ -971,19 +988,21 @@ struct AccountTests {
 
     @Test
     func signUpCancellationClearsProgressWithoutError() async throws {
-        let accountAuthorization = AccountDirectAuthorizationRecorder(
+        let authorizationRequests = AccountAuthorizationRecorder(
             signUpContinuation: .suspended
+        )
+        let state = Account.State.localTestState(
+            isAuthenticationSheetPresented: true,
+            selectedMode: .signUp
         )
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
-            $0.openMusicEventAccountAuthorizationClient = .recording(accountAuthorization)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                authorizationRequests,
+                sessionStore: state.oauth.state.$sessionStore
+            )
         } operation: {
-            Store(
-                initialState: Account.State.localTestState(
-                    isAuthenticationSheetPresented: true,
-                    selectedMode: .signUp
-                )
-            ) {
+            Store(initialState: state) {
                 Account()
             }
         }
@@ -992,7 +1011,7 @@ struct AccountTests {
         try await waitForCondition {
             store.isSignUpInProgress
         }
-        await accountAuthorization.resumeSignUp(throwing: CancellationError())
+        await authorizationRequests.resumeSignUp(throwing: CancellationError())
         await task?.value
         try await waitForCondition {
             !store.isSignUpInProgress
@@ -1012,7 +1031,10 @@ struct AccountTests {
             $0 = OAuth.Session.placeholder.accountID
         }
         let store = withDependencies {
-            $0.openMusicEventAuthorizationRequests = .recording(recorder)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                recorder,
+                sessionStore: state.oauth.state.$sessionStore
+            )
         } operation: {
             Store(initialState: state) {
                 Account()
@@ -1036,7 +1058,10 @@ struct AccountTests {
             $0 = OAuth.Session.placeholder.accountID
         }
         let store = withDependencies {
-            $0.openMusicEventAuthorizationRequests = .recording(recorder)
+            $0.openMusicEventAuthorizationRequests = .recording(
+                recorder,
+                sessionStore: state.oauth.state.$sessionStore
+            )
         } operation: {
             Store(initialState: state) {
                 Account()
@@ -1142,6 +1167,11 @@ private let accountTestSignUpServerConfiguration = OAuthSignUpServerConfiguratio
 )
 
 private actor AccountAuthorizationRecorder {
+    enum AuthorizationContinuation {
+        case immediate
+        case suspended
+    }
+
     struct LoginRequest: Equatable {
         var requirement: OAuth.AuthRequirement
         var loginHint: String
@@ -1149,17 +1179,26 @@ private actor AccountAuthorizationRecorder {
 
     struct SignUpRequest: Equatable {
         var requirement: OAuth.AuthRequirement
-        var signUpServerConfiguration: OAuthSignUpServerConfiguration
+        var serverHost: String
     }
 
     private(set) var didCancel = false
     private(set) var loginRequests: [LoginRequest] = []
     private(set) var requirements: [OAuth.AuthRequirement] = []
     private(set) var signUpRequests: [SignUpRequest] = []
-    private let signUpError: (any Error)?
+    private let signInContinuationMode: AuthorizationContinuation
+    private let signUpContinuationMode: AuthorizationContinuation
+    private var pendingSignInResume: Result<OAuth.Session, any Error>?
+    private var pendingSignUpResume: Result<OAuth.Session, any Error>?
+    private var signInContinuation: CheckedContinuation<OAuth.Session, any Error>?
+    private var signUpContinuation: CheckedContinuation<OAuth.Session, any Error>?
 
-    init(signUpError: (any Error)? = nil) {
-        self.signUpError = signUpError
+    init(
+        signInContinuation: AuthorizationContinuation = .immediate,
+        signUpContinuation: AuthorizationContinuation = .immediate
+    ) {
+        self.signInContinuationMode = signInContinuation
+        self.signUpContinuationMode = signUpContinuation
     }
 
     func recordCancel() {
@@ -1173,75 +1212,11 @@ private actor AccountAuthorizationRecorder {
     func recordLogin(
         _ requirement: OAuth.AuthRequirement,
         loginHint: String
-    ) {
+    ) async throws -> OAuth.Session {
         loginRequests.append(
             LoginRequest(
                 requirement: requirement,
                 loginHint: loginHint
-            )
-        )
-    }
-
-    func recordSignUp(
-        _ requirement: OAuth.AuthRequirement,
-        signUpServerConfiguration: OAuthSignUpServerConfiguration
-    ) throws {
-        signUpRequests.append(
-            SignUpRequest(
-                requirement: requirement,
-                signUpServerConfiguration: signUpServerConfiguration
-            )
-        )
-        if let signUpError {
-            throw signUpError
-        }
-    }
-}
-
-private actor AccountDirectAuthorizationRecorder {
-    enum AuthorizationContinuation {
-        case immediate
-        case suspended
-    }
-
-    struct SignInRequest: Equatable {
-        var requirement: OAuth.AuthRequirement
-        var loginHint: String
-        var sessionStore: OAuth.SessionStore
-    }
-
-    struct SignUpRequest: Equatable {
-        var requirement: OAuth.AuthRequirement
-        var serverHost: String
-    }
-
-    private let signInContinuationMode: AuthorizationContinuation
-    private let signUpContinuationMode: AuthorizationContinuation
-    private var pendingSignInResume: Result<OAuth.Session, any Error>?
-    private var pendingSignUpResume: Result<OAuth.Session, any Error>?
-    private var signInContinuation: CheckedContinuation<OAuth.Session, any Error>?
-    private var signUpContinuation: CheckedContinuation<OAuth.Session, any Error>?
-    private(set) var signInRequests: [SignInRequest] = []
-    private(set) var signUpRequests: [SignUpRequest] = []
-
-    init(
-        signInContinuation: AuthorizationContinuation = .immediate,
-        signUpContinuation: AuthorizationContinuation = .immediate
-    ) {
-        self.signInContinuationMode = signInContinuation
-        self.signUpContinuationMode = signUpContinuation
-    }
-
-    func recordSignIn(
-        _ requirement: OAuth.AuthRequirement,
-        loginHint: String,
-        sessionStore: OAuth.SessionStore
-    ) async throws -> OAuth.Session {
-        signInRequests.append(
-            SignInRequest(
-                requirement: requirement,
-                loginHint: loginHint,
-                sessionStore: sessionStore
             )
         )
 
@@ -1348,10 +1323,17 @@ private actor AccountSessionValidationRecorder {
 }
 
 private extension OpenMusicEventAuthorizationRequests {
-    static func recording(_ recorder: AccountAuthorizationRecorder) -> Self {
+    static func recording(
+        _ recorder: AccountAuthorizationRecorder,
+        sessionStore: Shared<OAuth.SessionStore>
+    ) -> Self {
         Self(
             authorizeWithLoginHint: { requirement, loginHint in
-                await recorder.recordLogin(requirement, loginHint: loginHint)
+                let session = try await recorder.recordLogin(
+                    requirement,
+                    loginHint: loginHint
+                )
+                sessionStore.withLock { $0.upsert(session) }
             },
             broker: {
                 OAuth.AuthorizationBroker { requirement in
@@ -1364,18 +1346,18 @@ private extension OpenMusicEventAuthorizationRequests {
                 }
             },
             signUp: { requirement, serverHost in
-                try await recorder.recordSignUp(
+                let session = try await recorder.recordSignUp(
                     requirement,
-                    signUpServerConfiguration: OAuthSignUpServerConfiguration(
-                        defaultServerHost: serverHost
-                    )
+                    serverHost: serverHost
                 )
+                sessionStore.withLock { $0.upsert(session) }
             },
             signUpWithConfiguration: { requirement, configuration in
-                try await recorder.recordSignUp(
+                let session = try await recorder.recordSignUp(
                     requirement,
-                    signUpServerConfiguration: configuration
+                    serverHost: configuration.defaultServerHost
                 )
+                sessionStore.withLock { $0.upsert(session) }
             },
             succeed: {},
             fail: { _ in },
@@ -1391,25 +1373,5 @@ private extension OpenMusicEventAccountSessionValidationClient {
         Self { session in
             await recorder.validate(session)
         }
-    }
-}
-
-private extension OpenMusicEventAccountAuthorizationClient {
-    static func recording(_ recorder: AccountDirectAuthorizationRecorder) -> Self {
-        Self(
-            signIn: { requirement, loginHint, sessionStore in
-                try await recorder.recordSignIn(
-                    requirement,
-                    loginHint: loginHint,
-                    sessionStore: sessionStore
-                )
-            },
-            signUp: { requirement, serverHost in
-                try await recorder.recordSignUp(
-                    requirement,
-                    serverHost: serverHost
-                )
-            }
-        )
     }
 }

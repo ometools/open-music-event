@@ -311,13 +311,6 @@ public enum OpenMusicEventOAuth {
         dependencies.oauthAppManifest = appManifest
         dependencies.getSelectedOAuthSessionID = getSelectedOAuthSessionID
         dependencies.selectedOAuthSession = selectedSession
-        dependencies.oauthAuthorizationBroker = authorizationRequests
-            .openMusicEventAutoStartingAuthorizationUpgrades(
-                session: selectedSession.current,
-                sessionStore: { sessionStore.wrappedValue },
-                appManifest: appManifest
-            )
-            .broker()
         dependencies.oauthBrowserStrategy = .webAuthenticationSession
         dependencies.getDefaultSession = {
             selectedSession.current() ?? .placeholder
@@ -328,14 +321,8 @@ public enum OpenMusicEventOAuth {
         dependencies.oauthScopes = appManifest.basePermissions.permissions
             .sorted { $0.rawValue < $1.rawValue }
             .map { OAuth.Scope(rawValue: $0.rawValue) }
-        dependencies.errorInterceptors.append(
-            .openMusicEventTokenRefresh(
-                selectedSession: selectedSession,
-                authFailureMessage: authFailureMessage
-            )
-        )
         OpenMusicEventOAuthNetworkDiagnostics.install(into: &dependencies)
-        dependencies.xrpcAuthorizationGate = .defaultSessionAuthorization
+        dependencies.xrpcAuthorizationGate = .nonPresentingDefaultSessionAuthorization
     }
 
     public static func isCallbackURL(_ url: URL) -> Bool {

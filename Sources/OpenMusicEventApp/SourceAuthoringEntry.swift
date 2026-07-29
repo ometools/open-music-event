@@ -24,7 +24,7 @@ extension OpenMusicEventSourceEditing.AuthoringPolicyClient {
             case .team:
                 @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 try await authorizationBroker.authorize(
-                    OpenMusicEventOAuth.baseAuthRequirement
+                    OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
                 )
                 return [.editContent]
             }

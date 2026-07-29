@@ -262,6 +262,32 @@ extension UserStoryTests {
                     $0.whiteLabelRoot?.loadingPhase = .locatingSource
                 }
 
+                try await assertFirstLaunchAndEnterAuthoring(
+                    store: store,
+                    backend: backend
+                )
+                let expectedGeneratedStageStatus = try await editStageAndGeneratePatch(
+                    store: store,
+                    backend: backend,
+                    eventID: eventID,
+                    stageID: stageID,
+                    stageURL: stageURL
+                )
+                try await proposeMergeAndRefresh(
+                    store: store,
+                    backend: backend,
+                    stageID: stageID,
+                    expectedGeneratedStageStatus: expectedGeneratedStageStatus
+                )
+                await store.dismount()
+            }
+        }
+
+        @available(macOS 26, *)
+        private func assertFirstLaunchAndEnterAuthoring(
+            store: TestStoreActor<OpenMusicEventAppRoot>,
+            backend: TestivalPullRequestBackend
+        ) async throws {
             // The user launches the Testival app for the first time, and the
             // mounted root asks the source registry where Testival lives.
             await backend.firstLaunch.waitForSourceRegistryLookup()
@@ -297,22 +323,28 @@ extension UserStoryTests {
                 $0.whiteLabelRoot?.organizerID = UserStory.organizerID
                 $0.whiteLabelRoot?.teamWorkspaceDetail = snap(
                     WhiteLabelRoot.TeamWorkspace.State(
-                        workspaceID: EditingWorkspaceRecord.ID(
-                            sourceBaselineID: backend.sourceBaselineID
-                        )
+                        storage: OpenMusicEventOAuth.storage
                     ) {
-                        TeamWorkspaceDetail.State(sourceBaselineID: backend.sourceBaselineID)
+                        OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>.State(
+                            workspaceID: EditingWorkspaceRecord.ID(
+                                sourceBaselineID: backend.sourceBaselineID
+                            )
+                        ) {
+                            TeamWorkspaceDetail.State(
+                                sourceBaselineID: backend.sourceBaselineID
+                            )
+                        }
                     }
                 )
             }
             #expect(
-                await store[dynamicMember: \.whiteLabelRoot?.teamWorkspaceDetail?.content.sourceBaselineID]
+                await store[dynamicMember: \.storyTeamWorkspaceDetail?.sourceBaselineID]
                 == backend.sourceBaselineID
             )
 
             // The downloaded team workspace is hydrated from the imported source.
             let teamWorkspace = try #require(
-                await store[dynamicMember: \.whiteLabelRoot?.teamWorkspaceDetail?.content]
+                await store[dynamicMember: \.storyTeamWorkspaceDetail]
             )
             assertSnapshot(
                 of: teamWorkspace,
@@ -322,20 +354,27 @@ extension UserStoryTests {
 
             // The user enters authoring mode for the downloaded source workspace.
             let enterAuthoringTask = await store.send(
-                to: \.whiteLabelRoot!.teamWorkspaceDetail!,
-                .enterButtonTapped
+                to: \.storyTeamWorkspaceSpawn!,
+                .content(.enterButtonTapped)
             )
 
             // The workspace wrapper grants authoring only after authorization and preparation finish.
             await enterAuthoringTask?.value
             let authoringGrant = try #require(
-                await store[dynamicMember: \.whiteLabelRoot?.teamWorkspaceDetail?.grant]
+                await store[dynamicMember: \.storyTeamWorkspaceAuthoring?.grant]
             )
-            await store.expect {
-                $0.whiteLabelRoot?.teamWorkspaceDetail?.grant = authoringGrant
-            }
             expectNoDifference(authoringGrant.capabilities, [.editContent])
 
+        }
+
+        @available(macOS 26, *)
+        private func editStageAndGeneratePatch(
+            store: TestStoreActor<OpenMusicEventAppRoot>,
+            backend: TestivalPullRequestBackend,
+            eventID: OMERecord.Event.ID,
+            stageID: OMERecord.ID<OMERecord.Stage>,
+            stageURL: URL
+        ) async throws -> EventWorkspace.SourcePatchStatus {
             // The user opens Meadow from a Testival stage link.
             await store.send(.openURL(stageURL))
 
@@ -347,25 +386,28 @@ extension UserStoryTests {
             )
 
             #expect(
-                await store[dynamicMember: \.eventViewer?.access]
+                await store[dynamicMember: \.storyEventAuthoring?.access]
                 == .authoring([.editContent])
             )
-            #expect(await store[dynamicMember: \.eventViewer?.content.selectedFeature] == .stages)
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.stagesViewer?.destination?.stageDetail?.stageID]
+                await store[dynamicMember: \.storyEventViewer?.selectedFeature]
+                    == .stages
+            )
+            #expect(
+                await store[dynamicMember: \.storyEventViewer?.stagesViewer?.destination?.stageDetail?.stageID]
                 == stageID
             )
 
             // The user edits Meadow through the mounted stage detail.
             let editTask = await store.send(
-                to: \.eventViewer!.content.stagesViewer!.destination!.stageDetail!,
+                to: \.storyStageDetailSpawn!,
                 .editButtonTapped
             )
             await editTask?.value
 
             // Meadow's form opens with the source-backed draft.
             let stageForm = try #require(
-                await store[dynamicMember: \.eventViewer?.content.destination?.stageForm?.state]
+                await store[dynamicMember: \.storyEventViewer?.destination?.stageForm?.state]
             )
             #expect(stageForm.hasLoadedDraft)
             assertSnapshot(
@@ -376,7 +418,7 @@ extension UserStoryTests {
 
             // The user changes public stage data that should become the pull request.
             await store.modify {
-                $0.eventViewer?.content.destination.modify(\.stageForm) {
+                $0.storyEventViewer?.destination.modify(\.stageForm) {
                     $0.form.value.name = "Meadow Workshop"
                     $0.form.value.category = "workshop"
                     $0.form.value.sortIndex = "7"
@@ -386,7 +428,7 @@ extension UserStoryTests {
 
             // The user saves the edit into the local workspace database.
             await store.send(
-                to: \.eventViewer!.content.destination!.stageForm!,
+                to: \.storyStageFormSpawn!,
                 .saveButtonTapped
             )?.value
 
@@ -398,12 +440,12 @@ extension UserStoryTests {
 
             // The user switches to the Workspace tab to inspect unpublished changes.
             await store.modify {
-                $0.eventViewer?.content.selectedFeature = .workspace
+                $0.storyEventViewer?.selectedFeature = .workspace
             }
 
             // The Workspace query is the seam: it shows exactly what the local edit changed.
             let workspace = try #require(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.state]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.state]
             )
             assertSnapshot(
                 of: workspace.sourceWorkspaceSummary,
@@ -413,18 +455,16 @@ extension UserStoryTests {
 
             // The user checks the generated source patch before proposing it.
             let generateSourcePatchTask = await store.send(
-                to: \.eventViewer!.content.eventWorkspace!,
+                to: \.storyEventWorkspaceSpawn!,
                 .generateSourcePatchButtonTapped
-            ) {
-                $0.eventViewer?.content.eventWorkspace?.sourcePatchStatus = .generating
-            }
+            )
 
             await generateSourcePatchTask?.value
             await flushNestedSpawnEffects()
 
             // The generated patch is the source-level view of the same workspace diff.
             let sourcePatchStatus = await store[
-                dynamicMember: \.eventViewer?.content.eventWorkspace?.sourcePatchStatus
+                dynamicMember: \.storyEventViewer?.eventWorkspace?.sourcePatchStatus
             ]
             let expectedGeneratedStageStatus: EventWorkspace.SourcePatchStatus = .generated(
                 backend.expectedStagePatch,
@@ -437,33 +477,41 @@ extension UserStoryTests {
                 named: "generated-stage-patch"
             )
 
+            return expectedGeneratedStageStatus
+
+        }
+
+        @available(macOS 26, *)
+        private func proposeMergeAndRefresh(
+            store: TestStoreActor<OpenMusicEventAppRoot>,
+            backend: TestivalPullRequestBackend,
+            stageID: OMERecord.ID<OMERecord.Stage>,
+            expectedGeneratedStageStatus: EventWorkspace.SourcePatchStatus
+        ) async throws {
             // The user starts a proposal from the generated patch.
             let proposeChangeTask = await store.send(
-                to: \.eventViewer!.content.eventWorkspace!,
+                to: \.storyEventWorkspaceSpawn!,
                 .proposeChangeButtonTapped
-            ) {
-                $0.eventViewer?.content.eventWorkspace?.isPreparingSourceProposal = true
-                $0.eventViewer?.content.eventWorkspace?.sourcePatchStatus = .generating
-            }
+            )
 
             await proposeChangeTask?.value
             await flushNestedSpawnEffects()
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.isPreparingSourceProposal]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.isPreparingSourceProposal]
                 == false
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.sourcePatchStatus]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.sourcePatchStatus]
                 == expectedGeneratedStageStatus
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.sourceProposalStatus]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.sourceProposalStatus]
                 == .composing
             )
 
             // The proposal composer carries the current workspace diff, not a hand-built proposal.
             let proposal = try #require(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.sourceProposal]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.sourceProposal]
             )
             assertSnapshot(
                 of: proposal,
@@ -473,25 +521,23 @@ extension UserStoryTests {
 
             // The user writes a clear PR title and description.
             await store.modify {
-                $0.eventViewer?.content.eventWorkspace?.sourceProposal?.form.value.title =
+                $0.storyEventViewer?.eventWorkspace?.sourceProposal?.form.value.title =
                     "Update Meadow stage details"
-                $0.eventViewer?.content.eventWorkspace?.sourceProposal?.form.value.description =
+                $0.storyEventViewer?.eventWorkspace?.sourceProposal?.form.value.description =
                     "Renames Meadow and updates the stage image."
             }
 
             let proposalFormValue = try #require(
                 await store[
-                    dynamicMember: \.eventViewer?.content.eventWorkspace?.sourceProposal?.form.value
+                    dynamicMember: \.storyEventViewer?.eventWorkspace?.sourceProposal?.form.value
                 ]
             )
 
             // The user publishes the proposal.
             let publishProposalTask = await store.send(
-                to: \.eventViewer!.content.eventWorkspace!,
+                to: \.storyEventWorkspaceSpawn!,
                 .sourceProposal(.formSubmitted(proposalFormValue))
-            ) {
-                $0.eventViewer?.content.eventWorkspace?.sourceProposalStatus = .proposing
-            }
+            )
 
             // Tangled creates a pull request from the generated source patch.
             await publishProposalTask?.value
@@ -499,33 +545,30 @@ extension UserStoryTests {
 
             // The Workspace reloads reviews and lands on the newly created pull request.
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.pendingCreatedTangledPullReviewID]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.pendingCreatedTangledPullReviewID]
                 == nil
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.selectedTangledPullReview]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.selectedTangledPullReview]
                 == .loaded(backend.createdReview)
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.tangledPullReviewStatus]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.tangledPullReviewStatus]
                 == .loaded([backend.createdReview])
             )
 
             // The user opens the semantic review diff for the created pull request.
             let reviewSemanticDiffTask = await store.send(
-                to: \.eventViewer!.content.eventWorkspace!,
+                to: \.storyEventWorkspaceSpawn!,
                 .reviewSemanticDiffButtonTapped(backend.createdReview)
-            ) {
-                $0.eventViewer?.content.eventWorkspace?
-                    .tangledPullReviewSemanticDiffs[backend.createdReview.id] = .loading
-            }
+            )
 
             await reviewSemanticDiffTask?.value
             await flushNestedSpawnEffects()
 
             // The review diff shows the same stage change that came from the local edit.
             let semanticDiffStatus = await store[
-                dynamicMember: \.eventViewer?.content.eventWorkspace?
+                dynamicMember: \.storyEventViewer?.eventWorkspace?
                     .tangledPullReviewSemanticDiffs[backend.createdReview.id]
             ]
             guard case let .loaded(semanticDiff) = try #require(semanticDiffStatus) else {
@@ -541,25 +584,22 @@ extension UserStoryTests {
 
             // The user merges the pull request.
             let mergePullReviewTask = await store.send(
-                to: \.eventViewer!.content.eventWorkspace!,
+                to: \.storyEventWorkspaceSpawn!,
                 .mergeTangledPullReviewButtonTapped(backend.createdReview)
-            ) {
-                $0.eventViewer?.content.eventWorkspace?.mergingTangledPullReviewIDs =
-                    [backend.createdReview.id]
-            }
+            )
 
             // The merged review is removed from the review list.
             await mergePullReviewTask?.value
             await flushNestedSpawnEffects()
             await waitUntil {
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.sourceWorkspaceSummary.totalCount] == 0
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.sourceWorkspaceSummary.totalCount] == 0
             }
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.mergingTangledPullReviewIDs]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.mergingTangledPullReviewIDs]
                 == []
             )
             #expect(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.selectedTangledPullReview]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.selectedTangledPullReview]
                 == nil
             )
 
@@ -570,7 +610,7 @@ extension UserStoryTests {
 
             // The Workspace no longer has unpublished local changes after the source refresh.
             let refreshedWorkspace = try #require(
-                await store[dynamicMember: \.eventViewer?.content.eventWorkspace?.state]
+                await store[dynamicMember: \.storyEventViewer?.eventWorkspace?.state]
             )
             assertSnapshot(
                 of: refreshedWorkspace.sourceWorkspaceSummary,
@@ -578,9 +618,72 @@ extension UserStoryTests {
                 named: "workspace-after-merge-refresh"
             )
 
-            await store.dismount()
-            }
         }
+
+    }
+}
+
+private extension OpenMusicEventAppRoot.State {
+    var storyTeamWorkspaceSpawn: Spawn<WhiteLabelRoot.TeamWorkspace>? {
+        whiteLabelRoot?.state.teamWorkspaceDetail
+    }
+
+    var storyTeamWorkspaceAuthoring: Authoring<TeamWorkspaceDetail>.State? {
+        get {
+            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content
+        }
+        set {
+            guard let newValue else {
+                whiteLabelRoot?.state.teamWorkspaceDetail = nil
+                return
+            }
+            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content = newValue
+        }
+    }
+
+    var storyTeamWorkspaceDetail: TeamWorkspaceDetail.State? {
+        get {
+            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content.content
+        }
+        set {
+            guard let newValue else { return }
+            whiteLabelRoot?.state.teamWorkspaceDetail?.state.content.content = newValue
+        }
+    }
+
+    var storyEventAuthoring: Authoring<EventViewer>.State? {
+        get {
+            eventViewer?.state.content
+        }
+        set {
+            guard let newValue else {
+                eventViewer = nil
+                return
+            }
+            eventViewer?.state.content = newValue
+        }
+    }
+
+    var storyEventViewer: EventViewer.State? {
+        get {
+            eventViewer?.state.content.content
+        }
+        set {
+            guard let newValue else { return }
+            eventViewer?.state.content.content = newValue
+        }
+    }
+
+    var storyStageDetailSpawn: Spawn<StageDetail>? {
+        eventViewer?.state.content.content.stagesViewer?.state.destination?.stageDetail
+    }
+
+    var storyStageFormSpawn: Spawn<EditStage>? {
+        eventViewer?.state.content.content.destination?.stageForm
+    }
+
+    var storyEventWorkspaceSpawn: Spawn<EventWorkspace>? {
+        eventViewer?.state.content.content.eventWorkspace
     }
 }
 

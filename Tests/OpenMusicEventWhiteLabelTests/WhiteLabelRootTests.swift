@@ -262,7 +262,7 @@ struct WhiteLabelRootTests {
       await load(store)
 
       #expect(
-        store.state.teamWorkspaceDetail?.state.content.sourceBaselineID
+        store.state.teamWorkspaceDetail?.state.content.content.sourceBaselineID
           == sourceBaselineID
       )
       #expect(store.state.organizationRoot == nil)
@@ -315,7 +315,7 @@ struct WhiteLabelRootTests {
       #expect(store.state.errorMessage == nil)
       #expect(provenanceSourceBaselineIDs == [sourceBaselineID])
       #expect(
-        store.state.teamWorkspaceDetail?.state.workspaceID
+        store.state.teamWorkspaceDetail?.state.content.workspaceID
           == EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
       )
       #expect(accountPermissions == requiredPermissions)
@@ -359,8 +359,8 @@ struct WhiteLabelRootTests {
       // A downloaded workspace opens for attendees even when authoring could be authorized.
       await load(store)
 
-      #expect(store.state.teamWorkspaceDetail?.state.workspaceID == workspaceID)
-      #expect(store.state.teamWorkspaceDetail?.state.access == .attendee)
+      #expect(store.state.teamWorkspaceDetail?.state.content.workspaceID == workspaceID)
+      #expect(store.state.teamWorkspaceDetail?.state.content.access == .attendee)
       #expect(!store.state.showsAuthoringControls)
       let workspaceIDs = await recorder.workspaceIDs()
       expectNoDifference(workspaceIDs, [])
@@ -412,19 +412,22 @@ struct WhiteLabelRootTests {
 
       await load(store)
 
-      #expect(store.state.teamWorkspaceDetail?.state.workspaceID == workspaceID)
-      #expect(store.state.teamWorkspaceDetail?.state.access == .attendee)
+      #expect(store.state.teamWorkspaceDetail?.state.content.workspaceID == workspaceID)
+      #expect(store.state.teamWorkspaceDetail?.state.content.access == .attendee)
       #expect(!store.state.showsAuthoringControls)
 
-      let entryTask = store.send(to: \.teamWorkspaceDetail!, .enterButtonTapped)
+      let entryTask = store.send(
+        to: \.teamWorkspaceDetail!,
+        .content(.enterButtonTapped)
+      )
       let preparedWorkspaceIDs = await preparationGate.waitForPreparationToStart()
       expectNoDifference(
         preparedWorkspaceIDs,
         [workspaceID]
       )
-      #expect(store.state.teamWorkspaceDetail?.state.access == .attendee)
+      #expect(store.state.teamWorkspaceDetail?.state.content.access == .attendee)
       #expect(!store.state.showsAuthoringControls)
-      #expect(store.state.teamWorkspaceDetail?.state.entry.isRunning == true)
+      #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == true)
 
       await preparationGate.finish()
       await entryTask?.value
@@ -435,16 +438,16 @@ struct WhiteLabelRootTests {
         [workspaceID]
       )
       #expect(
-        store.state.teamWorkspaceDetail?.state.access
+        store.state.teamWorkspaceDetail?.state.content.access
           == .authoring([.editContent])
       )
       #expect(store.state.showsAuthoringControls)
-      #expect(store.state.teamWorkspaceDetail?.state.entry.isRunning == false)
+      #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == false)
     }
   }
 
   @Test
-  func whiteLabelAppDependenciesRequireLoginBeforeAuthoringEntry() async throws {
+  func whiteLabelAppDependenciesRequireTheCompleteWorkflowBeforeAuthoringEntry() async throws {
     let recorder = AuthRequirementRecorder()
     let organizerID = organizerID("wickedwoods")
     let eventID = eventID(organizerID: organizerID, eventID: "2025")
@@ -487,7 +490,10 @@ struct WhiteLabelRootTests {
       expectNoDifference(capabilities, [.editContent])
     }
 
-    #expect(await recorder.requirements == [OpenMusicEventOAuth.baseAuthRequirement])
+    #expect(
+      await recorder.requirements
+        == [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
+    )
   }
 
   @Test
