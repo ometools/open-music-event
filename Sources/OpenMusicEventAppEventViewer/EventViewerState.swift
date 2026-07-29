@@ -1,8 +1,4 @@
-#if canImport(Combine)
-@preconcurrency import Combine
-#endif
 import Foundation
-import Sharing
 import SQLiteData
 
 @Table("eventViewerState")
@@ -23,79 +19,30 @@ public struct EventViewerState: Equatable, Sendable, Identifiable {
     public var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     public var selectedUserScheduleID: UUID?
     public var didInitializeUserSchedules = false
-}
 
-struct EventViewerStateKey: SharedKey {
-    struct ID: Hashable {
-        var eventID: OMERecord.Event.ID
-    }
+    static func persistChanges(
+        from oldValue: Self,
+        to newValue: Self,
+        in db: Database
+    ) throws {
+        var storedValue = try EventViewerStateRequest(eventID: newValue.id).fetch(db)
+        var hasChanges = false
 
-    let eventID: OMERecord.Event.ID
-    @Dependency(\.defaultDatabase) var database
-
-    var id: ID {
-        ID(eventID: eventID)
-    }
-
-    init(eventID: OMERecord.Event.ID) {
-        self.eventID = eventID
-    }
-
-    func load(
-        context: LoadContext<EventViewerState>,
-        continuation: LoadContinuation<EventViewerState>
-    ) {
-        do {
-            continuation.resume(returning: try database.read { db in
-                try EventViewerStateRequest(eventID: eventID).fetch(db)
-            })
-        } catch {
-            continuation.resume(throwing: error)
+        if oldValue.selectedScheduleID != newValue.selectedScheduleID {
+            storedValue.selectedScheduleID = newValue.selectedScheduleID
+            hasChanges = true
         }
-    }
-
-    func save(
-        _ value: EventViewerState,
-        context: SaveContext,
-        continuation: SaveContinuation
-    ) {
-        do {
-            var value = value
-            value.id = eventID
-            try database.write { db in
-                try EventViewerState.upsert { value }.execute(db)
-            }
-            continuation.resume()
-        } catch {
-            continuation.resume(throwing: error)
+        if oldValue.selectedUserScheduleID != newValue.selectedUserScheduleID {
+            storedValue.selectedUserScheduleID = newValue.selectedUserScheduleID
+            hasChanges = true
         }
-    }
-
-    func subscribe(
-        context: LoadContext<EventViewerState>,
-        subscriber: SharedSubscriber<EventViewerState>
-    ) -> SharedSubscription {
-        #if canImport(Combine)
-        let fetch = Fetch(
-            wrappedValue: EventViewerState(id: eventID),
-            EventViewerStateRequest(eventID: eventID)
-        )
-        let subscription = EventViewerStateFetchSubscription(fetch: fetch, subscriber: subscriber)
-        return SharedSubscription {
-            subscription.cancel()
+        if oldValue.didInitializeUserSchedules != newValue.didInitializeUserSchedules {
+            storedValue.didInitializeUserSchedules = newValue.didInitializeUserSchedules
+            hasChanges = true
         }
-        #else
-        return SharedSubscription {}
-        #endif
-    }
-}
 
-extension SharedKey where Self == EventViewerStateKey.Default {
-    static func eventViewerState(_ eventID: OMERecord.Event.ID) -> Self {
-        Self[
-            EventViewerStateKey(eventID: eventID),
-            default: EventViewerState(id: eventID)
-        ]
+        guard hasChanges else { return }
+        try Self.upsert { storedValue }.execute(db)
     }
 }
 
@@ -109,25 +56,3 @@ struct EventViewerStateRequest: FetchKeyRequest {
         ?? EventViewerState(id: eventID)
     }
 }
-
-#if canImport(Combine)
-private final class EventViewerStateFetchSubscription: @unchecked Sendable {
-    let fetch: Fetch<EventViewerState>
-    var cancellable: AnyCancellable?
-
-    init(
-        fetch: Fetch<EventViewerState>,
-        subscriber: SharedSubscriber<EventViewerState>
-    ) {
-        self.fetch = fetch
-        self.cancellable = fetch.publisher.sink { value in
-            subscriber.yield(value)
-        }
-    }
-
-    func cancel() {
-        cancellable?.cancel()
-        cancellable = nil
-    }
-}
-#endif

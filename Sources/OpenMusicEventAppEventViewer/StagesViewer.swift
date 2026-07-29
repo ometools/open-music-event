@@ -834,7 +834,8 @@ public struct StageDetail {
         public let eventID: OMERecord.Event.ID
 
         public var destination: Destination.State?
-        @Shared public var eventViewerState: EventViewerState
+        public var eventViewerState: EventViewerState
+        @FetchOne var persistedEventViewerState: EventViewerState?
         @FetchOne public var stage: OMERecord.Stage?
         @FetchAll var contributors: [ContributorProfile]
         @FetchAll public var performanceRows: [PerformanceRow]
@@ -848,7 +849,11 @@ public struct StageDetail {
 
             self.stageID = stageID
             self.eventID = eventID ?? defaultEventID
-            _eventViewerState = Shared(.eventViewerState(self.eventID))
+            eventViewerState = EventViewerState(id: self.eventID)
+            _persistedEventViewerState = FetchOne(
+                wrappedValue: nil,
+                EventViewerState.none
+            )
             _stage = FetchOne(
                 StageDetail.stageQuery(
                     stageID: stageID,
@@ -918,6 +923,7 @@ public struct StageDetail {
     }
 
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+    @Dependency(\.defaultDatabase) var database
 
     static func stageQuery(
         stageID: OMERecord.ID<OMERecord.Stage>,
@@ -987,6 +993,34 @@ public struct StageDetail {
                 }
             }
         }
+        .onChange(of: store.persistedEventViewerState) { _, persistedState, state in
+            guard let persistedState, persistedState != state.eventViewerState else { return }
+            state.eventViewerState = persistedState
+        }
+        .onChange(of: store.eventViewerState) { oldViewerState, viewerState, state in
+            guard state.persistedEventViewerState != viewerState else { return }
+            do {
+                try database.write { db in
+                    try EventViewerState.persistChanges(
+                        from: oldViewerState,
+                        to: viewerState,
+                        in: db
+                    )
+                }
+            } catch {
+                reportIssue(error)
+            }
+        }
+        .onMount { state in
+            let eventID = state.eventID
+            let persistedEventViewerState = state.$persistedEventViewerState
+            store.addTask {
+                try await persistedEventViewerState.load(
+                    EventViewerState.where { $0.id.eq(eventID) }
+                )
+                .task
+            }
+        }
     }
 }
 
@@ -1026,7 +1060,7 @@ public struct StageDetailView: View {
                             StageScheduleView(
                                 stage: stage,
                                 store: store,
-                                selectedScheduleID: store.state.$eventViewerState.selectedScheduleID
+                                selectedScheduleID: $store.eventViewerState.selectedScheduleID
                             )
                         }
                     }
@@ -1090,7 +1124,7 @@ public struct StageDetailView: View {
 struct StageScheduleView: View {
     let stage: OMERecord.Stage
     @Bindable var store: StoreOf<StageDetail>
-    @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
 
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
@@ -1098,7 +1132,7 @@ struct StageScheduleView: View {
     init(
         stage: OMERecord.Stage,
         store: StoreOf<StageDetail>,
-        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>
+        selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>
     ) {
         self.stage = stage
         self.store = store
@@ -1170,11 +1204,11 @@ struct StageScheduleView: View {
 
 struct StageScheduleDaySelector: View {
     let schedules: [OMERecord.Schedule]
-    @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
 
     init(
         schedules: [OMERecord.Schedule],
-        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>
+        selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>
     ) {
         self.schedules = schedules
         self._selectedScheduleID = selectedScheduleID
@@ -1185,9 +1219,7 @@ struct StageScheduleDaySelector: View {
             HStack(spacing: 8) {
                 ForEach(schedules) { schedule in
                     Button {
-                        $selectedScheduleID.withLock {
-                            $0 = schedule.id.scheduleID
-                        }
+                        selectedScheduleID = schedule.id.scheduleID
                     } label: {
                         Text(ScheduleViewer.scheduleTitle(schedule))
                             .font(.subheadline.weight(.medium))
@@ -1233,9 +1265,7 @@ struct StageScheduleDaySelector: View {
 
     func resolveSelectedSchedule() {
         guard selectedScheduleID != resolvedSelectedScheduleID else { return }
-        $selectedScheduleID.withLock {
-            $0 = resolvedSelectedScheduleID
-        }
+        selectedScheduleID = resolvedSelectedScheduleID
     }
 }
 

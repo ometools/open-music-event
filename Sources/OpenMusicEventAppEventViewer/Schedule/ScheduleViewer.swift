@@ -36,13 +36,21 @@ public struct ScheduleViewer {
             self.eventID = eventID
             self.timeZone = defaultEventTimeZone
             self.scheduleDivision = scheduleDivision
-            self._scheduleViewerState = Shared(
-                .scheduleViewerState(
-                    eventID: eventID,
-                    scheduleDivision: scheduleDivision
-                )
+            let scheduleViewerState = ScheduleViewerState(
+                eventID: eventID,
+                scheduleDivision: scheduleDivision
             )
-            self._eventViewerState = Shared(.eventViewerState(eventID))
+            self.scheduleViewerState = scheduleViewerState
+            self.scheduleViewerStateBaseline = scheduleViewerState
+            self._persistedScheduleViewerState = FetchOne(
+                wrappedValue: nil,
+                ScheduleViewerState.none
+            )
+            self.eventViewerState = EventViewerState(id: eventID)
+            self._persistedEventViewerState = FetchOne(
+                wrappedValue: nil,
+                EventViewerState.none
+            )
             self.singleStageAtOnce = Spawn(
                 ScheduleSingleStageAtOnce.State(
                     eventID: eventID,
@@ -95,26 +103,25 @@ public struct ScheduleViewer {
         public var singleStageAtOnce: Spawn<ScheduleSingleStageAtOnce>
         public var manyStagesAtOnce: Spawn<ScheduleManyStagesAtOnce>
         public var performanceList: Spawn<SchedulePerformanceList>
-        @Shared public var scheduleViewerState: ScheduleViewerState
-        @Shared public var eventViewerState: EventViewerState
+        public var scheduleViewerState: ScheduleViewerState
+        var scheduleViewerStateBaseline: ScheduleViewerState
+        @FetchOne var persistedScheduleViewerState: ScheduleViewerState?
+        public var eventViewerState: EventViewerState
+        @FetchOne var persistedEventViewerState: EventViewerState?
 
         @FetchOne public var event: OMERecord.Event?
         public var scheduleKind: ScheduleKind {
             get { scheduleViewerState.scheduleKind }
             set {
-                $scheduleViewerState.withLock {
-                    $0.scheduleKind = newValue
-                    $0.syncScheduleKindStorage()
-                }
+                scheduleViewerState.scheduleKind = newValue
+                scheduleViewerState.syncScheduleKindStorage()
             }
         }
 
         public var showStageNameLabels: Bool {
             get { scheduleViewerState.showStageNameLabels }
             set {
-                $scheduleViewerState.withLock {
-                    $0.showStageNameLabels = newValue
-                }
+                scheduleViewerState.showStageNameLabels = newValue
             }
         }
 
@@ -130,9 +137,7 @@ public struct ScheduleViewer {
                     selectedStageID: newValue,
                     stages: visibleStages
                 )
-                $scheduleViewerState.withLock {
-                    $0.selectedStageID = selectedStageID
-                }
+                scheduleViewerState.selectedStageID = selectedStageID
             }
         }
 
@@ -690,9 +695,7 @@ public struct ScheduleViewer {
                 guard scheduleID == nil
                     || state.userSchedules.contains(where: { $0.id == scheduleID })
                 else { return }
-                state.$eventViewerState.withLock {
-                    $0.selectedUserScheduleID = scheduleID
-                }
+                state.eventViewerState.selectedUserScheduleID = scheduleID
 
             case let .userScheduleMembershipButtonTapped(performanceID, scheduleID):
                 guard state.performanceRows.contains(where: { $0.performanceID == performanceID }),
@@ -790,7 +793,8 @@ public struct ScheduleViewer {
             }
         }
         .onEvent(SchedulePerformanceNewUserScheduleRequested.self) { performanceID, state in
-            guard state.performanceRows.contains(where: { $0.performanceID == performanceID }) else {
+            let performanceIDs = state.performanceRows.map(\.performanceID)
+            guard performanceIDs.contains(performanceID) else {
                 return
             }
             state.destination = .userScheduleForm(
@@ -802,17 +806,94 @@ public struct ScheduleViewer {
                 )
             )
         }
+        .onChange(of: store.persistedScheduleViewerState) { _, persistedState, state in
+            guard var persistedState else { return }
+            persistedState.migrateLegacyScheduleKind()
+            state.scheduleViewerStateBaseline = persistedState
+            guard persistedState != state.scheduleViewerState else { return }
+            state.scheduleViewerState = persistedState
+        }
+        .onChange(of: store.scheduleViewerState) { oldViewerState, viewerState, state in
+            guard state.scheduleViewerStateBaseline != viewerState else { return }
+            do {
+                try database.write { db in
+                    try ScheduleViewerState.persistChanges(
+                        from: oldViewerState,
+                        to: viewerState,
+                        eventID: state.eventID,
+                        scheduleDivision: state.scheduleDivision,
+                        in: db
+                    )
+                }
+                state.scheduleViewerStateBaseline = viewerState
+            } catch {
+                reportIssue(error)
+            }
+        }
+        .onChange(of: store.persistedEventViewerState) { _, persistedState, state in
+            guard let persistedState else { return }
+            guard persistedState != state.eventViewerState else { return }
+            state.eventViewerState = persistedState
+        }
+        .onChange(of: store.eventViewerState) { oldViewerState, viewerState, state in
+            guard state.persistedEventViewerState != viewerState else { return }
+            do {
+                try database.write { db in
+                    try EventViewerState.persistChanges(
+                        from: oldViewerState,
+                        to: viewerState,
+                        in: db
+                    )
+                }
+            } catch {
+                reportIssue(error)
+            }
+        }
         .onChange(of: store.userSchedules, initial: true) { _, schedules, state in
             guard let selectedScheduleID = state.eventViewerState.selectedUserScheduleID,
                   !schedules.contains(where: { $0.id == selectedScheduleID })
             else { return }
-            state.$eventViewerState.withLock {
-                $0.selectedUserScheduleID = nil
-            }
+            state.eventViewerState.selectedUserScheduleID = nil
         }
         .onMount { state in
-            guard !state.eventViewerState.didInitializeUserSchedules else { return }
             let eventID = state.eventID
+            let scheduleDivision = state.scheduleDivision
+            let initialScheduleViewerState = state.scheduleViewerState
+            let persistedScheduleViewerState = state.$persistedScheduleViewerState
+            let persistedEventViewerState = state.$persistedEventViewerState
+            store.addTask {
+                let subscription = try await persistedScheduleViewerState.load(
+                    ScheduleViewerState.rows(
+                        eventID: eventID,
+                        scheduleDivision: scheduleDivision
+                    )
+                )
+                if persistedScheduleViewerState.wrappedValue == nil {
+                    let defaultState = try await database.read { db in
+                        try ScheduleViewerStateRequest(
+                            eventID: eventID,
+                            scheduleDivision: scheduleDivision
+                        )
+                        .fetch(db)
+                    }
+                    try store.modify {
+                        guard $0.persistedScheduleViewerState == nil,
+                              $0.scheduleViewerState == initialScheduleViewerState
+                        else { return }
+                        $0.scheduleViewerStateBaseline = defaultState
+                        $0.scheduleViewerState = defaultState
+                    }
+                }
+                try await subscription.task
+            }
+            store.addTask {
+                try await persistedEventViewerState.load(
+                    EventViewerState.where { $0.id.eq(eventID) }
+                )
+                .task
+            }
+
+            guard !state.eventViewerState.didInitializeUserSchedules else { return }
             let scheduleID = uuid()
             let userDID = getSelectedOAuthSessionID()?.rawValue
             store.addTask {
@@ -834,9 +915,7 @@ public struct ScheduleViewer {
                         try EventViewerState.upsert { viewerState }.execute(db)
                     }
                     try store.modify {
-                        $0.$eventViewerState.withLock {
-                            $0.didInitializeUserSchedules = true
-                        }
+                        $0.eventViewerState.didInitializeUserSchedules = true
                     }
                 } catch is CancellationError {
                     return

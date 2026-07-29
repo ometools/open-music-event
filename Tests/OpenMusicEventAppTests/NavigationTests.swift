@@ -3642,7 +3642,7 @@ struct NavigationTests {
             )
         }
 
-        let state = withDependencies {
+        var state = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
@@ -3650,22 +3650,16 @@ struct NavigationTests {
             StageDetail.State(stageID: stageLocalID("meadow"), eventID: eventID)
         }
 
-        state.$eventViewerState.withLock {
-            $0.selectedScheduleID = scheduleLocalID("friday")
-        }
+        state.eventViewerState.selectedScheduleID = scheduleLocalID("friday")
 
         #expect(state.resolvedSelectedScheduleID == scheduleLocalID("friday"))
         #expect(state.selectedSchedulePerformances.map(\.title) == ["Meadow Friday"])
 
-        state.$eventViewerState.withLock {
-            $0.selectedScheduleID = scheduleLocalID("saturday")
-        }
+        state.eventViewerState.selectedScheduleID = scheduleLocalID("saturday")
 
         #expect(state.selectedSchedulePerformances.map(\.title) == ["Meadow Saturday"])
 
-        state.$eventViewerState.withLock {
-            $0.selectedScheduleID = scheduleLocalID("missing")
-        }
+        state.eventViewerState.selectedScheduleID = scheduleLocalID("missing")
 
         #expect(state.resolvedSelectedScheduleID == scheduleLocalID("friday"))
     }
@@ -4431,20 +4425,22 @@ struct NavigationTests {
             category: OMERecord.Stage.Category("workshop")
         )
 
-        let state = withDependencies {
+        let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            ScheduleViewer.State(eventID: eventID)
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+                ScheduleViewer()
+            }
         }
 
-        state.$scheduleViewerState.withLock {
+        await store.modify {
             $0.scheduleKind = .allStagesAtOnce(.horizontal)
             $0.selectedStageID = stageLocalID("main")
             $0.showStageNameLabels = true
-        }
-        try await state.$scheduleViewerState.save()
+        }?.value
+        await store.dismount()
 
         let storedState = try await database.read { db in
             try ScheduleViewerStateRequest(
@@ -4454,12 +4450,24 @@ struct NavigationTests {
             .fetch(db)
         }
 
-        let restoredState = withDependencies {
+        let restoredStore = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            ScheduleViewer.State(eventID: eventID)
+            TestStore(initialState: ScheduleViewer.State(eventID: eventID)) {
+                ScheduleViewer()
+            }
+        }
+
+        try await restoredStore.state.$persistedScheduleViewerState.load(
+            ScheduleViewerState.rows(
+                eventID: eventID,
+                scheduleDivision: .schedule
+            )
+        )
+        restoredStore.expect {
+            $0.scheduleViewerState = storedState
         }
 
         let workshopState = withDependencies {
@@ -4476,12 +4484,61 @@ struct NavigationTests {
         #expect(storedState.scheduleKind == .allStagesAtOnce(.horizontal))
         #expect(storedState.selectedStageID == stageLocalID("main"))
         #expect(storedState.showStageNameLabels)
-        #expect(restoredState.scheduleKind == .allStagesAtOnce(.horizontal))
-        #expect(restoredState.selectedStageID == stageLocalID("main"))
-        #expect(restoredState.showStageNameLabels)
+        #expect(restoredStore.state.scheduleKind == .allStagesAtOnce(.horizontal))
+        #expect(restoredStore.state.selectedStageID == stageLocalID("main"))
+        #expect(restoredStore.state.showStageNameLabels)
         #expect(workshopState.scheduleKind == .singleStageAtOnce)
         #expect(workshopState.selectedStageID == nil)
         #expect(!workshopState.showStageNameLabels)
+        await restoredStore.dismount()
+    }
+
+    @Test
+    func scheduleViewerStatePersistenceMergesStaleFeatureChanges() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        var storedState = ScheduleViewerState(
+            eventID: eventID,
+            scheduleDivision: .schedule
+        )
+        storedState.selectedStageID = stageLocalID("main")
+        storedState.showStageNameLabels = true
+        storedState.filteringFavorites = true
+        storedState.scheduleKind = .allStagesAtOnce(.horizontal)
+        storedState.syncScheduleKindStorage()
+        let stateToStore = storedState
+        try await database.write { db in
+            try ScheduleViewerState.insert { stateToStore }.execute(db)
+        }
+
+        let staleState = ScheduleViewerState(
+            eventID: eventID,
+            scheduleDivision: .schedule
+        )
+        var changedState = staleState
+        changedState.scheduleKind = .list
+        let stateToPersist = changedState
+        try await database.write { db in
+            try ScheduleViewerState.persistChanges(
+                from: staleState,
+                to: stateToPersist,
+                eventID: eventID,
+                scheduleDivision: .schedule,
+                in: db
+            )
+        }
+
+        let mergedState = try await database.read { db in
+            try ScheduleViewerStateRequest(
+                eventID: eventID,
+                scheduleDivision: .schedule
+            )
+            .fetch(db)
+        }
+        #expect(mergedState.selectedStageID == stageLocalID("main"))
+        #expect(mergedState.showStageNameLabels)
+        #expect(mergedState.filteringFavorites)
+        #expect(mergedState.scheduleKind == .list)
     }
 
     @Test
@@ -4842,44 +4899,103 @@ struct NavigationTests {
             category: OMERecord.Stage.Category("workshop")
         )
 
-        let state = withDependencies {
+        let store = withDependencies {
             $0.defaultDatabase = database
         } operation: {
-            EventViewer.State(
-                eventID: eventID,
-                authoringGrant: SharedReader(value: nil),
-                features: [
-                    .schedule(.schedule),
-                    .schedule(workshopDivision),
-                ]
-            )
+            TestStore(
+                initialState: EventViewer.State(
+                    eventID: eventID,
+                    authoringGrant: SharedReader(value: nil),
+                    features: [
+                        .schedule(.schedule),
+                        .schedule(workshopDivision),
+                    ]
+                )
+            ) {
+                EventViewer()
+            }
         }
 
-        state.$eventViewerState.selectedScheduleID.withLock {
-            $0 = scheduleLocalID("thursday")
-        }
-        try await state.$eventViewerState.save()
+        await store.modify {
+            $0.eventViewerState.selectedScheduleID = scheduleLocalID("thursday")
+        }?.value
+        await store.dismount()
 
         let storedState = try await database.read { db in
             try EventViewerStateRequest(eventID: eventID).fetch(db)
         }
 
-        let restoredState = withDependencies {
+        let restoredStore = withDependencies {
             $0.defaultDatabase = database
         } operation: {
-            EventViewer.State(
-                eventID: eventID,
-                authoringGrant: SharedReader(value: nil),
-                features: [
-                    .schedule(.schedule),
-                    .schedule(workshopDivision),
-                ]
+            TestStore(
+                initialState: EventViewer.State(
+                    eventID: eventID,
+                    authoringGrant: SharedReader(value: nil),
+                    features: [
+                        .schedule(.schedule),
+                        .schedule(workshopDivision),
+                    ]
+                )
+            ) {
+                EventViewer()
+            }
+        }
+
+        try await restoredStore.state.$persistedEventViewerState.load(
+            EventViewerState.where { $0.id.eq(eventID) }
+        )
+        restoredStore.expect {
+            $0.eventViewerState = storedState
+        }
+
+        #expect(store.state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
+        #expect(storedState.selectedScheduleID == scheduleLocalID("thursday"))
+        #expect(restoredStore.state.eventViewerState.selectedScheduleID == scheduleLocalID("thursday"))
+        await restoredStore.dismount()
+    }
+
+    @Test
+    func eventViewerStatePersistenceMergesStaleFeatureChanges() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("event-1")
+        let userScheduleID = try #require(
+            UUID(uuidString: "00000000-0000-0000-0000-00000000e001")
+        )
+        var storedState = EventViewerState(id: eventID)
+        storedState.selectedScheduleID = scheduleLocalID("thursday")
+        storedState.didInitializeUserSchedules = true
+        let stateToStore = storedState
+        try await database.write { db in
+            try UserSchedule.insert {
+                UserSchedule(
+                    id: userScheduleID,
+                    eventID: eventID,
+                    title: "Favorites"
+                )
+            }
+            .execute(db)
+            try EventViewerState.insert { stateToStore }.execute(db)
+        }
+
+        let staleState = EventViewerState(id: eventID)
+        var changedState = staleState
+        changedState.selectedUserScheduleID = userScheduleID
+        let stateToPersist = changedState
+        try await database.write { db in
+            try EventViewerState.persistChanges(
+                from: staleState,
+                to: stateToPersist,
+                in: db
             )
         }
 
-        #expect(state.scheduleViewers.map { $0.state.scheduleDivision.id } == ["schedule", "workshop"])
-        #expect(storedState.selectedScheduleID == scheduleLocalID("thursday"))
-        #expect(restoredState.eventViewerState.selectedScheduleID == scheduleLocalID("thursday"))
+        let mergedState = try await database.read { db in
+            try EventViewerStateRequest(eventID: eventID).fetch(db)
+        }
+        #expect(mergedState.selectedScheduleID == scheduleLocalID("thursday"))
+        #expect(mergedState.selectedUserScheduleID == userScheduleID)
+        #expect(mergedState.didInitializeUserSchedules)
     }
 
     @Test
@@ -4951,13 +5067,11 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
-            let state = ScheduleSingleStageAtOnce.State(
+            var state = ScheduleSingleStageAtOnce.State(
                 eventID: eventID,
                 scheduleDivision: workshopDivision
             )
-            state.$scheduleViewerState.withLock {
-                $0.selectedStageID = stageLocalID("main")
-            }
+            state.scheduleViewerState.selectedStageID = stageLocalID("main")
             return state
         }
 

@@ -130,7 +130,11 @@ public struct EventViewer {
             self._authoringGrant = authoringGrant
             self.eventID = eventID
             self.eventTimeZone = eventTimeZone
-            self._eventViewerState = Shared(.eventViewerState(eventID))
+            self.eventViewerState = EventViewerState(id: eventID)
+            self._persistedEventViewerState = FetchOne(
+                wrappedValue: nil,
+                EventViewerState.none
+            )
             self._stages = FetchAll(ScheduleViewer.stagesQuery(eventID: eventID))
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
@@ -292,7 +296,8 @@ public struct EventViewer {
         @SharedReader public var authoringGrant: AuthoringGrant?
         public let eventID: OMERecord.Event.ID
         public var eventTimeZone: TimeZone
-        @Shared public var eventViewerState: EventViewerState
+        public var eventViewerState: EventViewerState
+        @FetchOne var persistedEventViewerState: EventViewerState?
         @FetchAll public var stages: [OMERecord.Stage]
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
@@ -844,8 +849,34 @@ public struct EventViewer {
             guard feature.isEditorFeature else { return }
             enterOrRequestAuthoring(.feature(feature), state: &state)
         }
+        .onChange(of: store.persistedEventViewerState) { _, persistedState, state in
+            guard let persistedState, persistedState != state.eventViewerState else { return }
+            state.eventViewerState = persistedState
+        }
+        .onChange(of: store.eventViewerState) { oldViewerState, viewerState, state in
+            guard state.persistedEventViewerState != viewerState else { return }
+            do {
+                try database.write { db in
+                    try EventViewerState.persistChanges(
+                        from: oldViewerState,
+                        to: viewerState,
+                        in: db
+                    )
+                }
+            } catch {
+                reportIssue(error)
+            }
+        }
         .onMount { state in
             state.reloadFeaturesForAuthoringAccess()
+            let eventID = state.eventID
+            let persistedEventViewerState = state.$persistedEventViewerState
+            store.addTask {
+                try await persistedEventViewerState.load(
+                    EventViewerState.where { $0.id.eq(eventID) }
+                )
+                .task
+            }
         }
         .onEvent(NavigationRequested.self) { request, state in
             if case let .event(eventID, target) = request, eventID == state.eventID {
@@ -1061,7 +1092,7 @@ public struct EventViewerView: View {
                     ) {
                         ScheduleViewerView(
                             store: featureStore,
-                            selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                            selectedScheduleID: $store.eventViewerState.selectedScheduleID,
                             pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
                             showsAuthoringControls: store.showsAuthoringControls
                         )
@@ -1284,7 +1315,7 @@ public struct EventViewerView: View {
                 viewerTab(feature) {
                     ScheduleViewerView(
                         store: featureStore,
-                        selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                        selectedScheduleID: $store.eventViewerState.selectedScheduleID,
                         pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
                         showsAuthoringControls: store.showsAuthoringControls
                     )
@@ -1405,7 +1436,7 @@ public struct EventViewerView: View {
                 viewerTab(feature) {
                     ScheduleViewerView(
                         store: featureStore,
-                        selectedScheduleID: store.state.$eventViewerState.selectedScheduleID,
+                        selectedScheduleID: $store.eventViewerState.selectedScheduleID,
                         pendingScheduleLaunchAction: $store.pendingScheduleLaunchAction,
                         showsAuthoringControls: store.showsAuthoringControls
                     )

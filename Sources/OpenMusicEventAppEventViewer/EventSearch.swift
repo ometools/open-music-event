@@ -37,7 +37,7 @@ public struct EventSearch {
                 PerformanceRow.all(eventID: eventID)
             )
             _scheduleViewerStates = FetchAll(
-                ScheduleViewerState.all(eventID: eventID)
+                ScheduleViewerState.forEvent(eventID: eventID)
             )
         }
 

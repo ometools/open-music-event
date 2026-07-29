@@ -20,11 +20,15 @@ public struct ScheduleSingleStageAtOnce {
             self.eventID = eventID
             self.timeZone = defaultEventTimeZone
             self.scheduleDivision = scheduleDivision
-            self._scheduleViewerState = Shared(
-                .scheduleViewerState(
-                    eventID: eventID,
-                    scheduleDivision: scheduleDivision
-                )
+            let scheduleViewerState = ScheduleViewerState(
+                eventID: eventID,
+                scheduleDivision: scheduleDivision
+            )
+            self.scheduleViewerState = scheduleViewerState
+            self.scheduleViewerStateBaseline = scheduleViewerState
+            self._persistedScheduleViewerState = FetchOne(
+                wrappedValue: nil,
+                ScheduleViewerState.none
             )
             _performanceRows = FetchAll(
                 PerformanceRow.all(eventID: eventID)
@@ -41,7 +45,9 @@ public struct ScheduleSingleStageAtOnce {
         @DebugSnapshotIgnored
         public var timeZone: TimeZone
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
-        @Shared public var scheduleViewerState: ScheduleViewerState
+        public var scheduleViewerState: ScheduleViewerState
+        var scheduleViewerStateBaseline: ScheduleViewerState
+        @FetchOne var persistedScheduleViewerState: ScheduleViewerState?
 
         @FetchAll public var performanceRows: [PerformanceRow]
         @FetchAll public var schedules: [OMERecord.Schedule]
@@ -59,9 +65,7 @@ public struct ScheduleSingleStageAtOnce {
                     selectedStageID: newValue,
                     stages: visibleStages
                 )
-                $scheduleViewerState.withLock {
-                    $0.selectedStageID = selectedStageID
-                }
+                scheduleViewerState.selectedStageID = selectedStageID
             }
         }
 
@@ -131,6 +135,8 @@ public struct ScheduleSingleStageAtOnce {
         )
     }
 
+    @Dependency(\.defaultDatabase) var database
+
     public var body: some Feature {
         Update { _, action in
             switch action {
@@ -191,12 +197,67 @@ public struct ScheduleSingleStageAtOnce {
                 }
             }
         }
+        .onChange(of: store.persistedScheduleViewerState) { _, persistedState, state in
+            guard var persistedState else { return }
+            persistedState.migrateLegacyScheduleKind()
+            state.scheduleViewerStateBaseline = persistedState
+            guard persistedState != state.scheduleViewerState else { return }
+            state.scheduleViewerState = persistedState
+        }
+        .onChange(of: store.scheduleViewerState) { oldViewerState, viewerState, state in
+            guard state.scheduleViewerStateBaseline != viewerState else { return }
+            do {
+                try database.write { db in
+                    try ScheduleViewerState.persistChanges(
+                        from: oldViewerState,
+                        to: viewerState,
+                        eventID: state.eventID,
+                        scheduleDivision: state.scheduleDivision,
+                        in: db
+                    )
+                }
+                state.scheduleViewerStateBaseline = viewerState
+            } catch {
+                reportIssue(error)
+            }
+        }
+        .onMount { state in
+            let eventID = state.eventID
+            let scheduleDivision = state.scheduleDivision
+            let initialState = state.scheduleViewerState
+            let persistedState = state.$persistedScheduleViewerState
+            store.addTask {
+                let subscription = try await persistedState.load(
+                    ScheduleViewerState.rows(
+                        eventID: eventID,
+                        scheduleDivision: scheduleDivision
+                    )
+                )
+                if persistedState.wrappedValue == nil {
+                    let defaultState = try await database.read { db in
+                        try ScheduleViewerStateRequest(
+                            eventID: eventID,
+                            scheduleDivision: scheduleDivision
+                        )
+                        .fetch(db)
+                    }
+                    try store.modify {
+                        guard $0.persistedScheduleViewerState == nil,
+                              $0.scheduleViewerState == initialState
+                        else { return }
+                        $0.scheduleViewerStateBaseline = defaultState
+                        $0.scheduleViewerState = defaultState
+                    }
+                }
+                try await subscription.task
+            }
+        }
     }
 }
 
 public struct ScheduleSingleStageAtOnceView: View {
     @Bindable var store: StoreOf<ScheduleSingleStageAtOnce>
-    @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
 
@@ -206,7 +267,7 @@ public struct ScheduleSingleStageAtOnceView: View {
 
     public init(
         store: StoreOf<ScheduleSingleStageAtOnce>,
-        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>,
+        selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>,
         userScheduleOverlay: UserScheduleOverlay,
         showsAuthoringControls: Bool
     ) {

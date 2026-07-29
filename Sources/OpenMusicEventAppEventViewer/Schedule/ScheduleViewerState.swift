@@ -1,7 +1,3 @@
-#if canImport(Combine)
-@preconcurrency import Combine
-#endif
-import Sharing
 import SQLiteData
 
 @Table("scheduleViewerState")
@@ -172,7 +168,7 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
         legacyManyStagesOrientation = scheduleKind.legacyManyStagesOrientation
     }
 
-    static func all(
+    static func forEvent(
         eventID: OMERecord.Event.ID
     ) -> some SelectStatementOf<ScheduleViewerState> {
         Self
@@ -187,116 +183,47 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
             .where { $0.id.eventID.eq(eventID) }
             .where { $0.id.category.eq(scheduleDivision.id) }
     }
-}
 
-struct ScheduleViewerStateKey: SharedKey {
-    struct ID: Hashable {
-        var eventID: OMERecord.Event.ID
-        var scheduleDivision: ScheduleViewer.ScheduleDivision
-    }
-
-    let eventID: OMERecord.Event.ID
-    let scheduleDivision: ScheduleViewer.ScheduleDivision
-    @Dependency(\.defaultDatabase) var database
-
-    var id: ID {
-        ID(
+    static func persistChanges(
+        from oldValue: Self,
+        to newValue: Self,
+        eventID: OMERecord.Event.ID,
+        scheduleDivision: ScheduleViewer.ScheduleDivision,
+        in db: Database
+    ) throws {
+        var storedValue = try ScheduleViewerStateRequest(
             eventID: eventID,
             scheduleDivision: scheduleDivision
         )
-    }
+        .fetch(db)
+        var hasChanges = false
 
-    init(
-        eventID: OMERecord.Event.ID,
-        scheduleDivision: ScheduleViewer.ScheduleDivision
-    ) {
-        self.eventID = eventID
-        self.scheduleDivision = scheduleDivision
-    }
-
-    func load(
-        context: LoadContext<ScheduleViewerState>,
-        continuation: LoadContinuation<ScheduleViewerState>
-    ) {
-        do {
-            continuation.resume(returning: try database.read { db in
-                try ScheduleViewerStateRequest(
-                    eventID: eventID,
-                    scheduleDivision: scheduleDivision
-                )
-                .fetch(db)
-            })
-        } catch {
-            continuation.resume(throwing: error)
+        if oldValue.selectedStageID != newValue.selectedStageID {
+            storedValue.selectedStageID = newValue.selectedStageID
+            hasChanges = true
         }
-    }
-
-    func save(
-        _ value: ScheduleViewerState,
-        context: SaveContext,
-        continuation: SaveContinuation
-    ) {
-        do {
-            var value = value
-            value.id = ScheduleViewerState.ID(
-                eventID: eventID,
-                category: scheduleDivision.id
-            )
-            value.syncScheduleKindStorage()
-            try database.write { db in
-                try ScheduleViewerState
-                    .where { $0.id.eventID.eq(eventID) }
-                    .where { $0.id.category.eq(scheduleDivision.id) }
-                    .delete()
-                    .execute(db)
-                try ScheduleViewerState.insert { value }.execute(db)
-            }
-            continuation.resume()
-        } catch {
-            continuation.resume(throwing: error)
+        if oldValue.showStageNameLabels != newValue.showStageNameLabels {
+            storedValue.showStageNameLabels = newValue.showStageNameLabels
+            hasChanges = true
         }
-    }
-
-    func subscribe(
-        context: LoadContext<ScheduleViewerState>,
-        subscriber: SharedSubscriber<ScheduleViewerState>
-    ) -> SharedSubscription {
-        #if canImport(Combine)
-        let fetch = Fetch(
-            wrappedValue: ScheduleViewerState(
-                eventID: eventID,
-                scheduleDivision: scheduleDivision
-            ),
-            ScheduleViewerStateRequest(
-                eventID: eventID,
-                scheduleDivision: scheduleDivision
-            )
-        )
-        let subscription = ScheduleViewerStateFetchSubscription(fetch: fetch, subscriber: subscriber)
-        return SharedSubscription {
-            subscription.cancel()
+        if oldValue.filteringFavorites != newValue.filteringFavorites {
+            storedValue.filteringFavorites = newValue.filteringFavorites
+            hasChanges = true
         }
-        #else
-        return SharedSubscription {}
-        #endif
-    }
-}
+        if oldValue.scheduleKind != newValue.scheduleKind {
+            storedValue.scheduleKind = newValue.scheduleKind
+            hasChanges = true
+        }
 
-extension SharedKey where Self == ScheduleViewerStateKey.Default {
-    static func scheduleViewerState(
-        eventID: OMERecord.Event.ID,
-        scheduleDivision: ScheduleViewer.ScheduleDivision
-    ) -> Self {
-        Self[
-            ScheduleViewerStateKey(
-                eventID: eventID,
-                scheduleDivision: scheduleDivision
-            ),
-            default: ScheduleViewerState(
-                eventID: eventID,
-                scheduleDivision: scheduleDivision
-            )
-        ]
+        guard hasChanges else { return }
+        storedValue.id = ID(eventID: eventID, category: scheduleDivision.id)
+        storedValue.syncScheduleKindStorage()
+        try Self
+            .where { $0.id.eventID.eq(eventID) }
+            .where { $0.id.category.eq(scheduleDivision.id) }
+            .delete()
+            .execute(db)
+        try Self.insert { storedValue }.execute(db)
     }
 }
 
@@ -334,25 +261,3 @@ struct ScheduleViewerStateRequest: FetchKeyRequest {
         return event?.categoryConfigs?[category]?.showStageNameLabels ?? false
     }
 }
-
-#if canImport(Combine)
-private final class ScheduleViewerStateFetchSubscription: @unchecked Sendable {
-    let fetch: Fetch<ScheduleViewerState>
-    var cancellable: AnyCancellable?
-
-    init(
-        fetch: Fetch<ScheduleViewerState>,
-        subscriber: SharedSubscriber<ScheduleViewerState>
-    ) {
-        self.fetch = fetch
-        self.cancellable = fetch.publisher.sink { value in
-            subscriber.yield(value)
-        }
-    }
-
-    func cancel() {
-        cancellable?.cancel()
-        cancellable = nil
-    }
-}
-#endif

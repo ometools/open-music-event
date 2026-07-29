@@ -27,7 +27,10 @@ public struct PerformanceDetail {
             self.eventID = eventID ?? defaultEventID
             self.performanceID = performanceID
             self.timeZone = defaultEventTimeZone
-            self._eventViewerState = Shared(.eventViewerState(self.eventID))
+            self._persistedEventViewerState = FetchOne(
+                wrappedValue: nil,
+                EventViewerState.none
+            )
             _contributors = FetchAll(
                 PerformanceDetail.contributorsQuery(
                     performanceID: performanceID,
@@ -79,7 +82,10 @@ public struct PerformanceDetail {
 
         @FetchAll var contributors: [ContributorProfile]
         public var destination: Destination.State?
-        @Shared public var eventViewerState: EventViewerState
+        @FetchOne var persistedEventViewerState: EventViewerState?
+        public var eventViewerState: EventViewerState {
+            persistedEventViewerState ?? EventViewerState(id: eventID)
+        }
         @FetchOne public var performance: OMERecord.Performance?
         @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
         @FetchAll public var schedules: [OMERecord.Schedule]
@@ -356,6 +362,16 @@ public struct PerformanceDetail {
                     } catch {
                     }
                 }
+            }
+        }
+        .onMount { state in
+            let eventID = state.eventID
+            let persistedEventViewerState = state.$persistedEventViewerState
+            store.addTask {
+                try await persistedEventViewerState.load(
+                    EventViewerState.where { $0.id.eq(eventID) }
+                )
+                .task
             }
         }
     }

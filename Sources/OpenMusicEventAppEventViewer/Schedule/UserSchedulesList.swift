@@ -19,14 +19,12 @@ public struct UserScheduleForm {
             performanceID: OMERecord.ID<OMERecord.Performance>? = nil
         ) {
             self.eventID = eventID
-            self._eventViewerState = Shared(.eventViewerState(eventID))
             self.scheduleID = schedule?.id
             self.title = schedule?.title ?? ""
             self.performanceID = performanceID
         }
 
         public let eventID: OMERecord.Event.ID
-        @Shared public var eventViewerState: EventViewerState
         public let scheduleID: UserSchedule.ID?
         public var title: String
         public let performanceID: OMERecord.ID<OMERecord.Performance>?
@@ -117,13 +115,6 @@ public struct UserScheduleForm {
                                     .execute(db)
                             }
                         }
-                        if isCreating {
-                            try store.modify {
-                                $0.$eventViewerState.withLock {
-                                    $0.selectedUserScheduleID = scheduleID
-                                }
-                            }
-                        }
                         try store.dismiss()
                     } catch {
                         try store.modify {
@@ -188,7 +179,11 @@ public struct UserSchedulesList {
     public struct State {
         public init(eventID: OMERecord.Event.ID) {
             self.eventID = eventID
-            self._eventViewerState = Shared(.eventViewerState(eventID))
+            self.eventViewerState = EventViewerState(id: eventID)
+            self._persistedEventViewerState = FetchOne(
+                wrappedValue: nil,
+                EventViewerState.none
+            )
             self._schedules = FetchAll(UserSchedule.all(eventID: eventID))
             self._memberships = FetchAll(UserSchedule.Performance.all)
             self._performanceRows = FetchAll(PerformanceRow.all(eventID: eventID))
@@ -196,7 +191,8 @@ public struct UserSchedulesList {
 
         public let eventID: OMERecord.Event.ID
         public var destination: Destination.State?
-        @Shared public var eventViewerState: EventViewerState
+        public var eventViewerState: EventViewerState
+        @FetchOne var persistedEventViewerState: EventViewerState?
         @FetchAll public var schedules: [UserSchedule]
         @FetchAll public var memberships: [UserSchedule.Performance]
         @FetchAll public var performanceRows: [PerformanceRow]
@@ -296,13 +292,6 @@ public struct UserSchedulesList {
                                 try EventViewerState.upsert { viewerState }.execute(db)
                             }
                         }
-                        try store.modify {
-                            if $0.eventViewerState.selectedUserScheduleID == scheduleID {
-                                $0.$eventViewerState.withLock {
-                                    $0.selectedUserScheduleID = nil
-                                }
-                            }
-                        }
                     } catch {
                         reportIssue(error)
                     }
@@ -357,9 +346,7 @@ public struct UserSchedulesList {
 
             case let .scheduleButtonTapped(scheduleID):
                 guard state.schedules.contains(where: { $0.id == scheduleID }) else { return }
-                state.$eventViewerState.withLock {
-                    $0.selectedUserScheduleID = scheduleID
-                }
+                state.eventViewerState.selectedUserScheduleID = scheduleID
                 store.addTask {
                     try store.dismiss()
                 }
@@ -367,6 +354,34 @@ public struct UserSchedulesList {
         }
         .ifLet(\.destination, action: \.destination) {
             Destination.body
+        }
+        .onChange(of: store.persistedEventViewerState) { _, persistedState, state in
+            guard let persistedState, persistedState != state.eventViewerState else { return }
+            state.eventViewerState = persistedState
+        }
+        .onChange(of: store.eventViewerState) { oldViewerState, viewerState, state in
+            guard state.persistedEventViewerState != viewerState else { return }
+            do {
+                try database.write { db in
+                    try EventViewerState.persistChanges(
+                        from: oldViewerState,
+                        to: viewerState,
+                        in: db
+                    )
+                }
+            } catch {
+                reportIssue(error)
+            }
+        }
+        .onMount { state in
+            let eventID = state.eventID
+            let persistedEventViewerState = state.$persistedEventViewerState
+            store.addTask {
+                try await persistedEventViewerState.load(
+                    EventViewerState.where { $0.id.eq(eventID) }
+                )
+                .task
+            }
         }
     }
 }

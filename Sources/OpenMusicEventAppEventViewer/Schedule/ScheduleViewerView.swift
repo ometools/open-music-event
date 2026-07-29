@@ -188,7 +188,7 @@ public struct ScheduleViewerView: View {
     @Dependency(\.date.now) var now
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
     @Bindable var store: StoreOf<ScheduleViewer>
-    @Shared var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
+    @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
     @Binding var pendingScheduleLaunchAction: EventViewer.ScheduleLaunchAction?
     @State var nowScrollRequest: ScheduleNowScrollRequest?
     @State var nowScrollSequence = 0
@@ -196,7 +196,7 @@ public struct ScheduleViewerView: View {
 
     public init(
         store: StoreOf<ScheduleViewer>,
-        selectedScheduleID: Shared<OMERecord.ID<OMERecord.Schedule>?>,
+        selectedScheduleID: Binding<OMERecord.ID<OMERecord.Schedule>?>,
         pendingScheduleLaunchAction: Binding<EventViewer.ScheduleLaunchAction?>,
         showsAuthoringControls: Bool = true
     ) {
@@ -245,9 +245,7 @@ public struct ScheduleViewerView: View {
                 if !store.state.usesSingletonSchedule {
                     ForEach(store.schedules) { schedule in
                         Button(ScheduleViewer.scheduleTitle(schedule)) {
-                            $selectedScheduleID.withLock {
-                                $0 = schedule.id.scheduleID
-                            }
+                            selectedScheduleID = schedule.id.scheduleID
                         }
                     }
                 }
@@ -365,9 +363,7 @@ public struct ScheduleViewerView: View {
 
     func jumpToCurrentTime(animated: Bool) {
         guard let destination = currentTimeDestination else { return }
-        $selectedScheduleID.withLock {
-            $0 = destination.scheduleID
-        }
+        selectedScheduleID = destination.scheduleID
         nowScrollSequence += 1
         nowScrollRequest = ScheduleNowScrollRequest(
             sequence: nowScrollSequence,
