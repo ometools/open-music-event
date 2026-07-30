@@ -60,10 +60,16 @@ struct OpenMusicEventViewerPresentation<
                 base
             }
             #else
-            base
-                .fullScreenCover(item: presentationBinding) { item in
-                    presentedContent(item)
-                }
+            if hasAppeared {
+                base
+                    .fullScreenCover(item: presentationBinding) { item in
+                        presentedContent(item)
+                    }
+            } else if let item {
+                presentedContent(item)
+            } else {
+                base
+            }
             #endif
         }
         .onAppear {
