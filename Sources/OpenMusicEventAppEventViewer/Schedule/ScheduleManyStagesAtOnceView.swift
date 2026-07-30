@@ -80,6 +80,7 @@ public struct ScheduleManyStagesAtOnce {
         case editPerformanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
             OMERecord.ID<OMERecord.Performance>,
             UserSchedule.ID
@@ -121,6 +122,15 @@ public struct ScheduleManyStagesAtOnce {
                     let task = try store.post(
                         key: SchedulePerformanceDetailRequested.self,
                         value: performanceID
+                    )
+                    await task?.value
+                }
+
+            case let .scheduleDivisionButtonTapped(division):
+                store.addTask {
+                    let task = try store.post(
+                        key: ScheduleDivisionRequested.self,
+                        value: division
                     )
                     await task?.value
                 }
@@ -173,11 +183,8 @@ public struct ScheduleManyStagesAtOnceView: View {
 
     public var body: some View {
         if visibleStages.isEmpty {
-            emptyView(
-                title: store.scheduleDivision.title,
-                description: "No stages have been added to this schedule division yet."
-            )
-        } else if let timeRange {
+            emptyScheduleView
+        } else {
             GeometryReader { geometry in
                 scheduleBody(
                     availableWidth: geometry.size.width,
@@ -185,8 +192,6 @@ public struct ScheduleManyStagesAtOnceView: View {
                     timeRange: timeRange
                 )
             }
-        } else {
-            emptyPerformancesView
         }
     }
 
@@ -194,7 +199,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     func scheduleBody(
         availableWidth: CGFloat,
         availableHeight: CGFloat,
-        timeRange: DateInterval
+        timeRange: DateInterval?
     ) -> some View {
         switch store.scheduleOrientation {
         case .vertical:
@@ -217,11 +222,12 @@ public struct ScheduleManyStagesAtOnceView: View {
     func verticalScheduleBody(
         availableWidth: CGFloat,
         availableHeight: CGFloat,
-        timeRange: DateInterval
+        timeRange: DateInterval?
     ) -> some View {
         ScrollView(.horizontal) {
             verticalScheduleScroll(
                 availableWidth: availableWidth,
+                availableHeight: availableHeight,
                 timeRange: timeRange
             )
             .frame(
@@ -234,15 +240,14 @@ public struct ScheduleManyStagesAtOnceView: View {
     func horizontalScheduleBody(
         availableWidth: CGFloat,
         availableHeight: CGFloat,
-        timeRange: DateInterval
+        timeRange: DateInterval?
     ) -> some View {
         let stageRailWidth = horizontalStageRailWidth
         let stageLaneHeight = horizontalStageLaneHeight(availableHeight: availableHeight)
         let availableTimelineWidth = max(availableWidth - stageRailWidth, 0)
-        let timelineWidth = horizontalTimelineWidth(
-            for: timeRange,
-            availableWidth: availableTimelineWidth
-        )
+        let timelineWidth = timeRange.map {
+            horizontalTimelineWidth(for: $0, availableWidth: availableTimelineWidth)
+        } ?? availableTimelineWidth
         let timelineHeight = horizontalTimelineHeight(stageLaneHeight: stageLaneHeight)
         let totalHeight = timelineHeight + hourLabelsHeight
 
@@ -270,7 +275,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         timelineWidth: CGFloat,
         timelineHeight: CGFloat,
         totalHeight: CGFloat,
-        timeRange: DateInterval
+        timeRange: DateInterval?
     ) -> some View {
         #if os(iOS)
         horizontalTimelinePageScroll(
@@ -303,7 +308,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         timelineWidth: CGFloat,
         timelineHeight: CGFloat,
         totalHeight: CGFloat,
-        timeRange: DateInterval
+        timeRange: DateInterval?
     ) -> some View {
         HStack(alignment: .top, spacing: 0) {
             horizontalStageRail(
@@ -324,7 +329,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         timelineWidth: CGFloat,
         timelineHeight: CGFloat,
         totalHeight: CGFloat,
-        timeRange: DateInterval
+        timeRange: DateInterval?
     ) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
@@ -358,12 +363,14 @@ public struct ScheduleManyStagesAtOnceView: View {
     @ViewBuilder
     func verticalScheduleScroll(
         availableWidth: CGFloat,
-        timeRange: DateInterval
+        availableHeight: CGFloat,
+        timeRange: DateInterval?
     ) -> some View {
         #if os(iOS)
         if #available(iOS 26.0, *), needsStageDisambiguation {
             scheduleScroll(
                 availableWidth: availableWidth,
+                availableHeight: availableHeight,
                 timeRange: timeRange
             )
             .safeAreaBar(edge: .top) {
@@ -373,6 +380,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         } else if needsStageDisambiguation {
             scheduleScroll(
                 availableWidth: availableWidth,
+                availableHeight: availableHeight,
                 timeRange: timeRange
             )
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -381,6 +389,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         } else {
             scheduleScroll(
                 availableWidth: availableWidth,
+                availableHeight: availableHeight,
                 timeRange: timeRange
             )
         }
@@ -388,6 +397,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         if needsStageDisambiguation {
             scheduleScroll(
                 availableWidth: availableWidth,
+                availableHeight: availableHeight,
                 timeRange: timeRange
             )
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -396,6 +406,7 @@ public struct ScheduleManyStagesAtOnceView: View {
         } else {
             scheduleScroll(
                 availableWidth: availableWidth,
+                availableHeight: availableHeight,
                 timeRange: timeRange
             )
         }
@@ -404,16 +415,18 @@ public struct ScheduleManyStagesAtOnceView: View {
 
     func scheduleScroll(
         availableWidth: CGFloat,
-        timeRange: DateInterval
+        availableHeight: CGFloat,
+        timeRange: DateInterval?
     ) -> some View {
-        ScrollViewReader { proxy in
+        let pageHeight = timeRange.map { scheduleHeight(for: $0) } ?? availableHeight
+        return ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 timelinePage
                 .frame(
                     width: contentWidth(for: availableWidth),
-                    height: scheduleHeight(for: timeRange)
+                    height: pageHeight
                 )
-                .environment(\.scheduleHeight, scheduleHeight(for: timeRange))
+                .environment(\.scheduleHeight, pageHeight)
                 .environment(\.scheduleTimeRange, timeRange)
                 .environment(\.shouldShowTimeIndicator, true)
             }
@@ -545,23 +558,21 @@ public struct ScheduleManyStagesAtOnceView: View {
     }
 
     var emptyPerformancesView: some View {
-        emptyView(
-            title: store.scheduleDivision.title,
-            description: "No performances have been added to this schedule division yet."
+        ScheduleEmptyView(
+            title: ScheduleViewer.emptyScheduleTitle(
+                scheduleDivision: store.scheduleDivision,
+                scheduleTitle: selectedScheduleTitle
+            ),
+            otherScheduleDivisions: otherScheduleDivisions,
+            onScheduleDivisionTapped: { division in
+                store.send(.scheduleDivisionButtonTapped(division))
+            }
         )
     }
 
-    func emptyView(title: String, description: String) -> some View {
-        VStack(spacing: 8) {
-            Text(title)
-                .font(.headline)
-
-            Text(description)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    var emptyScheduleView: some View {
+        emptyPerformancesView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
     }
 
@@ -592,6 +603,21 @@ public struct ScheduleManyStagesAtOnceView: View {
             stages: visibleStages,
             performances: visiblePerformances
         )
+    }
+
+    var otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] {
+        ScheduleViewer.scheduleDivisions(stages: store.stages)
+            .filter { $0 != store.scheduleDivision }
+    }
+
+    var selectedScheduleTitle: String {
+        guard let scheduleID = ScheduleViewer.resolvedSelectedScheduleID(
+            selectedScheduleID,
+            schedules: store.schedules
+        ),
+            let schedule = store.schedules.first(where: { $0.id.scheduleID == scheduleID })
+        else { return "Select Schedule" }
+        return ScheduleViewer.scheduleTitle(schedule)
     }
 
     var timeRange: DateInterval? {

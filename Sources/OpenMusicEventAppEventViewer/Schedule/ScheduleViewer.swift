@@ -348,7 +348,14 @@ public struct ScheduleViewer {
         scheduleTitle: String,
         stage: OMERecord.Stage
     ) -> String {
-        "No \(scheduleDivision.title) on \(scheduleTitle) at \(stage.name)"
+        "\(emptyScheduleTitle(scheduleDivision: scheduleDivision, scheduleTitle: scheduleTitle)) at \(stage.name)"
+    }
+
+    static func emptyScheduleTitle(
+        scheduleDivision: ScheduleDivision,
+        scheduleTitle: String
+    ) -> String {
+        "No \(scheduleDivision.title) on \(scheduleTitle)"
     }
 
     static func performanceRowSubtitle(

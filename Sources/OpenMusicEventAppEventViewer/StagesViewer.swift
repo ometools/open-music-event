@@ -886,6 +886,15 @@ public struct StageDetail {
             )
         }
 
+        var selectedScheduleTitle: String {
+            guard let resolvedSelectedScheduleID,
+                  let schedule = schedules.first(where: {
+                      $0.id.scheduleID == resolvedSelectedScheduleID
+                  })
+            else { return "Select Schedule" }
+            return ScheduleViewer.scheduleTitle(schedule)
+        }
+
         var selectedSchedulePerformances: [OMERecord.Performance] {
             guard let selectedScheduleID = resolvedSelectedScheduleID else { return [] }
             return performanceRows
@@ -1116,6 +1125,11 @@ struct StageScheduleView: View {
                         memberships: [],
                         selectedScheduleID: nil
                     ),
+                    emptyTitle: ScheduleViewer.emptyStageTitle(
+                        scheduleDivision: ScheduleViewer.ScheduleDivision(category: stage.category),
+                        scheduleTitle: store.state.selectedScheduleTitle,
+                        stage: stage
+                    ),
                     showsAuthoringControls: false,
                     onUserScheduleMembershipTapped: { _, _ in },
                     onNewUserScheduleTapped: { _ in },
@@ -1126,10 +1140,14 @@ struct StageScheduleView: View {
                     }
                 )
             } else {
-                ContentUnavailableView(
-                    stage.name,
-                    systemImage: "calendar.day.timeline.leading",
-                    description: Text("No performances have been added to this stage for this day yet.")
+                ScheduleEmptyView(
+                    title: ScheduleViewer.emptyStageTitle(
+                        scheduleDivision: ScheduleViewer.ScheduleDivision(category: stage.category),
+                        scheduleTitle: store.state.selectedScheduleTitle,
+                        stage: stage
+                    ),
+                    otherScheduleDivisions: [],
+                    onScheduleDivisionTapped: { _ in }
                 )
             }
         }

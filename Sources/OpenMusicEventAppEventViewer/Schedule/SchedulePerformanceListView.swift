@@ -84,6 +84,7 @@ public struct SchedulePerformanceList {
     public enum Action {
         case newUserScheduleButtonTapped(OMERecord.ID<OMERecord.Performance>)
         case performanceButtonTapped(OMERecord.ID<OMERecord.Performance>)
+        case scheduleDivisionButtonTapped(ScheduleViewer.ScheduleDivision)
         case userScheduleMembershipButtonTapped(
             OMERecord.ID<OMERecord.Performance>,
             UserSchedule.ID
@@ -107,6 +108,15 @@ public struct SchedulePerformanceList {
                     let task = try store.post(
                         key: SchedulePerformanceDetailRequested.self,
                         value: performanceID
+                    )
+                    await task?.value
+                }
+
+            case let .scheduleDivisionButtonTapped(division):
+                store.addTask {
+                    let task = try store.post(
+                        key: ScheduleDivisionRequested.self,
+                        value: division
                     )
                     await task?.value
                 }
@@ -151,11 +161,23 @@ public struct SchedulePerformanceListView: View {
     public var body: some View {
         let rows = store.state.visiblePerformanceRows(selectedScheduleID: selectedScheduleID)
         if rows.isEmpty {
-            ViewerPlaceholderView(
-                title: store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID),
-                systemImage: "calendar",
-                description: "No performances have been added to this schedule division yet."
-            )
+            List {}
+                .listStyle(.plain)
+                .overlay {
+                    ScheduleEmptyView(
+                        title: ScheduleViewer.emptyScheduleTitle(
+                            scheduleDivision: store.scheduleDivision,
+                            scheduleTitle: store.state.selectedScheduleTitle(
+                                selectedScheduleID: selectedScheduleID
+                            )
+                        ),
+                        otherScheduleDivisions: otherScheduleDivisions,
+                        onScheduleDivisionTapped: { division in
+                            store.send(.scheduleDivisionButtonTapped(division))
+                        }
+                    )
+                    .padding()
+                }
         } else {
             TimelineView(.periodic(from: Date.now, by: 1)) { context in
                 ScrollViewReader { proxy in
@@ -218,6 +240,11 @@ public struct SchedulePerformanceListView: View {
                 }
             }
         }
+    }
+
+    var otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] {
+        ScheduleViewer.scheduleDivisions(stages: store.stages)
+            .filter { $0 != store.scheduleDivision }
     }
 
     @ViewBuilder

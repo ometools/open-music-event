@@ -315,9 +315,9 @@ public struct ScheduleViewerView: View {
         Group {
             if store.schedules.isEmpty {
                 ViewerPlaceholderView(
-                    title: "Schedule",
+                    title: "Schedule coming soon",
                     systemImage: "calendar",
-                    description: "No schedule has been added to this event yet."
+                    description: "Check back for times and stages."
                 )
             } else {
                 switch store.scheduleKind {

@@ -272,10 +272,15 @@ public struct ScheduleSingleStageAtOnceView: View {
     @ViewBuilder
     var timeline: some View {
         if visibleStages.isEmpty {
-            ContentUnavailableView(
-                store.scheduleDivision.title,
-                systemImage: "music.note.list",
-                description: Text("No stages have been added to this schedule division yet.")
+            ScheduleEmptyView(
+                title: ScheduleViewer.emptyScheduleTitle(
+                    scheduleDivision: store.scheduleDivision,
+                    scheduleTitle: selectedScheduleTitle
+                ),
+                otherScheduleDivisions: otherScheduleDivisions,
+                onScheduleDivisionTapped: { division in
+                    store.send(.scheduleDivisionButtonTapped(division))
+                }
             )
         } else {
             ScheduleStagePager(
@@ -379,7 +384,7 @@ public struct ScheduleSingleStageAtOnceView: View {
 
 }
 
-struct ScheduleEmptyStageView: View {
+struct ScheduleEmptyView: View {
     let title: String
     let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
     let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
@@ -462,7 +467,7 @@ struct ScheduleStagePager: View {
             GeometryReader { geometry in
                 HorizontalPageView(page: $selectedStageID) {
                     ForEach(stages) { stage in
-                        ScheduleEmptyStageView(
+                        ScheduleEmptyView(
                             title: ScheduleViewer.emptyStageTitle(
                                 scheduleDivision: scheduleDivision,
                                 scheduleTitle: scheduleTitle,
@@ -535,7 +540,7 @@ struct ScheduleFixedStageTimeline: View {
     let timeRange: DateInterval
     let pageHeight: CGFloat
     let userScheduleOverlay: UserScheduleOverlay
-    let emptyTitle: String?
+    let emptyTitle: String
     let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
     let showsAuthoringControls: Bool
     let onUserScheduleMembershipTapped: (
@@ -554,7 +559,7 @@ struct ScheduleFixedStageTimeline: View {
         timeRange: DateInterval,
         pageHeight: CGFloat,
         userScheduleOverlay: UserScheduleOverlay,
-        emptyTitle: String? = nil,
+        emptyTitle: String,
         otherScheduleDivisions: [ScheduleViewer.ScheduleDivision] = [],
         showsAuthoringControls: Bool,
         onUserScheduleMembershipTapped: @escaping (
@@ -611,7 +616,7 @@ struct ScheduleStageTimelinePage: View {
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
     let userScheduleOverlay: UserScheduleOverlay
-    let emptyTitle: String?
+    let emptyTitle: String
     let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
     let showsAuthoringControls: Bool
     let onUserScheduleMembershipTapped: (
@@ -654,21 +659,12 @@ struct ScheduleStageTimelinePage: View {
 
     @ViewBuilder
     var emptyContent: some View {
-        if let emptyTitle {
-            ScheduleEmptyStageView(
-                title: emptyTitle,
-                otherScheduleDivisions: otherScheduleDivisions,
-                onScheduleDivisionTapped: onScheduleDivisionTapped
-            )
-            .padding()
-        } else {
-            ContentUnavailableView(
-                stage.name,
-                systemImage: "calendar.day.timeline.leading",
-                description: Text("No performances have been added to this stage yet.")
-            )
-            .padding()
-        }
+        ScheduleEmptyView(
+            title: emptyTitle,
+            otherScheduleDivisions: otherScheduleDivisions,
+            onScheduleDivisionTapped: onScheduleDivisionTapped
+        )
+        .padding()
     }
 
     var timelineCards: [TimelineWrapper<SchedulePerformanceTimelineCard>] {

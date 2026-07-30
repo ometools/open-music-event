@@ -4042,6 +4042,24 @@ struct NavigationTests {
     }
 
     @Test
+    func `empty schedule titles are friendly`() {
+        expectNoDifference(
+            ScheduleViewer.emptyScheduleTitle(
+                scheduleDivision: .schedule,
+                scheduleTitle: "Friday"
+            ),
+            "No Schedule on Friday"
+        )
+        expectNoDifference(
+            ScheduleViewer.emptyScheduleTitle(
+                scheduleDivision: .init(category: OMERecord.Stage.Category("workshop")),
+                scheduleTitle: "Friday"
+            ),
+            "No Workshops on Friday"
+        )
+    }
+
+    @Test
     func manyStagesTimelineGroupsKeepEmptyStageLanes() {
         #expect(ScheduleManyStagesAtOnceView.timelineGroups(stageCount: 4) == [0, 1, 2, 3])
     }
@@ -4774,6 +4792,18 @@ struct NavigationTests {
         let singleStageStore = scheduleStore.spawn(\.singleStageAtOnce)
 
         await singleStageStore.send(
+            .scheduleDivisionButtonTapped(workshopDivision)
+        )?.value
+
+        expectNoDifference(store.selectedFeature, .schedule(workshopDivision))
+
+        await scheduleStore.spawn(\.manyStagesAtOnce).send(
+            .scheduleDivisionButtonTapped(.schedule)
+        )?.value
+
+        expectNoDifference(store.selectedFeature, .schedule(.schedule))
+
+        await scheduleStore.spawn(\.performanceList).send(
             .scheduleDivisionButtonTapped(workshopDivision)
         )?.value
 
