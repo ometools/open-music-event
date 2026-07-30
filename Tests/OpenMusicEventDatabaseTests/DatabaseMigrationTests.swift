@@ -1,8 +1,10 @@
 import ATProto
 import CustomDump
+import Dependencies
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSourceEditing
 import SQLiteData
 import Testing
 
@@ -583,6 +585,89 @@ struct DatabaseMigrationTests {
                 ) == ["workspaceID", "actorID"]
             )
         }
+    }
+
+    @Test
+    func workspaceAuthoringActivationMigrationPersistsUpsertsAndCascades() async throws {
+        let database = try migratedDatabase()
+        let workspaceID = EditingWorkspaceRecord.ID(
+            rawValue: "local.persisted-authoring"
+        )
+        let workspace = EditingWorkspaceRecord(
+            id: workspaceID,
+            kind: .local,
+            databaseFileName: "persisted-authoring.sqlite",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try await database.write { db in
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+        }
+
+        let firstActivation = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 2)
+            $0[WorkspaceAuthoringActivationClient.self] = .live
+        } operation: {
+            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
+            try await activations.activate(
+                workspaceID,
+                .local,
+                .collaborator([.propose])
+            )
+            return try activations.current(workspaceID)
+        }
+        expectNoDifference(
+            firstActivation,
+            WorkspaceAuthoringActivationRecord(
+                id: workspaceID,
+                principal: .local,
+                role: .collaborator([.propose]),
+                activatedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+
+        let updatedActivation = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 3)
+            $0[WorkspaceAuthoringActivationClient.self] = .live
+        } operation: {
+            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
+            try await activations.activate(workspaceID, .local, .owner)
+            return try activations.current(workspaceID)
+        }
+        expectNoDifference(
+            updatedActivation,
+            WorkspaceAuthoringActivationRecord(
+                id: workspaceID,
+                principal: .local,
+                role: .owner,
+                activatedAt: Date(timeIntervalSince1970: 3)
+            )
+        )
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 4)
+            $0[WorkspaceAuthoringActivationClient.self] = .live
+        } operation: {
+            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
+            try await activations.deactivate(workspaceID)
+            #expect(try activations.current(workspaceID) == nil)
+            try await activations.activate(workspaceID, .local, .owner)
+        }
+
+        try await database.write { db in
+            try EditingWorkspaceRecord.find(workspaceID).delete().execute(db)
+        }
+        let activationAfterWorkspaceDeletion = try withDependencies {
+            $0.defaultDatabase = database
+            $0[WorkspaceAuthoringActivationClient.self] = .live
+        } operation: {
+            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
+            return try activations.current(workspaceID)
+        }
+        #expect(activationAfterWorkspaceDeletion == nil)
     }
 
     @Test

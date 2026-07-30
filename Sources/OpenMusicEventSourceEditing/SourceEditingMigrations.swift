@@ -149,6 +149,19 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Create OpenMusicEvent workspace authoring activation schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "workspaceAuthoringActivations" (
+                      "id" TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE
+                        REFERENCES "editingWorkspaces"("id") ON DELETE CASCADE,
+                      "principal" TEXT NOT NULL,
+                      "role" TEXT NOT NULL,
+                      "activatedAt" TEXT NOT NULL
+                    ) STRICT
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

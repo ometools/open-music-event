@@ -117,6 +117,19 @@ private enum SourceDataRefreshError: Error, Equatable, Sendable {
 /// The default implementation merely loads the `ContentView` for the app and logs a message.
 public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventAppRoot>
 
+struct SelectedEventRestoration {
+    var eventID: OMERecord.Event.ID?
+    var error: (any Error)?
+
+    init(
+        eventID: OMERecord.Event.ID? = nil,
+        error: (any Error)? = nil
+    ) {
+        self.eventID = eventID
+        self.error = error
+    }
+}
+
 /* SKIP @bridge */public struct OpenMusicEventApplicationRootView : View {
     @MainActor
     private static let genericStore = makeStore(variant: .generic)
@@ -165,12 +178,14 @@ public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventAp
     public static func makeStore(
         variant: OpenMusicEventAppVariant
     ) -> StoreOf<OpenMusicEventApplication> {
-        StoreOf<OpenMusicEventApplication>(
+        let selectedEventRestoration = selectedEventRestoration(for: variant)
+        return StoreOf<OpenMusicEventApplication>(
             initialState: .init(storage: OpenMusicEventOAuth.storage) {
                 OpenMusicEventAppRoot.State(
                     variant: variant,
-                    selectedEventIDAtLaunch: selectedEventIDAtLaunch(for: variant),
-                    whiteLabelLoadedRootAtLaunch: whiteLabelLoadedRootAtLaunch(for: variant)
+                    selectedEventIDAtLaunch: selectedEventRestoration.eventID,
+                    whiteLabelLoadedRootAtLaunch: whiteLabelLoadedRootAtLaunch(for: variant),
+                    workspaceRestorationErrorAtLaunch: selectedEventRestoration.error
                 )
             }
         ) {
@@ -181,18 +196,19 @@ public typealias OpenMusicEventApplication = OAuthAuthorization<OpenMusicEventAp
         }
     }
 
-    private static func selectedEventIDAtLaunch(
+    static func selectedEventRestoration(
         for variant: OpenMusicEventAppVariant
-    ) -> OMERecord.Event.ID? {
-        guard variant.persistsSelectedEvent else { return nil }
+    ) -> SelectedEventRestoration {
+        guard variant.persistsSelectedEvent else { return .init() }
         @Dependency(\.defaultDatabase) var database
         do {
-            return try database.read { db in
-                try AppState.find(1).fetchOne(db)?.selectedEventID
-            }
+            return SelectedEventRestoration(
+                eventID: try database.read { db in
+                    try AppState.find(1).fetchOne(db)?.selectedEventID
+                }
+            )
         } catch {
-            logger.error("Failed to restore selected event at launch: \(String(describing: error))")
-            return nil
+            return SelectedEventRestoration(error: error)
         }
     }
 

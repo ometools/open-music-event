@@ -83,6 +83,10 @@ public extension UserFacingText {
         "Unable to delete event.",
         fallback: "Unable to delete event."
     )
+    static let eventWorkspaceRestoreFailed = Self(
+        "Unable to restore the saved event workspace.",
+        fallback: "Unable to restore the saved event workspace."
+    )
     static let authenticationAuthorizationFailed = Self(
         "Unable to authorize account.",
         fallback: "Unable to authorize account."
@@ -92,6 +96,7 @@ public extension UserFacingText {
 public extension ErrorOperation {
     static let authenticationAuthorization = Self("auth.authorization")
     static let eventDeletion = Self("event.delete")
+    static let eventWorkspaceRestore = Self("event.workspace.restore")
     static let sourceImport = Self("source.import")
     static let sourcePatchGeneration = Self("source.patch.generate")
     static let sourceWorkspaceUpload = Self("source.workspace.upload")

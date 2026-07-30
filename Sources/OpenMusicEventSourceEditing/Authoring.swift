@@ -9,7 +9,7 @@ import OSLog
 #endif
 import Sharing
 
-public enum AuthoringPrincipal: Equatable, Hashable, Sendable {
+public enum AuthoringPrincipal: Codable, Equatable, Hashable, Sendable {
     case local
     case actor(DID)
 }
@@ -156,15 +156,36 @@ public struct Authoring<Content: FeatureProtocol> {
             makeContentState: () -> Content.State
         ) {
             @Dependency(\.defaultDatabase) var database
+            @Dependency(WorkspaceAuthoringActivationClient.self) var activations
+            @Dependency(WorkspacePreparationClient.self) var preparation
+            let attendeeWorkspace = WorkspaceContext(
+                id: workspaceID,
+                sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+            )
+            let restoration = Result {
+                try activations.current(workspaceID)
+            }
+            let activation = try? restoration.get()
+            let restoredWorkspace = activation.flatMap { _ in
+                try? preparation.open(workspaceID)
+            } ?? attendeeWorkspace
             self.init(
-                attendeeWorkspace: WorkspaceContext(
-                    id: workspaceID,
-                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+                attendeeWorkspace: attendeeWorkspace,
+                grant: Shared(
+                    value: activation.map {
+                        AuthoringGrant(
+                            principal: $0.principal,
+                            role: $0.role,
+                            workspace: restoredWorkspace
+                        )
+                    }
                 ),
-                grant: Shared(value: nil),
                 initiallyRequestsEntry: initiallyRequestsEntry,
                 makeContentState: makeContentState
             )
+            if case let .failure(error) = restoration {
+                activationRestorationErrorDescription = String(reflecting: error)
+            }
         }
 
         public init(
@@ -224,8 +245,10 @@ public struct Authoring<Content: FeatureProtocol> {
         public var admission: AuthoringAdmission?
         public var content: Content.State
         @StoreTaskID public var admissionCheck
+        @StoreTaskID public var activationPersistence
         @StoreTaskID public var entry
         @StoreTaskID public var sourcePreparation
+        @DebugSnapshotIgnored var activationRestorationErrorDescription: String?
         @DebugSnapshotIgnored public var attendeeWorkspace: WorkspaceContext
         @DebugSnapshotIgnored var initiallyRequestsEntry: Bool
 
@@ -266,12 +289,15 @@ public struct Authoring<Content: FeatureProtocol> {
 
     public enum Action {
         case authoringEntryPrepared(AuthoringGrant)
+        case authoringExitPersisted
         case content(Content.Action)
         case enterButtonTapped
         case exitButtonTapped
         case refreshAdmission
+        case sourceWorkspacePrepared(WorkspaceContext)
     }
 
+    @Dependency(WorkspaceAuthoringActivationClient.self) var activations
     @Dependency(AuthoringPolicyClient.self) var policy
     @Dependency(WorkspacePreparationClient.self) var preparation
 
@@ -287,6 +313,10 @@ public struct Authoring<Content: FeatureProtocol> {
                 AuthoringEntryDiagnostics.logDone(workspaceID: grant.workspace.id)
                 prepareSource(state: &state, workspaceID: grant.workspace.id)
 
+            case .authoringExitPersisted:
+                state.invalidateAuthoring()
+                refreshAdmission(state: &state)
+
             case .content:
                 break
 
@@ -294,12 +324,17 @@ public struct Authoring<Content: FeatureProtocol> {
                 enterAuthoring(state: &state)
 
             case .exitButtonTapped:
-                state.invalidateAuthoring()
-                refreshAdmission(state: &state)
+                exitAuthoring(state: &state)
 
             case .refreshAdmission:
-                state.invalidateAuthoring()
                 refreshAdmission(state: &state)
+
+            case let .sourceWorkspacePrepared(workspace):
+                guard var grant = state.grant,
+                      grant.workspace.id == workspace.id
+                else { return }
+                grant.workspace = workspace
+                state.$grant.withLock { $0 = grant }
             }
         }
         Scope(\.content, action: \.content) {
@@ -321,14 +356,16 @@ public struct Authoring<Content: FeatureProtocol> {
             enterAuthoring(state: &state)
         }
         .onEvent(AuthoringAccessRevoked.self) { _, state in
-            state.invalidateAuthoring()
             state.admission = .denied
         }
         .onEvent(AuthoringExitRequested.self) { _, state in
-            state.invalidateAuthoring()
+            exitAuthoring(state: &state)
         }
         .onMount { state in
-            if state.initiallyRequestsEntry {
+            reportActivationRestorationFailure(state: &state)
+            if state.access.canEditContent {
+                prepareSource(state: &state, workspaceID: state.workspaceID)
+            } else if state.initiallyRequestsEntry {
                 state.initiallyRequestsEntry = false
                 enterAuthoring(state: &state)
             } else {
@@ -367,6 +404,7 @@ public struct Authoring<Content: FeatureProtocol> {
         let admissionCheck = state.admissionCheck
         state.admission = nil
         let workspaceID = state.workspaceID
+        let attendeeWorkspace = state.attendeeWorkspace
         store.addTask(id: state.entry) {
             await admissionCheck.cancel()?.value
             try store.modify {
@@ -414,7 +452,9 @@ public struct Authoring<Content: FeatureProtocol> {
             }
 
             do {
-                let workspace = try preparation.open(workspaceID)
+                try await activations.activate(workspaceID, principal, role)
+                let workspace = (try? preparation.open(workspaceID))
+                    ?? attendeeWorkspace
                 try store.send(
                     .authoringEntryPrepared(
                         AuthoringGrant(
@@ -427,16 +467,39 @@ public struct Authoring<Content: FeatureProtocol> {
             } catch {
                 AuthoringEntryDiagnostics.logFailed(
                     error,
-                    stage: "preparation",
+                    stage: "activation persistence",
                     workspaceID: workspaceID
                 )
                 await store.reportError(
                     error,
                     fallbackMessage: UserFacingText(
-                        "Unable to enter authoring.",
-                        fallback: "Unable to enter authoring."
+                        "Unable to save authoring access.",
+                        fallback: "Unable to save authoring access."
                     ),
-                    operation: ErrorOperation(rawValue: "authoring.entry.preparation")
+                    operation: ErrorOperation(rawValue: "authoring.entry.persistence")
+                )
+            }
+        }
+    }
+
+    private func exitAuthoring(state: inout State) {
+        guard state.access.canEditContent,
+              !state.activationPersistence.isRunning
+        else { return }
+
+        let workspaceID = state.workspaceID
+        store.addTask(id: state.activationPersistence) {
+            do {
+                try await activations.deactivate(workspaceID)
+                try store.send(.authoringExitPersisted)
+            } catch {
+                await store.reportError(
+                    error,
+                    fallbackMessage: UserFacingText(
+                        "Unable to exit authoring.",
+                        fallback: "Unable to exit authoring."
+                    ),
+                    operation: ErrorOperation(rawValue: "authoring.exit.persistence")
                 )
             }
         }
@@ -446,9 +509,15 @@ public struct Authoring<Content: FeatureProtocol> {
         state: inout State,
         workspaceID: EditingWorkspaceRecord.ID
     ) {
+        guard !state.sourcePreparation.isRunning else { return }
         store.addTask(id: state.sourcePreparation) {
             do {
+                if let workspace = try? preparation.open(workspaceID) {
+                    try store.send(.sourceWorkspacePrepared(workspace))
+                }
                 try await preparation.prepareSource(workspaceID)
+                let workspace = try preparation.open(workspaceID)
+                try store.send(.sourceWorkspacePrepared(workspace))
             } catch {
                 AuthoringEntryDiagnostics.logFailed(
                     error,
@@ -468,6 +537,25 @@ public struct Authoring<Content: FeatureProtocol> {
             }
         }
     }
+
+    private func reportActivationRestorationFailure(state: inout State) {
+        guard let description = state.activationRestorationErrorDescription else { return }
+        state.activationRestorationErrorDescription = nil
+        store.addTask {
+            await store.reportError(
+                WorkspaceAuthoringActivationRestorationError(description: description),
+                fallbackMessage: UserFacingText(
+                    "Unable to restore authoring access.",
+                    fallback: "Unable to restore authoring access."
+                ),
+                operation: ErrorOperation(rawValue: "authoring.restoration")
+            )
+        }
+    }
+}
+
+private struct WorkspaceAuthoringActivationRestorationError: Error, Sendable {
+    var description: String
 }
 
 extension Authoring.State: Identifiable where Content.State: Identifiable {

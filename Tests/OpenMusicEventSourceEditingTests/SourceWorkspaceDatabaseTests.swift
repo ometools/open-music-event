@@ -164,6 +164,95 @@ struct SourceWorkspaceDatabaseTests {
     }
 
     @Test
+    func `existing workspace database opens without a downloaded reference`() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let workingDirectory = root
+            .appending(path: "working", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: workingDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let appDatabase = try DatabaseQueue()
+        try appDatabase.write { db in
+            try db.execute(sql: """
+                CREATE TABLE editingWorkspaces (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  kind TEXT NOT NULL,
+                  databaseFileName TEXT NOT NULL,
+                  createdAt TEXT NOT NULL,
+                  updatedAt TEXT NOT NULL,
+                  sourceBaselineID TEXT,
+                  publicRecord TEXT
+                )
+                """)
+        }
+        let workspace = EditingWorkspaceRecord(
+            id: EditingWorkspaceRecord.ID(rawValue: "workspace-with-local-draft"),
+            kind: .local,
+            databaseFileName: "local-draft.sqlite",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try appDatabase.write { db in
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+        }
+
+        let workingDatabase = try DatabasePool(
+            path: workingDirectory.appending(path: workspace.databaseFileName).path
+        )
+        try workingDatabase.write { db in
+            try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
+            try db.execute(sql: "INSERT INTO marker VALUES ('persisted draft')")
+        }
+        let missingReference = WorkspaceReferenceDatabaseClient(
+            url: { _, _ in root.appending(path: "missing-reference.sqlite") },
+            prepare: { _, _ in
+                throw WorkspaceReferenceDatabaseError.sourceBaselineMissing(workspace.id)
+            },
+            existing: { _, _ in nil }
+        )
+
+        let openedWorkspace = try withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0.workspaceReferenceDatabase = missingReference
+        } operation: {
+            try SourceWorkspaceDatabaseClient
+                .fileBacked(workingDirectory: workingDirectory)
+                .workspace(workspace.id)
+        }
+
+        #expect(try marker(in: openedWorkspace.database) == "persisted draft")
+        #expect(openedWorkspace.sourceEditingSession == nil)
+
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: root.appending(path: "downloaded-reference.sqlite").path
+        )
+        try referenceDatabase.write { db in
+            try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
+            try db.execute(sql: "INSERT INTO marker VALUES ('downloaded baseline')")
+        }
+        let downloadedReference = WorkspaceReferenceDatabaseClient(
+            url: { _, _ in URL(fileURLWithPath: referenceDatabase.path) },
+            prepare: { _, _ in referenceDatabase },
+            existing: { _, _ in referenceDatabase }
+        )
+        let upgradedWorkspace = try withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0.workspaceReferenceDatabase = downloadedReference
+        } operation: {
+            try SourceWorkspaceDatabaseClient
+                .fileBacked(workingDirectory: workingDirectory)
+                .workspace(workspace.id)
+        }
+
+        #expect(try marker(in: upgradedWorkspace.database) == "persisted draft")
+        #expect(upgradedWorkspace.sourceEditingSession != nil)
+    }
+
+    @Test
     func `workspace context keeps app database mounted with its reference attached`() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

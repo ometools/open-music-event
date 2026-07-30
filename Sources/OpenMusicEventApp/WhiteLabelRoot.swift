@@ -131,7 +131,7 @@ public struct WhiteLabelRoot {
                     TeamWorkspaceDetail()
                 }
             }
-            .invalidatingAuthoringWhenAuthorizationIsLost()
+            .refreshingAuthoringAdmissionWhenAuthorizationChanges()
         }
         .onMount { state in
             guard state.loadingPhase == .idle else { return }

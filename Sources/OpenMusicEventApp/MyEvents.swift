@@ -223,7 +223,7 @@ public struct MyEvents {
                     TeamWorkspaceDetail()
                 }
             }
-            .invalidatingAuthoringWhenAuthorizationIsLost()
+            .refreshingAuthoringAdmissionWhenAuthorizationChanges()
         }
         .onEvent(SourceImportCompleted.self) { importedSource, state in
             state.destination = nil

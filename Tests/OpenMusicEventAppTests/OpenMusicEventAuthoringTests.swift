@@ -253,7 +253,7 @@ struct OpenMusicEventAuthoringTests {
     }
 
     @Test
-    func authorizationLossClearsTheWorkspaceAuthoringGrant() async throws {
+    func authorizationLossKeepsTheWorkspaceAuthoringGrant() async throws {
         let database = try makePreparedDatabase()
         let session = testSession(
             permissions: OpenMusicEventOAuth
@@ -300,19 +300,18 @@ struct OpenMusicEventAuthoringTests {
                         AuthoringProbe()
                     }
                 }
-                .invalidatingAuthoringWhenAuthorizationIsLost()
+                .refreshingAuthoringAdmissionWhenAuthorizationChanges()
             }
         }
 
         #expect(store.content.access.canEditContent)
         await store.send(.authentication(.resetAuthentication))?.value
         try await waitForCondition {
-            grant.wrappedValue == nil
-                && store.content.admission == .signInRequired
+            store.authentication.session == nil
         }
-        #expect(!store.content.access.canEditContent)
-        #expect(grant.wrappedValue == nil)
-        expectNoDifference(admissionRequests.withLock { $0 }, [workspace.id])
+        #expect(store.content.access.canEditContent)
+        #expect(grant.wrappedValue != nil)
+        expectNoDifference(admissionRequests.withLock { $0 }, [])
     }
 
     @Test

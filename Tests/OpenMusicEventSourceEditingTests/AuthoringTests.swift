@@ -13,6 +13,73 @@ import Testing
 
 @Suite(.tcaExhaustivity(.off))
 struct AuthoringTests {
+    @Test @MainActor
+    @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
+    func `persisted activation restores authoring before source preparation`() async throws {
+        let database = try DatabaseQueue()
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "restored-workspace")
+        let workspace = WorkspaceContext(
+            id: workspaceID,
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+        )
+        let activation = WorkspaceAuthoringActivationRecord(
+            id: workspaceID,
+            principal: .local,
+            role: .owner,
+            activatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let preparationGate = AuthoringPreparationGate()
+        let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0[WorkspaceAuthoringActivationClient.self] = WorkspaceAuthoringActivationClient(
+                current: { requestedWorkspaceID in
+                    #expect(requestedWorkspaceID == workspaceID)
+                    return activation
+                },
+                activate: { _, _, _ in },
+                deactivate: { _ in }
+            )
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
+                admissionRequests.withLock { $0.append(requestedWorkspaceID) }
+                return .denied
+            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { requestedWorkspaceID in
+                    #expect(requestedWorkspaceID == workspaceID)
+                    return workspace
+                },
+                prepareSource: { requestedWorkspaceID in
+                    await preparationGate.prepare(requestedWorkspaceID)
+                }
+            )
+        } operation: {
+            Store(
+                initialState: Authoring<WorkspaceProbe>.State(workspaceID: workspaceID) {
+                    WorkspaceProbe.State()
+                }
+            ) {
+                Authoring { WorkspaceProbe() }
+            }
+        }
+
+        expectNoDifference(store.access, .authoring(.owner))
+        expectNoDifference(store.grant?.principal, .local)
+        expectNoDifference(admissionRequests.withLock { $0 }, [])
+
+        let preparationRequests = await preparationGate.waitForPreparationToStart()
+        expectNoDifference(preparationRequests, [workspaceID])
+        expectNoDifference(store.access, .authoring(.owner))
+
+        await preparationGate.finish()
+        try await waitForAuthoringCondition {
+            store.grant?.workspace.id == workspaceID
+                && store.sourcePreparation.isRunning == false
+        }
+        expectNoDifference(admissionRequests.withLock { $0 }, [])
+    }
+
     @Test
     func `entry eligibility requires a granted admission`() throws {
         let workspace = WorkspaceContext(
@@ -87,8 +154,26 @@ struct AuthoringTests {
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )
         let preparationGate = AuthoringPreparationGate()
+        let persistedActivations = Mutex<[WorkspaceAuthoringActivationRecord]>([])
+        let activatedAt = Date(timeIntervalSince1970: 2_000)
 
         let store: TestStoreActor<Authoring<WorkspaceProbe>> = await withDependencies {
+            $0[WorkspaceAuthoringActivationClient.self] = WorkspaceAuthoringActivationClient(
+                current: { _ in nil },
+                activate: { workspaceID, principal, role in
+                    persistedActivations.withLock {
+                        $0.append(
+                            WorkspaceAuthoringActivationRecord(
+                                id: workspaceID,
+                                principal: principal,
+                                role: role,
+                                activatedAt: activatedAt
+                            )
+                        )
+                    }
+                },
+                deactivate: { _ in }
+            )
             $0[AuthoringPolicyClient.self] = .authoring
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
                 open: { workspaceID in
@@ -124,6 +209,17 @@ struct AuthoringTests {
         expectNoDifference(
             access,
             .authoring(.owner)
+        )
+        expectNoDifference(
+            persistedActivations.withLock { $0 },
+            [
+                WorkspaceAuthoringActivationRecord(
+                    id: workspace.id,
+                    principal: .local,
+                    role: .owner,
+                    activatedAt: activatedAt
+                )
+            ]
         )
 
         await preparationGate.finish()
@@ -335,7 +431,7 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `workspace opening failure reports an ephemeral issue and remains attendee`() async throws {
+    func `workspace opening failure reports an ephemeral issue and keeps authoring`() async throws {
         let failure = SourceControlError.remoteOperationFailed(
             SourceControlRemoteFailure(
                 kind: .timedOut,
@@ -366,17 +462,18 @@ struct AuthoringTests {
             await store.send(to: \.authoring, .enterButtonTapped)?.value
         }
         await store.expect {
-            $0.reportedErrorMessage = "Unable to enter authoring."
+            $0.reportedErrorMessage =
+                "Editing is available, but the source repository is not ready."
             $0.reportedErrorDebugDescription = String(describing: failure)
             $0.reportedErrorOperation = ErrorOperation(
-                rawValue: "authoring.entry.preparation"
+                rawValue: "authoring.source-preparation"
             )
         }
 
         let deniedAccess = await store[dynamicMember: \.authoring.state.access]
         let deniedContentAccess = await store[dynamicMember: \.authoring.state.content.access]
-        expectNoDifference(deniedAccess, .attendee)
-        expectNoDifference(deniedContentAccess, .attendee)
+        expectNoDifference(deniedAccess, .authoring(.owner))
+        expectNoDifference(deniedContentAccess, .authoring(.owner))
 
         await store.dismount()
     }

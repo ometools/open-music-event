@@ -144,18 +144,26 @@ public extension SourceWorkspaceDatabaseClient {
            sourceBaseline == nil {
             throw SourceWorkspaceDatabaseError.sourceBaselineNotFound(sourceBaselineID)
         }
-        guard let referenceDatabase = try workspaceReferenceDatabase.existing(
-            workspace,
-            sourceBaseline: sourceBaseline
-        ) else {
-            throw SourceWorkspaceDatabaseError.workspaceReferenceDatabaseMissing(workspaceID)
-        }
-
         let workingDatabaseURL = try workingDatabaseURL(
             workspace: workspace,
             directory: workingDirectory
         )
-        if !FileManager.default.fileExists(atPath: workingDatabaseURL.path) {
+        let workingDatabaseExists = FileManager.default.fileExists(
+            atPath: workingDatabaseURL.path
+        )
+        let referenceDatabase = try workspaceReferenceDatabase.existing(
+            workspace,
+            sourceBaseline: sourceBaseline
+        )
+        guard workingDatabaseExists || referenceDatabase != nil else {
+            throw SourceWorkspaceDatabaseError.workspaceReferenceDatabaseMissing(workspaceID)
+        }
+
+        var configuration = Configuration()
+        configuration.busyMode = .timeout(5)
+        configuration.foreignKeysEnabled = true
+
+        if !workingDatabaseExists, let referenceDatabase {
             try FileManager.default.createDirectory(
                 at: workingDatabaseURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -164,9 +172,14 @@ public extension SourceWorkspaceDatabaseClient {
             try referenceDatabase.database.backup(to: workingDatabase)
         }
 
-        var configuration = Configuration()
-        configuration.busyMode = .timeout(5)
-        configuration.foreignKeysEnabled = true
+        guard let referenceDatabase else {
+            return SourceWorkspaceDatabase(
+                database: try DatabasePool(
+                    path: workingDatabaseURL.path,
+                    configuration: configuration
+                )
+            )
+        }
 
         return SourceWorkspaceDatabase(
             sourceEditingSession: try SourceEditingSession(

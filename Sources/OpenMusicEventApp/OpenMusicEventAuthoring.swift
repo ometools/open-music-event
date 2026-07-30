@@ -19,17 +19,17 @@ where Content == OpenMusicEventSourceEditing.Authoring<EventViewer> {
 }
 
 extension OAuthAuthorization {
-    func invalidatingAuthoringWhenAuthorizationIsLost<AuthoringContent>()
+    func refreshingAuthoringAdmissionWhenAuthorizationChanges<AuthoringContent>()
         -> some FeatureProtocol<State, Action>
     where
         AuthoringContent: FeatureProtocol,
         Content == OpenMusicEventSourceEditing.Authoring<AuthoringContent>
     {
-        self.modifier(AuthoringAuthorizationInvalidationModifier<AuthoringContent>())
+        self.modifier(AuthoringAuthorizationRefreshModifier<AuthoringContent>())
     }
 }
 
-private struct AuthoringAuthorizationInvalidationModifier<AuthoringContent: FeatureProtocol>:
+private struct AuthoringAuthorizationRefreshModifier<AuthoringContent: FeatureProtocol>:
     FeatureModifier
 {
     typealias AuthoringFeature = OpenMusicEventSourceEditing.Authoring<AuthoringContent>
@@ -42,15 +42,19 @@ private struct AuthoringAuthorizationInvalidationModifier<AuthoringContent: Feat
         content
             .onChange(of: store.authentication.session?.accountID) { oldID, newID, state in
                 guard oldID != newID else { return }
-                let entry = state.content.entry
-                state.content.invalidateAuthoring()
-                store.addTask {
-                    await entry.cancel()?.value
-                    try store.send(.content(.refreshAdmission))
-                }
+                refreshAdmissionIfInactive(state: &state)
             }
             .onEvent(OAuthAuthorizationInvalidated.self) { _, state in
-                state.content.invalidateAuthoring()
+                refreshAdmissionIfInactive(state: &state)
             }
+    }
+
+    private func refreshAdmissionIfInactive(state: inout State) {
+        guard !state.content.access.canEditContent else { return }
+        let entry = state.content.entry
+        store.addTask {
+            await entry.cancel()?.value
+            try store.send(.content(.refreshAdmission))
+        }
     }
 }
