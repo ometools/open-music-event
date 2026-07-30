@@ -206,6 +206,7 @@ dependencies.append(contentsOf: [
 #endif
 
 var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
+    "BlueskyActorCache",
     "OpenMusicEventSourceClone",
     "OpenMusicEventComponents",
     .product(name: "ATProto", package: "swift-composable-atmosphere"),
@@ -217,6 +218,7 @@ var openMusicEventAuthenticationDependencies: [Target.Dependency] = [
     .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
     .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
     .product(name: "Sharing", package: "swift-sharing"),
+    .product(name: "SQLiteData", package: "sqlite-data"),
     .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
     .product(name: "WebMetadataClient", package: "swift-web-metadata"),
     .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
@@ -720,12 +722,14 @@ targets.append(contentsOf: [
     .testTarget(
         name: "OpenMusicEventAuthenticationTests",
         dependencies: [
+            "BlueskyActorCache",
             "OpenMusicEventAuthentication",
             .product(name: "Clocks", package: "swift-clocks"),
             .product(name: "ComposableArchitecture2", package: "TCA26"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+            .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
             .product(name: "WebMetadataClient", package: "swift-web-metadata"),
         ]

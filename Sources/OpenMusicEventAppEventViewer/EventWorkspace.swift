@@ -1,4 +1,5 @@
 import ATProto
+import BlueskyActorCache
 import ComposableArchitecture2
 import ComposableForms
 import ErrorHandling
@@ -330,10 +331,6 @@ public struct EventWorkspace {
         }
     }
 
-    public enum WorkspaceActorIdentityLookupFailure: Equatable, Error, Sendable {
-        case unavailable
-    }
-
     public struct TangledPullReviewSemanticDiff: Equatable, Sendable {
         public var groups: [SourceChangeGroup]
         public var recordComparisons: SourceRecordComparisons
@@ -393,6 +390,10 @@ public struct EventWorkspace {
 
         public init(target: SourceProposalTarget) {
             self._authoringGrant = Self.authoringGrant()
+            self._cachedActorIdentities = Fetch(
+                wrappedValue: CachedActorIdentities(),
+                CachedActorIdentitiesRequest()
+            )
             self.target = target
             self._sourceWorkspaceSummary = Fetch(
                 wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
@@ -408,6 +409,8 @@ public struct EventWorkspace {
 
         public let target: SourceProposalTarget
         public var id: String { target.id }
+        @DebugSnapshotIgnored
+        @Fetch public var cachedActorIdentities: CachedActorIdentities
         @DebugSnapshotIgnored
         @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
         @SharedReader public var authoringGrant: AuthoringGrant?
@@ -434,10 +437,29 @@ public struct EventWorkspace {
         public var tangledPullReviewMergeFailures: [String: TangledPullReviewMergeFailure] = [:]
         public var tangledPullReviewSemanticDiffs: [String: TangledPullReviewSemanticDiffStatus] = [:]
         public var account = Spawn(Account.State())
-        public var workspaceOwnerIdentity: WorkspaceActorIdentity = .unavailable
-        public var tangledPullReviewAuthorIdentities: [String: WorkspaceActorIdentity] = [:]
         @FetchOne public var sourceBaseline: SourceBaselineRecord?
         @FetchOne public var sourceProvenance: EventSourceProvenanceRecord?
+
+        public var workspaceOwnerIdentity: WorkspaceActorIdentity {
+            guard let actor = sourceContext?.ownerActorReference,
+                  let identity = cachedActorIdentities[actor]
+            else { return .unavailable }
+            return .loaded(identity)
+        }
+
+        public var tangledPullReviewAuthorIdentities: [String: WorkspaceActorIdentity] {
+            guard case let .loaded(reviews) = tangledPullReviewStatus else { return [:] }
+            return Dictionary(
+                uniqueKeysWithValues: Set(reviews.map(\.author).filter { !$0.isEmpty })
+                    .map { author in
+                        (
+                            author,
+                            cachedActorIdentities[author].map(WorkspaceActorIdentity.loaded)
+                                ?? .unavailable
+                        )
+                    }
+            )
+        }
 
         public var changeCount: Int? {
             sourceWorkspaceSummary.badgeCount
@@ -540,14 +562,7 @@ public struct EventWorkspace {
             review: TangledPullReview,
             Result<Void, TangledPullReviewMergeFailure>
         )
-        case tangledPullReviewAuthorIdentityResponse(
-            author: String,
-            Result<ActorIdentity, WorkspaceActorIdentityLookupFailure>
-        )
         case tangledPullReviewsResponse(Result<[TangledPullReview], TangledPullReviewFailure>)
-        case workspaceOwnerIdentityResponse(
-            Result<ActorIdentity, WorkspaceActorIdentityLookupFailure>
-        )
     }
 
     public enum Delegate: Equatable, Sendable {
@@ -563,63 +578,9 @@ public struct EventWorkspace {
     var calendarSourcePatchGenerator
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
+    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
-
-    static let exactActorIdentitySearch = PredictiveSearch(
-        actorIdentitySources: [
-            .exactActorIdentityLookup(title: "Exact match"),
-        ],
-        minimumQueryLength: 2
-    )
-
-    private func loadWorkspaceOwnerIdentity(state: inout State) {
-        let ownerActorReference = state.sourceContext?.ownerActorReference
-        state.workspaceOwnerIdentity = ownerActorReference == nil ? .unavailable : .loading
-
-        guard let ownerActorReference else { return }
-        store.addTask {
-            let response = await Self.exactActorIdentitySearch.search(ownerActorReference)
-            if let identity = response.results.first {
-                try store.send(.workspaceOwnerIdentityResponse(.success(identity)))
-            } else {
-                try store.send(
-                    .workspaceOwnerIdentityResponse(
-                        .failure(.unavailable)
-                    )
-                )
-            }
-        }
-    }
-
-    private func loadReviewAuthorIdentities(
-        for reviews: [TangledPullReview],
-        state: inout State
-    ) {
-        let authors = Set(reviews.map(\.author).filter { !$0.isEmpty })
-        for author in authors {
-            guard state.tangledPullReviewAuthorIdentities[author] == nil else { continue }
-            state.tangledPullReviewAuthorIdentities[author] = .loading
-            store.addTask {
-                let response = await Self.exactActorIdentitySearch.search(author)
-                if let identity = response.results.first {
-                    try store.send(
-                        .tangledPullReviewAuthorIdentityResponse(
-                            author: author,
-                            .success(identity)
-                        )
-                    )
-                } else {
-                    try store.send(
-                        .tangledPullReviewAuthorIdentityResponse(
-                            author: author,
-                            .failure(.unavailable)
-                        )
-                    )
-                }
-            }
-        }
-    }
 
     private func refreshTangledPullReviews(
         target: SourceProposalTarget,
@@ -1025,7 +986,21 @@ public struct EventWorkspace {
                 mergeTangledPullReview(review, state: &state)
 
             case .onAppear:
-                loadWorkspaceOwnerIdentity(state: &state)
+                if let actor = state.sourceContext?.ownerActorReference {
+                    let blueskyActorProfileCache = blueskyActorProfileCache
+                    store.addTask {
+                        do {
+                            _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                                actor,
+                                24 * 60 * 60,
+                                15 * 60
+                            )
+                        } catch is CancellationError {
+                            return
+                        } catch {
+                        }
+                    }
+                }
                 if state.tangledPullReviewStatus == .notLoaded {
                     refreshTangledPullReviews(target: state.target, state: &state)
                 }
@@ -1166,18 +1141,29 @@ public struct EventWorkspace {
                 state.mergingTangledPullReviewIDs.remove(review.id)
                 state.tangledPullReviewMergeFailures[review.id] = failure
 
-            case let .tangledPullReviewAuthorIdentityResponse(author, .success(identity)):
-                state.tangledPullReviewAuthorIdentities[author] = .loaded(identity)
-
-            case let .tangledPullReviewAuthorIdentityResponse(author, .failure):
-                state.tangledPullReviewAuthorIdentities[author] = .unavailable
-
             case let .tangledPullReviewsResponse(.success(reviews)):
                 let loadedReviews = reviews
                     .filter { !state.locallyRemovedTangledPullReviewIDs.contains($0.id) }
                     .tangledPullReviewsSortedByDate
                 state.tangledPullReviewStatus = .loaded(loadedReviews)
-                loadReviewAuthorIdentities(for: loadedReviews, state: &state)
+                let authors = Set(loadedReviews.map(\.author).filter { !$0.isEmpty })
+                if !authors.isEmpty {
+                    let blueskyActorProfileCache = blueskyActorProfileCache
+                    store.addTask {
+                        for author in authors {
+                            do {
+                                _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                                    author,
+                                    24 * 60 * 60,
+                                    15 * 60
+                                )
+                            } catch is CancellationError {
+                                return
+                            } catch {
+                            }
+                        }
+                    }
+                }
                 if let pendingReviewID = state.pendingCreatedTangledPullReviewID,
                    let review = loadedReviews.first(where: { $0.id == pendingReviewID })
                 {
@@ -1193,11 +1179,6 @@ public struct EventWorkspace {
             case let .tangledPullReviewsResponse(.failure(failure)):
                 state.tangledPullReviewStatus = .failed(failure)
 
-            case let .workspaceOwnerIdentityResponse(.success(identity)):
-                state.workspaceOwnerIdentity = .loaded(identity)
-
-            case .workspaceOwnerIdentityResponse(.failure):
-                state.workspaceOwnerIdentity = .unavailable
             }
         }
         .onMount { state in

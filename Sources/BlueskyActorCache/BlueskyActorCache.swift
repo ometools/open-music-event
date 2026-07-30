@@ -91,6 +91,40 @@ public struct BlueskyActorProfileCacheEntry: Equatable, Sendable, Identifiable {
     }
 }
 
+public struct CachedActorIdentities: Equatable, Sendable {
+    public init(byActor: [String: ActorIdentity] = [:]) {
+        self.byActor = byActor
+    }
+
+    public var byActor: [String: ActorIdentity]
+
+    public subscript(actor: String) -> ActorIdentity? {
+        byActor[BlueskyActorProfileCacheEntry.normalizedActor(actor)]
+    }
+}
+
+public struct CachedActorIdentitiesRequest: FetchKeyRequest {
+    public init() {}
+
+    public func fetch(_ db: Database) throws -> CachedActorIdentities {
+        let profilesByDID = Dictionary(
+            uniqueKeysWithValues: try BlueskyActorProfile
+                .fetchAll(db)
+                .map { ($0.did, $0) }
+        )
+        let identities = try BlueskyActorProfileCacheEntry
+            .fetchAll(db)
+            .reduce(into: [String: ActorIdentity]()) { identities, entry in
+                guard let did = entry.did,
+                      let profile = profilesByDID[did],
+                      let identity = ActorIdentity(profile)
+                else { return }
+                identities[entry.actor] = identity
+            }
+        return CachedActorIdentities(byActor: identities)
+    }
+}
+
 public struct BlueskyActorGetProfileRequest: XRPC.Request, Sendable {
     public static var nsid: ATProto.NSID { ATProto.NSID("app.bsky.actor.getProfile") }
     public static var type: XRPC.RequestType { .query }
@@ -156,6 +190,67 @@ public enum BlueskyActorCacheMigrations {
                 """)
                 .execute(db)
         }
+
+        migrator.registerMigration("Backfill Bluesky actor profile aliases") { db in
+            try #sql("""
+                INSERT INTO "blueskyActorProfileCacheEntries" (
+                  "actor",
+                  "did",
+                  "lastFetchedAt",
+                  "lastFetchAttemptAt"
+                )
+                SELECT
+                  "blueskyActorProfiles"."did",
+                  "blueskyActorProfiles"."did",
+                  MAX("blueskyActorProfileCacheEntries"."lastFetchedAt"),
+                  MAX("blueskyActorProfileCacheEntries"."lastFetchAttemptAt")
+                FROM "blueskyActorProfiles"
+                LEFT JOIN "blueskyActorProfileCacheEntries"
+                  ON "blueskyActorProfileCacheEntries"."did" = "blueskyActorProfiles"."did"
+                GROUP BY "blueskyActorProfiles"."did"
+                ON CONFLICT ("actor") DO UPDATE SET
+                  "did" = excluded."did",
+                  "lastFetchedAt" = COALESCE(
+                    "blueskyActorProfileCacheEntries"."lastFetchedAt",
+                    excluded."lastFetchedAt"
+                  ),
+                  "lastFetchAttemptAt" = COALESCE(
+                    "blueskyActorProfileCacheEntries"."lastFetchAttemptAt",
+                    excluded."lastFetchAttemptAt"
+                  )
+                """)
+                .execute(db)
+
+            try #sql("""
+                INSERT INTO "blueskyActorProfileCacheEntries" (
+                  "actor",
+                  "did",
+                  "lastFetchedAt",
+                  "lastFetchAttemptAt"
+                )
+                SELECT
+                  LOWER(TRIM("blueskyActorProfiles"."handle")),
+                  "blueskyActorProfiles"."did",
+                  MAX("blueskyActorProfileCacheEntries"."lastFetchedAt"),
+                  MAX("blueskyActorProfileCacheEntries"."lastFetchAttemptAt")
+                FROM "blueskyActorProfiles"
+                LEFT JOIN "blueskyActorProfileCacheEntries"
+                  ON "blueskyActorProfileCacheEntries"."did" = "blueskyActorProfiles"."did"
+                WHERE TRIM("blueskyActorProfiles"."handle") <> ''
+                GROUP BY "blueskyActorProfiles"."did", "blueskyActorProfiles"."handle"
+                ON CONFLICT ("actor") DO UPDATE SET
+                  "did" = excluded."did",
+                  "lastFetchedAt" = COALESCE(
+                    "blueskyActorProfileCacheEntries"."lastFetchedAt",
+                    excluded."lastFetchedAt"
+                  ),
+                  "lastFetchAttemptAt" = COALESCE(
+                    "blueskyActorProfileCacheEntries"."lastFetchAttemptAt",
+                    excluded."lastFetchAttemptAt"
+                  )
+                """)
+                .execute(db)
+        }
     }
 }
 
@@ -214,7 +309,7 @@ public extension ActorIdentityLookupClient {
     static func blueskyActorProfileCacheBacked(
         fallback: ActorIdentityLookupClient = .liveValue,
         staleAfter: TimeInterval = 60 * 60 * 24,
-        retryAfter: TimeInterval = 60 * 5
+        retryAfter: TimeInterval = 60 * 15
     ) -> Self {
         Self { input in
             @Dependency(\.blueskyActorProfileCache)
@@ -234,7 +329,7 @@ public extension ActorIdentityLookupClient {
     }
 }
 
-private extension ActorIdentity {
+extension ActorIdentity {
     init?(_ profile: BlueskyActorProfile) {
         guard let did = DID(profile.did) else { return nil }
         self.init(
@@ -296,11 +391,10 @@ private enum BlueskyActorProfileCacheLive {
 
         try await database.write { db in
             try upsert(profile: profile, in: db)
-            try upsertCacheEntry(
-                actor: actor,
-                did: profile.did,
-                lastFetchedAt: now,
-                lastFetchAttemptAt: now,
+            try upsertCacheAliases(
+                requestedActor: actor,
+                profile: profile,
+                fetchedAt: now,
                 in: db
             )
         }
@@ -317,7 +411,7 @@ private enum BlueskyActorProfileCacheLive {
         @Dependency(\.defaultDatabase) var database
 
         let actor = BlueskyActorProfileCacheEntry.normalizedActor(actor)
-        let shouldRefresh = try await database.read { db in
+        let shouldRefresh = try await database.write { db in
             let entry = try cacheEntry(actor: actor, in: db)
             if let lastFetchedAt = entry?.lastFetchedAt,
                now.timeIntervalSince(lastFetchedAt) < staleAfter {
@@ -327,11 +421,31 @@ private enum BlueskyActorProfileCacheLive {
                now.timeIntervalSince(lastFetchAttemptAt) < retryAfter {
                 return false
             }
+            try upsertCacheEntry(
+                actor: actor,
+                did: entry?.did,
+                lastFetchedAt: entry?.lastFetchedAt,
+                lastFetchAttemptAt: now,
+                in: db
+            )
             return true
         }
 
         guard shouldRefresh else { return nil }
-        return try await refreshProfile(actor: actor)
+        @Dependency(XRPC.Client.self) var xrpcClient
+        let profile = try await xrpcClient.run(
+            BlueskyActorGetProfileRequest(actor: actor)
+        )
+        try await database.write { db in
+            try upsert(profile: profile, in: db)
+            try upsertCacheAliases(
+                requestedActor: actor,
+                profile: profile,
+                fetchedAt: now,
+                in: db
+            )
+        }
+        return profile
     }
 
     private static func cacheEntry(
@@ -398,5 +512,27 @@ private enum BlueskyActorProfileCacheLive {
             entry.lastFetchAttemptAt = excluded.lastFetchAttemptAt
         }
         .execute(db)
+    }
+
+    private static func upsertCacheAliases(
+        requestedActor: String,
+        profile: BlueskyActorProfile,
+        fetchedAt: Date,
+        in db: Database
+    ) throws {
+        let aliases = Set(
+            [requestedActor, profile.did, profile.handle]
+                .map(BlueskyActorProfileCacheEntry.normalizedActor)
+                .filter { !$0.isEmpty }
+        )
+        for alias in aliases {
+            try upsertCacheEntry(
+                actor: alias,
+                did: profile.did,
+                lastFetchedAt: fetchedAt,
+                lastFetchAttemptAt: fetchedAt,
+                in: db
+            )
+        }
     }
 }

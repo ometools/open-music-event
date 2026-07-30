@@ -1,18 +1,27 @@
 import ATProto
 import ATProtoOAuth
+import BlueskyActorCache
 import Clocks
 import ComposableArchitecture2
 import CustomDump
 import Dependencies
+import DependenciesTestSupport
 import Foundation
 import Sharing
+import SQLiteData
 import TCATProtoAuthentication
 import Testing
 
 @testable import OpenMusicEventAuthentication
 
 @MainActor
-@Suite("Account", .serialized)
+@Suite(
+    "Account",
+    .serialized,
+    .dependencies {
+        $0.defaultDatabase = try makeAccountTestDatabase()
+    }
+)
 struct AccountTests {
     @Test
     func loggedOutAccountDefaultsToSignInMode() {
@@ -322,25 +331,26 @@ struct AccountTests {
 
     @Test
     func accountRowsLoadFriendlyIdentityLabels() async throws {
+        let database = try makeAccountTestDatabase()
+        let fetchedAt = Date(timeIntervalSince1970: 1_000)
         let session = try accountTestSession(
             did: "did:plc:alice123",
             pdsHost: "alice.pds.example"
         )
         let avatarURL = URL(string: "https://cdn.example/alice-avatar.jpg")
-        let identity = ActorIdentity(
-            did: session.accountID.rawValue,
-            handle: Atmosphere.Account.Handle(rawValue: "alice.example.com"),
+        try await seedAccountTestIdentity(
+            in: database,
+            did: "did:plc:alice123",
+            handle: "alice.example.com",
             displayName: "Alice Example",
             avatar: avatarURL,
-            source: .canonicalResolution
+            fetchedAt: fetchedAt
         )
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(session)
         let store = withDependencies {
-            $0.actorIdentityLookup.resolve = { input in
-                #expect(input == "did:plc:alice123")
-                return identity
-            }
+            $0.date.now = fetchedAt
+            $0.defaultDatabase = database
         } operation: {
             Store(
                 initialState: Account.State.localTestState(
@@ -368,26 +378,93 @@ struct AccountTests {
     }
 
     @Test
+    func accountStoresObserveOneActorIdentityCache() async throws {
+        let database = try makeAccountTestDatabase()
+        let session = try accountTestSession(
+            did: "did:plc:alice123",
+            pdsHost: "alice.pds.example"
+        )
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(session)
+
+        let stores = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            (
+                Store(
+                    initialState: Account.State.localTestState(
+                        sessionStore: Shared(value: sessionStoreValue),
+                        selectedSessionID: Shared(
+                            value: session.accountID as Atmosphere.Account.ID?
+                        )
+                    )
+                ) {
+                    Account()
+                },
+                Store(
+                    initialState: Account.State.localTestState(
+                        sessionStore: Shared(value: sessionStoreValue),
+                        selectedSessionID: Shared(
+                            value: session.accountID as Atmosphere.Account.ID?
+                        )
+                    )
+                ) {
+                    Account()
+                }
+            )
+        }
+
+        #expect(stores.0.accountRows.first?.title == "Account")
+        #expect(stores.1.accountRows.first?.title == "Account")
+
+        try await database.write { db in
+            try BlueskyActorProfile.insert {
+                BlueskyActorProfile(
+                    did: "did:plc:alice123",
+                    handle: "alice.example.com",
+                    displayName: "Alice Example"
+                )
+            }
+            .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: "did:plc:alice123",
+                    did: "did:plc:alice123"
+                )
+            }
+            .execute(db)
+        }
+
+        try await waitForCondition {
+            stores.0.accountRows.first?.title == "Alice Example"
+                && stores.1.accountRows.first?.title == "Alice Example"
+        }
+        #expect(stores.0.accountRows.first?.pickerHandle == "@alice.example.com")
+        #expect(stores.1.accountRows.first?.pickerHandle == "@alice.example.com")
+    }
+
+    @Test
     func accountRowsFallbackDoesNotSurfaceDID() async throws {
+        let database = try makeAccountTestDatabase()
         let session = try accountTestSession(
             did: "did:plc:fallback123",
             pdsHost: "fallback.pds.example"
         )
+        try await seedAccountTestIdentity(
+            in: database,
+            did: "did:plc:fallback123",
+            handle: "did:plc:fallback123"
+        )
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(session)
-        var state = Account.State.localTestState(
-            sessionStore: Shared(value: sessionStoreValue),
-            selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
-        )
-        state.accountIdentities[session.accountID] = .loaded(
-            ActorIdentity(
-                did: session.accountID.rawValue,
-                handle: Atmosphere.Account.Handle(
-                    rawValue: session.accountID.rawValue.description
-                ),
-                source: .canonicalResolution
+        let state = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            Account.State.localTestState(
+                sessionStore: Shared(value: sessionStoreValue),
+                selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
             )
-        )
+        }
 
         let row = try #require(state.accountRows.first)
 
@@ -449,9 +526,6 @@ struct AccountTests {
             ]
         )
         let store = withDependencies {
-            $0.actorIdentityLookup.resolve = { input in
-                try accountTestIdentity(for: input)
-            }
             $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
             Store(
@@ -509,9 +583,6 @@ struct AccountTests {
             ]
         )
         let store = withDependencies {
-            $0.actorIdentityLookup.resolve = { input in
-                try accountTestIdentity(for: input)
-            }
             $0.keychainStorage = .inMemory(keychainStorage)
             $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
@@ -553,9 +624,6 @@ struct AccountTests {
             results: [alice.accountID: .unverified]
         )
         let store = withDependencies {
-            $0.actorIdentityLookup.resolve = { input in
-                try accountTestIdentity(for: input)
-            }
             $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
             Store(
@@ -586,26 +654,30 @@ struct AccountTests {
 
     @Test
     func tappingRelogAccountRowPresentsSignInWithoutSelectingStaleSession() async throws {
+        let database = try makeAccountTestDatabase()
         let alice = try accountTestSession(did: "did:plc:alice123", pdsHost: "alice.pds.example")
         let bob = try accountTestSession(did: "did:plc:bob123", pdsHost: "bob.pds.example")
+        try await seedAccountTestIdentity(
+            in: database,
+            did: "did:plc:alice123",
+            handle: "alice.example.com",
+            displayName: "Alice Example"
+        )
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(bob)
         sessionStoreValue.upsert(alice, select: false)
-        var state = Account.State.localTestState(
-            sessionStore: Shared(value: sessionStoreValue),
-            selectedSessionID: Shared(value: bob.accountID as Atmosphere.Account.ID?)
-        )
-        state.accountIdentities[alice.accountID] = .loaded(
-            ActorIdentity(
-                did: alice.accountID.rawValue,
-                handle: Atmosphere.Account.Handle(rawValue: "alice.example.com"),
-                displayName: "Alice Example",
-                source: .canonicalResolution
+        var state = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            Account.State.localTestState(
+                sessionStore: Shared(value: sessionStoreValue),
+                selectedSessionID: Shared(value: bob.accountID as Atmosphere.Account.ID?)
             )
-        )
+        }
         state.accountSessionValidationStatuses[alice.accountID] = .requiresRelog
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
         } operation: {
             Store(initialState: state) {
                 Account()
@@ -1171,11 +1243,42 @@ private func accountTestSession(
     )
 }
 
-private func accountTestIdentity(for input: String) throws -> ActorIdentity {
-    ActorIdentity(
-        did: try #require(DID(input)),
-        source: .canonicalResolution
-    )
+private func makeAccountTestDatabase() throws -> any DatabaseWriter {
+    let database = try SQLiteData.defaultDatabase()
+    var migrator = DatabaseMigrator()
+    BlueskyActorCacheMigrations.register(into: &migrator)
+    try migrator.migrate(database)
+    return database
+}
+
+private func seedAccountTestIdentity(
+    in database: any DatabaseWriter,
+    did: String,
+    handle: String,
+    displayName: String? = nil,
+    avatar: URL? = nil,
+    fetchedAt: Date? = nil
+) async throws {
+    try await database.write { db in
+        try BlueskyActorProfile.insert {
+            BlueskyActorProfile(
+                did: did,
+                handle: handle,
+                displayName: displayName,
+                avatar: avatar
+            )
+        }
+        .execute(db)
+        try BlueskyActorProfileCacheEntry.insert {
+            BlueskyActorProfileCacheEntry(
+                actor: did,
+                did: did,
+                lastFetchedAt: fetchedAt,
+                lastFetchAttemptAt: fetchedAt
+            )
+        }
+        .execute(db)
+    }
 }
 
 private let accountTestSignUpServerConfiguration = OAuthSignUpServerConfiguration(

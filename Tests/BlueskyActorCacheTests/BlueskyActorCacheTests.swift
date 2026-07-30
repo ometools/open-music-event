@@ -135,15 +135,64 @@ struct BlueskyActorCacheTests {
                 .where { $0.did.eq("did:plc:alice123") }
                 .fetchOne(db)
         }
-        let entry = try await database.read { db in
-            try BlueskyActorProfileCacheEntry
-                .where { $0.actor.eq("alice.bsky.social") }
-                .fetchOne(db)
+        let entries = try await database.read { db in
+            try [
+                "alice.bsky.social",
+                "did:plc:alice123",
+            ]
+            .compactMap { actor in
+                try BlueskyActorProfileCacheEntry
+                    .where { $0.actor.eq(actor) }
+                    .fetchOne(db)
+            }
         }
         #expect(cached?.displayName == "Alice Example")
-        #expect(entry?.did == "did:plc:alice123")
-        #expect(entry?.lastFetchedAt == fetchedAt)
-        #expect(entry?.lastFetchAttemptAt == fetchedAt)
+        #expect(entries.map(\.actor) == ["alice.bsky.social", "did:plc:alice123"])
+        #expect(entries.allSatisfy { $0.did == "did:plc:alice123" })
+        #expect(entries.allSatisfy { $0.lastFetchedAt == fetchedAt })
+        #expect(entries.allSatisfy { $0.lastFetchAttemptAt == fetchedAt })
+
+        let identities = try await database.read { db in
+            try CachedActorIdentitiesRequest().fetch(db)
+        }
+        #expect(identities["alice.bsky.social"]?.displayName == "Alice Example")
+        #expect(identities["did:plc:alice123"]?.displayName == "Alice Example")
+    }
+
+    @Test
+    func migrationBackfillsDIDAndHandleAliases() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        BlueskyActorCacheMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Create Bluesky actor profile cache")
+
+        try await database.write { db in
+            try BlueskyActorProfile.insert {
+                BlueskyActorProfile(
+                    did: "did:plc:alice123",
+                    handle: "Alice.BSKY.SOCIAL",
+                    displayName: "Alice Example"
+                )
+            }
+            .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: "alice.example.com",
+                    did: "did:plc:alice123",
+                    lastFetchedAt: Date(timeIntervalSince1970: 1_000)
+                )
+            }
+            .execute(db)
+        }
+
+        try migrator.migrate(database)
+
+        let identities = try await database.read { db in
+            try CachedActorIdentitiesRequest().fetch(db)
+        }
+        #expect(identities["alice.example.com"]?.displayName == "Alice Example")
+        #expect(identities["alice.bsky.social"]?.displayName == "Alice Example")
+        #expect(identities["did:plc:alice123"]?.displayName == "Alice Example")
     }
 
     @Test
@@ -191,6 +240,49 @@ struct BlueskyActorCacheTests {
 
         #expect(refreshed == nil)
         #expect(await requestRecorder.requests.isEmpty)
+    }
+
+    @Test
+    func concurrentPassiveRefreshesShareDatabaseClaim() async throws {
+        let database = try makePreparedDatabase()
+        let requestRecorder = HTTPRequestRecorder()
+
+        try await withDependencies {
+            $0.defaultDatabase = database
+            $0.date.now = Date(timeIntervalSince1970: 1_000)
+            $0.blueskyActorProfileCache = .live
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, body in
+                await requestRecorder.record(request, body)
+                return Data(
+                    """
+                    {
+                      "did": "did:plc:alice123",
+                      "handle": "alice.bsky.social",
+                      "displayName": "Alice Example"
+                    }
+                    """
+                    .utf8
+                )
+            }
+        } operation: {
+            @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+            let firstCache = blueskyActorProfileCache
+            let secondCache = blueskyActorProfileCache
+            async let first = firstCache.refreshProfileIfNeeded(
+                "alice.bsky.social",
+                24 * 60 * 60,
+                15 * 60
+            )
+            async let second = secondCache.refreshProfileIfNeeded(
+                "alice.bsky.social",
+                24 * 60 * 60,
+                15 * 60
+            )
+            _ = try await (first, second)
+        }
+
+        #expect(await requestRecorder.requests.count == 1)
     }
 
     @Test

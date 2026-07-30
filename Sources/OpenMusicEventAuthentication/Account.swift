@@ -1,12 +1,14 @@
 #if canImport(SwiftUI)
 import ATProto
 import ATProtoOAuth
+import BlueskyActorCache
 import ComposableArchitecture2
 import ComposableForms
 import Dependencies
 import IssueReporting
 import OpenMusicEventComponents
 import Sharing
+import SQLiteData
 import SwiftUI
 import Tagged
 import TCATProtoAuthentication
@@ -110,26 +112,6 @@ public struct Account {
     }
 
     public typealias SignUpFormFeature = ComposableForms.Form<SignUpFormValue>
-
-    public enum AccountIdentityResolution: Equatable, Sendable {
-        case loading
-        case loaded(ActorIdentity)
-        case failed
-
-        var identity: ActorIdentity? {
-            guard case let .loaded(identity) = self else { return nil }
-            return identity
-        }
-
-        var needsLoading: Bool {
-            switch self {
-            case .loading, .loaded:
-                false
-            case .failed:
-                true
-            }
-        }
-    }
 
     public enum AccountSessionValidationStatus: Equatable, Sendable {
         case unchecked
@@ -268,6 +250,10 @@ public struct Account {
                 .id
 
             self.authRequirement = authRequirement
+            self._cachedActorIdentities = Fetch(
+                wrappedValue: CachedActorIdentities(),
+                CachedActorIdentitiesRequest()
+            )
             self.isAccountManagementSheetPresented = isAccountManagementSheetPresented
             self.isAuthenticationSheetPresented = isAuthenticationSheetPresented
             self._selectedSessionID = selectedSessionID
@@ -318,9 +304,10 @@ public struct Account {
         }
 
         public var authRequirement: OAuth.AuthRequirement
+        @DebugSnapshotIgnored
+        @Fetch public var cachedActorIdentities: CachedActorIdentities
         public var isAccountManagementSheetPresented: Bool
         public var isAuthenticationSheetPresented: Bool
-        public var accountIdentities: [Atmosphere.Account.ID: AccountIdentityResolution] = [:]
         public var accountSessionValidationStatuses: [Atmosphere.Account.ID: AccountSessionValidationStatus] = [:]
         public var oauth: Spawn<OAuthAccount>
         @Shared public var selectedSessionID: Atmosphere.Account.ID?
@@ -346,7 +333,9 @@ public struct Account {
                     let validationStatus = accountSessionValidationStatuses[session.accountID] ?? .unchecked
                     return AccountRow(
                         id: session.accountID,
-                        identity: accountIdentities[session.accountID]?.identity,
+                        identity: cachedActorIdentities[
+                            session.accountID.rawValue.description
+                        ],
                         isSelected: session.accountID == selectedSessionID && !validationStatus.requiresRelog,
                         pdsHost: session.pdsHost.rawValue,
                         sessionValidationStatus: validationStatus
@@ -427,8 +416,7 @@ public struct Account {
         }
 
         func reloginHint(for accountID: Atmosphere.Account.ID) -> String {
-            accountIdentities[accountID]?
-                .identity?
+            cachedActorIdentities[accountID.rawValue.description]?
                 .handle?
                 .rawValue
                 .accountDisplayValue
@@ -476,7 +464,6 @@ public struct Account {
 
     public enum Action {
         case accountButtonTapped
-        case accountIdentityResponse(Atmosphere.Account.ID, ActorIdentity?)
         case accountListButtonTapped
         case accountLogOutButtonTapped(Atmosphere.Account.ID)
         case accountManagementSheetDismissed
@@ -502,6 +489,7 @@ public struct Account {
         case submitAuthenticationFormButtonTapped
     }
 
+    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.openMusicEventAccountSessionValidationClient) var accountSessionValidationClient
     @Dependency(\.openMusicEventAuthorizationRequests) var authorizationRequests
     @Dependency(\.openMusicEventSignUpServerConfiguration) var signUpServerConfiguration
@@ -529,18 +517,11 @@ public struct Account {
                     state.resetSignInActorSearch()
                     state.isAuthenticationSheetPresented = true
 
-                case .accountIdentityResponse(let accountID, let identity):
-                    guard state.sessionStore[accountID] != nil else { return }
-                    state.accountIdentities[accountID] = identity.map {
-                        .loaded($0)
-                    } ?? .failed
-
                 case .accountListButtonTapped:
                     state.isAccountManagementSheetPresented = true
 
                 case .accountLogOutButtonTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
-                    state.accountIdentities[accountID] = nil
                     state.accountSessionValidationStatuses[accountID] = nil
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = false
@@ -608,26 +589,24 @@ public struct Account {
                     )
                     let sessions = Array(state.sessionStore.sessions.values)
                     let accountIDs = Set(sessions.map(\.accountID))
-                    state.accountIdentities = state.accountIdentities.filter {
-                        accountIDs.contains($0.key)
-                    }
                     state.accountSessionValidationStatuses = state.accountSessionValidationStatuses.filter {
                         accountIDs.contains($0.key)
                     }
-                    let accountIDsToLoad = accountIDs.filter { accountID in
-                        state.accountIdentities[accountID]?.needsLoading ?? true
-                    }
-                    for accountID in accountIDsToLoad {
-                        state.accountIdentities[accountID] = .loading
-                    }
-                    if !accountIDsToLoad.isEmpty {
+                    let actorsToRefresh = accountIDs.map { $0.rawValue.description }
+                    if !actorsToRefresh.isEmpty {
                         store.addTask {
-                            for accountID in accountIDsToLoad {
-                                let response = await Self.exactActorIdentitySearch.search(
-                                    accountID.rawValue.description
-                                )
-                                let identity = response.results.first
-                                try store.send(.accountIdentityResponse(accountID, identity))
+                            for actor in actorsToRefresh {
+                                do {
+                                    _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                                        actor,
+                                        24 * 60 * 60,
+                                        15 * 60
+                                    )
+                                } catch is CancellationError {
+                                    throw CancellationError()
+                                } catch {
+                                    continue
+                                }
                             }
                         }
                     }
@@ -807,7 +786,6 @@ public struct Account {
                     state.signUpServerHost = serverHost
 
                 case .signOutAllButtonTapped:
-                    state.accountIdentities = [:]
                     state.accountSessionValidationStatuses = [:]
                     state.oauth.state.errorMessage = nil
                     state.oauth.state.isLoginInProgress = false

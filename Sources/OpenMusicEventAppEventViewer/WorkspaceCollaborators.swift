@@ -1,4 +1,5 @@
 import ATProto
+import BlueskyActorCache
 import ComposableArchitecture2
 import Dependencies
 import Foundation
@@ -20,6 +21,10 @@ public struct WorkspaceCollaborators {
         ) {
             self.workspaceID = workspaceID
             self.role = role
+            self._cachedActorIdentities = Fetch(
+                wrappedValue: CachedActorIdentities(),
+                CachedActorIdentitiesRequest()
+            )
             self._workspace = FetchOne(
                 EditingWorkspaceRecord.where { $0.id.eq(workspaceID) }
             )
@@ -31,6 +36,8 @@ public struct WorkspaceCollaborators {
 
         public let workspaceID: EditingWorkspaceRecord.ID
         public let role: OME.WorkspaceRole
+        @DebugSnapshotIgnored
+        @Fetch public var cachedActorIdentities: CachedActorIdentities
         @FetchOne public var workspace: EditingWorkspaceRecord?
         @FetchAll public var relationships: [WorkspaceRelationshipRecord]
         public var actorQuery = ""
@@ -48,6 +55,12 @@ public struct WorkspaceCollaborators {
             actorSearchIsLoading = false
             actorSearchSections = []
         }
+
+        public var collaboratorActorReferences: [String] {
+            relationships
+                .map { $0.id.actorID.description }
+                .sorted()
+        }
     }
 
     public enum Action {
@@ -62,6 +75,7 @@ public struct WorkspaceCollaborators {
         )
     }
 
+    @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.date.now) var now
     @Dependency(\.defaultDatabase) var database
 
@@ -252,6 +266,43 @@ public struct WorkspaceCollaborators {
                 try store.send(.actorSearchResponse(response))
             }
         }
+        .onMount { state in
+            let actors = state.collaboratorActorReferences
+            guard !actors.isEmpty else { return }
+            let blueskyActorProfileCache = blueskyActorProfileCache
+            store.addTask {
+                for actor in actors {
+                    do {
+                        _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                            actor,
+                            24 * 60 * 60,
+                            15 * 60
+                        )
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                    }
+                }
+            }
+        }
+        .onChange(of: store.collaboratorActorReferences) { _, actors, _ in
+            guard !actors.isEmpty else { return }
+            let blueskyActorProfileCache = blueskyActorProfileCache
+            store.addTask {
+                for actor in actors {
+                    do {
+                        _ = try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                            actor,
+                            24 * 60 * 60,
+                            15 * 60
+                        )
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                    }
+                }
+            }
+        }
     }
 
     static let actorLookaheadSearch = PredictiveSearch(
@@ -386,6 +437,9 @@ public struct WorkspaceCollaboratorsView: View {
                 ForEach(store.relationships) { stored in
                     WorkspaceCollaboratorRow(
                         stored: stored,
+                        cachedIdentity: store.cachedActorIdentities[
+                            stored.id.actorID.description
+                        ],
                         isDisabled: store.isSaving,
                         toggleCapability: { capability in
                             store.send(.toggleCapability(stored.id, capability))
@@ -403,6 +457,7 @@ public struct WorkspaceCollaboratorsView: View {
 
 struct WorkspaceCollaboratorRow: View {
     let stored: WorkspaceRelationshipRecord
+    let cachedIdentity: ActorIdentity?
     let isDisabled: Bool
     let toggleCapability: (OME.WorkspaceRole.Capability) -> Void
     let remove: () -> Void
@@ -425,38 +480,48 @@ struct WorkspaceCollaboratorRow: View {
         .disabled(isDisabled)
     }
 
-    private var identity: OME.Relationship.IdentityReference? {
+    var storedIdentity: OME.Relationship.IdentityReference? {
         guard case let .known(subject) = stored.relationship.subject else { return nil }
         return subject.identity
     }
 
-    private var identityTitle: String {
-        if let displayName = identity?.displayName, !displayName.isEmpty {
+    var identityTitle: String {
+        if let displayName = cachedIdentity?.displayName, !displayName.isEmpty {
             return displayName
         }
-        if let handle = identity?.handle, !handle.isEmpty {
+        if let displayName = storedIdentity?.displayName, !displayName.isEmpty {
+            return displayName
+        }
+        if let handle = cachedIdentity?.handle?.rawValue, !handle.isEmpty {
+            return "@\(handle)"
+        }
+        if let handle = storedIdentity?.handle, !handle.isEmpty {
             return "@\(handle)"
         }
         return stored.id.actorID.description
     }
 
-    private var identitySubtitle: String? {
-        if let handle = identity?.handle, !handle.isEmpty,
-           identity?.displayName?.isEmpty == false {
+    var identitySubtitle: String? {
+        if let handle = cachedIdentity?.handle?.rawValue, !handle.isEmpty,
+           cachedIdentity?.displayName?.isEmpty == false {
+            return "@\(handle) · \(stored.id.actorID)"
+        }
+        if let handle = storedIdentity?.handle, !handle.isEmpty,
+           storedIdentity?.displayName?.isEmpty == false {
             return "@\(handle) · \(stored.id.actorID)"
         }
         guard identityTitle != stored.id.actorID.description else { return nil }
         return stored.id.actorID.description
     }
 
-    private var capabilities: Set<OME.WorkspaceRole.Capability> {
+    var capabilities: Set<OME.WorkspaceRole.Capability> {
         guard case let .collaborator(capabilities) = stored.relationship.workspaceRole else {
             return []
         }
         return capabilities
     }
 
-    private func capabilityButton(
+    func capabilityButton(
         _ title: String,
         capability: OME.WorkspaceRole.Capability
     ) -> some View {

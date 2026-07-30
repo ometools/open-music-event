@@ -1,5 +1,6 @@
-import ComposableArchitecture2
+import BlueskyActorCache
 import Clocks
+import ComposableArchitecture2
 import CustomDump
 import Dependencies
 import DependenciesTestSupport
@@ -31,6 +32,68 @@ import Testing
     .dependencies { $0.defaultPort = 443 }
 )
 struct EventWorkspaceSourcePatchInvalidationTests {
+    @Test
+    func workspaceOwnerAndReviewAuthorObserveOneActorIdentityCache() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let review = testTangledPullReview()
+        try await seedTangledSourceBackedEvent(eventID, in: database)
+        var state = withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            EventWorkspace.State(eventID: eventID)
+        }
+        state.tangledPullReviewStatus = .loaded([review])
+
+        try await waitForCondition {
+            state.sourceProvenance != nil
+        }
+        #expect(state.workspaceOwnerIdentity == .unavailable)
+        #expect(state.tangledPullReviewAuthorIdentities[review.author] == .unavailable)
+
+        try await database.write { db in
+            try BlueskyActorProfile.insert {
+                BlueskyActorProfile(
+                    did: "did:plc:owner123",
+                    handle: "woody.fm",
+                    displayName: "Woody"
+                )
+            }
+            .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: "woody.fm",
+                    did: "did:plc:owner123"
+                )
+            }
+            .execute(db)
+            try BlueskyActorProfile.insert {
+                BlueskyActorProfile(
+                    did: review.author,
+                    handle: "reviewer.example.com",
+                    displayName: "Review Author"
+                )
+            }
+            .execute(db)
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: review.author,
+                    did: review.author
+                )
+            }
+            .execute(db)
+        }
+
+        try await waitForCondition {
+            guard case let .loaded(owner) = state.workspaceOwnerIdentity,
+                  case let .loaded(author) =
+                    state.tangledPullReviewAuthorIdentities[review.author]
+            else { return false }
+            return owner.displayName == "Woody"
+                && author.displayName == "Review Author"
+        }
+    }
+
     @Test
     func generateSourcePatchButtonLoadsPatch() async throws {
         let database = try makePreparedDatabase()
@@ -964,9 +1027,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let requests = Mutex([OpenMusicEventTangledPullReviewRequest]())
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
-            $0.actorIdentityLookup.resolve = { _ in
-                throw URLError(.badServerResponse)
-            }
             $0.tangledPullReviewClient = TangledPullReviewClient { request in
                 requests.withLock { $0.append(request) }
                 return [review]
@@ -1030,9 +1090,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
-            $0.actorIdentityLookup.resolve = { _ in
-                throw URLError(.badServerResponse)
-            }
         } operation: {
             var state = EventWorkspace.State(eventID: eventID)
             state.sourcePatchStatus = .generated(patch)
@@ -1887,9 +1944,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let requests = Mutex([OpenMusicEventTangledPullReviewRequest]())
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
-            $0.actorIdentityLookup.resolve = { _ in
-                throw URLError(.badServerResponse)
-            }
             $0.tangledPullReviewClient = TangledPullReviewClient { request in
                 requests.withLock { $0.append(request) }
                 return [review]
@@ -2104,9 +2158,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let review = testTangledPullReview()
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.defaultDatabase = database
-            $0.actorIdentityLookup.resolve = { _ in
-                throw URLError(.badServerResponse)
-            }
             $0.tangledPullReviewClient = TangledPullReviewClient { _ in
                 [review]
             }
@@ -2617,6 +2668,16 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             @Dependency(\.defaultDatabase) var database
             return database
         }
+    }
+
+    private func waitForCondition(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        for _ in 0..<100 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(condition())
     }
 
     private func seedTangledSourceBackedEvent(
