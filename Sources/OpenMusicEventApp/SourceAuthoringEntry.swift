@@ -83,32 +83,6 @@ extension OpenMusicEventSourceEditing.AuthoringPolicyClient {
                     guard let workspaceOwnerID = workspaceRecord.author else {
                         return .denied
                     }
-                    let role: OME.WorkspaceRole
-                    if workspaceOwnerID == actorID {
-                        role = .owner
-                    } else {
-                        let relationship = try await database.read { db in
-                            try WorkspaceRelationshipRecord
-                                .where { $0.id.workspaceID.eq(workspaceID) }
-                                .where { $0.id.actorID.eq(actorID) }
-                                .fetchOne(db)?
-                                .relationship
-                        }
-                        guard let relationship,
-                              relationship.type == OME.Relationship.collection.rawValue,
-                              case let .collaborator(capabilities) = relationship.workspaceRole,
-                              OME.Relationship.Validation.author(
-                                  actorID,
-                                  matches: relationship.subject
-                              ),
-                              case let .known(.record(object)) = relationship.object,
-                              object.uri == workspaceRecord.uri,
-                              object.cid == nil
-                        else {
-                            return .denied
-                        }
-                        role = .collaborator(capabilities)
-                    }
 
                     guard let sourceBaselineID = workspace.sourceBaselineID else {
                         return .denied
@@ -139,7 +113,9 @@ extension OpenMusicEventSourceEditing.AuthoringPolicyClient {
 
                     return .granted(
                         principal: .actor(actorID),
-                        role: role
+                        role: workspaceOwnerID == actorID
+                            ? .owner
+                            : .collaborator([.propose, .merge])
                     )
                 }
             },

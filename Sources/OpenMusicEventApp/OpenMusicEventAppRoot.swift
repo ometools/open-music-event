@@ -230,16 +230,22 @@ public struct OpenMusicEventAppRootView: View {
         OpenMusicEventAppSurfaceView(store: store)
         .openMusicEventViewerPresentation(
             item: $store.scope(\.destination, action: \.destination).eventViewer
-        ) { authoringStore in
+        ) { authorizationStore in
             #if os(Android)
+            let authoringStore = authorizationStore.scope(\.content, action: \.content)
             let eventViewerStore = authoringStore
                 .scope(\.content, action: \.content)
-                .scope(\.content, action: \.content)
-            EventViewerView(store: eventViewerStore)
+            EventViewerView(
+                store: eventViewerStore,
+                authoringAdmission: authoringStore.admission
+            )
             #else
-            OpenMusicEventAuthorizationView(store: authoringStore) { authoringStore in
+            OpenMusicEventAuthorizationView(store: authorizationStore) { authoringStore in
                 let eventViewerStore = authoringStore.scope(\.content, action: \.content)
-                EventViewerView(store: eventViewerStore)
+                EventViewerView(
+                    store: eventViewerStore,
+                    authoringAdmission: authoringStore.admission
+                )
             }
             #if os(iOS)
             .sheet(item: $store.inAppBrowserPresentation) { presentation in

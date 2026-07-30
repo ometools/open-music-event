@@ -118,31 +118,36 @@ public struct EventSettings {
 
 public struct EventSettingsView: View {
     @Bindable var store: StoreOf<EventSettings>
-    let showsAuthoringControls: Bool
+    let authoringAccess: AuthoringAccess
+    let authoringAdmission: AuthoringAdmission?
 
     public init(
         store: StoreOf<EventSettings>,
-        showsAuthoringControls: Bool
+        authoringAccess: AuthoringAccess,
+        authoringAdmission: AuthoringAdmission?
     ) {
         self.store = store
-        self.showsAuthoringControls = showsAuthoringControls
+        self.authoringAccess = authoringAccess
+        self.authoringAdmission = authoringAdmission
     }
 
     public var body: some View {
         Form {
-            Section("Authoring") {
-                if showsAuthoringControls {
+            if authoringAccess.canEditContent {
+                Section("Authoring") {
                     Button("Exit Authoring") {
                         store.send(.exitAuthoringButtonTapped)
                     }
-                } else {
+                }
+            } else if case .granted = authoringAdmission {
+                Section("Authoring") {
                     Button("Enter Authoring") {
                         store.send(.enterAuthoringButtonTapped)
                     }
                 }
             }
 
-            if showsAuthoringControls {
+            if authoringAccess.canEditContent {
                 Section("Integrations") {
                     Button {
                         store.send(.reportingLinkButtonTapped)

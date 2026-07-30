@@ -998,11 +998,16 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
 }
 
 public struct EventViewerView: View {
-    public init(store: StoreOf<EventViewer>) {
+    public init(
+        store: StoreOf<EventViewer>,
+        authoringAdmission: AuthoringAdmission? = nil
+    ) {
         self.store = store
+        self.authoringAdmission = authoringAdmission
     }
 
     @Bindable var store: StoreOf<EventViewer>
+    let authoringAdmission: AuthoringAdmission?
 
     public var body: some View {
         tabContent
@@ -1048,16 +1053,25 @@ public struct EventViewerView: View {
     @ViewBuilder
     private var tabContent: some View {
         #if os(Android)
-        TabFeaturesViewer(store: store)
+        TabFeaturesViewer(
+            store: store,
+            authoringAdmission: authoringAdmission
+        )
         #elseif os(iOS)
         if #available(iOS 18.0, *) {
-            TabFeaturesViewer(store: store)
+            TabFeaturesViewer(
+                store: store,
+                authoringAdmission: authoringAdmission
+            )
         } else {
             legacyiOSTabView
         }
         #elseif os(macOS)
         if #available(macOS 15.0, *) {
-            TabFeaturesViewer(store: store)
+            TabFeaturesViewer(
+                store: store,
+                authoringAdmission: authoringAdmission
+            )
         } else {
             defaultTabView
         }
@@ -1071,6 +1085,7 @@ public struct EventViewerView: View {
     #endif
     struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
+        let authoringAdmission: AuthoringAdmission?
         @State var tabLayout = TabFeatureLayout()
 
         var body: some View {
@@ -1237,7 +1252,8 @@ public struct EventViewerView: View {
                     ) {
                         EventSettingsView(
                             store: featureStore,
-                            showsAuthoringControls: store.showsAuthoringControls
+                            authoringAccess: store.authoringAccess,
+                            authoringAdmission: authoringAdmission
                         )
                     }
                 }
@@ -1425,7 +1441,8 @@ public struct EventViewerView: View {
                 viewerTab(.settings) {
                     EventSettingsView(
                         store: featureStore,
-                        showsAuthoringControls: store.showsAuthoringControls
+                        authoringAccess: store.authoringAccess,
+                        authoringAdmission: authoringAdmission
                     )
                 }
                 .tag(EventViewer.EventFeature.settings)
@@ -1542,7 +1559,8 @@ public struct EventViewerView: View {
                 viewerTab(.settings) {
                     EventSettingsView(
                         store: featureStore,
-                        showsAuthoringControls: store.showsAuthoringControls
+                        authoringAccess: store.authoringAccess,
+                        authoringAdmission: authoringAdmission
                     )
                 }
                 .tag(EventViewer.EventFeature.settings)

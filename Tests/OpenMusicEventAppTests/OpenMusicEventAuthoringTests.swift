@@ -98,7 +98,7 @@ struct OpenMusicEventAuthoringTests {
     }
 
     @Test
-    func collaboratorIsAdmittedWithTheRelationshipRole() async throws {
+    func tangledCollaboratorIsAdmittedWithProposalAndMergeCapabilities() async throws {
         let session = testSession(
             permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
         )
@@ -106,26 +106,7 @@ struct OpenMusicEventAuthoringTests {
         let ownerID = try #require(DID("did:plc:workspace-owner"))
         let database = try makePreparedDatabase()
         let workspace = teamWorkspace("collaborator", ownerID: ownerID)
-        let publicRecord = try #require(workspace.publicRecord)
-        let relationship = OME.Relationship(
-            subject: .identity(did: collaboratorID),
-            role: .collaborator([.propose]),
-            object: .record(publicRecord),
-            createdAt: "2026-07-29T00:00:00Z"
-        )
-        let baseline = try sourceBaseline(for: workspace)
-        try await database.write { db in
-            try SourceBaselineRecord.insert { baseline }.execute(db)
-            try EditingWorkspaceRecord.insert { workspace }.execute(db)
-            try WorkspaceRelationshipRecord.insert {
-                WorkspaceRelationshipRecord(
-                    id: .init(workspaceID: workspace.id, actorID: collaboratorID),
-                    recordKey: WorkspaceRelationshipRecord.recordKey(for: collaboratorID),
-                    relationship: relationship
-                )
-            }
-            .execute(db)
-        }
+        try await insert(workspace, into: database)
 
         let admission = try await withDependencies {
             $0.defaultDatabase = database
@@ -141,16 +122,17 @@ struct OpenMusicEventAuthoringTests {
             admission,
             .granted(
                 principal: .actor(collaboratorID),
-                role: .collaborator([.propose])
+                role: .collaborator([.propose, .merge])
             )
         )
     }
 
     @Test
-    func tangledMembershipWithoutAnOMERoleIsDenied() async throws {
+    func tangledCollaboratorDoesNotRequireASourceRosterRelationship() async throws {
         let session = testSession(
             permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
         )
+        let collaboratorID = try #require(DID(session.accountID.rawValue.description))
         let database = try makePreparedDatabase()
         let workspace = teamWorkspace(
             "tangled-only",
@@ -166,11 +148,17 @@ struct OpenMusicEventAuthoringTests {
             try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
         }
 
-        expectNoDifference(admission, .denied)
+        expectNoDifference(
+            admission,
+            .granted(
+                principal: .actor(collaboratorID),
+                role: .collaborator([.propose, .merge])
+            )
+        )
     }
 
     @Test
-    func OMERoleWithoutTangledMembershipIsDenied() async throws {
+    func workspaceOwnerWithoutTangledMembershipIsDenied() async throws {
         let session = testSession(
             permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
         )
