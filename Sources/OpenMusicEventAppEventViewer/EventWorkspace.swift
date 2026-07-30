@@ -563,21 +563,26 @@ public struct EventWorkspace {
     var calendarSourcePatchGenerator
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
-    @Dependency(\.actorIdentityLookup) var actorIdentityLookup
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
+
+    static let exactActorIdentitySearch = PredictiveSearch(
+        actorIdentitySources: [
+            .exactActorIdentityLookup(title: "Exact match"),
+        ],
+        minimumQueryLength: 2
+    )
 
     private func loadWorkspaceOwnerIdentity(state: inout State) {
         let ownerActorReference = state.sourceContext?.ownerActorReference
         state.workspaceOwnerIdentity = ownerActorReference == nil ? .unavailable : .loading
 
         guard let ownerActorReference else { return }
-        let actorIdentityLookup = actorIdentityLookup
         store.addTask {
-            do {
-                let identity = try await actorIdentityLookup.resolve(ownerActorReference)
+            let response = await Self.exactActorIdentitySearch.search(ownerActorReference)
+            if let identity = response.results.first {
                 try store.send(.workspaceOwnerIdentityResponse(.success(identity)))
-            } catch {
+            } else {
                 try store.send(
                     .workspaceOwnerIdentityResponse(
                         .failure(.unavailable)
@@ -592,20 +597,19 @@ public struct EventWorkspace {
         state: inout State
     ) {
         let authors = Set(reviews.map(\.author).filter { !$0.isEmpty })
-        let actorIdentityLookup = actorIdentityLookup
         for author in authors {
             guard state.tangledPullReviewAuthorIdentities[author] == nil else { continue }
             state.tangledPullReviewAuthorIdentities[author] = .loading
             store.addTask {
-                do {
-                    let identity = try await actorIdentityLookup.resolve(author)
+                let response = await Self.exactActorIdentitySearch.search(author)
+                if let identity = response.results.first {
                     try store.send(
                         .tangledPullReviewAuthorIdentityResponse(
                             author: author,
                             .success(identity)
                         )
                     )
-                } catch {
+                } else {
                     try store.send(
                         .tangledPullReviewAuthorIdentityResponse(
                             author: author,

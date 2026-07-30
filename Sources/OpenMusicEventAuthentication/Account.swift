@@ -502,7 +502,6 @@ public struct Account {
         case submitAuthenticationFormButtonTapped
     }
 
-    @Dependency(\.actorIdentityLookup) var actorIdentityLookup
     @Dependency(\.openMusicEventAccountSessionValidationClient) var accountSessionValidationClient
     @Dependency(\.openMusicEventAuthorizationRequests) var authorizationRequests
     @Dependency(\.openMusicEventSignUpServerConfiguration) var signUpServerConfiguration
@@ -624,14 +623,10 @@ public struct Account {
                     if !accountIDsToLoad.isEmpty {
                         store.addTask {
                             for accountID in accountIDsToLoad {
-                                let identity: ActorIdentity?
-                                do {
-                                    identity = try await actorIdentityLookup.resolve(
-                                        accountID.rawValue.description
-                                    )
-                                } catch {
-                                    identity = nil
-                                }
+                                let response = await Self.exactActorIdentitySearch.search(
+                                    accountID.rawValue.description
+                                )
+                                let identity = response.results.first
                                 try store.send(.accountIdentityResponse(accountID, identity))
                             }
                         }
@@ -872,7 +867,9 @@ public struct Account {
         state.signInActorSearchIsLoading = true
         store.addTask(id: signInActorSearchTask) {
             let response = await (
-                includingExactLookup ? Self.exactSignInActorSearch : Self.signInActorTypeaheadSearch
+                includingExactLookup
+                    ? Self.exactActorIdentitySearch
+                    : Self.signInActorTypeaheadSearch
             )
             .search(query)
             try Task.checkCancellation()
@@ -880,7 +877,7 @@ public struct Account {
         }
     }
 
-    static let exactSignInActorSearch = PredictiveSearch(
+    static let exactActorIdentitySearch = PredictiveSearch(
         actorIdentitySources: [
             .exactActorIdentityLookup(title: "Exact match"),
         ],

@@ -11,6 +11,8 @@ import SwiftUI
 public struct WorkspaceCollaborators {
     public init() {}
 
+    @StoreTaskID var actorSearchTask
+
     public struct State {
         public init(
             workspaceID: EditingWorkspaceRecord.ID,
@@ -32,14 +34,27 @@ public struct WorkspaceCollaborators {
         @FetchOne public var workspace: EditingWorkspaceRecord?
         @FetchAll public var relationships: [WorkspaceRelationshipRecord]
         public var actorQuery = ""
+        public var actorSearchFailures: [PredictiveSearchFailure] = []
+        public var actorSearchIsLoading = false
+        public var actorSearchSections: [PredictiveSearchSection<ActorIdentity>] = []
         public var draftCanPropose = true
         public var draftCanMerge = false
         public var errorMessage: String?
         public var isSaving = false
+        public var selectedActorIdentity: ActorIdentity?
+
+        mutating func resetActorSearch() {
+            actorSearchFailures = []
+            actorSearchIsLoading = false
+            actorSearchSections = []
+        }
     }
 
     public enum Action {
         case addButtonTapped
+        case actorIdentityTapped(ActorIdentity)
+        case actorSearchResponse(PredictiveSearchResponse<ActorIdentity>)
+        case clearSelectedActorButtonTapped
         case removeButtonTapped(WorkspaceRelationshipRecord.ID)
         case toggleCapability(
             WorkspaceRelationshipRecord.ID,
@@ -47,7 +62,6 @@ public struct WorkspaceCollaborators {
         )
     }
 
-    @Dependency(\.actorIdentityLookup) var actorIdentityLookup
     @Dependency(\.date.now) var now
     @Dependency(\.defaultDatabase) var database
 
@@ -61,7 +75,8 @@ public struct WorkspaceCollaborators {
                 else { return }
                 let query = state.actorQuery
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !query.isEmpty else {
+                let selectedActorIdentity = state.selectedActorIdentity
+                guard selectedActorIdentity != nil || !query.isEmpty else {
                     state.errorMessage = "Enter a collaborator handle or DID."
                     return
                 }
@@ -69,14 +84,22 @@ public struct WorkspaceCollaborators {
                 var capabilities: Set<OME.WorkspaceRole.Capability> = []
                 if state.draftCanPropose { capabilities.insert(.propose) }
                 if state.draftCanMerge { capabilities.insert(.merge) }
-                let actorIdentityLookup = actorIdentityLookup
                 let database = database
                 let now = now
                 state.errorMessage = nil
                 state.isSaving = true
                 store.addTask {
                     do {
-                        let identity = try await actorIdentityLookup.resolve(query)
+                        let identity: ActorIdentity
+                        if let selectedActorIdentity {
+                            identity = selectedActorIdentity
+                        } else {
+                            let response = await Self.exactActorSearch.search(query)
+                            guard let resolvedIdentity = response.results.first else {
+                                throw WorkspaceCollaboratorError.identityNotFound
+                            }
+                            identity = resolvedIdentity
+                        }
                         guard identity.did != publicRecord.author else {
                             throw WorkspaceCollaboratorError.ownerCannotBeCollaborator
                         }
@@ -105,10 +128,12 @@ public struct WorkspaceCollaborators {
                         }
                         try store.modify {
                             $0.actorQuery = ""
+                            $0.resetActorSearch()
                             $0.draftCanPropose = true
                             $0.draftCanMerge = false
                             $0.errorMessage = nil
                             $0.isSaving = false
+                            $0.selectedActorIdentity = nil
                         }
                     } catch {
                         try store.modify {
@@ -117,6 +142,27 @@ public struct WorkspaceCollaborators {
                         }
                     }
                 }
+
+            case let .actorIdentityTapped(identity):
+                guard state.role.canManageCollaborators,
+                      !state.isSaving
+                else { return }
+                state.actorQuery = ""
+                state.resetActorSearch()
+                state.selectedActorIdentity = identity
+
+            case let .actorSearchResponse(response):
+                guard response.query == state.actorQuery.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) else { return }
+                state.actorSearchFailures = response.failures
+                state.actorSearchIsLoading = false
+                state.actorSearchSections = response.sections
+
+            case .clearSelectedActorButtonTapped:
+                guard !state.isSaving else { return }
+                state.errorMessage = nil
+                state.selectedActorIdentity = nil
 
             case let .removeButtonTapped(id):
                 guard state.role.canManageCollaborators,
@@ -186,16 +232,55 @@ public struct WorkspaceCollaborators {
                 }
             }
         }
+        .onChange(of: store.actorQuery) { _, rawQuery, state in
+            let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            state.errorMessage = nil
+
+            guard state.role.canManageCollaborators,
+                  query.count >= 2
+            else {
+                state.resetActorSearch()
+                return
+            }
+
+            state.resetActorSearch()
+            state.actorSearchIsLoading = true
+            state.selectedActorIdentity = nil
+            store.addTask(id: actorSearchTask) {
+                let response = await Self.actorLookaheadSearch.search(query)
+                try Task.checkCancellation()
+                try store.send(.actorSearchResponse(response))
+            }
+        }
     }
+
+    static let actorLookaheadSearch = PredictiveSearch(
+        actorIdentitySources: [
+            .appBskyActorTypeahead(title: "Profiles", limit: 10),
+        ],
+        minimumQueryLength: 2
+    )
+
+    static let exactActorSearch = PredictiveSearch(
+        actorIdentitySources: [
+            .exactActorIdentityLookup(title: "Exact match"),
+        ],
+        minimumQueryLength: 2
+    )
 }
 
 private enum WorkspaceCollaboratorError: Error {
+    case identityNotFound
     case ownerCannotBeCollaborator
 
     static func message(for error: any Error) -> String {
-        if let error = error as? Self,
-           case .ownerCannotBeCollaborator = error {
-            return "The workspace owner already has full access."
+        if let error = error as? Self {
+            switch error {
+            case .identityNotFound:
+                return "No matching account was found."
+            case .ownerCannotBeCollaborator:
+                return "The workspace owner already has full access."
+            }
         }
         return "Unable to update workspace collaborators."
     }
@@ -211,7 +296,58 @@ public struct WorkspaceCollaboratorsView: View {
     public var body: some View {
         List {
             Section("Add collaborator") {
-                TextField("Handle or DID", text: $store.actorQuery)
+                if let selectedActorIdentity = store.selectedActorIdentity {
+                    ContributorActorIdentityRow(
+                        identity: selectedActorIdentity,
+                        isSelected: true
+                    )
+
+                    Button("Clear selection") {
+                        store.send(.clearSelectedActorButtonTapped)
+                    }
+                    .disabled(store.isSaving)
+                } else {
+                    TextField("Search profiles", text: $store.actorQuery)
+                        .autocorrectionDisabled()
+                        #if !os(macOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                        .onSubmit {
+                            store.send(.addButtonTapped)
+                        }
+
+                    if store.actorSearchIsLoading {
+                        ProgressView()
+                    }
+
+                    ForEach(store.actorSearchSections) { section in
+                        Text(section.title)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        ForEach(section.results) { identity in
+                            Button {
+                                store.send(.actorIdentityTapped(identity))
+                            } label: {
+                                ContributorActorIdentityRow(
+                                    identity: identity,
+                                    isSelected: false
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(store.isSaving)
+                        }
+                    }
+
+                    ForEach(store.actorSearchFailures, id: \.sourceID) { failure in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(failure.title)
+                            Text(failure.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
 
                 Toggle("Can propose changes", isOn: $store.draftCanPropose)
                 Toggle("Can merge changes", isOn: $store.draftCanMerge)

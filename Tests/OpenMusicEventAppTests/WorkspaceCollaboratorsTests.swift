@@ -1,5 +1,6 @@
 import ATProto
 import ComposableArchitecture2
+import CustomDump
 import Dependencies
 import Foundation
 import OpenMusicEventLexicon
@@ -12,6 +13,71 @@ import Testing
 @MainActor
 @Suite("Workspace collaborators", .serialized)
 struct WorkspaceCollaboratorsTests {
+    @Test
+    func ownerFindsCollaboratorsWithPredictiveSearchBeforeAddingThem() async throws {
+        let database = try makePreparedDatabase()
+        let identity = ActorIdentity(
+            did: try #require(DID("did:plc:alice")),
+            handle: .init(rawValue: "alice.example"),
+            displayName: "Alice",
+            source: .typeahead
+        )
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0.actorTypeaheadSearch.search = { query in
+                expectNoDifference(query.normalizedText, "alice")
+                return [identity]
+            }
+            $0.actorIdentityLookup.resolve = { _ in
+                Issue.record(
+                    "Predictive lookahead must not run exact identity lookup while typing."
+                )
+                throw ActorIdentityLookupError.emptyInput
+            }
+        } operation: {
+            TestStore(
+                initialState: WorkspaceCollaborators.State(
+                    workspaceID: .init(rawValue: "team.workspace"),
+                    role: .owner
+                )
+            ) {
+                WorkspaceCollaborators()
+            }
+        }
+
+        let searchTask = store.modify {
+            $0.actorQuery = " alice "
+        } changes: {
+            $0.actorSearchIsLoading = true
+        }
+
+        await store.receive(\.actorSearchResponse) {
+            $0.actorSearchIsLoading = false
+            $0.actorSearchSections = [
+                PredictiveSearchSection(
+                    sourceID: "app.bsky.actor.searchActorsTypeahead",
+                    title: "Profiles",
+                    results: [identity]
+                )
+            ]
+        }
+        await searchTask?.value
+
+        expectNoDifference(store.actorSearchSections.map(\.title), ["Profiles"])
+        expectNoDifference(
+            store.actorSearchSections.flatMap(\.results),
+            [identity]
+        )
+        #expect(store.actorSearchFailures.isEmpty)
+        #expect(store.actorSearchIsLoading == false)
+
+        store.send(.actorIdentityTapped(identity)) {
+            $0.actorQuery = ""
+            $0.actorSearchSections = []
+            $0.selectedActorIdentity = identity
+        }
+    }
+
     @Test
     func ownerAddsUpdatesAndRemovesOneRelationshipPerActor() async throws {
         let database = try makePreparedDatabase()

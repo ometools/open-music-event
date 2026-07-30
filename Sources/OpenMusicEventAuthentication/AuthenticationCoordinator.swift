@@ -236,7 +236,7 @@ public struct OpenMusicEventAuthorizationFormView: View {
             signInActorSearchIsLoading = true
             let response = await (
                 request.includingExactLookup
-                    ? Account.exactSignInActorSearch
+                    ? Account.exactActorIdentitySearch
                     : Account.signInActorTypeaheadSearch
             )
             .search(request.query)
