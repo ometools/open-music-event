@@ -347,8 +347,6 @@ public struct WhiteLabelRootView: View {
     @Bindable var store: StoreOf<WhiteLabelRoot>
 
     public var body: some View {
-        let accountStore = store.spawn(\.account)
-
         Group {
             if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
                 OpenMusicEventAuthorizationView(store: authorizationStore) { authoringStore in
@@ -361,7 +359,7 @@ public struct WhiteLabelRootView: View {
                             store: teamWorkspaceDetailStore,
                             showsAuthoringControls: authoringStore.access.canEditContent
                         )
-                        .whiteLabelRootActionsToolbar(store: store)
+                        .whiteLabelRootToolbar(store: store)
                     }
                 }
             } else if let organizationRootStore = store.spawn(\.organizationRoot) {
@@ -372,11 +370,10 @@ public struct WhiteLabelRootView: View {
             } else {
                 NavigationStack {
                     LoadingView(store: store)
-                        .whiteLabelRootActionsToolbar(store: store)
+                        .whiteLabelRootToolbar(store: store)
                 }
             }
         }
-        .accountPickerToolbar(store: accountStore)
     }
 
     struct LoadingView: View {
@@ -529,13 +526,23 @@ struct WhiteLabelRootActionsMenu: View {
 }
 
 extension View {
-    func whiteLabelRootActionsToolbar(store: StoreOf<WhiteLabelRoot>) -> some View {
-        whiteLabelRootActionsToolbar(store: Optional(store))
+    func whiteLabelRootToolbar(store: StoreOf<WhiteLabelRoot>) -> some View {
+        whiteLabelRootToolbar(store: Optional(store))
     }
 
-    func whiteLabelRootActionsToolbar(store: StoreOf<WhiteLabelRoot>?) -> some View {
+    func whiteLabelRootToolbar(store: StoreOf<WhiteLabelRoot>?) -> some View {
         toolbar {
             if let store {
+                #if os(macOS) && !SKIP
+                ToolbarItem(placement: .automatic) {
+                    AccountPicker(store: store.spawn(\.account))
+                }
+                #else
+                ToolbarItem(placement: .topBarLeading) {
+                    AccountPicker(store: store.spawn(\.account))
+                }
+                #endif
+
                 ToolbarItem(placement: .primaryAction) {
                     WhiteLabelRootActionsMenu(store: store)
                 }

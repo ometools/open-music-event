@@ -310,7 +310,7 @@ public struct CalendarDetailView: View {
                     .labelStyle(.iconOnly)
             }
         }
-        .whiteLabelRootActionsToolbar(store: whiteLabelRootStore)
+        .whiteLabelRootToolbar(store: whiteLabelRootStore)
     }
 
     private var calendarTitle: String {

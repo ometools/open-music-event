@@ -870,7 +870,7 @@ public struct OrganizerDetailView: View {
                     .labelStyle(.iconOnly)
             }
         }
-        .whiteLabelRootActionsToolbar(store: whiteLabelRootStore)
+        .whiteLabelRootToolbar(store: whiteLabelRootStore)
     }
 
     private var defaultCalendarEntryRows: CalendarDetail.EntryRows {
