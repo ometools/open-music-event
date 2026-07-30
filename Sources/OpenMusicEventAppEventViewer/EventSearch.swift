@@ -33,6 +33,9 @@ public struct EventSearch {
             _performanceContributors = FetchAll(
                 EventSearch.performanceContributorsQuery(eventID: eventID)
             )
+            _performanceRows = FetchAll(
+                PerformanceRow.all(eventID: eventID)
+            )
             _scheduleViewerStates = FetchAll(
                 ScheduleViewerState.all(eventID: eventID)
             )
@@ -45,6 +48,7 @@ public struct EventSearch {
         @FetchAll var contributors: [ContributorProfile]
         @FetchOne var event: OMERecord.Event?
         @FetchAll var performanceContributors: [OMERecord.Performance.Contributors]
+        @FetchAll var performanceRows: [PerformanceRow]
         @FetchAll var scheduleViewerStates: [ScheduleViewerState]
 
         public var query = ""
@@ -238,6 +242,7 @@ public struct EventSearchView: View {
                     contributors: store.contributors,
                     event: store.event,
                     performanceContributors: store.performanceContributors,
+                    performanceRows: store.performanceRows,
                     scheduleViewerStates: store.scheduleViewerStates,
                     openTarget: { store.send(.openTarget($0)) }
                 )
@@ -266,6 +271,7 @@ struct EventSearchContentView: View {
     let contributors: [ContributorProfile]
     let event: OMERecord.Event?
     let performanceContributors: [OMERecord.Performance.Contributors]
+    let performanceRows: [PerformanceRow]
     let scheduleViewerStates: [ScheduleViewerState]
     let openTarget: (EventSearchDocument.Target) -> Void
 
@@ -293,12 +299,28 @@ struct EventSearchContentView: View {
                 Button {
                     openTarget(result.document.target)
                 } label: {
-                    EventSearchResultRow(result: result)
+                    EventSearchResultRow(
+                        result: result,
+                        contributor: contributor(for: result),
+                        performanceRow: performanceRow(for: result),
+                        now: now,
+                        timeZone: event?.timeZone ?? .current
+                    )
                 }
                 .navigationLinkListRowStyle()
             }
             .listStyle(.plain)
         }
+    }
+
+    func contributor(for result: EventSearchResult) -> ContributorProfile? {
+        guard case let .contributor(contributorID) = result.document.target else { return nil }
+        return contributors.first { $0.contributorID == contributorID }
+    }
+
+    func performanceRow(for result: EventSearchResult) -> PerformanceRow? {
+        guard case let .performance(performanceID) = result.document.target else { return nil }
+        return performanceRows.first { $0.performanceID == performanceID }
     }
 }
 
@@ -533,57 +555,118 @@ struct EventSearchFeatureCard: View {
 struct EventSearchChromeIcon: View {
     let systemImage: String
     let tint: Color?
+    var size: CGFloat = 28
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
                 .fill(tint ?? .accentColor)
-                .frame(width: 28, height: 28)
+                .frame(width: size, height: size)
             Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: size * 0.5, weight: .semibold))
                 .foregroundStyle(.white)
         }
     }
 }
 
 struct EventSearchPerformanceRow: View {
-    let row: PerformanceDashboardRow
+    @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
+    let row: PerformanceRow
     let now: Date
+    let timeZone: TimeZone
 
     var body: some View {
         EventSearchRow(
             title: row.title,
-            subtitle: row.stage?.name ?? "Performance",
-            systemImage: "music.mic",
+            subtitle: ScheduleViewer.performanceRowSubtitle(
+                for: row.performance,
+                timeZone: timeZone,
+                policy: dateTimeRangeResolutionPolicy
+            ),
             status: PerformanceTimingStatus(
                 startTime: row.performance.startTime,
                 endTime: row.performance.endTime,
                 now: now
-            )
+            ),
+            chrome: EventSearchPerformanceChrome(stage: row.stage)
         )
     }
 }
 
 struct EventSearchResultRow: View {
     let result: EventSearchResult
+    let contributor: ContributorProfile?
+    let performanceRow: PerformanceRow?
+    let now: Date
+    let timeZone: TimeZone
 
     var body: some View {
-        EventSearchRow(
-            title: result.document.title,
-            subtitle: result.document.subtitle ?? result.document.kind.title,
-            systemImage: result.document.kind.systemImage
-        )
+        if let contributor {
+            EventSearchRow(
+                title: result.document.title,
+                subtitle: result.document.subtitle ?? result.document.kind.title,
+                chrome: ContributorArtworkView(
+                    asset: contributor.artworkAsset,
+                    cacheContext: contributor.artworkCacheContext,
+                    size: 44
+                )
+            )
+        } else if let performanceRow {
+            EventSearchPerformanceRow(
+                row: performanceRow,
+                now: now,
+                timeZone: timeZone
+            )
+        } else {
+            EventSearchRow(
+                title: result.document.title,
+                subtitle: result.document.subtitle ?? result.document.kind.title,
+                chrome: EventSearchChromeIcon(
+                    systemImage: result.document.semanticSystemImage,
+                    tint: result.document.semanticTint,
+                    size: 44
+                )
+            )
+        }
     }
 }
 
-struct EventSearchRow: View {
-    let title: String
-    let subtitle: String
-    let systemImage: String
-    var status: PerformanceTimingStatus?
+struct EventSearchPerformanceChrome: View {
+    let stage: OMERecord.Stage?
 
     var body: some View {
-        Label {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(stage?.color.swiftUIColor ?? .secondary.opacity(0.35))
+                .frame(width: 5, height: 44)
+
+            Group {
+                if let stage {
+                    ScheduleStageIcon(stage: stage)
+                } else {
+                    Image(systemName: "music.note")
+                        .resizable()
+                        .scaledToFit()
+                        .padding(10)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .foregroundStyle(.primary)
+        }
+    }
+}
+
+struct EventSearchRow<Chrome: View>: View {
+    let title: String
+    let subtitle: String
+    var status: PerformanceTimingStatus?
+    let chrome: Chrome
+
+    var body: some View {
+        HStack(spacing: 10) {
+            chrome
+
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.body)
@@ -595,15 +678,35 @@ struct EventSearchRow: View {
                         .lineLimit(1)
 
                     if let status {
+                        if case .startsIn = status {
+                            Text("Starts in")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                        }
+
                         PerformanceTimingChip(status: status)
                             .layoutPriority(1)
                     }
                 }
             }
-        } icon: {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(minHeight: 44, alignment: .leading)
+        .foregroundStyle(.primary)
+    }
+}
+
+private extension EventSearchDocument {
+    var semanticSystemImage: String {
+        guard case let .feature(featureID) = target else { return kind.systemImage }
+        return EventSearchFeature.systemImage(for: featureID)
+    }
+
+    var semanticTint: Color? {
+        guard case let .feature(featureID) = target else { return kind.tint }
+        return EventSearchFeature.tint(for: featureID)
     }
 }
 
@@ -635,35 +738,57 @@ private extension EventSearchDocument.Kind {
         case .stage: "Stage"
         }
     }
+
+    var tint: Color? {
+        switch self {
+        case .channel: .orange
+        case .contact: .green
+        case .contributor: .pink
+        case .eventInfo: .gray
+        case .feature: nil
+        case .location: .blue
+        case .performance: .green
+        case .poster: .purple
+        case .stage: .indigo
+        }
+    }
 }
 
 private extension EventSearchFeature {
     var tint: Color? {
+        Self.tint(for: id)
+    }
+
+    var systemImage: String {
+        Self.systemImage(for: id)
+    }
+
+    static func tint(for id: ID) -> Color? {
         switch id {
-        case KnownID.schedule: .green
-        case KnownID.contributors: .pink
-        case KnownID.stages: .indigo
-        case KnownID.communications: .orange
-        case KnownID.location: .blue
-        case KnownID.contact: .green
-        case KnownID.posters: .purple
-        case KnownID.alerts: .red
-        case KnownID.about: .gray
+        case EventSearchFeature.KnownID.schedule: .green
+        case EventSearchFeature.KnownID.contributors: .pink
+        case EventSearchFeature.KnownID.stages: .indigo
+        case EventSearchFeature.KnownID.communications: .orange
+        case EventSearchFeature.KnownID.location: .blue
+        case EventSearchFeature.KnownID.contact: .green
+        case EventSearchFeature.KnownID.posters: .purple
+        case EventSearchFeature.KnownID.alerts: .red
+        case EventSearchFeature.KnownID.about: .gray
         default: nil
         }
     }
 
-    var systemImage: String {
+    static func systemImage(for id: ID) -> String {
         switch id {
-        case KnownID.schedule: "calendar"
-        case KnownID.contributors: "person.3"
-        case KnownID.stages: "square.grid.2x2"
-        case KnownID.communications: "megaphone"
-        case KnownID.location: "mappin.and.ellipse"
-        case KnownID.contact: "phone"
-        case KnownID.posters: "photo.on.rectangle"
-        case KnownID.alerts: "bell"
-        case KnownID.about: "info.circle"
+        case EventSearchFeature.KnownID.schedule: "calendar"
+        case EventSearchFeature.KnownID.contributors: "person.3"
+        case EventSearchFeature.KnownID.stages: "square.grid.2x2"
+        case EventSearchFeature.KnownID.communications: "megaphone"
+        case EventSearchFeature.KnownID.location: "mappin.and.ellipse"
+        case EventSearchFeature.KnownID.contact: "phone"
+        case EventSearchFeature.KnownID.posters: "photo.on.rectangle"
+        case EventSearchFeature.KnownID.alerts: "bell"
+        case EventSearchFeature.KnownID.about: "info.circle"
         default: "square.grid.2x2"
         }
     }
