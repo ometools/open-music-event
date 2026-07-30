@@ -225,6 +225,12 @@ public struct OpenMusicEventAppRootView: View {
                 let eventViewerStore = authoringStore.scope(\.content, action: \.content)
                 EventViewerView(store: eventViewerStore)
             }
+            #if os(iOS)
+            .sheet(item: $store.inAppBrowserPresentation) { presentation in
+                InAppSafariView(url: presentation.url)
+                    .ignoresSafeArea()
+            }
+            #endif
         }
         .task {
             await store.send(.task)?.value
@@ -243,10 +249,6 @@ public struct OpenMusicEventAppRootView: View {
                 return .handled
             }
         )
-        .sheet(item: $store.inAppBrowserPresentation) { presentation in
-            InAppSafariView(url: presentation.url)
-                .ignoresSafeArea()
-        }
         #endif
     }
 
