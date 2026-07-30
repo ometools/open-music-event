@@ -11,6 +11,7 @@ import IssueReporting
 import Observation
 import OpenMusicEventDatabase
 import OpenMusicEventAuthentication
+import OpenMusicEventImages
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import OpenMusicEventWhiteLabel
@@ -524,6 +525,7 @@ struct NavigationTests {
         let sourceProvenance = sourceProvenance("authorized-workspace-navigation")
         let authorizationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
         let preparationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+        let sourcePreparationGate = SourceRefreshGate()
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
@@ -549,13 +551,18 @@ struct NavigationTests {
                 authorizationRequests.withLock { $0.append(workspaceID) }
                 return [.editContent]
             }
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { workspaceID in
-                preparationRequests.withLock { $0.append(workspaceID) }
-                return WorkspaceContext(
-                    id: workspaceID,
-                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-                )
-            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { workspaceID in
+                    WorkspaceContext(
+                        id: workspaceID,
+                        sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+                    )
+                },
+                prepareSource: { workspaceID in
+                    preparationRequests.withLock { $0.append(workspaceID) }
+                    await sourcePreparationGate.pauseUntilOpened()
+                }
+            )
         } operation: {
             TestStore(initialState: RootHarness.State()) {
                 RootHarness()
@@ -567,10 +574,7 @@ struct NavigationTests {
             store.state.root.eventViewer?.content.content.pendingAuthoringEntry
                 == .target(.workspace)
         )
-        await task?.value
-        await waitUntil {
-            store.state.root.eventViewer?.content.access.canEditContent == true
-        }
+        await sourcePreparationGate.waitForStart()
 
         let workspaceID = EditingWorkspaceRecord.ID(
             sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance)
@@ -593,6 +597,15 @@ struct NavigationTests {
             store.state.root.eventViewer?.content.content.eventWorkspace?.eventID
                 == eventID
         )
+        #expect(
+            store.state.root.eventViewer?.content.sourcePreparation.isRunning == true
+        )
+
+        await sourcePreparationGate.open()
+        await task?.value
+        await waitUntil {
+            store.state.root.eventViewer?.content.sourcePreparation.isRunning == false
+        }
     }
 
     @Test
@@ -1149,9 +1162,12 @@ struct NavigationTests {
                 remove: { _ in }
             )
             $0.sourceWorkspaceDatabase = .fileBacked(workingDirectory: workingDirectoryURL)
+            $0[WorkspacePreparationClient.self] = .live
         } operation: {
             @Dependency(WorkspacePreparationClient.self) var preparation
-            return try await preparation.prepare(workspaceID)
+            let workspace = try preparation.open(workspaceID)
+            try await preparation.prepareSource(workspaceID)
+            return workspace
         }
         let store = withDependencies {
             $0.context = .test
@@ -7721,13 +7737,17 @@ struct NavigationTests {
                 authorizationRequests.withLock { $0.append(requestedWorkspaceID) }
                 return [.editContent]
             }
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { requestedWorkspaceID in
-                preparationRequests.withLock { $0.append(requestedWorkspaceID) }
-                return WorkspaceContext(
-                    id: requestedWorkspaceID,
-                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-                )
-            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { requestedWorkspaceID in
+                    WorkspaceContext(
+                        id: requestedWorkspaceID,
+                        sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+                    )
+                },
+                prepareSource: { requestedWorkspaceID in
+                    preparationRequests.withLock { $0.append(requestedWorkspaceID) }
+                }
+            )
         } operation: {
             var state = WhiteLabelRoot.State(configuration: configuration)
             state.teamWorkspaceDetail = Spawn(

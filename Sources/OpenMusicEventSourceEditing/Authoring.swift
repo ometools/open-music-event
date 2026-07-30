@@ -204,6 +204,7 @@ public struct Authoring<Content: FeatureProtocol> {
         @Shared public var grant: AuthoringGrant?
         public var content: Content.State
         @StoreTaskID public var entry
+        @StoreTaskID public var sourcePreparation
         @DebugSnapshotIgnored public var attendeeWorkspace: WorkspaceContext
         @DebugSnapshotIgnored var initiallyRequestsEntry: Bool
 
@@ -235,6 +236,7 @@ public struct Authoring<Content: FeatureProtocol> {
     }
 
     public enum Action {
+        case authoringEntryPrepared(AuthoringGrant)
         case content(Content.Action)
         case enterButtonTapped
         case exitButtonTapped
@@ -246,6 +248,11 @@ public struct Authoring<Content: FeatureProtocol> {
     public var body: some Feature {
         Update { state, action in
             switch action {
+            case let .authoringEntryPrepared(grant):
+                state.$grant.withLock { $0 = grant }
+                AuthoringEntryDiagnostics.logDone(workspaceID: grant.workspace.id)
+                prepareSource(state: &state, workspaceID: grant.workspace.id)
+
             case .content:
                 break
 
@@ -312,16 +319,15 @@ public struct Authoring<Content: FeatureProtocol> {
             }
 
             do {
-                let workspace = try await preparation.prepare(workspaceID)
-                try store.modify {
-                    $0.$grant.withLock {
-                        $0 = AuthoringGrant(
+                let workspace = try preparation.open(workspaceID)
+                try store.send(
+                    .authoringEntryPrepared(
+                        AuthoringGrant(
                             capabilities: capabilities,
                             workspace: workspace
                         )
-                    }
-                }
-                AuthoringEntryDiagnostics.logDone(workspaceID: workspaceID)
+                    )
+                )
             } catch {
                 AuthoringEntryDiagnostics.logFailed(
                     error,
@@ -335,6 +341,33 @@ public struct Authoring<Content: FeatureProtocol> {
                         fallback: "Unable to enter authoring."
                     ),
                     operation: ErrorOperation(rawValue: "authoring.entry.preparation")
+                )
+            }
+        }
+    }
+
+    private func prepareSource(
+        state: inout State,
+        workspaceID: EditingWorkspaceRecord.ID
+    ) {
+        store.addTask(id: state.sourcePreparation) {
+            do {
+                try await preparation.prepareSource(workspaceID)
+            } catch {
+                AuthoringEntryDiagnostics.logFailed(
+                    error,
+                    stage: "source preparation",
+                    workspaceID: workspaceID
+                )
+                await store.reportError(
+                    error,
+                    fallbackMessage: UserFacingText(
+                        "Editing is available, but the source repository is not ready.",
+                        fallback: "Editing is available, but the source repository is not ready."
+                    ),
+                    operation: ErrorOperation(
+                        rawValue: "authoring.source-preparation"
+                    )
                 )
             }
         }

@@ -70,13 +70,17 @@ struct TangledSourceDownloadFeatureTests {
                 authoringRequests.withLock { $0.append(requestedWorkspaceID) }
                 return [.editContent]
             }
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { requestedWorkspaceID in
-                preparedWorkspaceIDs.withLock { $0.append(requestedWorkspaceID) }
-                return WorkspaceContext(
-                    id: requestedWorkspaceID,
-                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-                )
-            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { requestedWorkspaceID in
+                    WorkspaceContext(
+                        id: requestedWorkspaceID,
+                        sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+                    )
+                },
+                prepareSource: { requestedWorkspaceID in
+                    preparedWorkspaceIDs.withLock { $0.append(requestedWorkspaceID) }
+                }
+            )
         } operation: {
             TestStore(initialState: MyEvents.State()) {
                 MyEvents()
@@ -94,7 +98,7 @@ struct TangledSourceDownloadFeatureTests {
         #expect(authoringRequests.withLock { $0.isEmpty })
         #expect(preparedWorkspaceIDs.withLock { $0.isEmpty })
 
-        // The explicit authoring action authorizes and promotes the archive to an editable source.
+        // The explicit action grants authoring immediately and starts source promotion.
         let entryTask = store.send(
             .teamWorkspaceDetail(.content(.enterButtonTapped))
         )

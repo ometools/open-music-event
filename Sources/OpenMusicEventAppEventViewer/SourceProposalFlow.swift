@@ -91,6 +91,8 @@ public struct SourceProposalFlow {
     @Dependency(\.openMusicEventSourcePatchLocationResolver) var sourcePatchLocationResolver
     @Dependency(\.openMusicEventCalendarSourcePatchLocationResolver) var calendarSourcePatchLocationResolver
     @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
+    @Dependency(\.workspaceContext) var workspaceContext
+    @Dependency(WorkspacePreparationClient.self) var workspacePreparation
 
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -123,6 +125,8 @@ public struct SourceProposalFlow {
                 let sourcePatchLocationResolver = sourcePatchLocationResolver
                 let sourcePatchPublisher = sourcePatchPublisher
                 let target = state.target
+                let workspaceID = workspaceContext?.id
+                let workspacePreparation = workspacePreparation
 
                 state.status = .proposing
                 store.addTask {
@@ -130,6 +134,9 @@ public struct SourceProposalFlow {
                         fallbackMessage: .sourceProposalPublishFailed,
                         operation: .sourceProposalPublish
                     ) {
+                        if let workspaceID {
+                            try await workspacePreparation.prepareSource(workspaceID)
+                        }
                         let location = try await target.resolveLocation(
                             calendarSourcePatchLocationResolver: calendarSourcePatchLocationResolver,
                             sourcePatchLocationResolver: sourcePatchLocationResolver

@@ -16,14 +16,19 @@ public struct SourceEditModePreparationClient: Sendable {
 }
 
 public struct WorkspacePreparationClient: Sendable {
-    public var prepare: @Sendable (EditingWorkspaceRecord.ID) async throws -> WorkspaceContext
+    public var open: @Sendable (EditingWorkspaceRecord.ID) throws -> WorkspaceContext
+    public var prepareSource: @Sendable (EditingWorkspaceRecord.ID) async throws -> Void
 
     public init(
-        prepare: @escaping @Sendable (
+        open: @escaping @Sendable (
             EditingWorkspaceRecord.ID
-        ) async throws -> WorkspaceContext
+        ) throws -> WorkspaceContext,
+        prepareSource: @escaping @Sendable (
+            EditingWorkspaceRecord.ID
+        ) async throws -> Void
     ) {
-        self.prepare = prepare
+        self.open = open
+        self.prepareSource = prepareSource
     }
 }
 
@@ -96,46 +101,101 @@ public extension SourceEditModePreparationClient {
 
 public extension WorkspacePreparationClient {
     static var live: Self {
-        Self { workspaceID in
-            @Dependency(\.defaultDatabase) var database
-            @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
-            @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
-
-            let workspace = try await database.read { db in
-                try EditingWorkspaceRecord
-                    .where { $0.id.eq(workspaceID) }
-                    .fetchOne(db)
-            }
-            guard let workspace else {
-                throw WorkspacePreparationError.workspaceNotFound(workspaceID)
-            }
-
-            switch workspace.kind {
-            case .local:
-                break
-
-            case .team:
-                guard let sourceBaselineID = workspace.sourceBaselineID else {
-                    throw WorkspacePreparationError.workspaceMissingSourceBaseline(workspaceID)
+        return Self(
+            open: { workspaceID in
+                @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
+                return WorkspaceContext(
+                    id: workspaceID,
+                    sourceWorkspaceDatabase: try sourceWorkspaceDatabase.workspace(workspaceID)
+                )
+            },
+            prepareSource: { workspaceID in
+                try await WorkspaceSourcePreparationCoordination.live.prepare(workspaceID) {
+                    try await Self.prepareSource(workspaceID)
                 }
-                try await sourceEditModePreparation.prepare(sourceBaselineID)
             }
-
-            return WorkspaceContext(
-                id: workspaceID,
-                sourceWorkspaceDatabase: try sourceWorkspaceDatabase.workspace(workspaceID)
-            )
-        }
+        )
     }
 
     static var passthrough: Self {
-        Self { workspaceID in
-            @Dependency(\.defaultDatabase) var database
-            return WorkspaceContext(
-                id: workspaceID,
-                sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-            )
+        Self(
+            open: { workspaceID in
+                @Dependency(\.defaultDatabase) var database
+                return WorkspaceContext(
+                    id: workspaceID,
+                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+                )
+            },
+            prepareSource: { _ in }
+        )
+    }
+
+    private static func prepareSource(
+        _ workspaceID: EditingWorkspaceRecord.ID
+    ) async throws {
+        @Dependency(\.defaultDatabase) var database
+        @Dependency(\.sourceEditModePreparation) var sourceEditModePreparation
+
+        let workspace = try await database.read { db in
+            try EditingWorkspaceRecord
+                .where { $0.id.eq(workspaceID) }
+                .fetchOne(db)
         }
+        guard let workspace else {
+            throw WorkspacePreparationError.workspaceNotFound(workspaceID)
+        }
+
+        switch workspace.kind {
+        case .local:
+            break
+
+        case .team:
+            guard let sourceBaselineID = workspace.sourceBaselineID else {
+                throw WorkspacePreparationError.workspaceMissingSourceBaseline(workspaceID)
+            }
+            try await sourceEditModePreparation.prepare(sourceBaselineID)
+        }
+    }
+}
+
+private enum WorkspaceSourcePreparationCoordination {
+    static let live = WorkspaceSourcePreparationCoordinator()
+}
+
+private actor WorkspaceSourcePreparationCoordinator {
+    struct InFlightPreparation {
+        var id: Int
+        var task: Task<Void, Error>
+    }
+
+    var inFlightPreparations: [
+        EditingWorkspaceRecord.ID: InFlightPreparation
+    ] = [:]
+    var nextID = 0
+
+    func prepare(
+        _ workspaceID: EditingWorkspaceRecord.ID,
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        if let preparation = inFlightPreparations[workspaceID] {
+            try await preparation.task.value
+            return
+        }
+
+        nextID += 1
+        let preparation = InFlightPreparation(
+            id: nextID,
+            task: Task {
+                try await operation()
+            }
+        )
+        inFlightPreparations[workspaceID] = preparation
+        defer {
+            if inFlightPreparations[workspaceID]?.id == preparation.id {
+                inFlightPreparations[workspaceID] = nil
+            }
+        }
+        try await preparation.task.value
     }
 }
 

@@ -15,6 +15,59 @@ import Testing
 struct AuthoringTests {
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
+    func `entering authoring does not wait for source preparation`() async throws {
+        let database = try DatabaseQueue()
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "instant-authoring"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+        )
+        let preparationGate = AuthoringPreparationGate()
+
+        let store: TestStoreActor<Authoring<WorkspaceProbe>> = await withDependencies {
+            $0[AuthoringPolicyClient.self] = .authoring
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { workspaceID in
+                    #expect(workspaceID == workspace.id)
+                    return workspace
+                },
+                prepareSource: { workspaceID in
+                    await preparationGate.prepare(workspaceID)
+                }
+            )
+        } operation: {
+            await TestStoreActor(
+                initialState: Authoring<WorkspaceProbe>.State(workspace: workspace) {
+                    WorkspaceProbe.State()
+                }
+            ) {
+                Authoring { WorkspaceProbe() }
+            }
+        }
+
+        let entry = await store.send(.enterButtonTapped)
+        let sourcePreparation = await store.receive(\.authoringEntryPrepared) {
+            $0.grant = AuthoringGrant(
+                capabilities: [.editContent],
+                workspace: workspace
+            )
+        }
+        let preparationRequests = await preparationGate.waitForPreparationToStart()
+
+        expectNoDifference(preparationRequests, [workspace.id])
+        let access = await store[dynamicMember: \.access]
+        expectNoDifference(
+            access,
+            .authoring([.editContent])
+        )
+
+        await preparationGate.finish()
+        await entry?.value
+        await sourcePreparation?.value
+        await store.dismount()
+    }
+
+    @Test
+    @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `entering authoring changes only the selected workspace context`() async throws {
         let attendeeDatabaseA = try DatabaseQueue()
         let authoringDatabaseA = try DatabaseQueue()
@@ -43,17 +96,21 @@ struct AuthoringTests {
                 authorizationRequests.withLock { $0.append(workspaceID) }
                 return [.editContent]
             }
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { workspaceID in
-                preparationRequests.withLock { $0.append(workspaceID) }
-                switch workspaceID {
-                case workspaceA.id:
-                    return preparedWorkspaceA
-                case workspaceB.id:
-                    return workspaceB
-                default:
-                    throw TestFailure.unexpectedWorkspace
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { workspaceID in
+                    switch workspaceID {
+                    case workspaceA.id:
+                        return preparedWorkspaceA
+                    case workspaceB.id:
+                        return workspaceB
+                    default:
+                        throw TestFailure.unexpectedWorkspace
+                    }
+                },
+                prepareSource: { workspaceID in
+                    preparationRequests.withLock { $0.append(workspaceID) }
                 }
-            }
+            )
         } operation: {
             (
                 await TestStoreActor(
@@ -86,13 +143,14 @@ struct AuthoringTests {
 
         // A child can request entry, but only its workspace wrapper can grant it.
         let entry = await storeA.send(.content(.requestAuthoringButtonTapped))
-        await entry?.value
-        await storeA.expect {
+        let sourcePreparation = await storeA.receive(\.authoringEntryPrepared) {
             $0.grant = AuthoringGrant(
                 capabilities: [.editContent],
                 workspace: preparedWorkspaceA
             )
         }
+        await entry?.value
+        await sourcePreparation?.value
 
         // The shared authoring dependency updates workspace A's content only.
         let authoringContentAccessA = await storeA[dynamicMember: \.content.access]
@@ -150,10 +208,12 @@ struct AuthoringTests {
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { _ in
                 throw TestFailure.authorizationDenied
             }
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { workspaceID in
-                preparationRequests.withLock { $0.append(workspaceID) }
-                return workspace
-            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { _ in workspace },
+                prepareSource: { workspaceID in
+                    preparationRequests.withLock { $0.append(workspaceID) }
+                }
+            )
         } operation: {
             await TestStoreActor(
                 initialState: AuthoringErrorHost.State(workspace: workspace)
@@ -186,7 +246,7 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `preparation failure reports an ephemeral issue and remains attendee`() async throws {
+    func `workspace opening failure reports an ephemeral issue and remains attendee`() async throws {
         let failure = SourceControlError.remoteOperationFailed(
             SourceControlRemoteFailure(
                 kind: .timedOut,
@@ -199,9 +259,10 @@ struct AuthoringTests {
         )
         let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
             $0[AuthoringPolicyClient.self] = .authoring
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { _ in
-                throw failure
-            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { _ in throw failure },
+                prepareSource: { _ in }
+            )
         } operation: {
             await TestStoreActor(
                 initialState: AuthoringErrorHost.State(workspace: workspace)
@@ -231,6 +292,55 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
+    func `source preparation failure reports an ephemeral issue and keeps authoring`() async throws {
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "workspace-source-preparation-failed"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
+        )
+        let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
+            $0[AuthoringPolicyClient.self] = .authoring
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { _ in workspace },
+                prepareSource: { _ in throw TestFailure.preparationFailed }
+            )
+        } operation: {
+            await TestStoreActor(
+                initialState: AuthoringErrorHost.State(workspace: workspace)
+            ) {
+                AuthoringErrorHost()
+            }
+        }
+
+        await withIssueReporters([]) {
+            let entry = await store.send(to: \.authoring, .enterButtonTapped)
+            let sourcePreparation = await store.receive(
+                from: \.authoring,
+                \.authoringEntryPrepared
+            ) {
+                $0.authoring.grant = AuthoringGrant(
+                    capabilities: [.editContent],
+                    workspace: workspace
+                )
+            }
+            await entry?.value
+            await sourcePreparation?.value
+            await store.expect {
+                $0.reportedErrorMessage =
+                    "Editing is available, but the source repository is not ready."
+                $0.reportedErrorOperation = ErrorOperation(
+                    rawValue: "authoring.source-preparation"
+                )
+            }
+        }
+
+        let access = await store[dynamicMember: \.authoring.state.access]
+        expectNoDifference(access, .authoring([.editContent]))
+
+        await store.dismount()
+    }
+
+    @Test
+    @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `one grant carries access and database context across mounts of one workspace`() async throws {
         let attendeeDatabase = try DatabaseQueue()
         let authoringDatabase = try DatabaseQueue()
@@ -249,10 +359,13 @@ struct AuthoringTests {
         ) = await withDependencies {
             $0.defaultDatabase = attendeeDatabase
             $0[AuthoringPolicyClient.self] = .authoring
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { id in
-                #expect(id == workspaceID)
-                return preparedWorkspace
-            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { id in
+                    #expect(id == workspaceID)
+                    return preparedWorkspace
+                },
+                prepareSource: { _ in }
+            )
         } operation: {
             (
                 await TestStoreActor(
@@ -280,13 +393,14 @@ struct AuthoringTests {
         let (storeA, storeB) = stores
 
         let entry = await storeA.send(.enterButtonTapped)
-        await entry?.value
-        await storeA.expect {
+        let sourcePreparation = await storeA.receive(\.authoringEntryPrepared) {
             $0.grant = AuthoringGrant(
                 capabilities: [.editContent],
                 workspace: preparedWorkspace
             )
         }
+        await entry?.value
+        await sourcePreparation?.value
 
         let accessB = await storeB[dynamicMember: \.access]
         expectNoDifference(accessB, .authoring([.editContent]))
@@ -313,6 +427,40 @@ struct AuthoringTests {
 
         await storeA.dismount()
         await storeB.dismount()
+    }
+}
+
+private actor AuthoringPreparationGate {
+    private var isFinished = false
+    private var workspaceIDs: [EditingWorkspaceRecord.ID] = []
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startWaiters: [CheckedContinuation<[EditingWorkspaceRecord.ID], Never>] = []
+
+    func finish() {
+        isFinished = true
+        let waiters = finishWaiters
+        finishWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    func prepare(_ workspaceID: EditingWorkspaceRecord.ID) async {
+        workspaceIDs.append(workspaceID)
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume(returning: workspaceIDs) }
+        guard !isFinished else { return }
+        await withCheckedContinuation { continuation in
+            finishWaiters.append(continuation)
+        }
+    }
+
+    func waitForPreparationToStart() async -> [EditingWorkspaceRecord.ID] {
+        if !workspaceIDs.isEmpty {
+            return workspaceIDs
+        }
+        return await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
     }
 }
 

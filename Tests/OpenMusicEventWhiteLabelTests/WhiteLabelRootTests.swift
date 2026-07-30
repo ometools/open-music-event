@@ -503,7 +503,7 @@ struct WhiteLabelRootTests {
   }
 
   @Test
-  func enterAuthoringButtonPreparesSourceBeforeShowingAuthoringControls() async throws {
+  func enterAuthoringButtonShowsControlsWhilePreparingSource() async throws {
     try await withNonExhaustiveTest {
       let database = try makePreparedDatabase()
       let organizerID = organizerID("wickedwoods")
@@ -525,14 +525,17 @@ struct WhiteLabelRootTests {
           await recorder.record(requestedWorkspaceID)
           return [.editContent]
         }
-        $0[WorkspacePreparationClient.self] = WorkspacePreparationClient {
-          requestedWorkspaceID in
-          await preparationGate.prepare(requestedWorkspaceID)
-          return WorkspaceContext(
-            id: requestedWorkspaceID,
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-          )
-        }
+        $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+          open: { requestedWorkspaceID in
+            WorkspaceContext(
+              id: requestedWorkspaceID,
+              sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+            )
+          },
+          prepareSource: { requestedWorkspaceID in
+            await preparationGate.prepare(requestedWorkspaceID)
+          }
+        )
         $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
         $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { importedOrganizerID, _ in
           #expect(importedOrganizerID == organizerID)
@@ -560,9 +563,15 @@ struct WhiteLabelRootTests {
         preparedWorkspaceIDs,
         [workspaceID]
       )
-      #expect(store.state.teamWorkspaceDetail?.state.content.access == .attendee)
-      #expect(!store.state.showsAuthoringControls)
-      #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == true)
+      #expect(
+        store.state.teamWorkspaceDetail?.state.content.access
+          == .authoring([.editContent])
+      )
+      #expect(store.state.showsAuthoringControls)
+      #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == false)
+      #expect(
+        store.state.teamWorkspaceDetail?.state.content.sourcePreparation.isRunning == true
+      )
 
       await preparationGate.finish()
       await entryTask?.value
@@ -578,6 +587,9 @@ struct WhiteLabelRootTests {
       )
       #expect(store.state.showsAuthoringControls)
       #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == false)
+      #expect(
+        store.state.teamWorkspaceDetail?.state.content.sourcePreparation.isRunning == false
+      )
     }
   }
 

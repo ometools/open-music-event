@@ -887,15 +887,30 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let sourceChangeURL = try #require(URL(string: "https://source.woody.fm/events/event-1/proposals/1"))
         let publication = SourcePatchPublication(sourceChangeURL: sourceChangeURL)
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "proposal-workspace"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+        )
+        let operations = Mutex<[String]>([])
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.workspaceContext = workspace
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { _ in workspace },
+                prepareSource: { workspaceID in
+                    #expect(workspaceID == workspace.id)
+                    operations.withLock { $0.append("prepare") }
+                }
+            )
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { request in
                 #expect(request == OpenMusicEventSourcePatchRequest(eventID: eventID))
+                operations.withLock { $0.append("resolve") }
                 return location
             }
             $0.sourcePatchPublisher = SourcePatchPublisher { request in
+                operations.withLock { $0.append("publish") }
                 #expect(
                     request == SourcePatchPublishRequest(
                         description: "Updated the event name.",
@@ -920,6 +935,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
         await task?.value
         #expect(store.state.status == .created(publication))
+        expectNoDifference(operations.withLock { $0 }, ["prepare", "resolve", "publish"])
 
         await store.dismount()
     }

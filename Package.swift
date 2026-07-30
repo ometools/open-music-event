@@ -601,6 +601,7 @@ targets.append(contentsOf: [
             "ErrorHandling",
             "OpenMusicEventApp",
             "OpenMusicEventAuthentication",
+            "OpenMusicEventImages",
             "OpenMusicEventLexicon",
             "OpenMusicEventWhiteLabel",
             "OpenMusicEventSourceEditing",
