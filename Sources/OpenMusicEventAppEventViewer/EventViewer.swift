@@ -542,12 +542,6 @@ public struct EventViewer {
                 }) else { return }
                 self.destination = .performanceForm(Spawn(editPerformance))
 
-            case let .editReportingLink(eventID):
-                guard eventID == self.eventID else { return }
-                self.destination = withEventDependencies {
-                    .reportingLinkForm(Spawn(EditReportingLink.State(eventID: eventID)))
-                }
-
             case let .editStage(eventID, stageID):
                 guard eventID == self.eventID else { return }
                 self.destination = withEventDependencies {
@@ -783,7 +777,6 @@ public struct EventViewer {
         case eventPoliciesForm(Spawn<EditEventPolicies>)
         case locationForm(Spawn<EditLocation>)
         case performanceForm(Spawn<EditPerformance>)
-        case reportingLinkForm(Spawn<EditReportingLink>)
         case scheduleForm(Spawn<EditSchedule>)
         case stageForm(Spawn<EditStage>)
     }
@@ -983,8 +976,6 @@ extension EventViewer.Destination.StoreEnumeration: @MainActor Identifiable {
             destinationID("locationForm", store.eventID)
         case let .performanceForm(store):
             destinationID("performanceForm", store.eventID, store.performanceID)
-        case let .reportingLinkForm(store):
-            destinationID("reportingLinkForm", store.eventID)
         case let .scheduleForm(store):
             destinationID("scheduleForm", store.eventID)
         case let .stageForm(store):
@@ -1043,8 +1034,6 @@ public struct EventViewerView: View {
             EditLocationView(store: formStore)
         case let .performanceForm(formStore):
             EditPerformanceView(store: formStore)
-        case let .reportingLinkForm(formStore):
-            EditReportingLinkView(store: formStore)
         case let .scheduleForm(formStore):
             EditScheduleView(store: formStore)
         }
@@ -1682,7 +1671,6 @@ private extension EventEditingIntent {
              let .editEventPolicies(eventID),
              let .editLocation(eventID),
              let .editPerformance(eventID, _),
-             let .editReportingLink(eventID),
              let .editStage(eventID, _),
              let .eventSettings(eventID),
              let .eventWorkspace(eventID):

@@ -5874,7 +5874,7 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerReportingLinkEditorUsesDefaultDatabase() async throws {
+    func eventViewerContactInfoEditorSavesMultipleReportingLinksToDefaultDatabase() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
         try await database.write { db in
@@ -5885,16 +5885,18 @@ struct NavigationTests {
         var state = withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
             EventViewer.State(eventID: eventID)
         }
-        state.handleEditingIntent(.editReportingLink(eventID))
+        state.handleEditingIntent(.editContactInfo(eventID))
 
         @Bindable var store = withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
+            $0.date = .constant(Date(timeIntervalSince1970: 0))
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
         } operation: {
@@ -5904,41 +5906,51 @@ struct NavigationTests {
         }
 
         let destinationStore = try #require(store.scope(\.destination, action: \.destination))
-        let reportingLinkStore: StoreOf<EditReportingLink>
+        let contactInfoStore: StoreOf<EditContactInfo>
         switch EventViewer.Destination.switch(store: destinationStore) {
-        case let .reportingLinkForm(store):
-            reportingLinkStore = store
+        case let .contactInfoForm(store):
+            contactInfoStore = store
         default:
-            Issue.record("Expected reporting link form destination")
+            Issue.record("Expected contact info form destination")
             return
         }
 
         await waitUntil {
-            reportingLinkStore.hasLoadedDraft
+            contactInfoStore.hasLoadedDraft
         }
-        @Bindable var editableReportingLinkStore = reportingLinkStore
-        $editableReportingLinkStore.isEnabled.wrappedValue = true
-        $editableReportingLinkStore.name.wrappedValue = "Report an Incident"
-        $editableReportingLinkStore.urlString.wrappedValue = "https://example.org/report"
-        $editableReportingLinkStore.description.wrappedValue = "Event support form."
+        @Bindable var editableContactInfoStore = contactInfoStore
+        await editableContactInfoStore.send(.addReportingLinkButtonTapped)?.value
+        await editableContactInfoStore.send(.addReportingLinkButtonTapped)?.value
+        $editableContactInfoStore.reportingLinks[0].name.wrappedValue = "Report an Incident"
+        $editableContactInfoStore.reportingLinks[0].urlString.wrappedValue = "https://example.org/report"
+        $editableContactInfoStore.reportingLinks[0].description.wrappedValue = "Event support form."
+        $editableContactInfoStore.reportingLinks[1].name.wrappedValue = "Accessibility Help"
+        $editableContactInfoStore.reportingLinks[1].urlString.wrappedValue = "https://example.org/accessibility"
 
-        await editableReportingLinkStore.send(.saveButtonTapped)?.value
+        await editableContactInfoStore.send(.saveButtonTapped)?.value
 
-        let expectedReportingLink = OMERecord.Event.ReportingLink(
-            name: "Report an Incident",
-            url: try #require(URL(string: "https://example.org/report")),
-            description: "Event support form."
-        )
-        let savedReportingLink = try await database.read { db in
+        let expectedReportingLinks = [
+            OMERecord.Event.ReportingLink(
+                name: "Report an Incident",
+                url: try #require(URL(string: "https://example.org/report")),
+                description: "Event support form."
+            ),
+            OMERecord.Event.ReportingLink(
+                name: "Accessibility Help",
+                url: try #require(URL(string: "https://example.org/accessibility")),
+                description: nil
+            ),
+        ]
+        let savedReportingLinks = try await database.read { db in
             try #require(
                 try OMERecord.Event
                     .where { $0.id.eq(eventID) }
                     .fetchOne(db)?
-                    .reportingLink
+                    .reportingLinks
             )
         }
 
-        expectNoDifference(savedReportingLink, expectedReportingLink)
+        expectNoDifference(savedReportingLinks, expectedReportingLinks)
     }
 
     @Test

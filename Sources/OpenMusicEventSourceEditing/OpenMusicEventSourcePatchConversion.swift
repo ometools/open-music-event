@@ -1008,7 +1008,7 @@ private extension OME.Event {
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs,
             policies: policies,
-            reportingLink: reportingLink
+            reportingLinks: reportingLinks
         )
     }
 }

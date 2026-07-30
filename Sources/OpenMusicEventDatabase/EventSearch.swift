@@ -76,8 +76,8 @@ public struct EventSearchFeature: Equatable, Identifiable, Sendable {
         Self(
             id: KnownID.contact,
             title: "Contact",
-            body: "Event contact numbers and support information.",
-            keywords: "contact phone help support"
+            body: "Event contact numbers, reporting links, and support information.",
+            keywords: "contact phone help support report reporting incident safety"
         ),
         Self(
             id: KnownID.posters,

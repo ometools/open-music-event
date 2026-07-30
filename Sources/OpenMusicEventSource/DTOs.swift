@@ -67,7 +67,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         contactNumbers: [OMERecord.Event.ContactNumber]?,
         categoryConfigs: OMERecord.Event.CategoryConfigs?,
         policies: OMERecord.Event.Policies? = nil,
-        reportingLink: OMERecord.Event.ReportingLink? = nil,
+        reportingLinks: [OMERecord.Event.ReportingLink]? = nil,
         owner: OMERecord.Contributor.Actor? = nil,
         schedule: InlineScheduleDTO? = nil
     ) {
@@ -85,7 +85,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         self.contactNumbers = contactNumbers
         self.categoryConfigs = categoryConfigs
         self.policies = policies
-        self.reportingLink = reportingLink
+        self.reportingLinks = reportingLinks
         self.owner = owner
         self.schedule = schedule
     }
@@ -107,7 +107,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         contactNumbers: [OMERecord.Event.ContactNumber]?,
         categoryConfigs: OMERecord.Event.CategoryConfigs?,
         policies: OMERecord.Event.Policies? = nil,
-        reportingLink: OMERecord.Event.ReportingLink? = nil,
+        reportingLinks: [OMERecord.Event.ReportingLink]? = nil,
         owner: OMERecord.Contributor.Actor? = nil,
         schedule: InlineScheduleDTO? = nil
     ) {
@@ -130,7 +130,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs,
             policies: policies,
-            reportingLink: reportingLink,
+            reportingLinks: reportingLinks,
             owner: owner,
             schedule: schedule
         )
@@ -152,7 +152,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
             contactNumbers: draft.contactNumbers,
             categoryConfigs: draft.categoryConfigs,
             policies: draft.policies,
-            reportingLink: draft.reportingLink,
+            reportingLinks: draft.reportingLinks,
             owner: draft.owner,
             schedule: nil
         )
@@ -172,7 +172,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
     public var contactNumbers: [OMERecord.Event.ContactNumber]?
     public var categoryConfigs: OMERecord.Event.CategoryConfigs?
     public var policies: OMERecord.Event.Policies?
-    public var reportingLink: OMERecord.Event.ReportingLink?
+    public var reportingLinks: [OMERecord.Event.ReportingLink]?
     public var owner: OMERecord.Contributor.Actor?
     public var schedule: InlineScheduleDTO?
 
@@ -192,7 +192,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
             contactNumbers: contactNumbers,
             categoryConfigs: categoryConfigs,
             policies: policies,
-            reportingLink: reportingLink,
+            reportingLinks: reportingLinks,
             owner: owner
         )
     }
@@ -228,6 +228,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         case categoryConfigs
         case policies
         case reportingLink
+        case reportingLinks
         case owner
         case schedule
     }
@@ -256,7 +257,8 @@ public struct EventDTO: Codable, Equatable, Sendable {
             contactNumbers: try container.decodeIfPresent([OMERecord.Event.ContactNumber].self, forKey: .contactNumbers),
             categoryConfigs: try container.decodeIfPresent(OMERecord.Event.CategoryConfigs.self, forKey: .categoryConfigs),
             policies: try container.decodeIfPresent(OMERecord.Event.Policies.self, forKey: .policies),
-            reportingLink: try container.decodeIfPresent(OMERecord.Event.ReportingLink.self, forKey: .reportingLink),
+            reportingLinks: try container.decodeIfPresent([OMERecord.Event.ReportingLink].self, forKey: .reportingLinks)
+                ?? container.decodeIfPresent(OMERecord.Event.ReportingLink.self, forKey: .reportingLink).map { [$0] },
             owner: try container.decodeIfPresent(OMERecord.Contributor.Actor.self, forKey: .owner),
             schedule: try container.decodeIfPresent(InlineScheduleDTO.self, forKey: .schedule)
         )
@@ -278,7 +280,7 @@ public struct EventDTO: Codable, Equatable, Sendable {
         try container.encodeIfPresent(contactNumbers, forKey: .contactNumbers)
         try container.encodeIfPresent(categoryConfigs, forKey: .categoryConfigs)
         try container.encodeIfPresent(policies, forKey: .policies)
-        try container.encodeIfPresent(reportingLink, forKey: .reportingLink)
+        try container.encodeIfPresent(reportingLinks, forKey: .reportingLinks)
         try container.encodeIfPresent(owner, forKey: .owner)
         try container.encodeIfPresent(schedule, forKey: .schedule)
     }

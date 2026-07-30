@@ -1172,6 +1172,21 @@ struct TeamWorkspaceEditorTests {
         #expect(rows.performances.filter { $0.id.eventID == expectedLocalEventID }.isEmpty)
         #expect(newEvent.description == "The woods return for another season.")
         #expect(newEvent.locations?.first?.address == "1 Forest Road")
+        expectNoDifference(
+            newEvent.reportingLinks,
+            [
+                OMERecord.Event.ReportingLink(
+                    name: "Safety Concern",
+                    url: try #require(URL(string: "https://example.org/safety")),
+                    description: "Contact the event safety team."
+                ),
+                OMERecord.Event.ReportingLink(
+                    name: "Accessibility Help",
+                    url: try #require(URL(string: "https://example.org/accessibility")),
+                    description: nil
+                ),
+            ]
+        )
 
         let newEventURL = repositoryURL
             .appending(path: "events", directoryHint: .isDirectory)
@@ -1183,6 +1198,9 @@ struct TeamWorkspaceEditorTests {
         #expect(eventYML.contains("name: Wicked Woods 2026"))
         #expect(eventYML.contains("description: The woods return for another season."))
         #expect(eventYML.contains("address: 1 Forest Road"))
+        #expect(eventYML.contains("reportingLinks:"))
+        #expect(eventYML.contains("name: Safety Concern"))
+        #expect(eventYML.contains("name: Accessibility Help"))
         #expect(!FileManager.default.fileExists(atPath: newEventURL.appending(path: "contributors").path()))
         #expect(!FileManager.default.fileExists(atPath: newEventURL.appending(path: "schedules").path()))
         #expect(!FileManager.default.fileExists(atPath: newEventURL.appending(path: "communications").path()))
@@ -1427,7 +1445,19 @@ private func writeRolloverSourceEvent(
             timeZone: TimeZone(identifier: "America/Denver")!,
             images: nil,
             contactNumbers: nil,
-            categoryConfigs: nil
+            categoryConfigs: nil,
+            reportingLinks: [
+                OMERecord.Event.ReportingLink(
+                    name: "Safety Concern",
+                    url: URL(string: "https://example.org/safety")!,
+                    description: "Contact the event safety team."
+                ),
+                OMERecord.Event.ReportingLink(
+                    name: "Accessibility Help",
+                    url: URL(string: "https://example.org/accessibility")!,
+                    description: nil
+                ),
+            ]
         ),
         stages: [
             try FileContent(

@@ -1007,7 +1007,7 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
-    func eventReportingLinkRoundTripsThroughYAML() throws {
+    func legacyEventReportingLinkReadsAndWritesCanonicalPluralYAML() throws {
         let repositoryURL = try temporaryRepositoryURL()
         let eventURL = repositoryURL
             .appending(path: "events", directoryHint: .isDirectory)
@@ -1032,19 +1032,81 @@ struct OpenMusicEventSourceTests {
         let event = try #require(repository.events.first?.components.event)
 
         expectNoDifference(
-            event.reportingLink,
-            OME.Event.ReportingLink(
-                name: "Report an Incident",
-                url: URL(string: "https://example.org/report")!,
-                description: "Use this form to report an event safety concern."
-            )
+            event.reportingLinks,
+            [
+                OME.Event.ReportingLink(
+                    name: "Report an Incident",
+                    url: URL(string: "https://example.org/report")!,
+                    description: "Use this form to report an event safety concern."
+                )
+            ]
         )
+
+        let outputURL = try temporaryRepositoryURL()
+        _ = try tree.write(repository, to: outputURL)
+        let eventText = try String(
+            contentsOf: outputURL
+                .appending(path: "events", directoryHint: .isDirectory)
+                .appending(path: "reporting-event", directoryHint: .isDirectory)
+                .appending(path: "event.yml"),
+            encoding: .utf8
+        )
+        let roundTripped = try tree.read(from: outputURL).output.requiredValue
+
+        #expect(eventText.contains("reportingLinks:"))
+        #expect(!eventText.contains("reportingLink:"))
+        expectNoDifference(roundTripped, repository)
+    }
+
+    @Test
+    func multipleEventReportingLinksPreserveSourceOrder() throws {
+        let repositoryURL = try temporaryRepositoryURL()
+        let eventURL = repositoryURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "reporting-event", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: eventURL,
+            withIntermediateDirectories: true
+        )
+
+        try """
+        name: Reporting Event
+        timeZone: America/Denver
+        reportingLinks:
+          - name: Safety Concern
+            url: https://example.org/safety
+            description: Contact the event safety team.
+          - name: Accessibility Help
+            url: https://example.org/accessibility
+        """
+        .write(to: eventURL.appending(path: "event.yml"), atomically: true, encoding: .utf8)
+
+        let tree = OpenMusicEventSourceRepositoryFileTree()
+        let repository = try tree.read(from: repositoryURL).output.requiredValue
+        let event = try #require(repository.events.first?.components.event)
+        let expected = [
+            OME.Event.ReportingLink(
+                name: "Safety Concern",
+                url: URL(string: "https://example.org/safety")!,
+                description: "Contact the event safety team."
+            ),
+            OME.Event.ReportingLink(
+                name: "Accessibility Help",
+                url: URL(string: "https://example.org/accessibility")!,
+                description: nil
+            ),
+        ]
+
+        expectNoDifference(event.reportingLinks, expected)
 
         let outputURL = try temporaryRepositoryURL()
         _ = try tree.write(repository, to: outputURL)
         let roundTripped = try tree.read(from: outputURL).output.requiredValue
 
-        expectNoDifference(roundTripped, repository)
+        expectNoDifference(
+            roundTripped.events.first?.components.event.reportingLinks,
+            expected
+        )
     }
 
     @Test

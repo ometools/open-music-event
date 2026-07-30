@@ -24,6 +24,12 @@ public struct ContactInfoViewer {
                 OMERecord.Event.where { $0.id.eq(eventID) }
             )
         }
+
+        var hasContent: Bool {
+            guard let event else { return false }
+            return !(event.contactNumbers ?? []).displayContactNumbers.isEmpty
+                || !(event.reportingLinks ?? []).isEmpty
+        }
     }
 
     public enum Action {
@@ -61,16 +67,35 @@ public struct ContactInfoViewerView: View {
 
     public var body: some View {
         Group {
-            if let contactNumbers = store.event?.contactNumbers?.displayContactNumbers, !contactNumbers.isEmpty {
+            if store.hasContent {
                 List {
-                    ForEach(Array(contactNumbers.enumerated()), id: \.offset) { _, contactNumber in
-                        if let url = contactNumber.phoneURL {
-                            Link(destination: url) {
-                                ContactNumberRow(contactNumber: contactNumber)
+                    if let reportingLinks = store.event?.reportingLinks, !reportingLinks.isEmpty {
+                        Section("Reporting") {
+                            ForEach(Array(reportingLinks.enumerated()), id: \.offset) { _, reportingLink in
+                                Link(destination: reportingLink.url) {
+                                    ReportingLinkRow(reportingLink: reportingLink)
+                                }
+                                .buttonStyle(.plain)
+                                .portableAccessibilityHint(
+                                    Text("Opens \(reportingLink.name) in a browser.")
+                                )
                             }
-                            .buttonStyle(.plain)
-                        } else {
-                            ContactNumberRow(contactNumber: contactNumber)
+                        }
+                    }
+
+                    if let contactNumbers = store.event?.contactNumbers?.displayContactNumbers,
+                       !contactNumbers.isEmpty {
+                        Section("Contact Numbers") {
+                            ForEach(Array(contactNumbers.enumerated()), id: \.offset) { _, contactNumber in
+                                if let url = contactNumber.phoneURL {
+                                    Link(destination: url) {
+                                        ContactNumberRow(contactNumber: contactNumber)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    ContactNumberRow(contactNumber: contactNumber)
+                                }
+                            }
                         }
                     }
                 }
@@ -112,6 +137,7 @@ public struct EditContactInfo {
         let eventID: OMERecord.Event.ID
         var draft: OMERecord.Event.Draft = .placeholder
         var contactNumbers: [EditableContactNumber] = []
+        var reportingLinks: [EditableReportingLink] = []
         var hasLoadedDraft = false
         var isSaving = false
         var errorMessage: String?
@@ -120,9 +146,13 @@ public struct EditContactInfo {
             contactNumbers.compactMap(\.preparedContactNumber)
         }
 
+        var preparedReportingLinks: [OMERecord.Event.ReportingLink] {
+            reportingLinks.compactMap(\.preparedReportingLink)
+        }
+
         var validationMessage: String? {
             guard hasLoadedDraft else { return nil }
-            return nil
+            return reportingLinks.compactMap(\.validationMessage).first
         }
 
         var canSubmit: Bool {
@@ -133,14 +163,18 @@ public struct EditContactInfo {
             var draft = draft
             let contactNumbers = preparedContactNumbers
             draft.contactNumbers = contactNumbers.isEmpty ? nil : contactNumbers
+            let reportingLinks = preparedReportingLinks
+            draft.reportingLinks = reportingLinks.isEmpty ? nil : reportingLinks
             return draft
         }
     }
 
     public enum Action {
         case addContactNumberButtonTapped
+        case addReportingLinkButtonTapped
         case cancelButtonTapped
         case removeContactNumberButtonTapped(UUID)
+        case removeReportingLinkButtonTapped(UUID)
         case saveButtonTapped
     }
 
@@ -152,6 +186,9 @@ public struct EditContactInfo {
             case .addContactNumberButtonTapped:
                 state.contactNumbers.append(EditableContactNumber())
 
+            case .addReportingLinkButtonTapped:
+                state.reportingLinks.append(EditableReportingLink())
+
             case .cancelButtonTapped:
                 store.addTask {
                     try store.dismiss()
@@ -159,6 +196,9 @@ public struct EditContactInfo {
 
             case .removeContactNumberButtonTapped(let id):
                 state.contactNumbers.removeAll { $0.id == id }
+
+            case .removeReportingLinkButtonTapped(let id):
+                state.reportingLinks.removeAll { $0.id == id }
 
             case .saveButtonTapped:
                 guard !state.isSaving else { return }
@@ -207,6 +247,7 @@ public struct EditContactInfo {
                 }) {
                     state.draft = .init(event)
                     state.contactNumbers = (event.contactNumbers ?? []).map(EditableContactNumber.init)
+                    state.reportingLinks = (event.reportingLinks ?? []).map(EditableReportingLink.init)
                     state.hasLoadedDraft = true
                     state.errorMessage = nil
                 } else {
@@ -249,6 +290,34 @@ public struct EditContactInfoView: View {
                     Section {
                         Button("Add Contact Number") {
                             store.send(.addContactNumberButtonTapped)
+                        }
+                    }
+
+                    ForEach($store.reportingLinks) { $reportingLink in
+                        Section("Reporting Link") {
+                            TextField("Name", text: $reportingLink.name)
+                            TextField("URL", text: $reportingLink.urlString)
+                                #if os(iOS)
+                                .keyboardType(.URL)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                #endif
+                            PortableTextField(
+                                "Description",
+                                text: $reportingLink.description,
+                                axis: .vertical
+                            )
+                            .portableLineLimit(2...5)
+
+                            Button("Remove Reporting Link", role: .destructive) {
+                                store.send(.removeReportingLinkButtonTapped(reportingLink.id))
+                            }
+                        }
+                    }
+
+                    Section {
+                        Button("Add Reporting Link") {
+                            store.send(.addReportingLinkButtonTapped)
                         }
                     }
 
@@ -322,6 +391,31 @@ struct ContactNumberRow: View {
     }
 }
 
+struct ReportingLinkRow: View {
+    let reportingLink: OMERecord.Event.ReportingLink
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(reportingLink.name)
+                    .font(.headline)
+
+                if let description = reportingLink.displayDescription {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            Image(systemName: "link")
+                .foregroundStyle(.tint)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 public struct EditableContactNumber: Identifiable, Equatable {
     public var id = UUID()
     var title = ""
@@ -349,6 +443,64 @@ public struct EditableContactNumber: Identifiable, Equatable {
     }
 }
 
+public struct EditableReportingLink: Identifiable, Equatable {
+    public var id = UUID()
+    var name = ""
+    var urlString = ""
+    var description = ""
+
+    init() {}
+
+    init(_ reportingLink: OMERecord.Event.ReportingLink) {
+        self.name = reportingLink.name
+        self.urlString = reportingLink.url.absoluteString
+        self.description = reportingLink.description ?? ""
+    }
+
+    var preparedReportingLink: OMERecord.Event.ReportingLink? {
+        guard !isEmpty, validationMessage == nil, let url = preparedURL else { return nil }
+        return OMERecord.Event.ReportingLink(
+            name: trimmedName,
+            url: url,
+            description: trimmedDescription.nilIfEmpty
+        )
+    }
+
+    var validationMessage: String? {
+        guard !isEmpty else { return nil }
+        guard !trimmedName.isEmpty else { return "Enter a reporting link name." }
+        guard preparedURL != nil else { return "Enter a valid http or https URL." }
+        return nil
+    }
+
+    var isEmpty: Bool {
+        trimmedName.isEmpty && trimmedURLString.isEmpty && trimmedDescription.isEmpty
+    }
+
+    var preparedURL: URL? {
+        guard let components = URLComponents(string: trimmedURLString),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.host?.isEmpty == false,
+              let url = components.url
+        else { return nil }
+
+        return url
+    }
+
+    var trimmedDescription: String {
+        description.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var trimmedURLString: String {
+        urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 private extension Array where Element == OMERecord.Event.ContactNumber {
     var displayContactNumbers: Self {
         filter { !$0.phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -372,6 +524,13 @@ private extension OMERecord.Event.ContactNumber {
         let digits = phoneNumber.filter(\.isNumber)
         guard !digits.isEmpty else { return nil }
         return URL(string: "tel:\(hasInternationalPrefix ? "+" : "")\(digits)")
+    }
+}
+
+private extension OMERecord.Event.ReportingLink {
+    var displayDescription: String? {
+        let description = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return description?.isEmpty == false ? description : nil
     }
 }
 

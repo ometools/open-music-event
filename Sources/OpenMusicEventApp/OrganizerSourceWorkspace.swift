@@ -534,6 +534,7 @@ private func makeSourceFile(
         sourceFile.event.locations = rolloverSource.event.event.locations
         sourceFile.event.uris = rolloverSource.event.event.uris
         sourceFile.event.contactNumbers = rolloverSource.event.event.contactNumbers
+        sourceFile.event.reportingLinks = rolloverSource.event.event.reportingLinks
     }
 
     if rollover.copySiteMapAndTheme {

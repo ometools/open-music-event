@@ -289,6 +289,129 @@ struct DatabaseMigrationTests {
     }
 
     @Test
+    func eventReportingLinksMigrationAddsNullablePluralColumn() async throws {
+        let database = try SQLiteData.defaultDatabase()
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database)
+
+        try await database.read { db in
+            let type = try String.fetchOne(
+                db,
+                sql: #"SELECT "type" FROM pragma_table_info('events') WHERE "name" = 'reportingLinks'"#
+            )
+            let isNotNull = try Int.fetchOne(
+                db,
+                sql: #"SELECT "notnull" FROM pragma_table_info('events') WHERE "name" = 'reportingLinks'"#
+            )
+
+            #expect(type == "TEXT")
+            #expect(isNotNull == 0)
+        }
+    }
+
+    @Test
+    func eventReportingLinksMigrationWrapsLegacyLinkWithoutChangingEventData() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        let organizerID = try #require(OME.Organizer.ID("did:plc:festival"))
+        let eventID = OME.Event.ID(
+            organizerID: organizerID,
+            eventID: localID("summer-2026")
+        )
+        let legacyReportingLink = #"{"name":"Report an Incident","url":"https://example.org/report","description":"Event support form."}"#
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Add OpenMusicEvent relationship capabilities")
+
+        try await database.write { db in
+            try db.execute(
+                sql: #"INSERT INTO "organizers" ("id") VALUES (?)"#,
+                arguments: [organizerID.description]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO "events" (
+                      "organizerID", "eventID", "name", "description", "timeZone", "reportingLink"
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    organizerID.description,
+                    eventID.eventID.rawValue.rawValue,
+                    "Summer Festival",
+                    "Keep this event description.",
+                    "America/Denver",
+                    legacyReportingLink,
+                ]
+            )
+        }
+
+        try migrator.migrate(database)
+
+        let migratedEvent = try await database.read { db in
+            try #require(
+                try OME.Event.where { $0.id.eq(eventID) }.fetchOne(db)
+            )
+        }
+        #expect(migratedEvent.name == "Summer Festival")
+        #expect(migratedEvent.description == "Keep this event description.")
+        expectNoDifference(
+            migratedEvent.reportingLinks,
+            [
+                OME.Event.ReportingLink(
+                    name: "Report an Incident",
+                    url: try #require(URL(string: "https://example.org/report")),
+                    description: "Event support form."
+                )
+            ]
+        )
+    }
+
+    @Test
+    func invalidLegacyReportingLinkRollsBackPluralMigrationAndPreservesEvent() async throws {
+        let database = try SQLiteData.defaultDatabase()
+
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(database, upTo: "Add OpenMusicEvent relationship capabilities")
+
+        try await database.write { db in
+            try db.execute(sql: #"INSERT INTO "organizers" ("id") VALUES ('did:plc:festival')"#)
+            try db.execute(
+                sql: """
+                    INSERT INTO "events" (
+                      "organizerID", "eventID", "name", "timeZone", "reportingLink"
+                    ) VALUES ('did:plc:festival', 'summer-2026', 'Do Not Lose Me', 'America/Denver', '{invalid')
+                    """
+            )
+        }
+
+        #expect(throws: (any Error).self) {
+            try migrator.migrate(database)
+        }
+
+        try await database.read { db in
+            let eventName = try String.fetchOne(
+                db,
+                sql: #"SELECT "name" FROM "events" WHERE "eventID" = 'summer-2026'"#
+            )
+            let legacyValue = try String.fetchOne(
+                db,
+                sql: #"SELECT "reportingLink" FROM "events" WHERE "eventID" = 'summer-2026'"#
+            )
+            let pluralColumnCount = try Int.fetchOne(
+                db,
+                sql: #"SELECT COUNT(*) FROM pragma_table_info('events') WHERE "name" = 'reportingLinks'"#
+            )
+
+            #expect(eventName == "Do Not Lose Me")
+            #expect(legacyValue == "{invalid")
+            #expect(pluralColumnCount == 0)
+        }
+    }
+
+    @Test
     func eventSearchSchemaMigrationCreatesDocumentAndTextTables() async throws {
         let database = try SQLiteData.defaultDatabase()
 

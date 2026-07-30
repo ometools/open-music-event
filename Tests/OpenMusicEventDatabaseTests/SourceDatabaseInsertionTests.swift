@@ -514,13 +514,20 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func sourceRepositoryReportingLinkPersistsToEventRow() async throws {
-        let reportingLink = OME.Event.ReportingLink(
-            name: "Report an Incident",
-            url: URL(string: "https://example.org/report")!,
-            description: "Use this form to report an event safety concern."
-        )
-        let source = try makeSourceRepository(reportingLink: reportingLink)
+    func sourceRepositoryReportingLinksPersistToEventRowInOrder() async throws {
+        let reportingLinks = [
+            OME.Event.ReportingLink(
+                name: "Report an Incident",
+                url: URL(string: "https://example.org/report")!,
+                description: "Use this form to report an event safety concern."
+            ),
+            OME.Event.ReportingLink(
+                name: "Accessibility Help",
+                url: URL(string: "https://example.org/accessibility")!,
+                description: nil
+            ),
+        ]
+        let source = try makeSourceRepository(reportingLinks: reportingLinks)
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let insertion = try OME.SourceDatabaseInsertion(
             .init(
@@ -532,8 +539,8 @@ struct SourceDatabaseInsertionTests {
         let eventID = try #require(insertion.events.first?.id)
 
         expectNoDifference(
-            insertion.events.first?.reportingLink,
-            reportingLink
+            insertion.events.first?.reportingLinks,
+            reportingLinks
         )
 
         let database = try makeCoreDatabase()
@@ -544,8 +551,8 @@ struct SourceDatabaseInsertionTests {
                 .fetchOne(db)
         }
         expectNoDifference(
-            try #require(insertedEvent?.reportingLink),
-            reportingLink
+            try #require(insertedEvent?.reportingLinks),
+            reportingLinks
         )
     }
 
@@ -3941,7 +3948,7 @@ struct SourceDatabaseInsertionTests {
         eventName: String = "Testival 2026",
         explicitLocalEventID: OME.ID<OME.Event>? = nil,
         eventPolicies: OME.Event.Policies? = nil,
-        reportingLink: OME.Event.ReportingLink? = nil,
+        reportingLinks: [OME.Event.ReportingLink]? = nil,
         eventImages: [SourceImageAsset]? = nil,
         stageImages: [SourceImageAsset]? = nil,
         contributorDID: DID? = nil,
@@ -4005,7 +4012,7 @@ struct SourceDatabaseInsertionTests {
                             contactNumbers: nil,
                             categoryConfigs: nil,
                             policies: eventPolicies,
-                            reportingLink: reportingLink
+                            reportingLinks: reportingLinks
                         ),
                         stages: [
                             try FileContent(

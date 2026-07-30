@@ -270,30 +270,6 @@ struct SettingsFeatureTests {
     }
 
     @Test
-    func reportingLinkButtonEmitsReportingLinkEditorRequest() async throws {
-        try await TestExhaustivity.$current.withValue(.off) {
-            let database = try makePreparedDatabase()
-            let eventID = testEventID()
-            let store: TestStore<EventSettings> = withDependencies {
-                $0.context = .test
-                $0.defaultDatabase = database
-            } operation: {
-                TestStore(initialState: EventSettings.State(eventID: eventID)) {
-                    EventSettings()
-                }
-            }
-
-            let editTask = store.send(EventSettings.Action.reportingLinkButtonTapped)
-            await store.receive(
-                key: EventEditingRequested.self,
-                value: .equals(.editReportingLink(eventID)),
-                timeout: .seconds(1)
-            )
-            await editTask?.value
-        }
-    }
-
-    @Test
     func eventSettingsRequestsLocalEventDeletionAfterConfirmation() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID()
@@ -547,111 +523,6 @@ struct SettingsFeatureTests {
         #expect(event.policies == nil)
     }
 
-    @Test
-    func reportingLinkEditorLoadsExistingReportingLink() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID()
-        let reportingLink = OMERecord.Event.ReportingLink(
-            name: "Report an Incident",
-            url: URL(string: "https://example.org/report")!,
-            description: "Use this form to reach event support."
-        )
-        try await insertEvent(eventID, reportingLink: reportingLink, into: database)
-
-        let store = makeReportingLinkEditorStore(database: database, eventID: eventID)
-
-        #expect(store.hasLoadedDraft)
-        #expect(store.isEnabled)
-        #expect(store.name == "Report an Incident")
-        #expect(store.urlString == "https://example.org/report")
-        #expect(store.description == "Use this form to reach event support.")
-        #expect(store.errorMessage == nil)
-    }
-
-    @Test
-    func reportingLinkEditorSavesValidEnabledLink() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID()
-        try await insertEvent(eventID, into: database)
-
-        @Bindable var store = makeReportingLinkEditorStore(database: database, eventID: eventID)
-        $store.isEnabled.wrappedValue = true
-        $store.name.wrappedValue = "  Report an Incident  "
-        $store.urlString.wrappedValue = "  https://example.org/report  "
-        $store.description.wrappedValue = "  Event safety response form.  "
-
-        await store.send(.saveButtonTapped)?.value
-
-        let event = try await fetchEvent(eventID, from: database)
-        expectNoDifference(
-            event.reportingLink,
-            OMERecord.Event.ReportingLink(
-                name: "Report an Incident",
-                url: URL(string: "https://example.org/report")!,
-                description: "Event safety response form."
-            )
-        )
-    }
-
-    @Test
-    func reportingLinkEditorDisablesAndClearsExistingLink() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID()
-        try await insertEvent(
-            eventID,
-            reportingLink: OMERecord.Event.ReportingLink(
-                name: "Report an Incident",
-                url: URL(string: "https://example.org/report")!,
-                description: "Event safety response form."
-            ),
-            into: database
-        )
-
-        @Bindable var store = makeReportingLinkEditorStore(database: database, eventID: eventID)
-        $store.isEnabled.wrappedValue = false
-
-        await store.send(.saveButtonTapped)?.value
-
-        let event = try await fetchEvent(eventID, from: database)
-        #expect(event.reportingLink == nil)
-    }
-
-    @Test
-    func reportingLinkEditorRejectsMissingNameWithoutWriting() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID()
-        try await insertEvent(eventID, into: database)
-
-        @Bindable var store = makeReportingLinkEditorStore(database: database, eventID: eventID)
-        $store.isEnabled.wrappedValue = true
-        $store.name.wrappedValue = "   "
-        $store.urlString.wrappedValue = "https://example.org/report"
-
-        await store.send(.saveButtonTapped)?.value
-
-        #expect(store.errorMessage == "Enter a reporting link name.")
-        let event = try await fetchEvent(eventID, from: database)
-        #expect(event.reportingLink == nil)
-    }
-
-    @Test
-    func reportingLinkEditorRejectsInvalidURLWithoutWriting() async throws {
-        let database = try makePreparedDatabase()
-        let eventID = testEventID()
-        try await insertEvent(eventID, into: database)
-
-        @Bindable var store = makeReportingLinkEditorStore(database: database, eventID: eventID)
-        $store.isEnabled.wrappedValue = true
-        $store.name.wrappedValue = "Report an Incident"
-        $store.urlString.wrappedValue = "ftp://example.org/report"
-
-        await store.send(.saveButtonTapped)?.value
-
-        #expect(store.errorMessage == "Enter a valid http or https URL.")
-        let event = try await fetchEvent(eventID, from: database)
-        #expect(event.reportingLink == nil)
-    }
-
     private func saveProfilePolicy(
         _ profile: EditEventPolicies.ContributorProfileSelection
     ) async throws {
@@ -759,22 +630,6 @@ private func contributorPolicies(
 }
 
 @MainActor
-private func makeReportingLinkEditorStore(
-    database: any DatabaseWriter,
-    eventID: OMERecord.Event.ID
-) -> StoreOf<EditReportingLink> {
-    withDependencies {
-        $0.context = .test
-        $0.continuousClock = ImmediateClock()
-        $0.defaultDatabase = database
-    } operation: {
-        Store(initialState: EditReportingLink.State(eventID: eventID)) {
-            EditReportingLink()
-        }
-    }
-}
-
-@MainActor
 private func makePolicyEditorStore(
     database: any DatabaseWriter,
     eventID: OMERecord.Event.ID
@@ -803,7 +658,6 @@ private func makePreparedDatabase() throws -> any DatabaseWriter {
 private func insertEvent(
     _ eventID: OMERecord.Event.ID,
     policies: OMERecord.Event.Policies? = nil,
-    reportingLink: OMERecord.Event.ReportingLink? = nil,
     into database: any DatabaseWriter
 ) async throws {
     try await database.write { db in
@@ -826,8 +680,7 @@ private func insertEvent(
                 images: nil,
                 contactNumbers: nil,
                 categoryConfigs: nil,
-                policies: policies,
-                reportingLink: reportingLink
+                policies: policies
             )
         }
         .execute(db)

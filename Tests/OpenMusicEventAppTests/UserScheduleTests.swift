@@ -342,7 +342,7 @@ struct UserScheduleTests {
                     contactNumbers: nil,
                     categoryConfigs: nil,
                     policies: nil,
-                    reportingLink: nil
+                    reportingLinks: nil
                 )
             }
             .execute(db)

@@ -814,6 +814,21 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Add OpenMusicEvent event reporting links collection") { db in
+                try #sql("""
+                    ALTER TABLE "events"
+                    ADD COLUMN "reportingLinks" TEXT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    UPDATE "events"
+                    SET "reportingLinks" = json_array(json("reportingLink"))
+                    WHERE "reportingLink" IS NOT NULL
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

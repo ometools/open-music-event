@@ -183,8 +183,8 @@ extension OpenMusicEvent {
         @Column(as: OpenMusicEvent.Event.Policies.JSONRepresentation?.self)
         public var policies: OpenMusicEvent.Event.Policies?
 
-        @Column(as: OpenMusicEvent.Event.ReportingLink.JSONRepresentation?.self)
-        public var reportingLink: OpenMusicEvent.Event.ReportingLink?
+        @Column(as: [OpenMusicEvent.Event.ReportingLink].JSONRepresentation?.self)
+        public var reportingLinks: [OpenMusicEvent.Event.ReportingLink]?
 
         public var owner: OME.Contributor.Actor?
     }

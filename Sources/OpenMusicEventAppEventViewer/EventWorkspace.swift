@@ -3976,6 +3976,9 @@ struct SourceEventChangeRow: View {
                 .init(title: "Contact Numbers", columnName: "contactNumbers", optionalKeyPath: \.contactNumbers) {
                     $0.sourceChangeCountValue(singular: "contact number", plural: "contact numbers")
                 },
+                .init(title: "Reporting Links", columnName: "reportingLinks", optionalKeyPath: \.reportingLinks) {
+                    $0.sourceChangeCountValue(singular: "reporting link", plural: "reporting links")
+                },
                 .init(
                     title: "Owner",
                     columnName: "owner",
