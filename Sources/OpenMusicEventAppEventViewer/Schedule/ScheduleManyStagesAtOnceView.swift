@@ -42,6 +42,9 @@ public struct ScheduleManyStagesAtOnce {
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
         public var timeZone: TimeZone
+        var eventTimePresentation: EventTimePresentation {
+            EventTimePresentation(timeZone: timeZone)
+        }
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
         public var scheduleViewerState: ScheduleViewerState
         @FetchOne var persistedScheduleViewerState: ScheduleViewerState?
@@ -505,22 +508,20 @@ public struct ScheduleManyStagesAtOnceView: View {
             timelineCards,
             groups: timelineGroups,
             currentTimeLabel: {
-                ScheduleViewer.currentTimeLabel(
+                store.state.eventTimePresentation.currentTimeLabel(
                     for: $0,
-                    timeZone: store.timeZone,
-                    timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                    disclosure: .whenDeviceClockDiffers(deviceTimeZone)
                 )
             },
             hourLabel: {
-                ScheduleViewer.hourLabel(for: $0, timeZone: store.timeZone)
+                store.state.eventTimePresentation.hourLabel(for: $0)
             }
         ) { card in
             ScheduleTimelineCardView(
                 performance: card.performance,
                 stage: card.stage,
-                timeRangeText: ScheduleViewer.performanceRowTimeRange(
-                    for: card.performance,
-                    timeZone: store.timeZone
+                timeRangeText: store.state.eventTimePresentation.performanceRowTimeRange(
+                    for: card.performance
                 ),
                 userScheduleOverlay: userScheduleOverlay,
                 showsAuthoringControls: showsAuthoringControls,

@@ -74,6 +74,9 @@ public struct ContributorDetail {
         public var id: OMERecord.ID<OMERecord.Contributor> { contributorID }
 
         @DebugSnapshotIgnored public var timeZone: TimeZone
+        var eventTimePresentation: EventTimePresentation {
+            EventTimePresentation(timeZone: timeZone)
+        }
         public var destination: Destination.State?
         @FetchAll public var lineupStages: [OMERecord.Stage]
         @FetchAll var performanceRows: [PerformanceRow]
@@ -231,7 +234,7 @@ public struct ContributorDetailView: View {
                     heroImageSources: store.heroImageSources,
                     stageContext: store.state.stageContext,
                     performanceRows: store.performanceRows,
-                    timeZone: store.timeZone,
+                    eventTimePresentation: store.state.eventTimePresentation,
                     showsAuthoringControls: showsAuthoringControls,
                     performanceButtonTapped: { performanceID in
                         store.send(.performanceButtonTapped(performanceID))

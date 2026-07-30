@@ -32,6 +32,9 @@ public struct SchedulePerformanceList {
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
         public var timeZone: TimeZone
+        var eventTimePresentation: EventTimePresentation {
+            EventTimePresentation(timeZone: timeZone)
+        }
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
 
         @FetchAll public var performanceRows: [PerformanceRow]
@@ -187,9 +190,8 @@ public struct SchedulePerformanceListView: View {
                         } label: {
                             SchedulePerformanceRow(
                                 row: row,
-                                subtitle: ScheduleViewer.performanceRowSubtitle(
+                                subtitle: store.state.eventTimePresentation.performanceRowSubtitle(
                                     for: row.performance,
-                                    timeZone: store.timeZone,
                                     policy: dateTimeRangeResolutionPolicy
                                 ),
                                 userScheduleOverlay: userScheduleOverlay,

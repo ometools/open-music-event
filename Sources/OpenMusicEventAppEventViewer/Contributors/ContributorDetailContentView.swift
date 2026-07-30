@@ -15,7 +15,7 @@ struct ContributorDetailContentView: View {
     let heroImageSources: [HeroImageSource]
     let stageContext: ContributorStageContext
     let performanceRows: [PerformanceRow]
-    let timeZone: TimeZone
+    let eventTimePresentation: EventTimePresentation
     let showsAuthoringControls: Bool
     let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let editButtonTapped: () -> Void
@@ -41,7 +41,7 @@ struct ContributorDetailContentView: View {
                 contributor: profile.contributor,
                 stageContext: stageContext,
                 performanceRows: performanceRows,
-                timeZone: timeZone,
+                eventTimePresentation: eventTimePresentation,
                 performanceButtonTapped: performanceButtonTapped
             )
         }
@@ -63,13 +63,13 @@ struct ContributorDetailSectionsView: View {
     let contributor: OMERecord.Contributor
     let stageContext: ContributorStageContext
     let performanceRows: [PerformanceRow]
-    let timeZone: TimeZone
+    let eventTimePresentation: EventTimePresentation
     let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     var body: some View {
         ContributorScheduleSection(
             performanceRows: performanceRows,
-            timeZone: timeZone,
+            eventTimePresentation: eventTimePresentation,
             performanceButtonTapped: performanceButtonTapped
         )
         ContributorStageLineupsSection(stages: stageContext.lineupOnlyStages)
@@ -94,7 +94,7 @@ struct ContributorScheduleSection: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     @Environment(\.timeZone) var deviceTimeZone
     let performanceRows: [PerformanceRow]
-    let timeZone: TimeZone
+    let eventTimePresentation: EventTimePresentation
     let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
 
     var body: some View {
@@ -107,10 +107,9 @@ struct ContributorScheduleSection: View {
                         TimelineView(.periodic(from: Date.now, by: 1)) { context in
                             ContributorSchedulePerformanceRow(
                                 row: row,
-                                subtitle: ScheduleViewer.performanceRowSubtitle(
+                                subtitle: eventTimePresentation.performanceRowSubtitle(
                                     for: row.performance,
-                                    timeZone: timeZone,
-                                    timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
+                                    disclosure: .whenDeviceClockDiffers(deviceTimeZone),
                                     policy: dateTimeRangeResolutionPolicy
                                 ),
                                 now: context.date

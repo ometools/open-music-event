@@ -53,7 +53,10 @@ public struct EventSearch {
             eventID: OMERecord.Event.ID,
             destination: Destination.State? = nil
         ) {
+            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
+
             self.eventID = eventID
+            self.timeZone = defaultEventTimeZone
             self.destination = destination
             self.content = .dashboard(Self.emptyDashboard)
             _contributors = FetchAll(
@@ -74,6 +77,11 @@ public struct EventSearch {
         }
 
         public let eventID: OMERecord.Event.ID
+        @DebugSnapshotIgnored
+        public var timeZone: TimeZone
+        var eventTimePresentation: EventTimePresentation {
+            EventTimePresentation(timeZone: event?.timeZone ?? timeZone)
+        }
 
         public var content: EventSearchContent
 
@@ -257,7 +265,6 @@ public struct EventSearch {
 }
 
 public struct EventSearchView: View {
-    @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
     @Environment(\.timeZone) var deviceTimeZone
     @Bindable var store: StoreOf<EventSearch>
 
@@ -275,7 +282,7 @@ public struct EventSearchView: View {
                     now: context.date,
                     contributors: store.contributors,
                     event: store.event,
-                    timeZone: store.event?.timeZone ?? defaultEventTimeZone,
+                    eventTimePresentation: store.state.eventTimePresentation,
                     timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
                     performanceContributors: store.performanceContributors,
                     performanceRows: store.performanceRows,
@@ -306,8 +313,8 @@ struct EventSearchContentView: View {
     let now: Date
     let contributors: [ContributorProfile]
     let event: OMERecord.Event?
-    let timeZone: TimeZone
-    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
+    let eventTimePresentation: EventTimePresentation
+    let timeZoneDisclosure: EventTimePresentation.Disclosure
     let performanceContributors: [OMERecord.Performance.Contributors]
     let performanceRows: [PerformanceRow]
     let scheduleViewerStates: [ScheduleViewerState]
@@ -321,7 +328,7 @@ struct EventSearchContentView: View {
                 now: now,
                 contributors: contributors,
                 event: event,
-                timeZone: timeZone,
+                eventTimePresentation: eventTimePresentation,
                 timeZoneDisclosure: timeZoneDisclosure,
                 performanceContributors: performanceContributors,
                 scheduleViewerStates: scheduleViewerStates,
@@ -344,7 +351,7 @@ struct EventSearchContentView: View {
                         contributor: contributor(for: result),
                         performanceRow: performanceRow(for: result),
                         now: now,
-                        timeZone: timeZone,
+                        eventTimePresentation: eventTimePresentation,
                         timeZoneDisclosure: timeZoneDisclosure
                     )
                 }
@@ -370,8 +377,8 @@ struct EventSearchDashboardView: View {
     let now: Date
     let contributors: [ContributorProfile]
     let event: OMERecord.Event?
-    let timeZone: TimeZone
-    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
+    let eventTimePresentation: EventTimePresentation
+    let timeZoneDisclosure: EventTimePresentation.Disclosure
     let performanceContributors: [OMERecord.Performance.Contributors]
     let scheduleViewerStates: [ScheduleViewerState]
     let openTarget: (EventSearchDocument.Target) -> Void
@@ -396,7 +403,7 @@ struct EventSearchDashboardView: View {
                                 now: now,
                                 leadContributors: leadContributors,
                                 showStageNameLabels: showStageNameLabels(for: row.stage),
-                                timeZone: timeZone,
+                                eventTimePresentation: eventTimePresentation,
                                 timeZoneDisclosure: timeZoneDisclosure,
                                 openTarget: openTarget
                             )
@@ -469,8 +476,8 @@ struct EventSearchStageCard: View {
     let now: Date
     let leadContributors: [OMERecord.ID<OMERecord.Performance>: ContributorProfile]
     let showStageNameLabels: Bool
-    let timeZone: TimeZone
-    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
+    let eventTimePresentation: EventTimePresentation
+    let timeZoneDisclosure: EventTimePresentation.Disclosure
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
@@ -582,10 +589,9 @@ struct EventSearchStageCard: View {
     }
 
     func startTimeText(for startTime: Date) -> String {
-        ScheduleViewer.formattedTime(
+        eventTimePresentation.formattedTime(
             for: startTime,
-            timeZone: timeZone,
-            timeZoneDisclosure: timeZoneDisclosure
+            disclosure: timeZoneDisclosure
         )
     }
 }
@@ -636,16 +642,15 @@ struct EventSearchPerformanceRow: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     let row: PerformanceRow
     let now: Date
-    let timeZone: TimeZone
-    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
+    let eventTimePresentation: EventTimePresentation
+    let timeZoneDisclosure: EventTimePresentation.Disclosure
 
     var body: some View {
         EventSearchRow(
             title: row.title,
-            subtitle: ScheduleViewer.performanceRowSubtitle(
+            subtitle: eventTimePresentation.performanceRowSubtitle(
                 for: row.performance,
-                timeZone: timeZone,
-                timeZoneDisclosure: timeZoneDisclosure,
+                disclosure: timeZoneDisclosure,
                 policy: dateTimeRangeResolutionPolicy
             ),
             status: PerformanceTimingStatus(
@@ -663,8 +668,8 @@ struct EventSearchResultRow: View {
     let contributor: ContributorProfile?
     let performanceRow: PerformanceRow?
     let now: Date
-    let timeZone: TimeZone
-    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
+    let eventTimePresentation: EventTimePresentation
+    let timeZoneDisclosure: EventTimePresentation.Disclosure
 
     var body: some View {
         if let contributor {
@@ -681,7 +686,7 @@ struct EventSearchResultRow: View {
             EventSearchPerformanceRow(
                 row: performanceRow,
                 now: now,
-                timeZone: timeZone,
+                eventTimePresentation: eventTimePresentation,
                 timeZoneDisclosure: timeZoneDisclosure
             )
         } else {

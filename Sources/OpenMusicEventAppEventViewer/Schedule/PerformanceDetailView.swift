@@ -79,6 +79,9 @@ public struct PerformanceDetail {
         public let performanceID: OMERecord.ID<OMERecord.Performance>
         @DebugSnapshotIgnored
         public let timeZone: TimeZone
+        var eventTimePresentation: EventTimePresentation {
+            EventTimePresentation(timeZone: timeZone)
+        }
 
         @FetchAll var contributors: [ContributorProfile]
         public var destination: Destination.State?
@@ -404,7 +407,7 @@ public struct PerformanceDetailView: View {
                         performance: performance,
                         stage: store.stage,
                         contributors: store.headlineContributors,
-                        timeZone: store.timeZone
+                        eventTimePresentation: store.state.eventTimePresentation
                     )
 
                     Section {
@@ -589,7 +592,7 @@ struct PerformanceSummaryRow: View {
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage?
     let contributors: [ContributorProfile]
-    let timeZone: TimeZone
+    let eventTimePresentation: EventTimePresentation
 
     var body: some View {
         let summary = PerformanceDetailSummary(
@@ -612,10 +615,9 @@ struct PerformanceSummaryRow: View {
 
                 VStack(spacing: 2) {
                     Text(
-                        ScheduleViewer.performanceRowTimeRange(
+                        eventTimePresentation.performanceRowTimeRange(
                             for: performance,
-                            timeZone: timeZone,
-                            timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                            disclosure: .whenDeviceClockDiffers(deviceTimeZone)
                         )
                     )
                     .font(.headline)
@@ -639,9 +641,8 @@ struct PerformanceSummaryRow: View {
                     }
 
                     Text(
-                        ScheduleViewer.daySegment(
+                        eventTimePresentation.daySegment(
                             for: performance.startTime,
-                            timeZone: timeZone,
                             policy: dateTimeRangeResolutionPolicy
                         )
                     )

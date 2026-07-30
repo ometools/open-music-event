@@ -3227,36 +3227,43 @@ struct NavigationTests {
         }
         let eveningPerformance = try #require(rows.first?.performance)
         let afterMidnightPerformance = try #require(rows.dropFirst().first?.performance)
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.defaultEventTimeZone = timeZone
+        } operation: {
+            ScheduleViewer.State(eventID: eventID)
+        }
 
         #expect(
-            ScheduleViewer.performanceRowSubtitle(
-                for: eveningPerformance,
-                timeZone: timeZone
+            state.eventTimePresentation.performanceRowSubtitle(
+                for: eveningPerformance
             ) == """
             6:00 - 7:00 pm
             Friday Evening
             """
         )
         #expect(
-            ScheduleViewer.performanceRowSubtitle(
-                for: afterMidnightPerformance,
-                timeZone: timeZone
+            state.eventTimePresentation.performanceRowSubtitle(
+                for: afterMidnightPerformance
             ) == """
             1:30 - 2:30 am
             Friday Night
             """
         )
         #expect(
-            ScheduleViewer.formattedTimeRange(
+            state.eventTimePresentation.formattedTimeRange(
                 start: try #require(friday.at(hour: 23, minute: 30, in: timeZone)),
-                end: try #require(saturday.at(hour: 1, minute: 15, in: timeZone)),
-                timeZone: timeZone
+                end: try #require(saturday.at(hour: 1, minute: 15, in: timeZone))
             ) == "11:30 pm - 1:15 am"
         )
     }
 
     @Test
     func eventTimeZoneDisclosureUsesTheEffectiveOffsetAndSeasonalAbbreviation() throws {
+        let database = try makePreparedDatabase()
+        let selectedEventID = eventID("event-1")
         let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
         let matchingDeviceTimeZone = try #require(TimeZone(identifier: "America/Edmonton"))
         let differentDeviceTimeZone = try #require(TimeZone(identifier: "America/Vancouver"))
@@ -3266,69 +3273,71 @@ struct NavigationTests {
         let summerEnd = try #require(summer.at(hour: 19, in: eventTimeZone))
         let winterStart = try #require(winter.at(hour: 18, in: eventTimeZone))
         let winterEnd = try #require(winter.at(hour: 19, in: eventTimeZone))
+        let state = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = selectedEventID
+            $0.defaultEventTimeZone = eventTimeZone
+        } operation: {
+            ScheduleViewer.State(eventID: selectedEventID)
+        }
 
         // A visitor whose device clock disagrees sees the event's current abbreviation.
         expectNoDifference(
-            ScheduleViewer.formattedTimeRange(
+            state.eventTimePresentation.formattedTimeRange(
                 start: summerStart,
                 end: summerEnd,
-                timeZone: eventTimeZone,
-                timeZoneDisclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
+                disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
             ),
             "6:00 - 7:00 pm (MDT)"
         )
 
         // Different zone identifiers do not add noise when both clocks agree.
         expectNoDifference(
-            ScheduleViewer.formattedTimeRange(
+            state.eventTimePresentation.formattedTimeRange(
                 start: summerStart,
                 end: summerEnd,
-                timeZone: eventTimeZone,
-                timeZoneDisclosure: .whenDeviceClockDiffers(matchingDeviceTimeZone)
+                disclosure: .whenDeviceClockDiffers(matchingDeviceTimeZone)
             ),
             "6:00 - 7:00 pm"
         )
 
         // The event abbreviation follows daylight-saving rules at the performance date.
         expectNoDifference(
-            ScheduleViewer.formattedTimeRange(
+            state.eventTimePresentation.formattedTimeRange(
                 start: winterStart,
                 end: winterEnd,
-                timeZone: eventTimeZone,
-                timeZoneDisclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
+                disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
             ),
             "6:00 - 7:00 pm (MST)"
         )
 
         // Dense schedule surfaces still render the event clock without repeating a suffix.
         expectNoDifference(
-            ScheduleViewer.formattedTimeRange(
+            state.eventTimePresentation.formattedTimeRange(
                 start: summerStart,
                 end: summerEnd,
-                timeZone: eventTimeZone,
-                timeZoneDisclosure: .never
+                disclosure: .never
             ),
             "6:00 - 7:00 pm"
         )
 
         // The feature supplies event-clock labels to the reusable timeline components.
         expectNoDifference(
-            ScheduleViewer.hourLabel(for: summerStart, timeZone: eventTimeZone),
+            state.eventTimePresentation.hourLabel(for: summerStart),
             "6pm"
         )
         expectNoDifference(
-            ScheduleViewer.currentTimeLabel(
+            state.eventTimePresentation.currentTimeLabel(
                 for: summerStart,
-                timeZone: eventTimeZone,
-                timeZoneDisclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
+                disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
             ),
             "6:00p (MDT)"
         )
         expectNoDifference(
-            ScheduleViewer.formattedTime(
+            state.eventTimePresentation.formattedTime(
                 for: summerStart,
-                timeZone: eventTimeZone,
-                timeZoneDisclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
+                disclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
             ),
             "6:00 pm (MDT)"
         )

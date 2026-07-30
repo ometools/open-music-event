@@ -45,6 +45,9 @@ public struct ScheduleSingleStageAtOnce {
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
         public var timeZone: TimeZone
+        var eventTimePresentation: EventTimePresentation {
+            EventTimePresentation(timeZone: timeZone)
+        }
         public let scheduleDivision: ScheduleViewer.ScheduleDivision
         public var scheduleViewerState: ScheduleViewerState
         var scheduleViewerStateBaseline: ScheduleViewerState
@@ -350,7 +353,7 @@ public struct ScheduleSingleStageAtOnceView: View {
                 stages: visibleStages,
                 performances: visiblePerformances,
                 timeRange: timeRange,
-                timeZone: store.timeZone,
+                eventTimePresentation: store.state.eventTimePresentation,
                 pageHeight: timeRange.map { scheduleHeight(for: $0) },
                 userScheduleOverlay: userScheduleOverlay,
                 scheduleDivision: store.scheduleDivision,
@@ -493,7 +496,7 @@ struct ScheduleStagePager: View {
     let stages: [OMERecord.Stage]
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval?
-    let timeZone: TimeZone
+    let eventTimePresentation: EventTimePresentation
     let pageHeight: CGFloat?
     let userScheduleOverlay: UserScheduleOverlay
     let scheduleDivision: ScheduleViewer.ScheduleDivision
@@ -569,7 +572,7 @@ struct ScheduleStagePager: View {
             stage: stage,
             performances: performances(for: stage),
             timeRange: timeRange,
-            timeZone: timeZone,
+            eventTimePresentation: eventTimePresentation,
             pageHeight: pageHeight,
             userScheduleOverlay: userScheduleOverlay,
             emptyTitle: ScheduleViewer.emptyStageTitle(
@@ -610,7 +613,7 @@ struct ScheduleFixedStageTimeline: View {
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
-    let timeZone: TimeZone
+    let eventTimePresentation: EventTimePresentation
     let pageHeight: CGFloat
     let userScheduleOverlay: UserScheduleOverlay
     let emptyTitle: String
@@ -630,7 +633,7 @@ struct ScheduleFixedStageTimeline: View {
         stage: OMERecord.Stage,
         performances: [OMERecord.Performance],
         timeRange: DateInterval,
-        timeZone: TimeZone,
+        eventTimePresentation: EventTimePresentation,
         pageHeight: CGFloat,
         userScheduleOverlay: UserScheduleOverlay,
         emptyTitle: String,
@@ -649,7 +652,7 @@ struct ScheduleFixedStageTimeline: View {
         self.stage = stage
         self.performances = performances
         self.timeRange = timeRange
-        self.timeZone = timeZone
+        self.eventTimePresentation = eventTimePresentation
         self.pageHeight = pageHeight
         self.userScheduleOverlay = userScheduleOverlay
         self.emptyTitle = emptyTitle
@@ -668,7 +671,7 @@ struct ScheduleFixedStageTimeline: View {
             stage: stage,
             performances: performances,
             timeRange: timeRange,
-            timeZone: timeZone,
+            eventTimePresentation: eventTimePresentation,
             userScheduleOverlay: userScheduleOverlay,
             emptyTitle: emptyTitle,
             otherScheduleDivisions: otherScheduleDivisions,
@@ -692,7 +695,7 @@ struct ScheduleStageTimelinePage: View {
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
-    let timeZone: TimeZone
+    let eventTimePresentation: EventTimePresentation
     let userScheduleOverlay: UserScheduleOverlay
     let emptyTitle: String
     let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
@@ -711,22 +714,20 @@ struct ScheduleStageTimelinePage: View {
         SchedulePageView(
             timelineCards,
             currentTimeLabel: {
-                ScheduleViewer.currentTimeLabel(
+                eventTimePresentation.currentTimeLabel(
                     for: $0,
-                    timeZone: timeZone,
-                    timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                    disclosure: .whenDeviceClockDiffers(deviceTimeZone)
                 )
             },
             hourLabel: {
-                ScheduleViewer.hourLabel(for: $0, timeZone: timeZone)
+                eventTimePresentation.hourLabel(for: $0)
             }
         ) { card in
             ScheduleTimelineCardView(
                 performance: card.item.performance,
                 stage: stage,
-                timeRangeText: ScheduleViewer.performanceRowTimeRange(
-                    for: card.item.performance,
-                    timeZone: timeZone
+                timeRangeText: eventTimePresentation.performanceRowTimeRange(
+                    for: card.item.performance
                 ),
                 userScheduleOverlay: userScheduleOverlay,
                 showsAuthoringControls: showsAuthoringControls,

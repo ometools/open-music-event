@@ -838,6 +838,11 @@ public struct StageDetail {
         public let eventID: OMERecord.Event.ID
 
         public var destination: Destination.State?
+        @DebugSnapshotIgnored
+        public var timeZone: TimeZone
+        var eventTimePresentation: EventTimePresentation {
+            EventTimePresentation(timeZone: timeZone)
+        }
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?
         @FetchOne public var stage: OMERecord.Stage?
@@ -850,9 +855,11 @@ public struct StageDetail {
             eventID: OMERecord.Event.ID? = nil
         ) {
             @Dependency(\.defaultEventID) var defaultEventID
+            @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
 
             self.stageID = stageID
             self.eventID = eventID ?? defaultEventID
+            self.timeZone = defaultEventTimeZone
             eventViewerState = EventViewerState(id: self.eventID)
             _persistedEventViewerState = FetchOne(
                 wrappedValue: nil,
@@ -1130,7 +1137,6 @@ public struct StageDetailView: View {
 }
 
 struct StageScheduleView: View {
-    @Dependency(\.defaultEventTimeZone) var eventTimeZone
     let stage: OMERecord.Stage
     @Bindable var store: StoreOf<StageDetail>
     @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
@@ -1162,7 +1168,7 @@ struct StageScheduleView: View {
                     stage: stage,
                     performances: store.selectedSchedulePerformances,
                     timeRange: timeRange,
-                    timeZone: eventTimeZone,
+                    eventTimePresentation: store.state.eventTimePresentation,
                     pageHeight: scheduleHeight(for: timeRange),
                     userScheduleOverlay: UserScheduleOverlay(
                         schedules: [],

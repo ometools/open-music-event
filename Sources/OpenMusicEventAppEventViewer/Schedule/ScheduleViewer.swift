@@ -14,6 +14,153 @@ import SwiftUITabFeatures
 import SwiftUI
 import Tagged
 
+struct EventTimePresentation: Equatable, Sendable {
+    enum Disclosure: Equatable, Sendable {
+        case never
+        case whenDeviceClockDiffers(TimeZone)
+    }
+
+    let timeZone: TimeZone
+
+    func performanceRowSubtitle(
+        for performance: OMERecord.Performance,
+        disclosure: Disclosure = .never,
+        policy: DateTimeRangeResolutionPolicy = .default
+    ) -> String {
+        """
+        \(performanceRowTimeRange(
+            for: performance,
+            disclosure: disclosure
+        ))
+        \(daySegment(for: performance.startTime, policy: policy))
+        """
+    }
+
+    func performanceRowTimeRange(
+        for performance: OMERecord.Performance,
+        disclosure: Disclosure = .never
+    ) -> String {
+        formattedTimeRange(
+            start: performance.startTime,
+            end: performance.endTime,
+            disclosure: disclosure
+        )
+    }
+
+    func formattedTimeRange(
+        start: Date,
+        end: Date,
+        disclosure: Disclosure = .never
+    ) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let startMeridiem = calendar.component(.hour, from: start) < 12 ? "AM" : "PM"
+        let endMeridiem = calendar.component(.hour, from: end) < 12 ? "AM" : "PM"
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        timeFormatter.timeZone = timeZone
+        timeFormatter.dateFormat = startMeridiem == endMeridiem ? "h:mm" : "h:mm a"
+
+        let endFormatter = DateFormatter()
+        endFormatter.locale = Locale(identifier: "en_US_POSIX")
+        endFormatter.timeZone = timeZone
+        endFormatter.dateFormat = "h:mm a"
+
+        let timeRange = "\(timeFormatter.string(from: start)) - \(endFormatter.string(from: end))"
+            .lowercased()
+        return timeRange + timeZoneSuffix(for: start, disclosure: disclosure)
+    }
+
+    func formattedTime(
+        for date: Date,
+        disclosure: Disclosure = .never
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "h:mm a"
+        return formatter.string(from: date).lowercased()
+            + timeZoneSuffix(for: date, disclosure: disclosure)
+    }
+
+    func hourLabel(for date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        switch calendar.component(.hour, from: date) {
+        case 0:
+            return "mdnt"
+        case 12:
+            return "noon"
+        default:
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = timeZone
+            formatter.dateFormat = "ha"
+            return formatter.string(from: date)
+                .lowercased()
+                .replacingOccurrences(of: " ", with: "")
+        }
+    }
+
+    func currentTimeLabel(
+        for date: Date,
+        disclosure: Disclosure = .never
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "h:mma"
+        let time = formatter.string(from: date)
+            .lowercased()
+            .replacingOccurrences(of: "am", with: "a")
+            .replacingOccurrences(of: "pm", with: "p")
+        return time + timeZoneSuffix(for: date, disclosure: disclosure)
+    }
+
+    func daySegment(
+        for date: Date,
+        policy: DateTimeRangeResolutionPolicy = .default
+    ) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        var displayDate = date
+        let hour = calendar.component(.hour, from: date)
+        let segment: String
+
+        if hour < policy.rolloverHour {
+            segment = "Night"
+            displayDate = calendar.date(byAdding: .day, value: -1, to: date) ?? date
+        } else if hour < 12 {
+            segment = "Morning"
+        } else if hour < 17 {
+            segment = "Afternoon"
+        } else if hour < 20 {
+            segment = "Evening"
+        } else {
+            segment = "Night"
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "EEEE"
+        return "\(formatter.string(from: displayDate)) \(segment)"
+    }
+
+    func timeZoneSuffix(
+        for date: Date,
+        disclosure: Disclosure
+    ) -> String {
+        guard case let .whenDeviceClockDiffers(deviceTimeZone) = disclosure,
+              timeZone.secondsFromGMT(for: date) != deviceTimeZone.secondsFromGMT(for: date),
+              let abbreviation = timeZone.abbreviation(for: date)
+        else { return "" }
+        return " (\(abbreviation.uppercased()))"
+    }
+}
+
 @Feature
 public struct ScheduleViewer {
     public init() {}
@@ -24,11 +171,6 @@ public struct ScheduleViewer {
     struct CurrentTimeDestination: Equatable, Sendable {
         let scheduleID: OMERecord.ID<OMERecord.Schedule>
         let performanceID: OMERecord.ID<OMERecord.Performance>
-    }
-
-    enum EventTimeZoneDisclosure: Equatable, Sendable {
-        case never
-        case whenDeviceClockDiffers(TimeZone)
     }
 
     public struct State {
@@ -103,6 +245,9 @@ public struct ScheduleViewer {
         public let eventID: OMERecord.Event.ID
         @DebugSnapshotIgnored
         public var timeZone: TimeZone
+        var eventTimePresentation: EventTimePresentation {
+            EventTimePresentation(timeZone: timeZone)
+        }
         public let scheduleDivision: ScheduleDivision
         public var destination: Destination.State? = nil
         public var singleStageAtOnce: Spawn<ScheduleSingleStageAtOnce>
@@ -366,165 +511,6 @@ public struct ScheduleViewer {
         scheduleTitle: String
     ) -> String {
         "No \(scheduleDivision.title) on \(scheduleTitle)"
-    }
-
-    static func performanceRowSubtitle(
-        for performance: OMERecord.Performance,
-        timeZone: TimeZone,
-        timeZoneDisclosure: EventTimeZoneDisclosure = .never,
-        policy: DateTimeRangeResolutionPolicy = .default
-    ) -> String {
-        """
-        \(performanceRowTimeRange(
-            for: performance,
-            timeZone: timeZone,
-            timeZoneDisclosure: timeZoneDisclosure
-        ))
-        \(daySegment(for: performance.startTime, timeZone: timeZone, policy: policy))
-        """
-    }
-
-    static func performanceRowTimeRange(
-        for performance: OMERecord.Performance,
-        timeZone: TimeZone,
-        timeZoneDisclosure: EventTimeZoneDisclosure = .never
-    ) -> String {
-        formattedTimeRange(
-            start: performance.startTime,
-            end: performance.endTime,
-            timeZone: timeZone,
-            timeZoneDisclosure: timeZoneDisclosure
-        )
-    }
-
-    static func formattedTimeRange(
-        start: Date,
-        end: Date,
-        timeZone: TimeZone,
-        timeZoneDisclosure: EventTimeZoneDisclosure = .never
-    ) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let startMeridiem = calendar.component(.hour, from: start) < 12 ? "AM" : "PM"
-        let endMeridiem = calendar.component(.hour, from: end) < 12 ? "AM" : "PM"
-
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.timeZone = timeZone
-        timeFormatter.dateFormat = startMeridiem == endMeridiem ? "h:mm" : "h:mm a"
-
-        let endFormatter = DateFormatter()
-        endFormatter.locale = Locale(identifier: "en_US_POSIX")
-        endFormatter.timeZone = timeZone
-        endFormatter.dateFormat = "h:mm a"
-
-        let timeRange = "\(timeFormatter.string(from: start)) - \(endFormatter.string(from: end))"
-            .lowercased()
-        return timeRange + timeZoneSuffix(
-            for: start,
-            eventTimeZone: timeZone,
-            disclosure: timeZoneDisclosure
-        )
-    }
-
-    static func formattedTime(
-        for date: Date,
-        timeZone: TimeZone,
-        timeZoneDisclosure: EventTimeZoneDisclosure = .never
-    ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: date).lowercased()
-            + timeZoneSuffix(
-                for: date,
-                eventTimeZone: timeZone,
-                disclosure: timeZoneDisclosure
-            )
-    }
-
-    static func hourLabel(for date: Date, timeZone: TimeZone) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        switch calendar.component(.hour, from: date) {
-        case 0:
-            return "mdnt"
-        case 12:
-            return "noon"
-        default:
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = timeZone
-            formatter.dateFormat = "ha"
-            return formatter.string(from: date)
-                .lowercased()
-                .replacingOccurrences(of: " ", with: "")
-        }
-    }
-
-    static func currentTimeLabel(
-        for date: Date,
-        timeZone: TimeZone,
-        timeZoneDisclosure: EventTimeZoneDisclosure = .never
-    ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "h:mma"
-        let time = formatter.string(from: date)
-            .lowercased()
-            .replacingOccurrences(of: "am", with: "a")
-            .replacingOccurrences(of: "pm", with: "p")
-        return time + timeZoneSuffix(
-            for: date,
-            eventTimeZone: timeZone,
-            disclosure: timeZoneDisclosure
-        )
-    }
-
-    static func timeZoneSuffix(
-        for date: Date,
-        eventTimeZone: TimeZone,
-        disclosure: EventTimeZoneDisclosure
-    ) -> String {
-        guard case let .whenDeviceClockDiffers(deviceTimeZone) = disclosure,
-              eventTimeZone.secondsFromGMT(for: date) != deviceTimeZone.secondsFromGMT(for: date),
-              let abbreviation = eventTimeZone.abbreviation(for: date)
-        else { return "" }
-        return " (\(abbreviation.uppercased()))"
-    }
-
-    static func daySegment(
-        for date: Date,
-        timeZone: TimeZone,
-        policy: DateTimeRangeResolutionPolicy = .default
-    ) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-
-        var displayDate = date
-        let hour = calendar.component(.hour, from: date)
-        let segment: String
-
-        if hour < policy.rolloverHour {
-            segment = "Night"
-            displayDate = calendar.date(byAdding: .day, value: -1, to: date) ?? date
-        } else if hour < 12 {
-            segment = "Morning"
-        } else if hour < 17 {
-            segment = "Afternoon"
-        } else if hour < 20 {
-            segment = "Evening"
-        } else {
-            segment = "Night"
-        }
-
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "EEEE"
-        return "\(formatter.string(from: displayDate)) \(segment)"
     }
 
     static func resolvedSelectedStageID(
