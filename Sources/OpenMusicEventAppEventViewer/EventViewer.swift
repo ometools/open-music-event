@@ -107,7 +107,10 @@ public struct EventViewer {
     }
 
     @Dependency(\.defaultDatabase) var database
+    @Dependency(\.date.now) var now
+    @Dependency(\.getSelectedOAuthSessionID) var getSelectedOAuthSessionID
     @Dependency(\.sourceDataRefresh) var sourceDataRefresh
+    @Dependency(\.uuid) var uuid
     @FeatureEnvironment(WorkspaceContext<SourceWorkspaceDatabase, SourcePatch>.self)
     var workspace
     @StoreTaskID var sourceDataRefreshTask
@@ -143,6 +146,12 @@ public struct EventViewer {
                 EventViewerState.none
             )
             self._stages = FetchAll(ScheduleViewer.stagesQuery(eventID: eventID))
+            self._reactions = FetchAll(
+                PerformanceReaction.forEvent(eventID: eventID)
+            )
+            self._reactionUsage = FetchAll(
+                PerformanceReactionEmojiUsage.ranked
+            )
             self.installedFeatures = features
             self.selectedFeature = features.first ?? .schedule(.schedule)
             self.eventSearch = Spawn(EventSearch.State(eventID: eventID))
@@ -286,6 +295,8 @@ public struct EventViewer {
         public var eventViewerState: EventViewerState
         @FetchOne var persistedEventViewerState: EventViewerState?
         @FetchAll public var stages: [OMERecord.Stage]
+        @FetchAll public var reactions: [PerformanceReaction]
+        @FetchAll public var reactionUsage: [PerformanceReactionEmojiUsage]
         public var installedFeatures: [EventFeature]
         public var selectedFeature: EventFeature
 
@@ -727,6 +738,7 @@ public struct EventViewer {
         case destination(Destination.Action)
         case eventSearch(EventSearch.Action)
         case eventWorkspace(EventWorkspace.Action)
+        case reactionButtonTapped(OMERecord.Performance.ID, PerformanceReaction.Emoji)
     }
 
     public enum EditorEntry: Equatable, Sendable {
@@ -782,6 +794,27 @@ public struct EventViewer {
 
                     case .eventWorkspace:
                         break
+
+                    case let .reactionButtonTapped(performanceID, emoji):
+                        let id = uuid()
+                        let date = now
+                        let userDID = getSelectedOAuthSessionID()?.rawValue
+                        store.addTask {
+                            do {
+                                try await database.write { db in
+                                    try PerformanceReaction.toggle(
+                                        performanceID: performanceID,
+                                        emoji: emoji,
+                                        id: id,
+                                        date: date,
+                                        userDID: userDID,
+                                        in: db
+                                    )
+                                }
+                            } catch {
+                                reportIssue(error)
+                            }
+                        }
 
                     }
                 }
@@ -1017,6 +1050,7 @@ public struct EventViewerView: View {
     public var body: some View {
         tabContent
             .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
+            .environment(\.performanceReactionMenuContext, reactionMenuContext)
             .sheet(item: $store.scope(\.destination, action: \.destination)) { _ in
                 if let destinationStore = store.scope(\.destination, action: \.destination) {
                     NavigationStack {
@@ -1031,6 +1065,16 @@ public struct EventViewerView: View {
             ) { _ in
                 AccountPresentationView(store: accountStore)
             }
+    }
+
+    var reactionMenuContext: PerformanceReactionMenuContext {
+        PerformanceReactionMenuContext(
+            reactions: store.reactions,
+            usage: store.reactionUsage,
+            toggle: { performanceID, emoji in
+                store.send(.reactionButtonTapped(performanceID, emoji))
+            }
+        )
     }
 
     @ViewBuilder

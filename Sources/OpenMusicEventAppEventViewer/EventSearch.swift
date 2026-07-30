@@ -614,29 +614,43 @@ struct EventSearchChromeIcon: View {
 
 struct EventSearchPerformanceRow: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
+    @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     let row: PerformanceRow
     let now: Date
     let eventTimePresentation: EventTimePresentation
     let timeZoneDisclosure: EventTimePresentation.Disclosure
 
     var body: some View {
-        EventSearchRow(
-            title: row.title,
-            subtitle: eventTimePresentation.performanceRowTimeRange(
-                for: row.performance,
-                disclosure: timeZoneDisclosure
-            ),
-            secondarySubtitle: eventTimePresentation.daySegment(
-                for: row.performance.startTime,
-                policy: dateTimeRangeResolutionPolicy
-            ),
-            status: PerformanceTimingStatus(
-                startTime: row.performance.startTime,
-                endTime: row.performance.endTime,
-                now: now
-            ),
-            chrome: EventSearchPerformanceChrome(stage: row.stage)
-        )
+        HStack(spacing: 8) {
+            EventSearchRow(
+                title: row.title,
+                subtitle: eventTimePresentation.performanceRowTimeRange(
+                    for: row.performance,
+                    disclosure: timeZoneDisclosure
+                ),
+                secondarySubtitle: eventTimePresentation.daySegment(
+                    for: row.performance.startTime,
+                    policy: dateTimeRangeResolutionPolicy
+                ),
+                status: PerformanceTimingStatus(
+                    startTime: row.performance.startTime,
+                    endTime: row.performance.endTime,
+                    now: now
+                ),
+                chrome: EventSearchPerformanceChrome(stage: row.stage)
+            )
+
+            PerformanceReactionSummaryWhenFits(
+                performanceID: row.performance.id
+            )
+            .portableLayoutPriority(-1)
+        }
+        .contextMenu {
+            PerformanceReactionMenuContent(
+                performanceID: row.performance.id,
+                context: reactionMenuContext
+            )
+        }
     }
 }
 

@@ -130,6 +130,13 @@ struct ScheduleTimelineCardView: View {
                     .foregroundStyle(.white.opacity(0.8))
                     .lineLimit(2)
             }
+
+            PerformanceReactionSummaryWhenFits(
+                performanceID: performance.id,
+                axes: [.horizontal, .vertical]
+            )
+            .foregroundStyle(.white.opacity(0.86))
+            .portableLayoutPriority(-1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(8)

@@ -9,7 +9,7 @@ struct PerformanceReactionMenuContext: Sendable {
     var reactions: [PerformanceReaction] = []
     var usage: [PerformanceReactionEmojiUsage] = []
     var toggle: @MainActor @Sendable (OMERecord.Performance.ID, PerformanceReaction.Emoji) -> Void = { _, _ in }
-    var showOther: @MainActor @Sendable (OMERecord.Performance.ID) -> Void = { _ in }
+    var showOther: (@MainActor @Sendable (OMERecord.Performance.ID) -> Void)?
 
     func selectedEmojis(
         for performanceID: OMERecord.Performance.ID
@@ -45,9 +45,10 @@ struct PerformanceReactionMenuContent: View {
     let context: PerformanceReactionMenuContext
 
     var body: some View {
-        let selected = Set(context.selectedEmojis(for: performanceID))
-
         Section("Reactions") {
+            #if os(Android)
+            let selected = Set(context.selectedEmojis(for: performanceID))
+
             ForEach(context.menuEmojis(for: performanceID), id: \.self) { emoji in
                 Button {
                     context.toggle(performanceID, emoji)
@@ -69,10 +70,126 @@ struct PerformanceReactionMenuContent: View {
                 )
             }
 
-            Button("Other…") {
-                context.showOther(performanceID)
+            if let showOther = context.showOther {
+                Button("Other…") {
+                    showOther(performanceID)
+                }
+                .accessibilityLabel("Choose another emoji reaction")
             }
-            .accessibilityLabel("Choose another emoji reaction")
+            #else
+            PerformanceReactionPicker(
+                performanceID: performanceID,
+                context: context
+            )
+            #endif
+        }
+    }
+}
+
+struct PerformanceReactionPicker: View {
+    let performanceID: OMERecord.Performance.ID
+    let context: PerformanceReactionMenuContext
+
+    var body: some View {
+        let selected = Set(context.selectedEmojis(for: performanceID))
+
+        #if os(Android)
+        HStack(spacing: 8) {
+            ForEach(context.menuEmojis(for: performanceID), id: \.self) { emoji in
+                reactionButton(emoji, isSelected: selected.contains(emoji))
+            }
+
+            if let showOther = context.showOther {
+                Button {
+                    showOther(performanceID)
+                } label: {
+                    Label("Other reaction", systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                }
+                .accessibilityLabel("Choose another emoji reaction")
+            }
+        }
+        #else
+        ControlGroup {
+            ForEach(context.menuEmojis(for: performanceID), id: \.self) { emoji in
+                reactionButton(emoji, isSelected: selected.contains(emoji))
+            }
+
+            if let showOther = context.showOther {
+                Button {
+                    showOther(performanceID)
+                } label: {
+                    Label("Other reaction", systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                }
+                .accessibilityLabel("Choose another emoji reaction")
+            }
+        }
+        .controlGroupStyle(.palette)
+        #endif
+    }
+
+    func reactionButton(
+        _ emoji: PerformanceReaction.Emoji,
+        isSelected: Bool
+    ) -> some View {
+        Button {
+            context.toggle(performanceID, emoji)
+        } label: {
+            Text(verbatim: emoji.rawValue)
+                .padding(4)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.2))
+                    }
+                }
+        }
+        .accessibilityLabel(
+            isSelected
+                ? "Remove \(emoji.rawValue) reaction"
+                : "Add \(emoji.rawValue) reaction"
+        )
+    }
+}
+
+struct PerformanceReactionSummary: View {
+    @Environment(\.performanceReactionMenuContext) var context
+    let performanceID: OMERecord.Performance.ID
+    var limit = 3
+
+    var body: some View {
+        let emojis = context.selectedEmojis(for: performanceID)
+
+        if !emojis.isEmpty {
+            HStack(spacing: 2) {
+                ForEach(Array(emojis.prefix(limit)), id: \.self) { emoji in
+                    Text(verbatim: emoji.rawValue)
+                }
+
+                if emojis.count > limit {
+                    Text(verbatim: "+\(emojis.count - limit)")
+                }
+            }
+            .font(.caption)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                Text(verbatim: "Reactions: \(emojis.map(\.rawValue).joined(separator: " "))")
+            )
+        }
+    }
+}
+
+struct PerformanceReactionSummaryWhenFits: View {
+    let performanceID: OMERecord.Performance.ID
+    var axes: Axis.Set = .horizontal
+
+    var body: some View {
+        ViewThatFits(in: axes) {
+            PerformanceReactionSummary(performanceID: performanceID)
+            Color.clear
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
         }
     }
 }

@@ -1,5 +1,6 @@
 import ATProto
 import ComposableArchitecture2
+import CustomDump
 import Dependencies
 import DependenciesTestSupport
 import Foundation
@@ -354,7 +355,7 @@ struct PerformanceReactionTests {
     }
 
     @Test @MainActor
-    func scheduleAndDetailActionsShareStateWithoutTriggeringNavigation() async throws {
+    func scheduleDetailAndViewerActionsShareStateWithoutTriggeringNavigation() async throws {
         let database = try preparedDatabase()
         let reactionDate = Date(timeIntervalSince1970: 40)
         let userDID = try #require(DID("did:plc:reaction-user"))
@@ -380,6 +381,11 @@ struct PerformanceReactionTests {
             ) {
                 PerformanceDetail()
             }
+            let eventViewerStore = Store(
+                initialState: EventViewer.State(eventID: eventID)
+            ) {
+                EventViewer()
+            }
 
             await scheduleStore.send(
                 .reactionButtonTapped(performanceID, .heart)
@@ -395,13 +401,19 @@ struct PerformanceReactionTests {
             #expect(detailReactions.map(\.emoji) == [.heart])
 
             await detailStore.send(.reactionButtonTapped(.fire))?.value
+            await eventViewerStore.send(
+                .reactionButtonTapped(performanceID, .eyes)
+            )?.value
 
             let scheduleReactions = try await database.read { db in
                 try PerformanceReaction
                     .forEvent(eventID: eventID)
                     .fetchAll(db)
             }
-            #expect(Set(scheduleReactions.map(\.emoji)) == [.heart, .fire])
+            expectNoDifference(
+                Set(scheduleReactions.map(\.emoji)),
+                [.heart, .fire, .eyes]
+            )
             #expect(Set(scheduleReactions.compactMap(\.userDID)) == [userDID])
         }
     }

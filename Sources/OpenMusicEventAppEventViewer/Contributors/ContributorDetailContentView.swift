@@ -92,6 +92,7 @@ struct ContributorDetailSectionsView: View {
 
 struct ContributorScheduleSection: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
+    @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     @Environment(\.timeZone) var deviceTimeZone
     let performanceRows: [PerformanceRow]
     let eventTimePresentation: EventTimePresentation
@@ -120,6 +121,12 @@ struct ContributorScheduleSection: View {
                         }
                     }
                     .navigationLinkListRowStyle()
+                    .contextMenu {
+                        PerformanceReactionMenuContent(
+                            performanceID: row.performance.id,
+                            context: reactionMenuContext
+                        )
+                    }
                 }
             }
         }
@@ -166,6 +173,11 @@ struct ContributorSchedulePerformanceRow: View {
                 .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            PerformanceReactionSummaryWhenFits(
+                performanceID: row.performance.id
+            )
+            .portableLayoutPriority(-1)
         }
         .frame(minHeight: 44, alignment: .leading)
         .foregroundStyle(.primary)

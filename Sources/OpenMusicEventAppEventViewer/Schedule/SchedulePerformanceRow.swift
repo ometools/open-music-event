@@ -64,6 +64,11 @@ public struct SchedulePerformanceRow: View {
 
             Spacer()
 
+            PerformanceReactionSummaryWhenFits(
+                performanceID: row.performance.id
+            )
+            .portableLayoutPriority(-1)
+
             if userScheduleOverlay.isMember(performanceID: row.performanceID) {
                 Image(systemName: "checkmark-circle")
                     .accessibilityHidden(true)

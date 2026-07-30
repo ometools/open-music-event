@@ -410,16 +410,11 @@ public struct PerformanceDetailView: View {
                         eventTimePresentation: eventTimePresentation
                     )
 
-                    Section {
-                        Menu {
-                            PerformanceReactionMenuContent(
-                                performanceID: store.fullPerformanceID,
-                                context: reactionMenuContext
-                            )
-                        } label: {
-                            Text("React")
-                        }
-                        .accessibilityLabel("React to this performance")
+                    Section("Your Reactions") {
+                        PerformanceReactionPicker(
+                            performanceID: store.fullPerformanceID,
+                            context: reactionMenuContext
+                        )
                     }
 
                     if let description = performance.displayDescription {
