@@ -93,7 +93,6 @@ public struct SourceProposalFlow {
     @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
     @Dependency(\.workspaceContext) var workspaceContext
     @Dependency(WorkspacePreparationClient.self) var workspacePreparation
-    @Dependency(\.authoringContext) var authoringContext
     @Dependency(AuthoringPolicyClient.self) var authoringPolicy
 
     public var body: some Feature {
@@ -129,14 +128,14 @@ public struct SourceProposalFlow {
                 let target = state.target
                 let workspaceID = workspaceContext?.id
                 let workspacePreparation = workspacePreparation
-                let authoringContext = authoringContext
+                let workspaceContext = workspaceContext
                 let authoringPolicy = authoringPolicy
                 let store = store
 
                 state.status = .proposing
                 store.addTask {
                     switch await Self.revalidatedAuthoringAccess(
-                        authoringContext: authoringContext,
+                        workspaceContext: workspaceContext,
                         authoringPolicy: authoringPolicy
                     ) {
                     case .current, .notMounted:
@@ -204,7 +203,7 @@ public struct SourceProposalFlow {
                             return
                         }
                         if case .revoked = await Self.revalidatedAuthoringAccess(
-                            authoringContext: authoringContext,
+                            workspaceContext: workspaceContext,
                             authoringPolicy: authoringPolicy
                         ) {
                             await store.reportError(
@@ -262,10 +261,10 @@ public struct SourceProposalFlow {
     }
 
     static func revalidatedAuthoringAccess(
-        authoringContext: AuthoringContext?,
+        workspaceContext: WorkspaceContext?,
         authoringPolicy: AuthoringPolicyClient
     ) async -> RevalidatedAuthoringAccess {
-        guard let grant = authoringContext?.grant else {
+        guard let grant = workspaceContext?.grant else {
             return .notMounted
         }
         do {

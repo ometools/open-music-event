@@ -135,17 +135,19 @@ struct AuthoringTests {
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `entering authoring changes only the selected workspace context`() async throws {
-        let attendeeDatabaseA = try DatabaseQueue()
-        let authoringDatabaseA = try DatabaseQueue()
-        try setMarker("A attendee", in: attendeeDatabaseA)
-        try setMarker("A authoring", in: authoringDatabaseA)
+        let appDatabase = try DatabaseQueue()
+        let referenceDatabaseA = try DatabaseQueue()
+        let preparedReferenceDatabaseA = try DatabaseQueue()
+        try setMarker("app", in: appDatabase)
+        try setMarker("A reference", in: referenceDatabaseA)
+        try setMarker("A prepared reference", in: preparedReferenceDatabaseA)
         let workspaceA = WorkspaceContext(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-a"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: attendeeDatabaseA)
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: referenceDatabaseA)
         )
         let preparedWorkspaceA = WorkspaceContext(
             id: workspaceA.id,
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: authoringDatabaseA)
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: preparedReferenceDatabaseA)
         )
         let workspaceB = WorkspaceContext(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-b"),
@@ -158,6 +160,7 @@ struct AuthoringTests {
             TestStoreActor<Authoring<WorkspaceProbe>>,
             TestStoreActor<Authoring<WorkspaceProbe>>
         ) = await withDependencies {
+            $0.defaultDatabase = appDatabase
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
                 authorizationRequests.withLock { $0.append(workspaceID) }
                 return .granted(principal: .local, role: .owner)
@@ -232,18 +235,19 @@ struct AuthoringTests {
         )
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceA.id])
 
-        // Each wrapped feature reads its own workspace and authoring dependency context.
+        // Each wrapped feature reads its own workspace and grant, while both keep the app database.
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = true
-            $0.content.observedDatabaseMarker = "A authoring"
+            $0.content.observedDatabaseMarker = "app"
             $0.content.observedWorkspaceID = workspaceA.id
         }
         await storeB.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
+            $0.content.observedDatabaseMarker = "app"
             $0.content.observedWorkspaceID = workspaceB.id
         }
 
-        // Exiting switches the same child back to its attendee database context.
+        // Exiting revokes the same child's grant without changing its app database context.
         await TestExhaustivity.$current.withValue(.off) {
             await storeA.send(.exitButtonTapped)?.value
         }
@@ -254,7 +258,7 @@ struct AuthoringTests {
         )
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
-            $0.content.observedDatabaseMarker = "A attendee"
+            $0.content.observedDatabaseMarker = "app"
         }
 
         await storeA.dismount()
@@ -429,7 +433,7 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `one grant carries access and database context across mounts of one workspace`() async throws {
+    func `one grant carries access while preserving the app database across mounts`() async throws {
         let attendeeDatabase = try DatabaseQueue()
         let authoringDatabase = try DatabaseQueue()
         try setMarker("attendee", in: attendeeDatabase)
@@ -496,7 +500,7 @@ struct AuthoringTests {
         await TestExhaustivity.$current.withValue(.off) {
             await storeB.send(.content(.inspectButtonTapped)) {
                 $0.content.observedCanAuthor = true
-                $0.content.observedDatabaseMarker = "authoring"
+                $0.content.observedDatabaseMarker = "attendee"
                 $0.content.observedWorkspaceID = workspaceID
             }
         }
@@ -605,8 +609,8 @@ struct AuthoringErrorHost {
 struct WorkspaceProbe {
     struct State {
         init() {
-            @Dependency(\.authoringContext) var authoringContext
-            self._grant = authoringContext?.$grant ?? SharedReader(value: nil)
+            @Dependency(\.workspaceContext) var workspaceContext
+            self._grant = workspaceContext?.$grant ?? SharedReader(value: nil)
         }
 
         @SharedReader var grant: AuthoringGrant?
@@ -624,7 +628,6 @@ struct WorkspaceProbe {
         case requestAuthoringButtonTapped
     }
 
-    @Dependency(\.authoringContext) var authoringContext
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.workspaceContext) var workspaceContext
 
@@ -632,7 +635,7 @@ struct WorkspaceProbe {
         Update { state, action in
             switch action {
             case .inspectButtonTapped:
-                state.observedCanAuthor = authoringContext?.canEditContent
+                state.observedCanAuthor = workspaceContext?.canEditContent
                 state.observedDatabaseMarker = try? database.read { db in
                     try String.fetchOne(db, sql: "SELECT value FROM marker")
                 }

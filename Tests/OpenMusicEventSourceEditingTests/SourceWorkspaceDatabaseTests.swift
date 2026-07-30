@@ -18,7 +18,8 @@ struct SourceWorkspaceDatabaseTests {
                   databaseFileName TEXT NOT NULL,
                   createdAt TEXT NOT NULL,
                   updatedAt TEXT NOT NULL,
-                  sourceBaselineID TEXT
+                  sourceBaselineID TEXT,
+                  publicRecord TEXT
                 )
                 """)
         }
@@ -88,7 +89,8 @@ struct SourceWorkspaceDatabaseTests {
                   databaseFileName TEXT NOT NULL,
                   createdAt TEXT NOT NULL,
                   updatedAt TEXT NOT NULL,
-                  sourceBaselineID TEXT
+                  sourceBaselineID TEXT,
+                  publicRecord TEXT
                 )
                 """)
         }
@@ -159,6 +161,71 @@ struct SourceWorkspaceDatabaseTests {
         #expect(try marker(in: databaseA.database) == "A draft")
         #expect(try marker(in: databaseB.database) == "B")
         #expect(try marker(in: referenceA.database) == "A")
+    }
+
+    @Test
+    func `workspace context keeps app database mounted with its reference attached`() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let appDatabase = try DatabaseQueue(path: root.appending(path: "app.sqlite").path)
+        let workingDatabasePath = root.appending(path: "working.sqlite").path
+        let referenceDatabasePath = root.appending(path: "reference.sqlite").path
+        let workingDatabase = try DatabasePool(path: workingDatabasePath)
+        let referenceDatabase = try DatabasePool(path: referenceDatabasePath)
+
+        let seededDatabases: [(any DatabaseWriter, String)] = [
+            (appDatabase, "app"),
+            (workingDatabase, "working"),
+            (referenceDatabase, "reference"),
+        ]
+        for (database, value) in seededDatabases {
+            try database.write { db in
+                try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
+                try db.execute(sql: "INSERT INTO marker VALUES (?)", arguments: [value])
+            }
+        }
+
+        let session = try SourceEditingSession(
+            workingDatabasePath: workingDatabasePath,
+            baselineDatabasePath: referenceDatabasePath,
+            baselineSchemaName: "mounted_reference"
+        )
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "mounted-reference"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(sourceEditingSession: session)
+        )
+
+        let mountedValues = try withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0.useWorkspaceContext(
+                workspace.mounting(grant: .init(value: nil))
+            )
+        } operation: {
+            @Dependency(\.defaultDatabase) var database
+            @Dependency(\.sourceEditingSession) var mountedSourceEditingSession
+            let sourceEditingSession = try #require(mountedSourceEditingSession)
+
+            return try database.read { db in
+                let appValue = try #require(
+                    try String.fetchOne(db, sql: "SELECT value FROM marker")
+                )
+                let referenceValue = try sourceEditingSession.withAttachedBaseline(to: db) { schemaName in
+                    #expect(schemaName == "mounted_reference")
+                    return try #require(
+                        try String.fetchOne(
+                            db,
+                            sql: "SELECT value FROM mounted_reference.marker"
+                        )
+                    )
+                }
+                return [appValue, referenceValue]
+            }
+        }
+
+        expectNoDifference(mountedValues, ["app", "reference"])
     }
 
     private func marker(in database: any DatabaseReader) throws -> String? {

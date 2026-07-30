@@ -1,6 +1,7 @@
 import Dependencies
 import Foundation
 import OpenMusicEventLexicon
+import Sharing
 import SQLiteData
 import SourceEditing
 
@@ -27,13 +28,22 @@ public struct SourceWorkspaceDatabase: Sendable {
 public struct WorkspaceContext: Sendable {
     public var id: EditingWorkspaceRecord.ID
     public var sourceWorkspaceDatabase: SourceWorkspaceDatabase
+    @SharedReader public var grant: AuthoringGrant?
 
     public init(
         id: EditingWorkspaceRecord.ID,
-        sourceWorkspaceDatabase: SourceWorkspaceDatabase
+        sourceWorkspaceDatabase: SourceWorkspaceDatabase,
+        grant: SharedReader<AuthoringGrant?> = SharedReader(value: nil)
     ) {
+        if let grantedWorkspaceID = grant.wrappedValue?.workspace.id {
+            precondition(
+                grantedWorkspaceID == id,
+                "An authoring grant cannot be mounted into a different workspace."
+            )
+        }
         self.id = id
         self.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+        self._grant = grant
     }
 
     public var database: any DatabaseWriter {
@@ -42,6 +52,26 @@ public struct WorkspaceContext: Sendable {
 
     public var sourceEditingSession: SourceEditingSession? {
         sourceWorkspaceDatabase.sourceEditingSession
+    }
+
+    public var access: AuthoringAccess {
+        grant?.access ?? .attendee
+    }
+
+    public var canEditContent: Bool {
+        access.canEditContent
+    }
+
+    public var canManageWorkspace: Bool {
+        access.canManageWorkspace
+    }
+
+    public func mounting(grant: SharedReader<AuthoringGrant?>) -> Self {
+        Self(
+            id: id,
+            sourceWorkspaceDatabase: sourceWorkspaceDatabase,
+            grant: grant
+        )
     }
 }
 
@@ -198,11 +228,10 @@ public extension DependencyValues {
     }
 
     mutating func useWorkspaceContext(
-        _ workspaceContext: WorkspaceContext,
-        authoring: AuthoringContext
+        _ workspaceContext: WorkspaceContext
     ) {
-        self.authoringContext = authoring
-        self.defaultDatabase = workspaceContext.database
+        // EventViewer keeps the app database as its read/write authority. The source
+        // session attaches the workspace reference database to that connection on demand.
         self.sourceEditingSession = workspaceContext.sourceEditingSession
         self.workspaceContext = workspaceContext
     }

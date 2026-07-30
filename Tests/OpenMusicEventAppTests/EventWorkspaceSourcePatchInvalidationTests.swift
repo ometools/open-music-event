@@ -1074,21 +1074,22 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 )
             ]
         )
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "team.retry"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+        )
         let grant = Shared<AuthoringGrant?>(
             value: AuthoringGrant(
                 principal: .local,
                 role: .owner,
-                workspace: WorkspaceContext(
-                    id: EditingWorkspaceRecord.ID(rawValue: "team.retry"),
-                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-                )
+                workspace: workspace
             )
         )
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.authoringContext = AuthoringContext(grant: SharedReader(grant))
+            $0.workspaceContext = workspace.mounting(grant: SharedReader(grant))
             $0[AuthoringPolicyClient.self] = .authoring
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
                 location
@@ -1172,7 +1173,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.authoringContext = AuthoringContext(grant: SharedReader(grant))
+            $0.workspaceContext = workspace.mounting(grant: SharedReader(grant))
             $0[AuthoringPolicyClient.self] = .attendee
             $0.sourcePatchPublisher = SourcePatchPublisher { request in
                 publishRequests.withLock { $0.append(request) }
@@ -1245,7 +1246,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.authoringContext = AuthoringContext(grant: SharedReader(grant))
+            $0.workspaceContext = workspace.mounting(grant: SharedReader(grant))
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
                 #expect(workspaceID == workspace.id)
                 let requestNumber = admissionRequestCount.withLock { count in

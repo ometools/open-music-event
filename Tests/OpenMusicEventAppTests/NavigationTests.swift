@@ -1187,9 +1187,9 @@ struct NavigationTests {
         let store = withDependencies {
             $0.context = .test
             $0.continuousClock = ImmediateClock()
+            $0.defaultDatabase = database
             $0.useWorkspaceContext(
-                workspace,
-                authoring: AuthoringContext(grant: SharedReader(value: nil))
+                workspace.mounting(grant: SharedReader(value: nil))
             )
         } operation: {
             TestStore(initialState: TeamWorkspaceDetail.State(sourceBaselineID: sourceBaselineID)) {
@@ -1263,7 +1263,7 @@ struct NavigationTests {
     }
 
     @Test
-    func teamWorkspaceDetailMountsSourceWorkspaceWhenRoutingEditorAction() async throws {
+    func teamWorkspaceDetailKeepsAppDatabaseWhenRoutingEditorAction() async throws {
         let database = try makePreparedDatabase()
         let workspaceDatabase = try makePreparedDatabase()
         let sourceBaselineID = SourceBaselineRecord.ID(rawValue: "source")
@@ -1272,7 +1272,6 @@ struct NavigationTests {
         let reporter = IssueRecordingReporter()
         let recorder = SourcePatchDatabaseRecorder()
         let appSourceReference = "app://routed-source-management"
-        let workspaceSourceReference = "workspace://routed-source-management"
         let patch = SourcePatch()
 
         try await database.write { db in
@@ -1293,7 +1292,7 @@ struct NavigationTests {
                 SourceBaselineRecord(
                     id: sourceBaselineID,
                     sourceKind: .local,
-                    sourceReference: workspaceSourceReference,
+                    sourceReference: "workspace://routed-source-management",
                     ref: "HEAD",
                     databaseFileName: "workspace-baseline.sqlite",
                     importedAt: Date(timeIntervalSince1970: 1_900)
@@ -1312,10 +1311,10 @@ struct NavigationTests {
         let store = withIssueReporters([reporter]) {
             withDependencies {
                 $0.context = .test
+                $0.defaultDatabase = database
                 $0.sourceReferenceDatabase = .missing
                 $0.useWorkspaceContext(
-                    workspace,
-                    authoring: AuthoringContext(grant: SharedReader(grant))
+                    workspace.mounting(grant: SharedReader(grant))
                 )
                 $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
                     SourcePatchGenerator { request in
@@ -1361,7 +1360,8 @@ struct NavigationTests {
         }
 
         #expect(store.state.teamWorkspaceEditor?.sourceBaselineID == sourceBaselineID)
-        #expect(await recorder.sourceReferences == [workspaceSourceReference])
+        let sourceReferences = await recorder.sourceReferences
+        expectNoDifference(sourceReferences, [appSourceReference])
         #expect(reporter.messages.isEmpty)
     }
 
@@ -1382,10 +1382,10 @@ struct NavigationTests {
         let store = withIssueReporters([reporter]) {
             withDependencies {
                 $0.context = .test
+                $0.defaultDatabase = workspaceDatabase
                 $0.defaultEventID = eventID
                 $0.useWorkspaceContext(
-                    workspace,
-                    authoring: AuthoringContext(grant: SharedReader(grant))
+                    workspace.mounting(grant: SharedReader(grant))
                 )
             } operation: {
                 TestStore(initialState: EventViewerHarness.State(eventID: eventID)) {
@@ -2150,10 +2150,10 @@ struct NavigationTests {
 
         let store = withDependencies {
             $0.context = .test
+            $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.useWorkspaceContext(
-                workspace,
-                authoring: AuthoringContext(grant: SharedReader(grant))
+                workspace.mounting(grant: SharedReader(grant))
             )
         } operation: {
             var initialState = EventViewerHarness.State(eventID: eventID)
@@ -2192,10 +2192,10 @@ struct NavigationTests {
         await withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
+            $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.useWorkspaceContext(
-                workspace,
-                authoring: AuthoringContext(grant: SharedReader(grant))
+                workspace.mounting(grant: SharedReader(grant))
             )
         } operation: {
             var initialState = EventViewerHarness.State(eventID: eventID)
@@ -2809,6 +2809,61 @@ struct NavigationTests {
         }
 
         #expect(contributors.map(\.name) == ["Amy", "Zara"])
+    }
+
+    @Test
+    func `authoring keeps event contributors on the app database`() async throws {
+        let appDatabase = try makePreparedDatabase()
+        let referenceDatabase = try makeCoreDatabase()
+        let eventID = eventID("wicked-woods-2026")
+
+        // Wicked Woods has the same source contributor in its app and reference databases.
+        for database in [appDatabase, referenceDatabase] {
+            try await database.write { db in
+                try Self.insertOrganizer(db, id: testOrganizerID)
+                try Self.insertEvent(db, id: eventID, name: "Wicked Woods 2026")
+                try Self.insertContributor(
+                    db,
+                    eventID: eventID,
+                    contributorID: "artist",
+                    name: "Artist"
+                )
+            }
+        }
+
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(localEventID: eventID),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: referenceDatabase)
+        )
+        let grant = Shared<AuthoringGrant?>(
+            value: AuthoringGrant(
+                principal: .local,
+                role: .owner,
+                workspace: workspace
+            )
+        )
+
+        // Entering authoring mounts the reference context without replacing the app database.
+        let contributorNames = try await withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0.useWorkspaceContext(
+                workspace.mounting(grant: SharedReader(grant))
+            )
+        } operation: {
+            @Dependency(\.defaultDatabase) var database
+            return try await database.read { db in
+                try ContributorsViewer
+                    .contributorRowsQuery(
+                        eventID: eventID,
+                        hydration: .bskyActorProfile
+                    )
+                    .fetchAll(db)
+                    .map(\.profile.name)
+            }
+        }
+
+        // The hydrated list still reads app-only actor-cache tables and shows the contributor.
+        expectNoDifference(contributorNames, ["Artist"])
     }
 
     @Test
@@ -4910,10 +4965,10 @@ struct NavigationTests {
 
         let state = withDependencies {
             $0.context = .test
+            $0.defaultDatabase = database
             $0.defaultEventID = eventID
             $0.useWorkspaceContext(
-                workspace,
-                authoring: AuthoringContext(grant: SharedReader(grant))
+                workspace.mounting(grant: SharedReader(grant))
             )
         } operation: {
             EventViewer.State(eventID: eventID)
@@ -7737,7 +7792,7 @@ struct NavigationTests {
     }
 
     @Test
-    func whiteLabelAuthoringContextCarriesIntoEventViewerNavigation() async throws {
+    func whiteLabelWorkspaceContextCarriesIntoEventViewerNavigation() async throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         let sourceProvenance = sourceProvenance("white-label-shared-context")

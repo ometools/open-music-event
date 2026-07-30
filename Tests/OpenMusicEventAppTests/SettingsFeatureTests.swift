@@ -224,10 +224,13 @@ struct SettingsFeatureTests {
             $0.context = .test
             $0.defaultDatabase = database
             $0[AuthoringPolicyClient.self] = .authoring
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { workspaceID in
-                #expect(workspaceID == workspace.id)
-                return workspace
-            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { workspaceID in
+                    #expect(workspaceID == workspace.id)
+                    return workspace
+                },
+                prepareSource: { _ in }
+            )
         } operation: {
             TestStore(
                 initialState: Authoring<EventSettings>.State(workspace: workspace) {
@@ -243,7 +246,8 @@ struct SettingsFeatureTests {
         await enterTask?.value
         store.expect {
             $0.grant = AuthoringGrant(
-                capabilities: [.editContent],
+                principal: .local,
+                role: .owner,
                 workspace: workspace
             )
         }

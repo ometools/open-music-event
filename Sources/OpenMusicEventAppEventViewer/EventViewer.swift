@@ -756,8 +756,8 @@ public struct EventViewer {
         }
 
         private static func authoringGrant() -> SharedReader<AuthoringGrant?> {
-            @Dependency(\.authoringContext) var authoringContext
-            return authoringContext?.$grant ?? SharedReader(value: nil)
+            @Dependency(\.workspaceContext) var workspaceContext
+            return workspaceContext?.$grant ?? SharedReader(value: nil)
         }
     }
 

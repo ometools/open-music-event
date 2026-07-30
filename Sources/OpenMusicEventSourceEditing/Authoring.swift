@@ -71,26 +71,6 @@ public struct AuthoringGrant: Equatable, Sendable {
     }
 }
 
-public struct AuthoringContext: Sendable {
-    @SharedReader public var grant: AuthoringGrant?
-
-    public init(grant: SharedReader<AuthoringGrant?>) {
-        self._grant = grant
-    }
-
-    public var access: AuthoringAccess {
-        grant?.access ?? .attendee
-    }
-
-    public var canEditContent: Bool {
-        access.canEditContent
-    }
-
-    public var canManageWorkspace: Bool {
-        access.canManageWorkspace
-    }
-}
-
 public struct AuthoringPolicyClient: Sendable {
     public var admission: @Sendable (
         EditingWorkspaceRecord.ID
@@ -157,7 +137,7 @@ public struct AuthoringExitRequested: FeatureEventKey {
 public struct Authoring<Content: FeatureProtocol> {
     public typealias Access = AuthoringAccess
     public typealias Capability = OME.WorkspaceRole.Capability
-    public typealias Context = AuthoringContext
+    public typealias Context = WorkspaceContext
     public typealias Grant = AuthoringGrant
     public typealias Role = OME.WorkspaceRole
 
@@ -233,8 +213,7 @@ public struct Authoring<Content: FeatureProtocol> {
             let workspace = grant.wrappedValue?.workspace ?? attendeeWorkspace
             self.content = withDependencies {
                 $0.useWorkspaceContext(
-                    workspace,
-                    authoring: AuthoringContext(grant: SharedReader(grant))
+                    workspace.mounting(grant: SharedReader(grant))
                 )
             } operation: {
                 makeContentState()
@@ -332,8 +311,7 @@ public struct Authoring<Content: FeatureProtocol> {
                         "An authoring grant cannot be mounted into a different workspace."
                     )
                     dependencies.useWorkspaceContext(
-                        workspace,
-                        authoring: AuthoringContext(
+                        workspace.mounting(
                             grant: SharedReader(store.grantReference)
                         )
                     )
@@ -546,19 +524,7 @@ private enum AuthoringEntryDiagnostics {
     }
 }
 
-private enum AuthoringContextKey: DependencyKey {
-    static var liveValue: AuthoringContext? { nil }
-    static var testValue: AuthoringContext? { nil }
-}
-
 extension AuthoringPolicyClient: DependencyKey {
     public static var liveValue: Self { .live }
     public static var testValue: Self { .attendee }
-}
-
-public extension DependencyValues {
-    var authoringContext: AuthoringContext? {
-        get { self[AuthoringContextKey.self] }
-        set { self[AuthoringContextKey.self] = newValue }
-    }
 }
