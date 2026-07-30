@@ -30,6 +30,7 @@ public struct ContributorDetail {
         public let contributorID: OMERecord.ID<OMERecord.Contributor>
         public let eventID: OMERecord.Event.ID
 
+        @FetchOne var event: OMERecord.Event?
         @FetchOne var profile: ContributorProfile?
 
         public init(
@@ -42,6 +43,9 @@ public struct ContributorDetail {
             self.contributorID = contributorID
             self.eventID = eventID ?? defaultEventID
             self.timeZone = defaultEventTimeZone
+            _event = FetchOne(
+                OMERecord.Event.where { $0.id.eq(self.eventID) }
+            )
             _profile = FetchOne(
                 ContributorProfile.one(
                     contributorID: contributorID,
@@ -80,6 +84,10 @@ public struct ContributorDetail {
                 performanceRows: performanceRows,
                 lineupStages: lineupStages
             )
+        }
+
+        var heroImageSources: [HeroImageSource] {
+            (profile?.heroImageSources ?? []) + (event?.heroImageSources ?? [])
         }
 
         var actorProfileLoadRequest: ContributorProfile.ActorProfileLoadRequest? {
@@ -216,6 +224,7 @@ public struct ContributorDetailView: View {
             if let profile = store.profile {
                 ContributorDetailContentView(
                     profile: profile,
+                    heroImageSources: store.heroImageSources,
                     stageContext: store.state.stageContext,
                     performanceRows: store.performanceRows,
                     timeZone: store.timeZone,

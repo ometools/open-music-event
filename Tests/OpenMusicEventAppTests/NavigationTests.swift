@@ -5210,6 +5210,80 @@ struct NavigationTests {
     }
 
     @Test
+    func contributorDetailFallsBackToFestivalHeroAndLogo() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = eventID("festival")
+        let contributorID = contributorLocalID("artist")
+        let festivalHeroURL = try #require(URL(string: "https://example.com/festival-hero.jpg"))
+        let festivalLogoURL = try #require(URL(string: "https://example.com/festival-logo.png"))
+        let festivalHero = OMERecord.ImageAsset(
+            source: .url(festivalHeroURL),
+            role: .hero,
+            renderKind: .fullImage,
+            materializationPolicy: .prefetchOnOpen
+        )
+        let festivalLogo = OMERecord.ImageAsset(
+            source: .url(festivalLogoURL),
+            role: .icon,
+            renderKind: .transparent,
+            materializationPolicy: .prefetchOnOpen
+        )
+
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try OMERecord.Event.insert {
+                OMERecord.Event.Draft(
+                    id: eventID,
+                    name: "Festival",
+                    timeZone: .current,
+                    imageURL: festivalHeroURL,
+                    iconImageURL: festivalLogoURL
+                )
+            }
+            .execute(db)
+            try Self.insertContributor(
+                db,
+                eventID: eventID,
+                contributorID: "artist",
+                name: "Artist"
+            )
+        }
+
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+        } operation: {
+            TestStore(
+                initialState: ContributorDetail.State(
+                    contributorID: contributorID,
+                    eventID: eventID
+                )
+            ) {
+                ContributorDetail()
+            }
+        }
+
+        let eventCacheContext = LocalImageCacheContext(eventID: eventID)
+        expectNoDifference(
+            store.state.heroImageSources,
+            [
+                .primaryImage(
+                    DisplayImageAsset(
+                        asset: festivalHero,
+                        cacheContext: eventCacheContext
+                    )
+                ),
+                .logo(
+                    DisplayImageAsset(
+                        asset: festivalLogo,
+                        cacheContext: eventCacheContext
+                    )
+                ),
+            ]
+        )
+    }
+
+    @Test
     func editContributorSavesChanges() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")

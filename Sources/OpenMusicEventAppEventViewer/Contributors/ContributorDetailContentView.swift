@@ -7,6 +7,7 @@ import SwiftUI
 
 struct ContributorDetailContentView: View {
     let profile: ContributorProfile
+    let heroImageSources: [HeroImageSource]
     let stageContext: ContributorStageContext
     let performanceRows: [PerformanceRow]
     let timeZone: TimeZone
@@ -22,7 +23,7 @@ struct ContributorDetailContentView: View {
         ) {
             HeroImage(
                 title: Text(profile.name),
-                sources: profile.heroImageSources,
+                sources: heroImageSources,
                 titleSources: heroImageTitleSources,
                 tint: stageContext.primaryStage?.color.swiftUIColor ?? .accentColor
             ) {
