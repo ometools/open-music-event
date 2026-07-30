@@ -3,20 +3,80 @@
 import Foundation
 import PackageDescription
 
-#if os(macOS)
-let skipstonePlugins: [Target.PluginUsage] = [.plugin(name: "skipstone", package: "skip")]
+let isAndroidAppBuild = ProcessInfo.processInfo.environment["OME_ANDROID_APP_BUILD"] == "1"
+let grdbPackageName = isAndroidAppBuild ? "grdb-sqlcipher" : "GRDB.swift"
+let sharingTraits: Set<Package.Dependency.Trait> =
+    isAndroidAppBuild ? [] : [.defaults]
+let sqliteDataTraits: Set<Package.Dependency.Trait> =
+    isAndroidAppBuild
+    ? ["SQLiteDataTagged", "GRDBCIPHER"]
+    : [.defaults, "SQLiteDataTagged", "GRDBCIPHER"]
+let tcaTraits: Set<Package.Dependency.Trait> =
+    isAndroidAppBuild
+    ? ["Dependencies"]
+    : [.defaults, "Dependencies"]
+let composableAtmosphereTraits: Set<Package.Dependency.Trait> =
+    isAndroidAppBuild
+    ? ["TCA26"]
+    : [.defaults, "TCA26"]
 let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 func packagePath(_ relativePath: String) -> String {
     URL(fileURLWithPath: relativePath, relativeTo: packageDirectory)
         .standardizedFileURL
         .path
 }
+func workspacePackagePath(_ name: String) -> String {
+    let workspaceParent = packageDirectory.deletingLastPathComponent()
+    let candidates = [
+        workspaceParent.appendingPathComponent(name),
+        workspaceParent.appendingPathComponent("worktrees").appendingPathComponent(name),
+    ]
+    return candidates.first { FileManager.default.fileExists(atPath: $0.path) }?.path
+        ?? candidates[0].path
+}
+#if os(macOS)
+let skipstonePlugins: [Target.PluginUsage] = [.plugin(name: "skipstone", package: "skip")]
+let skipRootPath = ProcessInfo.processInfo.environment["SKIPLOCAL"].map {
+    URL(fileURLWithPath: $0).deletingLastPathComponent()
+}
+let skipDependency: Package.Dependency
+let skipFuseUIDependency: Package.Dependency
+if let skipRootPath {
+    skipDependency = .package(name: "skip", path: skipRootPath.appendingPathComponent("skip").path)
+    skipFuseUIDependency = .package(
+        name: "skip-fuse-ui",
+        path: skipRootPath.appendingPathComponent("skip-fuse-ui").path
+    )
+} else {
+    skipDependency = .package(url: "https://source.skip.tools/skip.git", from: "1.8.6")
+    skipFuseUIDependency = .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0")
+}
 let skipSharingPath = [
+    ProcessInfo.processInfo.environment["SKIPLOCAL"].map {
+        URL(fileURLWithPath: $0)
+            .deletingLastPathComponent()
+            .appendingPathComponent("skip-sharing")
+            .path
+    },
     "../../swift-packages/3rd-party/skip/skip-sharing",
     "../../../swift-packages/3rd-party/skip/skip-sharing",
-].map(packagePath)
+].compactMap { $0 }
+    .map(packagePath)
     .first { FileManager.default.fileExists(atPath: $0) }
     ?? packagePath("../../swift-packages/3rd-party/skip/skip-sharing")
+let skipAndroidBridgePath = [
+    ProcessInfo.processInfo.environment["SKIPLOCAL"].map {
+        URL(fileURLWithPath: $0)
+            .deletingLastPathComponent()
+            .appendingPathComponent("skip-android-bridge")
+            .path
+    },
+    "../../swift-packages/3rd-party/skip/skip-android-bridge",
+    "../../../swift-packages/3rd-party/skip/skip-android-bridge",
+].compactMap { $0 }
+    .map(packagePath)
+    .first { FileManager.default.fileExists(atPath: $0) }
+    ?? packagePath("../../swift-packages/3rd-party/skip/skip-android-bridge")
 #else
 let skipstonePlugins: [Target.PluginUsage] = []
 #endif
@@ -26,7 +86,6 @@ var products: [Product] = [
     .executable(name: "ome-release-check", targets: ["OpenMusicEventReleaseCheck"]),
     .library(name: "BlueskyActorCache", targets: ["BlueskyActorCache"]),
     .library(name: "OpenMusicEventAuthentication", targets: ["OpenMusicEventAuthentication"]),
-    .library(name: "OpenMusicEventAppViewServer", targets: ["OpenMusicEventAppViewServer"]),
     .library(name: "OpenMusicEventComponents", targets: ["OpenMusicEventComponents"]),
     .library(name: "OpenMusicEventDatabase", targets: ["OpenMusicEventDatabase"]),
     .library(name: "OpenMusicEventLexicon", targets: ["OpenMusicEventLexicon"]),
@@ -38,9 +97,15 @@ var products: [Product] = [
     .library(name: "OpenMusicEventWhiteLabel", targets: ["OpenMusicEventWhiteLabel"]),
     .library(name: "ErrorHandling", targets: ["ErrorHandling"]),
     .library(name: "SourceEditing", targets: ["SourceEditing"]),
-    .executable(name: "OpenMusicEventAppView", targets: ["OpenMusicEventAppView"]),
-    .executable(name: "OpenMusicEventAppViewLambda", targets: ["OpenMusicEventAppViewLambda"]),
 ]
+
+if !isAndroidAppBuild {
+    products.append(contentsOf: [
+        .library(name: "OpenMusicEventAppViewServer", targets: ["OpenMusicEventAppViewServer"]),
+        .executable(name: "OpenMusicEventAppView", targets: ["OpenMusicEventAppView"]),
+        .executable(name: "OpenMusicEventAppViewLambda", targets: ["OpenMusicEventAppViewLambda"]),
+    ])
+}
 
 #if os(macOS)
 products.append(contentsOf: [
@@ -57,37 +122,62 @@ products.append(contentsOf: [
 #endif
 
 var dependencies: [Package.Dependency] = [
-    .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
+    isAndroidAppBuild
+        ? .package(name: "swift-composable-forms", path: workspacePackagePath("swift-composable-forms-android"))
+        : .package(url: "https://source.woody.fm/swift-composable-forms", branch: "main"),
     .package(url: "https://source.woody.fm/swift-frontmatter-parsing", branch: "main"),
     .package(name: "swift-file-tree", path: "../../swift-packages/swift-file-tree"),
     .package(path: "../../swift-packages/swift-dependencies-http-client"),
-    .package(
-        name: "swift-composable-atmosphere",
-        path: "../../swift-packages/swift-composable-atmosphere",
-        traits: ["TCA26"]
-    ),
-    .package(path: "../composable-atmosphere-constellation"),
-    .package(path: "../composable-atmosphere-tangled"),
+    isAndroidAppBuild
+        ? .package(
+            name: "swift-composable-atmosphere",
+            path: workspacePackagePath("swift-composable-atmosphere"),
+            traits: composableAtmosphereTraits
+        )
+        : .package(
+            name: "swift-composable-atmosphere",
+            path: packagePath("../../swift-packages/swift-composable-atmosphere"),
+            traits: ["TCA26"]
+        ),
+    .package(name: "composable-atmosphere-constellation", path: workspacePackagePath("composable-atmosphere-constellation")),
+    .package(name: "composable-atmosphere-tangled", path: workspacePackagePath("composable-atmosphere-tangled")),
     .package(url: "https://source.woody.fm/swift-tagged-types-macro", branch: "main"),
     .package(url: "https://source.woody.fm/swift-urlqueryitem-coder", branch: "main"),
     .package(url: "https://source.woody.fm/swift-web-metadata", branch: "main", traits: ["Dependencies"]),
-    .package(path: "../swift-dependencies-source-control-client"),
-    .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
-    .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
-    .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
+    .package(path: workspacePackagePath("swift-dependencies-source-control-client")),
     .package(url: "https://github.com/pointfreeco/swift-clocks", branch: "clocks-2"),
     .package(url: "https://github.com/pointfreeco/swift-case-paths", branch: "26"),
     .package(url: "https://github.com/pointfreeco/swift-dependencies", branch: "26"),
-    .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
+    .package(
+        name: "swift-sharing",
+        path: workspacePackagePath("swift-sharing"),
+        traits: sharingTraits
+    ),
     .package(url: "https://github.com/pointfreeco/swift-tagged", from: "0.10.0"),
     .package(url: "https://github.com/pointfreeco/swift-custom-dump", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.0.0"),
     .package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.9.0"),
-    .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
-    .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged" /*"LazyInitializationByDefault"*/]),
-    .package(path: "/Users/woody/Developer/swift-packages/3rd-party/PointFree/TCA26", traits: ["Dependencies"]),
+    isAndroidAppBuild
+        ? .package(name: "sqlite-data", path: workspacePackagePath("sqlite-data"), traits: sqliteDataTraits)
+        : .package(url: "https://github.com/pointfreeco/sqlite-data", from: "1.0.0", traits: ["SQLiteDataTagged"]),
+    isAndroidAppBuild
+        ? .package(name: "swift-structured-queries", path: workspacePackagePath("swift-structured-queries"), traits: ["StructuredQueriesTagged"])
+        : .package(url: "https://github.com/pointfreeco/swift-structured-queries", exact: "0.32.0", traits: ["StructuredQueriesTagged"]),
+    isAndroidAppBuild
+        ? .package(
+            name: "TCA26",
+            path: workspacePackagePath("TCA26"),
+            traits: tcaTraits
+        )
+        : .package(
+            name: "TCA26",
+            path: packagePath("../../swift-packages/3rd-party/PointFree/TCA26"),
+            traits: ["Dependencies"]
+        ),
     .package(url: "https://github.com/apple/swift-crypto", from: "3.0.0"),
-    .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
+    isAndroidAppBuild
+        ? .package(url: "https://github.com/swift-everywhere/grdb-sqlcipher.git", from: "7.5.0", traits: ["GRDBCIPHER"])
+        : .package(url: "https://github.com/groue/GRDB.swift", from: "7.6.0"),
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.0.0"),
     .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
     .package(url: "https://github.com/apple/swift-http-types", from: "1.4.0"),
@@ -96,10 +186,19 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/tuist/Noora", from: "0.15.0"),
 ]
 
+if !isAndroidAppBuild {
+    dependencies.append(contentsOf: [
+        .package(url: "https://github.com/awslabs/swift-aws-lambda-events.git", from: "1.4.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.22.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird-lambda.git", from: "2.1.0"),
+    ])
+}
+
 #if os(macOS)
 dependencies.append(contentsOf: [
-    .package(url: "https://source.skip.tools/skip.git", from: "1.8.6"),
-    .package(url: "https://source.skip.tools/skip-fuse-ui.git", from: "1.0.0"),
+    skipDependency,
+    skipFuseUIDependency,
+    .package(name: "skip-android-bridge", path: skipAndroidBridgePath),
     .package(name: "skip-sharing", path: skipSharingPath),
     .package(url: "https://github.com/14T/DateRangePicker", branch: "main"),
     .package(url: "https://github.com/omaralbeik/Drops.git", from: "1.7.0"),
@@ -140,21 +239,53 @@ var openMusicEventSourceCloneDependencies: [Target.Dependency] = [
 ]
 
 #if os(macOS)
-openMusicEventAuthenticationDependencies.append(
-    .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
-)
+openMusicEventAuthenticationDependencies.append(contentsOf: [
+    .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
+    .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android])),
+])
 openMusicEventSourceCloneDependencies.append(
     .product(name: "SkipSharing", package: "skip-sharing", condition: .when(platforms: [.android]))
+)
+#endif
+
+var openMusicEventComponentsDependencies: [Target.Dependency] = []
+var openMusicEventTimeZonesDependencies: [Target.Dependency] = [
+    .product(name: "SQLiteData", package: "sqlite-data"),
+]
+var openMusicEventWhiteLabelDependencies: [Target.Dependency] = [
+    "OpenMusicEventLexicon",
+    .product(name: "Dependencies", package: "swift-dependencies"),
+]
+var scheduleComponentsDependencies: [Target.Dependency] = [
+    .product(name: "Dependencies", package: "swift-dependencies"),
+]
+
+#if os(macOS)
+openMusicEventComponentsDependencies.append(
+    .product(name: "SkipFuseUI", package: "skip-fuse-ui")
+)
+openMusicEventTimeZonesDependencies.append(
+    .product(name: "SkipSwiftUI", package: "skip-fuse-ui")
+)
+openMusicEventWhiteLabelDependencies.append(
+    .product(name: "SkipFuseUI", package: "skip-fuse-ui")
+)
+scheduleComponentsDependencies.append(
+    .product(name: "SkipSwiftUI", package: "skip-fuse-ui")
 )
 #endif
 
 var targets: [Target] = [
     .target(
         name: "OpenMusicEventAuthentication",
-        dependencies: openMusicEventAuthenticationDependencies
+        dependencies: openMusicEventAuthenticationDependencies,
+        plugins: skipstonePlugins
     ),
     .target(
-        name: "OpenMusicEventComponents"
+        name: "OpenMusicEventComponents",
+        dependencies: openMusicEventComponentsDependencies,
+        resources: [.process("Resources")],
+        plugins: skipstonePlugins
     ),
     .target(
         name: "OpenMusicEventReleaseTools"
@@ -186,7 +317,7 @@ var targets: [Target] = [
         dependencies: [
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
-            .product(name: "GRDB", package: "GRDB.swift"),
+            .product(name: "GRDB", package: grdbPackageName),
             .product(name: "SQLiteData", package: "sqlite-data"),
         ]
     ),
@@ -206,10 +337,7 @@ var targets: [Target] = [
     ),
     .target(
         name: "OpenMusicEventWhiteLabel",
-        dependencies: [
-            "OpenMusicEventLexicon",
-            .product(name: "Dependencies", package: "swift-dependencies"),
-        ],
+        dependencies: openMusicEventWhiteLabelDependencies,
         plugins: skipstonePlugins
     ),
     .target(
@@ -232,31 +360,6 @@ var targets: [Target] = [
         ]
     ),
     .target(
-        name: "OpenMusicEventAppViewServer",
-        dependencies: [
-            "OpenMusicEventRouting",
-            .product(name: "Hummingbird", package: "hummingbird"),
-        ],
-        resources: [
-            .copy("Resources/Site"),
-            .copy("Resources/WellKnown"),
-        ]
-    ),
-    .executableTarget(
-        name: "OpenMusicEventAppView",
-        dependencies: [
-            "OpenMusicEventAppViewServer",
-        ]
-    ),
-    .executableTarget(
-        name: "OpenMusicEventAppViewLambda",
-        dependencies: [
-            "OpenMusicEventAppViewServer",
-            .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
-            .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
-        ]
-    ),
-    .target(
         name: "OpenMusicEventSourceEditing",
         dependencies: [
             "ErrorHandling",
@@ -271,7 +374,7 @@ var targets: [Target] = [
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "Dependencies", package: "swift-dependencies"),
             .product(name: "FileTree", package: "swift-file-tree"),
-            .product(name: "GRDB", package: "GRDB.swift"),
+            .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Gzip", package: "gzipswift"),
             .product(name: "HTTPClient", package: "swift-dependencies-http-client"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
@@ -302,9 +405,7 @@ var targets: [Target] = [
     ),
     .target(
         name: "OpenMusicEventTimeZones",
-        dependencies: [
-            .product(name: "SQLiteData", package: "sqlite-data"),
-        ],
+        dependencies: openMusicEventTimeZonesDependencies,
         plugins: skipstonePlugins
     ),
     .executableTarget(
@@ -384,7 +485,7 @@ var targets: [Target] = [
         dependencies: [
             "SourceEditing",
             .product(name: "CustomDump", package: "swift-custom-dump"),
-            .product(name: "GRDB", package: "GRDB.swift"),
+            .product(name: "GRDB", package: grdbPackageName),
         ]
     ),
     .testTarget(
@@ -394,7 +495,7 @@ var targets: [Target] = [
             "SourceEditing",
             .product(name: "ATProto", package: "swift-composable-atmosphere"),
             .product(name: "CustomDump", package: "swift-custom-dump"),
-            .product(name: "GRDB", package: "GRDB.swift"),
+            .product(name: "GRDB", package: grdbPackageName),
         ]
     ),
     .testTarget(
@@ -432,54 +533,93 @@ var targets: [Target] = [
             .product(name: "CustomDump", package: "swift-custom-dump"),
         ]
     ),
-    .testTarget(
-        name: "OpenMusicEventAppViewServerTests",
-        dependencies: [
-            "OpenMusicEventAppViewServer",
-            .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
-            .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
-            .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
-            .product(name: "HummingbirdTesting", package: "hummingbird"),
-        ],
-        resources: [
-            .copy("Resources/Site"),
-            .copy("Resources/WellKnown"),
-        ]
-    ),
 ]
 
+if !isAndroidAppBuild {
+    targets.append(contentsOf: [
+        .target(
+            name: "OpenMusicEventAppViewServer",
+            dependencies: [
+                "OpenMusicEventRouting",
+                .product(name: "Hummingbird", package: "hummingbird"),
+            ],
+            resources: [
+                .copy("Resources/Site"),
+                .copy("Resources/WellKnown"),
+            ]
+        ),
+        .executableTarget(
+            name: "OpenMusicEventAppView",
+            dependencies: ["OpenMusicEventAppViewServer"]
+        ),
+        .executableTarget(
+            name: "OpenMusicEventAppViewLambda",
+            dependencies: [
+                "OpenMusicEventAppViewServer",
+                .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
+                .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenMusicEventAppViewServerTests",
+            dependencies: [
+                "OpenMusicEventAppViewServer",
+                .product(name: "AWSLambdaEvents", package: "swift-aws-lambda-events"),
+                .product(name: "HummingbirdLambda", package: "hummingbird-lambda"),
+                .product(name: "HummingbirdLambdaTesting", package: "hummingbird-lambda"),
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
+            ],
+            resources: [
+                .copy("Resources/Site"),
+                .copy("Resources/WellKnown"),
+            ]
+        ),
+    ])
+}
+
 #if os(macOS)
+var openMusicEventAppDependencies: [Target.Dependency] = [
+    "BlueskyActorCache",
+    "ErrorHandling",
+    "OpenMusicEventAppEventViewer",
+    "OpenMusicEventAuthentication",
+    "OpenMusicEventComponents",
+    "OpenMusicEventDatabase",
+    "OpenMusicEventImages",
+    "OpenMusicEventLexicon",
+    "OpenMusicEventSource",
+    "OpenMusicEventSourceClone",
+    "OpenMusicEventSourceEditing",
+    "OpenMusicEventTimeZones",
+    "OpenMusicEventWhiteLabel",
+    "SourceEditing",
+    .product(name: "ComposableArchitecture2", package: "TCA26"),
+    .product(name: "Dependencies", package: "swift-dependencies"),
+    .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),
+    .product(name: "FileTree", package: "swift-file-tree"),
+    .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
+    .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
+    .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
+    .product(name: "SQLiteData", package: "sqlite-data"),
+    .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
+    .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
+    .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
+]
+
+if !isAndroidAppBuild {
+    openMusicEventAppDependencies.append(
+        .product(
+            name: "SourceControlClientGit",
+            package: "swift-dependencies-source-control-client",
+            condition: .when(platforms: [.iOS, .macOS])
+        )
+    )
+}
+
 targets.append(contentsOf: [
     .target(
         name: "OpenMusicEventApp",
-        dependencies: [
-            "BlueskyActorCache",
-            "ErrorHandling",
-            "OpenMusicEventAppEventViewer",
-            "OpenMusicEventAuthentication",
-            "OpenMusicEventComponents",
-            "OpenMusicEventDatabase",
-            "OpenMusicEventImages",
-            "OpenMusicEventLexicon",
-            "OpenMusicEventSource",
-            "OpenMusicEventSourceClone",
-            "OpenMusicEventSourceEditing",
-            "OpenMusicEventTimeZones",
-            "OpenMusicEventWhiteLabel",
-            "SourceEditing",
-            .product(name: "ComposableArchitecture2", package: "TCA26"),
-            .product(name: "Dependencies", package: "swift-dependencies"),
-            .product(name: "Drops", package: "Drops", condition: .when(platforms: [.iOS])),
-            .product(name: "FileTree", package: "swift-file-tree"),
-            .product(name: "IssueReporting", package: "xctest-dynamic-overlay"),
-            .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
-            .product(name: "SourceControlClient", package: "swift-dependencies-source-control-client"),
-            .product(name: "SourceControlClientGit", package: "swift-dependencies-source-control-client", condition: .when(platforms: [.iOS, .macOS])),
-            .product(name: "SQLiteData", package: "sqlite-data"),
-            .product(name: "TangledLexicon", package: "composable-atmosphere-tangled"),
-            .product(name: "TangledXRPC", package: "composable-atmosphere-tangled"),
-            .product(name: "XRPCClient", package: "swift-composable-atmosphere"),
-        ],
+        dependencies: openMusicEventAppDependencies,
         resources: [.process("Resources")],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
@@ -508,7 +648,7 @@ targets.append(contentsOf: [
             .product(name: "ComposableForms", package: "swift-composable-forms"),
             .product(name: "DateRangePicker", package: "DateRangePicker", condition: .when(platforms: [.iOS])),
             .product(name: "Dependencies", package: "swift-dependencies"),
-            .product(name: "GRDB", package: "GRDB.swift"),
+            .product(name: "GRDB", package: grdbPackageName),
             .product(name: "Sharing", package: "swift-sharing"),
             .product(name: "SQLiteData", package: "sqlite-data"),
             .product(name: "TCATProtoAuthentication", package: "swift-composable-atmosphere"),
@@ -541,10 +681,7 @@ targets.append(contentsOf: [
         ],
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
-    .target(
-        name: "LiquidGlassSegmentedPicker",
-        plugins: [.plugin(name: "skipstone", package: "skip")]
-    ),
+    .target(name: "LiquidGlassSegmentedPicker"),
     .target(
         name: "OpenMusicEventWhiteLabelApp",
         dependencies: [
@@ -568,14 +705,13 @@ targets.append(contentsOf: [
     ),
     .target(
         name: "ScheduleComponents",
-        dependencies: [
-            .product(name: "Dependencies", package: "swift-dependencies"),
-        ],
+        dependencies: scheduleComponentsDependencies,
         plugins: [.plugin(name: "skipstone", package: "skip")]
     ),
     .target(
         name: "SwiftUITabFeatures",
         dependencies: [
+            "OpenMusicEventComponents",
             .product(name: "Tagged", package: "swift-tagged"),
             .product(name: "CustomDump", package: "swift-custom-dump")
         ],

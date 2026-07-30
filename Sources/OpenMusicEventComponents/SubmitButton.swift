@@ -1,5 +1,9 @@
-#if canImport(SwiftUI)
+#if os(Android) || canImport(SwiftUI)
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 public struct SubmitButton: View {
     public enum Kind {

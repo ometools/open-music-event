@@ -1,4 +1,8 @@
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 public enum ScheduleTimelineOrientation: Hashable, Sendable {
     case verticalTime
@@ -10,7 +14,7 @@ public enum ScheduleScrollTarget: Hashable, Sendable {
 }
 
 private enum ScheduleHeightEnvironmentKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 1500
+    static let defaultValue: ScheduleCGFloat = 1500
 }
 
 private enum ScheduleTimelineOrientationEnvironmentKey: EnvironmentKey {
@@ -18,7 +22,7 @@ private enum ScheduleTimelineOrientationEnvironmentKey: EnvironmentKey {
 }
 
 private enum SchedulePointsPerHourKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 80
+    static let defaultValue: ScheduleCGFloat = 80
 }
 
 private enum ScheduleTimeBufferKey: EnvironmentKey {
@@ -43,7 +47,7 @@ public extension EnvironmentValues {
         set { self[DateTimeRangeResolutionPolicyKey.self] = newValue }
     }
 
-    var scheduleHeight: CGFloat {
+    var scheduleHeight: ScheduleCGFloat {
         get { self[ScheduleHeightEnvironmentKey.self] }
         set { self[ScheduleHeightEnvironmentKey.self] = newValue }
     }
@@ -53,7 +57,7 @@ public extension EnvironmentValues {
         set { self[ScheduleTimelineOrientationEnvironmentKey.self] = newValue }
     }
 
-    var schedulePointsPerHour: CGFloat {
+    var schedulePointsPerHour: ScheduleCGFloat {
         get { self[SchedulePointsPerHourKey.self] }
         set { self[SchedulePointsPerHourKey.self] = newValue }
     }

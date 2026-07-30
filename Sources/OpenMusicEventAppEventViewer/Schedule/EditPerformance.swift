@@ -5,7 +5,11 @@ import Foundation
 import OpenMusicEventComponents
 import ScheduleComponents
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 import Tagged
 
 @Feature
@@ -1098,8 +1102,8 @@ public struct EditPerformanceView: View {
     private var performanceSection: some View {
         Section("Performance") {
             TextField("Title", text: performanceTitleBinding, prompt: Text("Artist Set"))
-            TextField("Description", text: $store.description, axis: .vertical)
-                .lineLimit(3...8)
+            PortableTextField("Description", text: $store.description, axis: .vertical)
+                .portableLineLimit(3...8)
         }
     }
 

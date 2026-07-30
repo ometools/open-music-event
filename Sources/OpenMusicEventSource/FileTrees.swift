@@ -1,5 +1,6 @@
 import FileTree
 import Foundation
+import OpenMusicEventLexicon
 
 public struct OpenMusicEventSourceRepositoryFileTree: FileTreeWriter {
     public init() {}
@@ -8,6 +9,11 @@ public struct OpenMusicEventSourceRepositoryFileTree: FileTreeWriter {
         FileTree {
             File.Optional("calendar", "yml")
                 .convert(YamlConversion<CalendarDTO>())
+
+            Directory.Optional("collaborators") {
+                File.Many(withExtension: "yml")
+                    .map(FileContentConversion(YamlConversion<OME.Relationship>()))
+            }
 
             Directory("events") {
                 Directory.Many {
@@ -123,6 +129,7 @@ private struct LegacyCommunicationConversion: Conversion {
 private struct RepositoryConversion: Conversion {
     typealias Input = (
         CalendarDTO?,
+        [FileContent<OME.Relationship>]?,
         [DirectoryContent<OpenMusicEventSourceEvent>]
     )
     typealias Output = OpenMusicEventSourceRepository
@@ -130,13 +137,15 @@ private struct RepositoryConversion: Conversion {
     func apply(_ input: Input) throws -> Output {
         OpenMusicEventSourceRepository(
             calendar: input.0,
-            events: input.1
+            collaborators: input.1,
+            events: input.2
         )
     }
 
     func unapply(_ output: Output) throws -> Input {
         (
             output.calendar,
+            output.collaborators,
             output.events
         )
     }

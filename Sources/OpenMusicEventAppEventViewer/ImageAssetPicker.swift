@@ -3,7 +3,11 @@ import Dependencies
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct ImageAssetPicker {

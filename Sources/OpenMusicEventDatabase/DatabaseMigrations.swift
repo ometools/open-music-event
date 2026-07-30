@@ -806,6 +806,14 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Add OpenMusicEvent relationship capabilities") { db in
+                try #sql("""
+                    ALTER TABLE "relationships"
+                    ADD COLUMN "capabilities" TEXT
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

@@ -4,7 +4,11 @@ import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct PostersViewer {
@@ -682,7 +686,11 @@ public struct PostersViewerView: View {
         Group {
             if store.posters.isEmpty {
                 ContentUnavailableView {
-                    Label("Posters", systemImage: "photo.on.rectangle")
+                    Label(
+                        "Posters",
+                        systemImage: "photo.on.rectangle",
+                        composeImage: "Icons.Outlined.PhotoLibrary"
+                    )
                 } description: {
                     Text("No posters have been added to this event yet.")
                 } actions: {
@@ -762,7 +770,7 @@ struct PosterCardView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .portableContentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

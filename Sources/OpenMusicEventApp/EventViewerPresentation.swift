@@ -1,4 +1,8 @@
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 enum EventViewerPresentationLaunchAnimation {
     case automatic
@@ -49,7 +53,7 @@ struct OpenMusicEventViewerPresentation<
 
     func body(content base: Content) -> some View {
         Group {
-            #if os(macOS) && !SKIP
+            #if os(Android) || (os(macOS) && !SKIP)
             if let item {
                 presentedContent(item)
             } else {
@@ -72,8 +76,12 @@ struct OpenMusicEventViewerPresentation<
             return $item
         }
 
+        #if os(Android) && SKIP_BRIDGE
+        return $item
+        #else
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         return $item.transaction(transaction)
+        #endif
     }
 }

@@ -7,8 +7,13 @@ import Foundation
 import IssueReporting
 import Lexicon
 import OpenMusicEventComponents
+import OpenMusicEventSourceEditing
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 import Testing
 
 @testable import OpenMusicEventApp
@@ -205,6 +210,50 @@ struct SettingsFeatureTests {
             timeout: .seconds(1)
         )
         await editTask?.value
+    }
+
+    @Test
+    func eventSettingsButtonsEnterAndExitAuthoring() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID()
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(localEventID: eventID),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+        )
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0[AuthoringPolicyClient.self] = .authoring
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { workspaceID in
+                #expect(workspaceID == workspace.id)
+                return workspace
+            }
+        } operation: {
+            TestStore(
+                initialState: Authoring<EventSettings>.State(workspace: workspace) {
+                    EventSettings.State(eventID: eventID)
+                }
+            ) {
+                Authoring { EventSettings() }
+            }
+        }
+
+        // Event Settings is mounted in attendee mode, where the user asks to enter authoring.
+        let enterTask = store.send(.content(.enterAuthoringButtonTapped))
+        await enterTask?.value
+        store.expect {
+            $0.grant = AuthoringGrant(
+                capabilities: [.editContent],
+                workspace: workspace
+            )
+        }
+
+        // The same screen lets the author return to attendee mode.
+        let exitTask = store.send(.content(.exitAuthoringButtonTapped))
+        await exitTask?.value
+        store.expect {
+            $0.grant = nil
+        }
     }
 
     private func waitForLatestError(in errorNotifications: Spawn<ErrorNotifications>) async {

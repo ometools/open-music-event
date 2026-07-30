@@ -104,6 +104,51 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Identify published OpenMusicEvent workspaces") { db in
+                try #sql("""
+                    ALTER TABLE "editingWorkspaces"
+                    ADD COLUMN "publicRecord" TEXT
+                    """)
+                    .execute(db)
+
+                try #sql("""
+                    UPDATE "editingWorkspaces"
+                    SET "publicRecord" = (
+                      SELECT json_object(
+                        '$type', 'app.openmusicevent.relationship#record',
+                        'uri', 'at://' || "eventEditingWorkspaces"."organizerID"
+                          || '/app.openmusicevent.source/canonical'
+                      )
+                      FROM "eventEditingWorkspaces"
+                      WHERE "eventEditingWorkspaces"."workspaceID" = "editingWorkspaces"."id"
+                      LIMIT 1
+                    )
+                    WHERE "kind" = 'team'
+                      AND EXISTS (
+                        SELECT 1
+                        FROM "sourceBaselines"
+                        WHERE "sourceBaselines"."id" = "editingWorkspaces"."sourceBaselineID"
+                          AND "sourceBaselines"."sourceKind" = 'tangled'
+                      )
+                    """)
+                    .execute(db)
+            }
+
+            migrator.registerMigration("Create OpenMusicEvent workspace relationship schema") { db in
+                try #sql("""
+                    CREATE TABLE IF NOT EXISTS "workspaceRelationships" (
+                      "workspaceID" TEXT NOT NULL
+                        REFERENCES "editingWorkspaces"("id") ON DELETE CASCADE,
+                      "actorID" TEXT NOT NULL,
+                      "recordKey" TEXT NOT NULL,
+                      "relationship" TEXT NOT NULL,
+                      PRIMARY KEY ("workspaceID", "actorID") ON CONFLICT REPLACE,
+                      UNIQUE ("workspaceID", "recordKey") ON CONFLICT REPLACE
+                    ) STRICT
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

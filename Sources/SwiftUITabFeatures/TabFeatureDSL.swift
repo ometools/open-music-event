@@ -1,4 +1,5 @@
 import Foundation
+import OpenMusicEventComponents
 import SwiftUI
 
 public protocol TabFeatureValue: Hashable, LosslessStringConvertible, Sendable {}
@@ -139,6 +140,7 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
     public var value: Value
     public var title: String?
     public var systemImage: TabFeatureSymbolName?
+    public var composeImage: TabFeatureSymbolName?
     public var labelTint: Color?
     public var badgeValue: Int?
     public var role: TabFeatureRole?
@@ -149,6 +151,7 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         value: Value,
         title: String? = nil,
         systemImage: TabFeatureSymbolName? = nil,
+        composeImage: TabFeatureSymbolName? = nil,
         labelTint: Color? = nil,
         badgeValue: Int? = nil,
         role: TabFeatureRole? = nil,
@@ -158,6 +161,7 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         self.value = value
         self.title = title
         self.systemImage = systemImage
+        self.composeImage = composeImage
         self.labelTint = labelTint
         self.badgeValue = badgeValue
         self.role = role
@@ -183,6 +187,10 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
 
     public var effectiveSystemImage: TabFeatureSymbolName {
         self.systemImage ?? self.role?.systemImage ?? .init("")
+    }
+
+    public var effectiveComposeImage: TabFeatureSymbolName {
+        self.composeImage ?? self.effectiveSystemImage
     }
 }
 
@@ -269,6 +277,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
     public let value: Value
     public let title: String?
     public let systemImage: TabFeatureSymbolName?
+    public let composeImage: TabFeatureSymbolName?
     public let labelTint: Color?
     public let badgeValue: Int?
     public let role: TabFeatureRole?
@@ -280,6 +289,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         _ value: Value,
         title: String,
         systemImage: String,
+        composeImage: String? = nil,
         labelTint: Color? = nil,
         badgeValue: Int? = nil,
         navigation: TabFeatureNavigation? = nil,
@@ -288,6 +298,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         self.value = value
         self.title = title
         self.systemImage = .init(systemImage)
+        self.composeImage = composeImage.map { TabFeatureSymbolName(rawValue: $0) }
         self.labelTint = labelTint
         self.badgeValue = badgeValue
         self.role = nil
@@ -313,6 +324,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             self.title = nil
             self.systemImage = nil
         }
+        self.composeImage = nil
         self.labelTint = labelTint
         self.badgeValue = badgeValue
         self.role = role
@@ -330,6 +342,7 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             value: self.value,
             title: self.title,
             systemImage: self.systemImage,
+            composeImage: self.composeImage,
             labelTint: self.labelTint,
             badgeValue: self.badgeValue,
             role: self.role,
@@ -694,6 +707,59 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         showsMore: Bool,
         moreFeatureContent: [AnyTabFeatureMoreContent<Value>]
     ) -> some View {
+        #if os(Android)
+        TabView(selection: tabSelection(showsMore: showsMore)) {
+            ForEach(resolved.visibleFeatures, id: \.value) { feature in
+                primaryFeatureDestination(for: feature)
+                    .tabItem {
+                        Label {
+                            Text(feature.effectiveTitle)
+                        } icon: {
+                            Image(
+                                system: feature.effectiveSystemImage.rawValue,
+                                material: feature.effectiveComposeImage.rawValue
+                            )
+                        }
+                    }
+                    .tag(TabFeaturesSelection.feature(feature.value))
+                    .tabFeatureBadge(feature.badgeValue)
+            }
+
+            if showsMore {
+                TabFeaturesMoreView(
+                    overflowSelection: resolvedOverflowSelection,
+                    metadata: metadata(for:),
+                    overflowFeatureBody: overflowFeatureBody(for:),
+                    featureContent: moreFeatureContent,
+                    moreContent: moreContent
+                )
+                .tabItem {
+                    Label {
+                        Text("More")
+                    } icon: {
+                        Image(system: "ellipsis", material: "Icons.Outlined.MoreHoriz")
+                    }
+                }
+                .tag(TabFeaturesSelection<Value>.more)
+                .tabFeatureBadge(resolved.overflowBadgeValue)
+            }
+
+            if let searchTab = resolved.searchTab {
+                primaryFeatureDestination(for: searchTab)
+                    .tabItem {
+                        Label {
+                            Text(searchTab.effectiveTitle)
+                        } icon: {
+                            Image(
+                                system: searchTab.effectiveSystemImage.rawValue,
+                                material: "Icons.Outlined.Search"
+                            )
+                        }
+                    }
+                    .tag(TabFeaturesSelection.feature(searchTab.value))
+            }
+        }
+        #else
         TabView(
             selection: tabSelection(showsMore: showsMore)
         ) {
@@ -729,6 +795,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                 }
             }
         }
+        #endif
     }
 
     @ViewBuilder
@@ -738,6 +805,12 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         moreFeatureContent: [AnyTabFeatureMoreContent<Value>]
     ) -> some View {
         #if os(watchOS)
+        tabView(
+            for: resolved,
+            showsMore: showsMore,
+            moreFeatureContent: moreFeatureContent
+        )
+        #elseif os(Android) && SKIP_BRIDGE
         tabView(
             for: resolved,
             showsMore: showsMore,
@@ -895,6 +968,8 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
         .visionOS
         #elseif os(watchOS)
         .watchOS
+        #elseif os(Android)
+        .iOS
         #endif
     }
 }
@@ -994,6 +1069,18 @@ struct TabFeatureSelectionState<Value: TabFeatureValue>: Equatable {
     }
 }
 
+#if os(Android)
+private extension View {
+    @ViewBuilder
+    func tabFeatureBadge(_ badgeValue: Int?) -> some View {
+        if let badgeValue, badgeValue > 0 {
+            self.badge(badgeValue)
+        } else {
+            self
+        }
+    }
+}
+#else
 @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
 private extension TabContent {
     @TabContentBuilder<Self.TabValue>
@@ -1005,6 +1092,7 @@ private extension TabContent {
         }
     }
 }
+#endif
 
 struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
     @Binding var overflowSelection: Value?
@@ -1059,6 +1147,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             TabFeatureMoreRow(
                 title: feature.effectiveTitle,
                 systemImage: feature.effectiveSystemImage,
+                composeImage: feature.effectiveComposeImage,
                 labelTint: feature.labelTint,
                 badgeValue: feature.badgeValue
             )
@@ -1124,6 +1213,7 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
 struct TabFeatureMoreRow: View {
     let title: String
     let systemImage: TabFeatureSymbolName
+    let composeImage: TabFeatureSymbolName
     let labelTint: Color?
     let badgeValue: Int?
 
@@ -1134,8 +1224,13 @@ struct TabFeatureMoreRow: View {
                     .fill(labelTint ?? .accentColor)
                     .frame(width: 28, height: 28)
 
-                Image(systemName: systemImage.rawValue)
-                    .font(.system(size: 14, weight: .semibold))
+                Image(
+                    system: systemImage.rawValue,
+                    material: composeImage.rawValue
+                )
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
                     .foregroundStyle(.white)
             }
 
@@ -1155,6 +1250,17 @@ struct TabFeatureBadgeValueView: View {
     let value: Int
 
     var body: some View {
+        #if os(Android) && SKIP_BRIDGE
+        Text(value, format: .number)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(.red)
+            }
+        #else
         Text(value, format: .number)
             .font(.caption2.weight(.semibold))
             .monospacedDigit()
@@ -1165,10 +1271,11 @@ struct TabFeatureBadgeValueView: View {
                 Capsule(style: .continuous)
                     .fill(.red)
             }
+        #endif
     }
 }
 
-#if !SKIP
+#if !SKIP && !os(Android)
 #Preview {
     @Previewable @State var selection: DemoTab = .schedule
     @Previewable @State var layout: TabFeatureLayout = .init(preferredIDs: [

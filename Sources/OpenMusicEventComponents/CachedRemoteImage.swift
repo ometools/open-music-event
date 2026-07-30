@@ -1,9 +1,21 @@
 import Foundation
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
+
+#if os(Android)
+public typealias CachedRemoteImageSize = SkipSwiftUI.CGSize
+#else
+public typealias CachedRemoteImageSize = CGSize
+#endif
 
 public enum CachedRemoteImagePhase {
     case empty
-    case success(Image)
+    case success(Image, intrinsicSize: CGSize)
     case failure
     case unavailable
 }
@@ -12,7 +24,7 @@ public struct CachedRemoteImage<Content: View>: View {
     public init(
         url: URL?,
         cacheKey: String? = nil,
-        targetSize: CGSize? = nil,
+        targetSize: CachedRemoteImageSize? = nil,
         @ViewBuilder content: @escaping (CachedRemoteImagePhase) -> Content
     ) {
         self.url = url
@@ -23,42 +35,30 @@ public struct CachedRemoteImage<Content: View>: View {
 
     let url: URL?
     let cacheKey: String?
-    let targetSize: CGSize?
+    let targetSize: CachedRemoteImageSize?
     let content: (CachedRemoteImagePhase) -> Content
 
     #if os(iOS)
     @Environment(\.displayScale) var displayScale
+    #endif
     @State var phase = CachedRemoteImagePhase.empty
     @State var phaseRequestID: String?
-    #endif
 
     public var body: some View {
-        #if os(iOS)
         content(currentPhase)
             .task(id: requestID) {
                 await loadImage()
             }
-        #else
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .empty:
-                content(url == nil ? .unavailable : .empty)
-            case let .success(image):
-                content(.success(image))
-            case .failure:
-                content(.failure)
-            @unknown default:
-                content(.unavailable)
-            }
-        }
-        #endif
     }
 
-    #if os(iOS)
     var targetPixelSize: CGSize? {
+        #if os(iOS)
         targetSize.map {
             CGSize(width: $0.width * displayScale, height: $0.height * displayScale)
         }
+        #else
+        targetSize
+        #endif
     }
 
     var requestID: String {
@@ -78,9 +78,11 @@ public struct CachedRemoteImage<Content: View>: View {
     @MainActor
     var currentPhase: CachedRemoteImagePhase {
         guard url != nil else { return .unavailable }
+        #if os(iOS)
         if let cachedImage = CachedRemoteImageStore.shared.cachedImage(key: requestID) {
-            return .success(cachedImage)
+            return .success(cachedImage.image, intrinsicSize: cachedImage.intrinsicSize)
         }
+        #endif
         return phaseRequestID == requestID ? phase : .empty
     }
 
@@ -95,15 +97,23 @@ public struct CachedRemoteImage<Content: View>: View {
         phaseRequestID = requestID
         phase = .empty
         do {
-            let image = try await CachedRemoteImageStore.shared.image(
+            #if os(iOS)
+            let loadedImage = try await CachedRemoteImageStore.shared.image(
                 url: url,
                 key: requestID,
                 dataKey: sourceRequestID,
                 targetPixelSize: targetPixelSize
             )
+            #else
+            let data = try await CachedRemoteImageDataLoader.shared.data(
+                url: url,
+                key: sourceRequestID
+            )
+            let loadedImage = try decodeCachedRemoteImage(data)
+            #endif
             guard !Task.isCancelled else { return }
             phaseRequestID = requestID
-            phase = .success(image)
+            phase = .success(loadedImage.image, intrinsicSize: loadedImage.intrinsicSize)
         } catch is CancellationError {
             return
         } catch {
@@ -112,7 +122,11 @@ public struct CachedRemoteImage<Content: View>: View {
             phase = .failure
         }
     }
-    #endif
+}
+
+struct CachedRemoteLoadedImage {
+    let image: Image
+    let intrinsicSize: CGSize
 }
 
 #if os(iOS)
@@ -129,11 +143,14 @@ final class CachedRemoteImageStore {
         images.totalCostLimit = 96 * 1_024 * 1_024
     }
 
-    func cachedImage(key: String) -> Image? {
+    func cachedImage(key: String) -> CachedRemoteLoadedImage? {
         guard let image = images.object(forKey: key as NSString) else {
             return nil
         }
-        return Image(uiImage: image)
+        return CachedRemoteLoadedImage(
+            image: Image(uiImage: image),
+            intrinsicSize: image.size
+        )
     }
 
     func image(
@@ -141,10 +158,13 @@ final class CachedRemoteImageStore {
         key: String,
         dataKey: String,
         targetPixelSize: CGSize?
-    ) async throws -> Image {
+    ) async throws -> CachedRemoteLoadedImage {
         let key = key as NSString
         if let cachedImage = images.object(forKey: key) {
-            return Image(uiImage: cachedImage)
+            return CachedRemoteLoadedImage(
+                image: Image(uiImage: cachedImage),
+                intrinsicSize: cachedImage.size
+            )
         }
 
         let data = try await CachedRemoteImageDataLoader.shared.data(
@@ -152,7 +172,10 @@ final class CachedRemoteImageStore {
             key: dataKey
         )
         if let cachedImage = images.object(forKey: key) {
-            return Image(uiImage: cachedImage)
+            return CachedRemoteLoadedImage(
+                image: Image(uiImage: cachedImage),
+                intrinsicSize: cachedImage.size
+            )
         }
 
         guard let decodedImage = UIImage(data: data) else {
@@ -165,9 +188,42 @@ final class CachedRemoteImageStore {
             * Int(preparedImage.size.height * preparedImage.scale)
             * 4
         images.setObject(preparedImage, forKey: key, cost: cost)
-        return Image(uiImage: preparedImage)
+        return CachedRemoteLoadedImage(
+            image: Image(uiImage: preparedImage),
+            intrinsicSize: preparedImage.size
+        )
     }
 }
+
+#elseif os(macOS)
+import AppKit
+
+func decodeCachedRemoteImage(_ data: Data) throws -> CachedRemoteLoadedImage {
+    guard let image = NSImage(data: data),
+          image.size.width > 0,
+          image.size.height > 0 else {
+        throw CachedRemoteImageError.invalidImageData
+    }
+    return CachedRemoteLoadedImage(
+        image: Image(nsImage: image),
+        intrinsicSize: image.size
+    )
+}
+
+#elseif os(Android)
+
+func decodeCachedRemoteImage(_ data: Data) throws -> CachedRemoteLoadedImage {
+    guard let image = UIImage(data: data),
+          image.size.width > 0,
+          image.size.height > 0 else {
+        throw CachedRemoteImageError.invalidImageData
+    }
+    return CachedRemoteLoadedImage(
+        image: Image(uiImage: image),
+        intrinsicSize: image.size
+    )
+}
+#endif
 
 actor CachedRemoteImageDataLoader {
     static let shared = CachedRemoteImageDataLoader()
@@ -209,6 +265,7 @@ enum CachedRemoteImageError: Error {
     case invalidImageData
 }
 
+#if os(iOS)
 extension UIImage {
     func preparingThumbnail(targetPixelSize: CGSize?) -> UIImage {
         guard let targetPixelSize,

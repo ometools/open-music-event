@@ -113,6 +113,19 @@ public struct ScheduleViewerState: Equatable, Sendable, Identifiable {
             }
         }
 
+        public var composeImage: String? {
+            switch self {
+            case .singleStageAtOnce:
+                return "Icons.Outlined.ViewTimeline"
+            case .allStagesAtOnce(.vertical):
+                return "Icons.Outlined.ViewColumn"
+            case .allStagesAtOnce(.horizontal):
+                return "Icons.Outlined.ViewWeek"
+            case .list:
+                return "Icons.Outlined.FormatListBulleted"
+            }
+        }
+
         public var orientation: Orientation? {
             guard case let .allStagesAtOnce(orientation) = self else {
                 return nil

@@ -1,16 +1,48 @@
 import Foundation
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
+
+#if os(Android) && SKIP_BRIDGE
+struct PeriodicTimelineSchedule {
+    static func periodic(from startDate: Date, by interval: TimeInterval) -> Self {
+        Self()
+    }
+}
+
+struct TimelineView: View {
+    struct Context {
+        let date: Date
+    }
+
+    let content: (Context) -> AnyView
+
+    init<Content: View>(
+        _ schedule: PeriodicTimelineSchedule,
+        @ViewBuilder content: @escaping (Context) -> Content
+    ) {
+        self.content = { context in AnyView(content(context)) }
+    }
+
+    var body: some View {
+        content(Context(date: .now))
+    }
+}
+#endif
 
 struct TimeIndicatorView: View {
     @Environment(\.colorScheme) var colorScheme
-    @Environment(\.calendar) var calendar
     @Environment(\.scheduleHeight) var scheduleHeight
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
     @Environment(\.shouldShowTimeIndicator) var shouldShowTimeIndicator
 
-    let gradientHeight: CGFloat = 30
-    let textWidth: CGFloat = 43
+    let gradientHeight: ScheduleCGFloat = 30
+    let textWidth: ScheduleCGFloat = 43
     let horizontalLabelHeight = HourLabelsHeightPreferenceKey.defaultValue
 
     var backgroundColor: Color {
@@ -89,7 +121,7 @@ struct TimeIndicatorView: View {
         }
     }
 
-    func horizontalTimeIndicator(at date: Date, height: CGFloat) -> some View {
+    func horizontalTimeIndicator(at date: Date, height: ScheduleCGFloat) -> some View {
         ZStack(alignment: .top) {
             Rectangle()
                 .fill(Color.accentColor)

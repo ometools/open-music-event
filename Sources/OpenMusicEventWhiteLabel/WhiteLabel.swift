@@ -27,15 +27,18 @@ public struct WhiteLabelBrand: Equatable, Sendable {
     public var displayName: String
     public var loadingImage: WhiteLabelStaticImage?
     public var systemImage: String
+    public var composeImage: String
 
     public init(
         displayName: String,
         systemImage: String = "music.note.list",
+        composeImage: String = "Icons.Outlined.QueueMusic",
         loadingImage: WhiteLabelStaticImage? = nil
     ) {
         self.displayName = displayName
         self.loadingImage = loadingImage
         self.systemImage = systemImage
+        self.composeImage = composeImage
     }
 }
 

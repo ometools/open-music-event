@@ -46,6 +46,46 @@ struct OpenMusicEventRelationshipTests {
     }
 
     @Test
+    func workspaceCollaboratorRoleRoundTripsWithIndependentCapabilities() throws {
+        let collaborator = try #require(DID("did:plc:collaborator"))
+        let owner = try #require(DID("did:plc:owner"))
+        let workspace = OME.Relationship.RecordReference(
+            author: owner,
+            collection: OME.SourceRecord.nsid,
+            rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
+        )
+        let record = OME.Relationship(
+            subject: .identity(did: collaborator, handle: "alice.example"),
+            role: .collaborator([.merge]),
+            object: .record(workspace),
+            createdAt: "2026-07-29T00:00:00Z"
+        )
+
+        let data = try JSONEncoder().encode(record)
+        let decoded = try JSONDecoder().decode(OME.Relationship.self, from: data)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(json["role"] as? String == "collaborator")
+        #expect(json["capabilities"] as? [String] == ["merge"])
+        #expect(decoded.workspaceRole == .collaborator([.merge]))
+        #expect(decoded.workspaceRole?.canEdit == true)
+        #expect(decoded.workspaceRole?.canPropose == false)
+        #expect(decoded.workspaceRole?.canMerge == true)
+    }
+
+    @Test
+    func genericOrganizerRoleIsNotAWorkspaceOwnerRole() throws {
+        let subjectDID = try #require(DID("did:plc:subject"))
+        let relationship = OME.Relationship(
+            subject: .identity(did: subjectDID),
+            role: .organizer,
+            createdAt: "2026-07-29T00:00:00Z"
+        )
+
+        #expect(relationship.workspaceRole == nil)
+    }
+
+    @Test
     func recordEntityDecodesFromTaggedUnionShape() throws {
         let json = """
         {

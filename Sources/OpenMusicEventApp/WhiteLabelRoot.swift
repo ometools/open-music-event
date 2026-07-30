@@ -12,7 +12,17 @@ import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
 import OpenMusicEventWhiteLabel
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+#if os(Android)
+private typealias _SwiftUIForm = SkipSwiftUI.Form
+#else
+private typealias _SwiftUIForm = SwiftUI.Form
+#endif
 
 @Feature
 public struct WhiteLabelRoot {
@@ -125,6 +135,9 @@ public struct WhiteLabelRoot {
         }
         .onMount { state in
             guard state.loadingPhase == .idle else { return }
+            #if os(Android)
+            guard state.organizerID == nil else { return }
+            #endif
             state.loadingPhase = .preparing
             loadData(configuration: state.configuration)
         }
@@ -349,6 +362,20 @@ public struct WhiteLabelRootView: View {
     public var body: some View {
         Group {
             if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
+                #if os(Android)
+                let authoringStore = authorizationStore.scope(\.content, action: \.content)
+                let teamWorkspaceDetailStore = authoringStore.scope(
+                    \.content,
+                    action: \.content
+                )
+                NavigationStack {
+                    TeamWorkspaceDetailView(
+                        store: teamWorkspaceDetailStore,
+                        showsAuthoringControls: authoringStore.access.canEditContent
+                    )
+                    .whiteLabelRootActionsToolbar(store: store)
+                }
+                #else
                 OpenMusicEventAuthorizationView(store: authorizationStore) { authoringStore in
                     let teamWorkspaceDetailStore = authoringStore.scope(
                         \.content,
@@ -362,6 +389,7 @@ public struct WhiteLabelRootView: View {
                         .whiteLabelRootToolbar(store: store)
                     }
                 }
+                #endif
             } else if let organizationRootStore = store.spawn(\.organizationRoot) {
                 OrganizationRootView(
                     store: organizationRootStore,
@@ -439,7 +467,10 @@ public struct WhiteLabelRootView: View {
         var body: some View {
             Section {
                 HStack(spacing: 12) {
-                    Image(systemName: configuration.brand.systemImage)
+                    Image(
+                        system: configuration.brand.systemImage,
+                        material: configuration.brand.composeImage
+                    )
                         .font(.title2)
                         .foregroundColor(.accentColor)
                     VStack(alignment: .leading) {
@@ -488,7 +519,7 @@ struct WhiteLabelRootActionsMenu: View {
         Menu {
             if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
                 let authoringStore = authorizationStore.scope(\.content, action: \.content)
-                if !authoringStore.access.canEditContent {
+                if authoringStore.canEnterAuthoring {
                     Button {
                         authoringStore.send(.enterButtonTapped)
                     } label: {
@@ -512,7 +543,11 @@ struct WhiteLabelRootActionsMenu: View {
                         Button {
                             teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
                         } label: {
-                            Label("Workspace", systemImage: EventFeature.workspace.systemImage)
+                            Label(
+                                "Workspace",
+                                systemImage: EventFeature.workspace.systemImage,
+                                composeImage: EventFeature.workspace.composeImage
+                            )
                         }
                     }
                 }

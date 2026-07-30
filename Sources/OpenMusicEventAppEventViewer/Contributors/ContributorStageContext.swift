@@ -1,6 +1,10 @@
 import Foundation
 import OpenMusicEventDatabase
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 struct ContributorStageContext {
     let contributorID: OMERecord.ID<OMERecord.Contributor>

@@ -2,7 +2,11 @@ import Dependencies
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 public enum ImageAssetPlaceholderReason: Equatable, Sendable {
     case loading
@@ -15,6 +19,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     let cacheContext: LocalImageCacheContext?
     var contentMode: ContentMode?
     var focusSafeAreaInsets: EdgeInsets
+    let onIntrinsicSizeLoaded: (CGSize) -> Void
     @ViewBuilder var placeholder: (ImageAssetPlaceholderReason) -> Placeholder
     @Dependency(\.imageAssetResolver) var imageAssetResolver
     @State var resolvedAsset: OME.ImageAsset?
@@ -26,12 +31,14 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
+        onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.asset = asset
         self.cacheContext = cacheContext
         self.contentMode = contentMode
         self.focusSafeAreaInsets = focusSafeAreaInsets
+        self.onIntrinsicSizeLoaded = onIntrinsicSizeLoaded
         self.placeholder = { _ in placeholder() }
     }
 
@@ -40,12 +47,14 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
+        onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
     ) {
         self.asset = asset
         self.cacheContext = cacheContext
         self.contentMode = contentMode
         self.focusSafeAreaInsets = focusSafeAreaInsets
+        self.onIntrinsicSizeLoaded = onIntrinsicSizeLoaded
         self.placeholder = placeholder
     }
 
@@ -53,12 +62,14 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         image: DisplayImageAsset?,
         contentMode: ContentMode? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
+        onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.asset = image?.asset
         self.cacheContext = image?.cacheContext
         self.contentMode = contentMode
         self.focusSafeAreaInsets = focusSafeAreaInsets
+        self.onIntrinsicSizeLoaded = onIntrinsicSizeLoaded
         self.placeholder = { _ in placeholder() }
     }
 
@@ -66,12 +77,14 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         image: DisplayImageAsset?,
         contentMode: ContentMode? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
+        onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
     ) {
         self.asset = image?.asset
         self.cacheContext = image?.cacheContext
         self.contentMode = contentMode
         self.focusSafeAreaInsets = focusSafeAreaInsets
+        self.onIntrinsicSizeLoaded = onIntrinsicSizeLoaded
         self.placeholder = placeholder
     }
 
@@ -92,8 +105,15 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
                 switch phase {
                 case .empty:
                     placeholder(.loading)
-                case let .success(image):
-                    renderedImage(image, asset: displayAsset)
+                case let .success(image, intrinsicSize):
+                    renderedImage(
+                        image,
+                        intrinsicSize: intrinsicSize,
+                        asset: displayAsset
+                    )
+                    .onAppear {
+                        onIntrinsicSizeLoaded(intrinsicSize)
+                    }
                 case .failure:
                     placeholder(.failure)
                 case .unavailable:
@@ -163,6 +183,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     @ViewBuilder
     func renderedImage(
         _ image: Image,
+        intrinsicSize: CGSize,
         asset: OME.ImageAsset?
     ) -> some View {
         let image = image
@@ -170,11 +191,10 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
             .resizable()
 
         if resolvedContentMode == .fill,
-           let dimensions = asset?.dimensions?.size,
            let focalPoint = asset?.focalPoint?.point {
             FocusedAsyncImage(
                 image: image,
-                imageSize: dimensions,
+                imageSize: intrinsicSize,
                 focalPoint: focalPoint,
                 safeAreaInsets: focusSafeAreaInsets
             )
@@ -227,7 +247,7 @@ struct FocusedAsyncImage: View {
         .clipped()
     }
 
-    private func safeRect(in size: CGSize) -> CGRect {
+    func safeRect(in size: CGSize) -> CGRect {
         let width = size.width - safeAreaInsets.leading - safeAreaInsets.trailing
         let height = size.height - safeAreaInsets.top - safeAreaInsets.bottom
         guard width > 0, height > 0 else {
@@ -239,13 +259,6 @@ struct FocusedAsyncImage: View {
             width: width,
             height: height
         )
-    }
-}
-
-private extension OME.ImageAsset.Dimensions {
-    var size: CGSize? {
-        guard width > 0, height > 0 else { return nil }
-        return CGSize(width: width, height: height)
     }
 }
 

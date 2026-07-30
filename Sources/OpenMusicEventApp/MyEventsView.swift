@@ -50,7 +50,7 @@ struct MyEventsView: View {
                         showsAuthoringControls: authoringStore.access.canEditContent
                     )
                     .toolbar {
-                        if !authoringStore.access.canEditContent {
+                        if authoringStore.canEnterAuthoring {
                             ToolbarItem(placement: .primaryAction) {
                                 Button {
                                     authoringStore.send(.enterButtonTapped)
@@ -201,7 +201,7 @@ struct FetchLoadErrorSection: View {
                                 .foregroundStyle(.secondary)
                             Text(String(describing: failure.error))
                                 .font(.caption)
-                                .textSelection(.enabled)
+                                .myEventsSelectableText()
                         }
                     }
                 }
@@ -212,6 +212,18 @@ struct FetchLoadErrorSection: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func myEventsSelectableText() -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.textSelection(.enabled)
+        #endif
+    }
+}
+
+#if !os(Android)
 #Preview {
     NavigationStack {
         MyEventsView(store: Store(initialState: .init(), feature: {
@@ -219,6 +231,7 @@ struct FetchLoadErrorSection: View {
         }))
     }
 }
+#endif
 
 struct OrganizerRowView: View {
     var organizer: OMERecord.Organizer
@@ -336,7 +349,10 @@ struct EventRowView: View {
                 EventImageSourceChain(
                     sources: imageSources[...]
                 ) {
-                    Image(systemName: "music.note")
+                    Image(
+                        system: "music.note",
+                        material: "Icons.Outlined.MusicNote"
+                    )
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }

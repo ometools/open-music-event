@@ -1,6 +1,12 @@
 import Foundation
-#if canImport(SwiftUI)
+#if os(Android) || canImport(SwiftUI)
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
 
 public struct TimeZonePicker: View {
     @Environment(\.dismiss) var dismiss
@@ -125,7 +131,18 @@ struct TimeZoneRow: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .contentShape(Rectangle())
+        .timeZoneRowContentShape()
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func timeZoneRowContentShape() -> some View {
+        #if TARGET_OS_ANDROID
+        self
+        #else
+        self.contentShape(Rectangle())
+        #endif
     }
 }
 #endif

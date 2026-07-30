@@ -13,6 +13,11 @@ public extension OME {
                 recordType: Calendar.sourceRecordType,
                 fileFamily: .calendar
             ),
+            OpenMusicEventSourceProjection(
+                tableType: WorkspaceRelationshipRecord.self,
+                recordType: WorkspaceRelationshipRecord.sourceRecordType,
+                fileFamily: .collaborator
+            ),
         ]
     }
 
@@ -102,6 +107,7 @@ public extension OME {
 public struct OpenMusicEventSourceProjection {
     public enum FileFamily: Equatable, Sendable {
         case calendar
+        case collaborator
         case event
         case stage
         case contributor
@@ -132,6 +138,8 @@ extension OME.Calendar: SourceEditableTable {
         ]
     }
 }
+
+extension WorkspaceRelationshipRecord: SourceEditableTable {}
 
 extension OME.Event: SourceEditableTable {
     public static var sourceColumnPolicies: SourceColumnPolicies<Self> {
@@ -179,7 +187,6 @@ private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, S
     var appearance: OME.ImageAsset.Appearance?
     var materializationPolicy: OME.ImageAsset.MaterializationPolicy
     var thumbhash: String?
-    var dimensions: OME.ImageAsset.Dimensions?
     var focalPoint: OME.ImageAsset.FocalPoint?
 
     init(_ image: OME.ImageAsset) {
@@ -193,7 +200,6 @@ private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, S
         self.appearance = image.appearance
         self.materializationPolicy = image.materializationPolicy
         self.thumbhash = image.thumbhash
-        self.dimensions = image.dimensions
         self.focalPoint = image.focalPoint
     }
 
@@ -209,7 +215,6 @@ private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, S
             && lhs.appearance == rhs.appearance
             && lhs.materializationPolicy == rhs.materializationPolicy
             && lhs.thumbhash == rhs.thumbhash
-            && lhs.dimensions == rhs.dimensions
             && lhs.focalPoint == rhs.focalPoint
     }
 
@@ -222,7 +227,6 @@ private struct SourceComparableImageAsset: CustomDumpRepresentable, Equatable, S
             appearance: appearance?.rawValue,
             materializationPolicy: materializationPolicy.rawValue,
             thumbhash: thumbhash,
-            dimensions: dimensions.map { (width: $0.width, height: $0.height) },
             focalPoint: focalPoint.map { (x: $0.x, y: $0.y) }
         )
     }

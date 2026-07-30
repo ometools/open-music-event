@@ -76,8 +76,14 @@ private extension String {
     }
 }
 
-#if canImport(SwiftUI)
+#if os(Android) || canImport(SwiftUI)
+#if os(Android)
+import SkipSwiftUI
+#else
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
 
 enum TechnicalDetailsEnvironmentKey: EnvironmentKey {
     static let defaultValue = TechnicalDetails.isVisible(userPreference: false)
@@ -108,7 +114,9 @@ public struct WorkspaceTechnicalValueView: View {
             Text(value)
                 .font(.caption)
                 .monospaced()
+                #if !os(Android)
                 .textSelection(.enabled)
+                #endif
         }
     }
 }

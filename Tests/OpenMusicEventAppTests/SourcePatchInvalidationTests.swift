@@ -258,6 +258,53 @@ struct SourcePatchInvalidationTests {
     }
 
     @Test
+    func workspaceRelationshipInsertPublishesWorkspaceInvalidation() async throws {
+        let database = try makePreparedDatabase()
+        let ownerID = try #require(DID("did:plc:owner"))
+        let collaboratorID = try #require(DID("did:plc:collaborator"))
+        let workspace = EditingWorkspaceRecord(
+            id: .init(rawValue: "team.workspace"),
+            kind: .team,
+            databaseFileName: "workspace.sqlite",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1),
+            publicRecord: OME.Relationship.RecordReference(
+                author: ownerID,
+                collection: OME.SourceRecord.nsid,
+                rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
+            )
+        )
+        try await database.write { db in
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+        }
+        let invalidations = try installSourcePatchInvalidations(in: database)
+        let invalidationTask = nextInvalidationTask(from: invalidations.stream())
+        let relationship = OME.Relationship(
+            subject: .identity(did: collaboratorID),
+            role: .collaborator([.propose]),
+            object: .record(try #require(workspace.publicRecord)),
+            createdAt: "2026-07-29T00:00:00Z"
+        )
+
+        try await database.write { db in
+            try WorkspaceRelationshipRecord.insert {
+                WorkspaceRelationshipRecord(
+                    id: .init(workspaceID: workspace.id, actorID: collaboratorID),
+                    recordKey: WorkspaceRelationshipRecord.recordKey(for: collaboratorID),
+                    relationship: relationship
+                )
+            }
+            .execute(db)
+        }
+
+        #expect(try await nextInvalidation(from: invalidationTask) == SourcePatchInvalidation(
+            workspaceID: workspace.id,
+            operation: .insert,
+            tableName: WorkspaceRelationshipRecord.tableName
+        ))
+    }
+
+    @Test
     func blueskyActorCacheWritesDoNotPublishSourceInvalidations() async throws {
         let database = try makePreparedDatabase()
         let invalidations = try installSourcePatchInvalidations(in: database)

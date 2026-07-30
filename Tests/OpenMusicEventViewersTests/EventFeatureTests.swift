@@ -5,9 +5,9 @@ import Testing
 @Suite
 struct EventFeatureTests {
     @Test
-    func readOnlyDefaultFeaturesExcludeEditorTabs() {
+    func readOnlyDefaultFeaturesKeepSettingsAndExcludeWorkspace() {
         #expect(!EventFeature.defaultReadOnlyFeatures.contains(.workspace))
-        #expect(!EventFeature.defaultReadOnlyFeatures.contains(.settings))
+        #expect(EventFeature.defaultReadOnlyFeatures.contains(.settings))
     }
 
     @Test
@@ -28,7 +28,7 @@ struct EventFeatureTests {
             .schedule(workshopDivision),
         ])
         #expect(!features.contains(.workspace))
-        #expect(!features.contains(.settings))
+        #expect(features.contains(.settings))
     }
 
     @Test

@@ -1,4 +1,8 @@
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 import Testing
 
 @testable import SwiftUITabFeatures
@@ -140,6 +144,7 @@ struct SwiftUITabFeaturesTests {
             DemoTab.schedule,
             title: "Schedule",
             systemImage: "calendar",
+            composeImage: "Icons.Outlined.DateRange",
             navigation: .stack
         ) {
             EmptyView()
@@ -148,6 +153,8 @@ struct SwiftUITabFeaturesTests {
         #expect(feature.metadata.value == .schedule)
         #expect(feature.metadata.title == "Schedule")
         #expect(feature.metadata.systemImage == symbol("calendar"))
+        #expect(feature.metadata.composeImage == symbol("Icons.Outlined.DateRange"))
+        #expect(feature.metadata.effectiveComposeImage == symbol("Icons.Outlined.DateRange"))
         #expect(feature.metadata.role == nil)
     }
 
@@ -163,6 +170,7 @@ struct SwiftUITabFeaturesTests {
         #expect(feature.metadata.role == .search)
         #expect(feature.metadata.title == "Search")
         #expect(feature.metadata.systemImage == symbol("magnifyingglass"))
+        #expect(feature.metadata.effectiveComposeImage == symbol("magnifyingglass"))
         #expect(feature.metadata.id == id("search"))
         #expect(feature.item.title == "Search")
         #expect(feature.item.systemImage == symbol("magnifyingglass"))

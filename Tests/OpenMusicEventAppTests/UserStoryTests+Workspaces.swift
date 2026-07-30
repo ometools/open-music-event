@@ -361,7 +361,8 @@ extension UserStoryTests {
             let authoringGrant = try #require(
                 await store[dynamicMember: \.storyTeamWorkspaceAuthoring?.grant]
             )
-            expectNoDifference(authoringGrant.capabilities, [.editContent])
+            expectNoDifference(authoringGrant.principal, .local)
+            expectNoDifference(authoringGrant.role, .owner)
 
         }
 
@@ -385,7 +386,7 @@ extension UserStoryTests {
 
             #expect(
                 await store[dynamicMember: \.storyEventAuthoring?.access]
-                == .authoring([.editContent])
+                == .authoring(.owner)
             )
             #expect(
                 await store[dynamicMember: \.storyEventViewer?.selectedFeature]
@@ -918,7 +919,9 @@ private struct TestivalPullRequestBackend {
             brand: WhiteLabelBrand(displayName: "Testival"),
             organizerID: UserStory.organizerID
         )
-        self.authoringPolicy = AuthoringPolicyClient { _ in [.editContent] }
+        self.authoringPolicy = AuthoringPolicyClient { _ in
+            .granted(principal: .local, role: .owner)
+        }
         self.createdPublication = createdPublication
         self.createdReview = createdReview
         self.database = database

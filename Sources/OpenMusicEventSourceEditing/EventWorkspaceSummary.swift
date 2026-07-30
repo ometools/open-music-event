@@ -305,4 +305,15 @@ public extension SourceRecordScope {
             ]
         )
     }
+
+    static func openMusicEventWorkspace(_ workspaceID: EditingWorkspaceRecord.ID) -> Self {
+        SourceRecordScope(
+            filters: [
+                SourceRecordScope.Filter(
+                    columnName: "workspaceID",
+                    value: workspaceID.rawValue.queryBinding
+                ),
+            ]
+        )
+    }
 }

@@ -1,4 +1,4 @@
-package open.music.event
+package open.music.event.app
 
 import skip.lib.*
 import skip.model.*
@@ -29,7 +29,7 @@ import androidx.core.app.ActivityCompat
 
 internal val logger: SkipLogger = SkipLogger(subsystem = "open.music.event", category = "OpenMusicEvent")
 
-private typealias AppRootView = OpenMusicEventRootView
+private typealias AppRootView = WickedWoodsApplicationRootView
 private typealias AppDelegate = OpenMusicEventAppDelegate
 
 /// AndroidAppMain is the `android.app.Application` entry point, and must match `application android:name` in the AndroidMainfest.xml file.
@@ -41,6 +41,7 @@ open class AndroidAppMain: Application {
         super.onCreate()
         logger.info("starting app")
         ProcessInfo.launch(applicationContext)
+        AppDelegate.shared.prepareWickedWoodsDependencies()
         AppDelegate.shared.onInit()
     }
 

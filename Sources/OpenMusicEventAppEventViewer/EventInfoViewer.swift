@@ -2,10 +2,15 @@ import ComposableArchitecture2
 import Dependencies
 import Foundation
 import Lexicon
+import OpenMusicEventComponents
 import OpenMusicEventEditors
 import OpenMusicEventImages
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct EventInfoViewer {
@@ -91,7 +96,10 @@ public struct EventInfoViewerView: View {
                         sources: heroImageSources,
                         titleSources: heroImageTitleSources
                     ) {
-                        Image(systemName: "music.note")
+                        Image(
+                            system: "music.note",
+                            material: "Icons.Outlined.MusicNote"
+                        )
                             .font(.system(size: 82, weight: .semibold))
                     }
                 } content: {

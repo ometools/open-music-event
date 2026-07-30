@@ -1,49 +1,64 @@
+import ATProto
 import ComposableArchitecture2
 import Dependencies
 import ErrorHandling
 import Foundation
+import OpenMusicEventLexicon
 #if canImport(OSLog)
 import OSLog
 #endif
 import Sharing
 
-public enum AuthoringCapability: Hashable, Sendable {
-    case editContent
-    case manageWorkspace
+public enum AuthoringPrincipal: Equatable, Hashable, Sendable {
+    case local
+    case actor(DID)
 }
 
 public enum AuthoringAccess: Equatable, Sendable {
     case attendee
-    case authoring(Set<AuthoringCapability>)
+    case authoring(OME.WorkspaceRole)
 
     public var canEditContent: Bool {
-        capabilities.contains(.editContent)
+        guard case .authoring = self else { return false }
+        return true
     }
 
     public var canManageWorkspace: Bool {
-        capabilities.contains(.manageWorkspace)
+        role?.canManageCollaborators == true
     }
 
-    public var capabilities: Set<AuthoringCapability> {
-        guard case let .authoring(capabilities) = self else { return [] }
-        return capabilities
+    public var canPropose: Bool {
+        role?.canPropose == true
+    }
+
+    public var canMerge: Bool {
+        role?.canMerge == true
+    }
+
+    public var role: OME.WorkspaceRole? {
+        guard case let .authoring(role) = self else { return nil }
+        return role
     }
 }
 
 public struct AuthoringGrant: Equatable, Sendable {
-    public var capabilities: Set<AuthoringCapability>
+    public var principal: AuthoringPrincipal
+    public var role: OME.WorkspaceRole
     public var workspace: WorkspaceContext
 
     public init(
-        capabilities: Set<AuthoringCapability>,
+        principal: AuthoringPrincipal,
+        role: OME.WorkspaceRole,
         workspace: WorkspaceContext
     ) {
-        self.capabilities = capabilities
+        self.principal = principal
+        self.role = role
         self.workspace = workspace
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.capabilities == rhs.capabilities
+        lhs.principal == rhs.principal
+            && lhs.role == rhs.role
             && lhs.workspace.id == rhs.workspace.id
             && lhs.workspace.sourceEditingSession?.workingDatabasePath
                 == rhs.workspace.sourceEditingSession?.workingDatabasePath
@@ -52,7 +67,7 @@ public struct AuthoringGrant: Equatable, Sendable {
     }
 
     public var access: AuthoringAccess {
-        .authoring(capabilities)
+        .authoring(role)
     }
 }
 
@@ -77,33 +92,42 @@ public struct AuthoringContext: Sendable {
 }
 
 public struct AuthoringPolicyClient: Sendable {
-    public var authorize: @Sendable (
+    public var admission: @Sendable (
         EditingWorkspaceRecord.ID
-    ) async throws -> Set<AuthoringCapability>
+    ) async throws -> AuthoringAdmission
+    public var requestSignIn: @Sendable () async throws -> Void
 
     public init(
-        authorize: @escaping @Sendable (
+        admission: @escaping @Sendable (
             EditingWorkspaceRecord.ID
-        ) async throws -> Set<AuthoringCapability>
+        ) async throws -> AuthoringAdmission,
+        requestSignIn: @escaping @Sendable () async throws -> Void = {}
     ) {
-        self.authorize = authorize
+        self.admission = admission
+        self.requestSignIn = requestSignIn
     }
+}
+
+public enum AuthoringAdmission: Equatable, Sendable {
+    case granted(principal: AuthoringPrincipal, role: OME.WorkspaceRole)
+    case signInRequired
+    case denied
 }
 
 public enum AuthoringPolicyError: Error, Equatable, Sendable {
     case authorizationRequired
-    case editContentDenied
+    case admissionDenied
 }
 
 public extension AuthoringPolicyClient {
     static var authoring: Self {
-        Self { _ in [.editContent] }
+        Self { _ in
+            .granted(principal: .local, role: .owner)
+        }
     }
 
     static var attendee: Self {
-        Self { _ in
-            throw AuthoringPolicyError.authorizationRequired
-        }
+        Self { _ in .denied }
     }
 
     static var live: Self {
@@ -117,12 +141,25 @@ public struct AuthoringRequested: FeatureEventKey {
     public init() {}
 }
 
+public struct AuthoringAccessRevoked: FeatureEventKey {
+    public typealias Value = Void
+
+    public init() {}
+}
+
+public struct AuthoringExitRequested: FeatureEventKey {
+    public typealias Value = Void
+
+    public init() {}
+}
+
 @Feature
 public struct Authoring<Content: FeatureProtocol> {
     public typealias Access = AuthoringAccess
-    public typealias Capability = AuthoringCapability
+    public typealias Capability = OME.WorkspaceRole.Capability
     public typealias Context = AuthoringContext
     public typealias Grant = AuthoringGrant
+    public typealias Role = OME.WorkspaceRole
 
     public init(
         makeContent: @escaping @Sendable () -> Content
@@ -189,6 +226,9 @@ public struct Authoring<Content: FeatureProtocol> {
         ) {
             self._grant = grant
             self.attendeeWorkspace = attendeeWorkspace
+            self.admission = grant.wrappedValue.map {
+                .granted(principal: $0.principal, role: $0.role)
+            }
             self.initiallyRequestsEntry = initiallyRequestsEntry
             let workspace = grant.wrappedValue?.workspace ?? attendeeWorkspace
             self.content = withDependencies {
@@ -202,7 +242,9 @@ public struct Authoring<Content: FeatureProtocol> {
         }
 
         @Shared public var grant: AuthoringGrant?
+        public var admission: AuthoringAdmission?
         public var content: Content.State
+        @StoreTaskID public var admissionCheck
         @StoreTaskID public var entry
         @StoreTaskID public var sourcePreparation
         @DebugSnapshotIgnored public var attendeeWorkspace: WorkspaceContext
@@ -215,6 +257,13 @@ public struct Authoring<Content: FeatureProtocol> {
 
         public var access: AuthoringAccess {
             grant?.access ?? .attendee
+        }
+
+        public var canEnterAuthoring: Bool {
+            guard !access.canEditContent,
+                  case .granted = admission
+            else { return false }
+            return true
         }
 
         public var workspace: WorkspaceContext {
@@ -232,6 +281,7 @@ public struct Authoring<Content: FeatureProtocol> {
 
         public mutating func invalidateAuthoring() {
             $grant.withLock { $0 = nil }
+            admission = nil
         }
     }
 
@@ -240,6 +290,7 @@ public struct Authoring<Content: FeatureProtocol> {
         case content(Content.Action)
         case enterButtonTapped
         case exitButtonTapped
+        case refreshAdmission
     }
 
     @Dependency(AuthoringPolicyClient.self) var policy
@@ -249,6 +300,10 @@ public struct Authoring<Content: FeatureProtocol> {
         Update { state, action in
             switch action {
             case let .authoringEntryPrepared(grant):
+                state.admission = .granted(
+                    principal: grant.principal,
+                    role: grant.role
+                )
                 state.$grant.withLock { $0 = grant }
                 AuthoringEntryDiagnostics.logDone(workspaceID: grant.workspace.id)
                 prepareSource(state: &state, workspaceID: grant.workspace.id)
@@ -261,6 +316,11 @@ public struct Authoring<Content: FeatureProtocol> {
 
             case .exitButtonTapped:
                 state.invalidateAuthoring()
+                refreshAdmission(state: &state)
+
+            case .refreshAdmission:
+                state.invalidateAuthoring()
+                refreshAdmission(state: &state)
             }
         }
         Scope(\.content, action: \.content) {
@@ -282,24 +342,81 @@ public struct Authoring<Content: FeatureProtocol> {
         .onEvent(AuthoringRequested.self) { _, state in
             enterAuthoring(state: &state)
         }
+        .onEvent(AuthoringAccessRevoked.self) { _, state in
+            state.invalidateAuthoring()
+            state.admission = .denied
+        }
+        .onEvent(AuthoringExitRequested.self) { _, state in
+            state.invalidateAuthoring()
+        }
         .onMount { state in
-            guard state.initiallyRequestsEntry else { return }
-            state.initiallyRequestsEntry = false
-            enterAuthoring(state: &state)
+            if state.initiallyRequestsEntry {
+                state.initiallyRequestsEntry = false
+                enterAuthoring(state: &state)
+            } else {
+                refreshAdmission(state: &state)
+            }
+        }
+    }
+
+    private func refreshAdmission(state: inout State) {
+        guard !state.access.canEditContent else { return }
+
+        state.admission = nil
+        let workspaceID = state.workspaceID
+        store.addTask(id: state.admissionCheck) {
+            do {
+                let admission = try await policy.admission(workspaceID)
+                try store.modify {
+                    $0.admission = admission
+                }
+            } catch {
+                await store.reportError(
+                    error,
+                    fallbackMessage: UserFacingText(
+                        "Unable to check authoring access.",
+                        fallback: "Unable to check authoring access."
+                    ),
+                    operation: ErrorOperation(rawValue: "authoring.admission")
+                )
+            }
         }
     }
 
     private func enterAuthoring(state: inout State) {
         guard !state.access.canEditContent, !state.entry.isRunning else { return }
 
+        let admissionCheck = state.admissionCheck
+        state.admission = nil
         let workspaceID = state.workspaceID
         store.addTask(id: state.entry) {
+            await admissionCheck.cancel()?.value
+            try store.modify {
+                $0.admission = nil
+            }
             AuthoringEntryDiagnostics.logStarted(workspaceID: workspaceID)
-            let capabilities: Set<AuthoringCapability>
+            let principal: AuthoringPrincipal
+            let role: OME.WorkspaceRole
             do {
-                capabilities = try await policy.authorize(workspaceID)
-                guard capabilities.contains(.editContent) else {
-                    throw AuthoringPolicyError.editContentDenied
+                var admission = try await policy.admission(workspaceID)
+                if case .signInRequired = admission {
+                    try await policy.requestSignIn()
+                    admission = try await policy.admission(workspaceID)
+                }
+                switch admission {
+                case let .granted(grantedPrincipal, grantedRole):
+                    principal = grantedPrincipal
+                    role = grantedRole
+                case .signInRequired:
+                    try store.modify {
+                        $0.admission = admission
+                    }
+                    throw AuthoringPolicyError.authorizationRequired
+                case .denied:
+                    try store.modify {
+                        $0.admission = admission
+                    }
+                    throw AuthoringPolicyError.admissionDenied
                 }
             } catch {
                 AuthoringEntryDiagnostics.logFailed(
@@ -323,7 +440,8 @@ public struct Authoring<Content: FeatureProtocol> {
                 try store.send(
                     .authoringEntryPrepared(
                         AuthoringGrant(
-                            capabilities: capabilities,
+                            principal: principal,
+                            role: role,
                             workspace: workspace
                         )
                     )

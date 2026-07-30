@@ -630,11 +630,20 @@ struct TeamWorkspaceCreateEventView: View {
             if store.isLoadingRolloverOptions && store.rolloverOptions.isEmpty {
                 ProgressView("Loading previous events…")
             } else if store.rolloverOptions.isEmpty {
+                #if os(Android) && SKIP_BRIDGE
+                VStack(spacing: 8) {
+                    Label("No Previous Events", systemImage: "calendar.badge.exclamationmark")
+                    Text("Only events with stages can seed a rollover.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                #else
                 ContentUnavailableView(
                     "No Previous Events",
                     systemImage: "calendar.badge.exclamationmark",
                     description: Text("Only events with stages can seed a rollover.")
                 )
+                #endif
             } else {
                 ForEach(store.rolloverOptions) { sourceEvent in
                     Button {

@@ -1,9 +1,14 @@
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import ScheduleComponents
 import SwiftUITabFeatures
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 struct ContributorDetailContentView: View {
     let profile: ContributorProfile
@@ -147,7 +152,7 @@ struct ContributorSchedulePerformanceRow: View {
 
                     if let timingStatus {
                         PerformanceTimingChip(status: timingStatus)
-                            .layoutPriority(1)
+                            .portableLayoutPriority(1)
                     }
                 }
             }
@@ -162,7 +167,10 @@ struct ContributorSchedulePerformanceRow: View {
         if let stage = row.stage {
             ScheduleStageIcon(stage: stage)
         } else {
-            Image(systemName: "music.note")
+            Image(
+                system: "music.note",
+                material: "Icons.Outlined.MusicNote"
+            )
                 .resizable()
                 .scaledToFit()
                 .padding(10)

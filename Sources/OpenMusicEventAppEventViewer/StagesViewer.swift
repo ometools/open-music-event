@@ -562,6 +562,7 @@ public struct StagesViewerView: View {
                 ViewerPlaceholderView(
                     title: "No Results",
                     systemImage: "square.grid.2x2",
+                    composeImage: "Icons.Outlined.GridView",
                     description: "No stages match your search."
                 )
             } else {
@@ -647,7 +648,10 @@ struct EmptyStagesView: View {
         VStack(spacing: 16) {
             Spacer()
 
-            Image(systemName: "square.grid.2x2")
+            Image(
+                system: "square.grid.2x2",
+                material: "Icons.Outlined.GridView"
+            )
                 .font(.system(size: 52))
                 .foregroundStyle(.secondary)
 
@@ -741,7 +745,7 @@ public struct CopyStagesFromEventView: View {
                                         .foregroundStyle(.tint)
                                 }
                             }
-                            .contentShape(Rectangle())
+                            .portableContentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
@@ -782,7 +786,7 @@ public struct CopyStagesFromEventView: View {
                                         : Color.secondary
                                 )
                             }
-                            .contentShape(Rectangle())
+                            .portableContentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
@@ -1106,11 +1110,15 @@ public struct StageDetailView: View {
             } else {
                 Group {
                     if showsTechnicalDetails {
-                        ContentUnavailableView(
-                            "Stage",
-                            systemImage: "square.grid.2x2",
-                            description: Text(verbatim: store.stageID.rawValue.rawValue)
-                        )
+                        ContentUnavailableView {
+                            Label(
+                                "Stage",
+                                systemImage: "square.grid.2x2",
+                                composeImage: "Icons.Outlined.GridView"
+                            )
+                        } description: {
+                            Text(verbatim: store.stageID.rawValue.rawValue)
+                        }
                     } else {
                         ContentUnavailableView("Stage unavailable", systemImage: "square.grid.2x2")
                     }
@@ -2068,11 +2076,15 @@ struct EditStageLoadedForm: View {
     }
 
     private var colorField: some View {
+        #if os(Android) && SKIP_BRIDGE
+        Text("Stage Color")
+        #else
         ColorPicker(
             "Stage Color",
             selection: $store.form.value.color.editStageColor,
             supportsOpacity: false
         )
+        #endif
     }
 
     @ViewBuilder
@@ -2095,6 +2107,7 @@ struct EditStageContent: View {
             ViewerPlaceholderView(
                 title: store.navigationTitle,
                 systemImage: "square.grid.2x2",
+                composeImage: "Icons.Outlined.GridView",
                 description: "This event stage could not be loaded."
             )
         }

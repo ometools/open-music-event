@@ -6,7 +6,11 @@ import Lexicon
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct EditEventPolicies {

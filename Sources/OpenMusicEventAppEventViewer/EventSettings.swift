@@ -5,8 +5,13 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
+import OpenMusicEventSourceEditing
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct EventSettings {
@@ -37,7 +42,9 @@ public struct EventSettings {
         case deleteEventButtonTapped
         case deleteEventConfirmationDeleteButtonTapped
         case deleteEventConfirmationPresentedChanged(Bool)
+        case enterAuthoringButtonTapped
         case eventPoliciesButtonTapped
+        case exitAuthoringButtonTapped
         case reportingLinkButtonTapped
         case testErrorButtonTapped
     }
@@ -63,6 +70,12 @@ public struct EventSettings {
             case let .deleteEventConfirmationPresentedChanged(isPresented):
                 state.isDeleteEventConfirmationPresented = isPresented
 
+            case .enterAuthoringButtonTapped:
+                store.addTask {
+                    let task = try store.post(key: AuthoringRequested.self, value: ())
+                    await task?.value
+                }
+
             case .eventPoliciesButtonTapped:
                 let eventID = state.eventID
                 store.addTask {
@@ -70,6 +83,12 @@ public struct EventSettings {
                         key: EventEditingRequested.self,
                         value: .editEventPolicies(eventID)
                     )
+                    await task?.value
+                }
+
+            case .exitAuthoringButtonTapped:
+                store.addTask {
+                    let task = try store.post(key: AuthoringExitRequested.self, value: ())
                     await task?.value
                 }
 
@@ -99,54 +118,73 @@ public struct EventSettings {
 
 public struct EventSettingsView: View {
     @Bindable var store: StoreOf<EventSettings>
+    let showsAuthoringControls: Bool
 
-    public init(store: StoreOf<EventSettings>) {
+    public init(
+        store: StoreOf<EventSettings>,
+        showsAuthoringControls: Bool
+    ) {
         self.store = store
+        self.showsAuthoringControls = showsAuthoringControls
     }
 
     public var body: some View {
         Form {
-            Section("Integrations") {
-                Button {
-                    store.send(.reportingLinkButtonTapped)
-                } label: {
-                    HStack {
-                        Text("Reporting Link")
-                        Spacer()
-                        Text(store.event?.reportingLink == nil ? "Not configured" : "Configured")
-                            .foregroundStyle(.secondary)
+            Section("Authoring") {
+                if showsAuthoringControls {
+                    Button("Exit Authoring") {
+                        store.send(.exitAuthoringButtonTapped)
+                    }
+                } else {
+                    Button("Enter Authoring") {
+                        store.send(.enterAuthoringButtonTapped)
                     }
                 }
-                .buttonStyle(.plain)
             }
 
-            Section("Policies") {
-                Button {
-                    store.send(.eventPoliciesButtonTapped)
-                } label: {
-                    Label("Event Policies", systemImage: "slider.horizontal.3")
-                }
-            }
-
-            Section("Error Handling") {
-                Button {
-                    store.send(.testErrorButtonTapped)
-                } label: {
-                    Label("Send Test Error", systemImage: "exclamationmark.triangle")
-                }
-            }
-
-            if store.canDeleteEvent {
-                Section {
-                    Button(role: .destructive) {
-                        store.send(.deleteEventButtonTapped)
+            if showsAuthoringControls {
+                Section("Integrations") {
+                    Button {
+                        store.send(.reportingLinkButtonTapped)
                     } label: {
-                        Label("Delete Event", systemImage: "trash")
+                        HStack {
+                            Text("Reporting Link")
+                            Spacer()
+                            Text(store.event?.reportingLink == nil ? "Not configured" : "Configured")
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                } header: {
-                    Text("Danger Zone")
-                } footer: {
-                    Text("This permanently deletes the event data from this device. Created events are not cached off device.")
+                    .buttonStyle(.plain)
+                }
+
+                Section("Policies") {
+                    Button {
+                        store.send(.eventPoliciesButtonTapped)
+                    } label: {
+                        Label("Event Policies", systemImage: "slider.horizontal.3")
+                    }
+                }
+
+                Section("Error Handling") {
+                    Button {
+                        store.send(.testErrorButtonTapped)
+                    } label: {
+                        Label("Send Test Error", systemImage: "exclamationmark.triangle")
+                    }
+                }
+
+                if store.canDeleteEvent {
+                    Section {
+                        Button(role: .destructive) {
+                            store.send(.deleteEventButtonTapped)
+                        } label: {
+                            Label("Delete Event", systemImage: "trash")
+                        }
+                    } header: {
+                        Text("Danger Zone")
+                    } footer: {
+                        Text("This permanently deletes the event data from this device. Created events are not cached off device.")
+                    }
                 }
             }
         }
@@ -357,8 +395,8 @@ public struct EditReportingLinkView: View {
 
                     if store.isEnabled {
                         Section("Description") {
-                            TextField("Description", text: $store.description, axis: .vertical)
-                                .lineLimit(2...5)
+                            PortableTextField("Description", text: $store.description, axis: .vertical)
+                                .portableLineLimit(2...5)
                         }
                     }
 

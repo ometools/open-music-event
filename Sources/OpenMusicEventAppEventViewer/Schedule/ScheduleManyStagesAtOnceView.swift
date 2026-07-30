@@ -424,7 +424,7 @@ public struct ScheduleManyStagesAtOnceView: View {
                 availableHeight: availableHeight,
                 timeRange: timeRange
             )
-            .safeAreaInset(edge: .top, spacing: 0) {
+            .portableSafeAreaTopInset(spacing: 0) {
                 laneHeader(availableWidth: availableWidth)
             }
         } else {
@@ -441,7 +441,7 @@ public struct ScheduleManyStagesAtOnceView: View {
                 availableHeight: availableHeight,
                 timeRange: timeRange
             )
-            .safeAreaInset(edge: .top, spacing: 0) {
+            .portableSafeAreaTopInset(spacing: 0) {
                 laneHeader(availableWidth: availableWidth)
             }
         } else {

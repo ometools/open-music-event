@@ -6,6 +6,7 @@ import Sharing
 import OpenMusicEventDatabase
 import OpenMusicEventEditors
 import OpenMusicEventAuthentication
+import OpenMusicEventComponents
 import OpenMusicEventSourceEditing
 import OpenMusicEventViewers
 import SQLiteData
@@ -14,7 +15,7 @@ import SwiftUI
 import SwiftUITabFeatures
 import Tagged
 
-#if !SKIP
+#if !SKIP && !os(Android)
 import CoreImage
 import CoreImage.CIFilterBuiltins
 #endif
@@ -1046,7 +1047,9 @@ public struct EventViewerView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-        #if os(iOS)
+        #if os(Android)
+        TabFeaturesViewer(store: store)
+        #elseif os(iOS)
         if #available(iOS 18.0, *) {
             TabFeaturesViewer(store: store)
         } else {
@@ -1063,7 +1066,9 @@ public struct EventViewerView: View {
         #endif
     }
 
+    #if !os(Android)
     @available(iOS 18.0, macOS 15.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
+    #endif
     struct TabFeaturesViewer: View {
         @Bindable var store: StoreOf<EventViewer>
         @State var tabLayout = TabFeatureLayout()
@@ -1087,6 +1092,7 @@ public struct EventViewerView: View {
                         feature,
                         title: feature.title,
                         systemImage: feature.systemImage,
+                        composeImage: feature.composeImage,
                         labelTint: feature.labelTint,
                         navigation: .stack
                     ) {
@@ -1104,6 +1110,7 @@ public struct EventViewerView: View {
                         .contributors,
                         title: EventViewer.EventFeature.contributors.title,
                         systemImage: EventViewer.EventFeature.contributors.systemImage,
+                        composeImage: EventViewer.EventFeature.contributors.composeImage,
                         labelTint: EventViewer.EventFeature.contributors.labelTint,
                         navigation: .stack
                     ) {
@@ -1119,6 +1126,7 @@ public struct EventViewerView: View {
                         .stages,
                         title: EventViewer.EventFeature.stages.title,
                         systemImage: EventViewer.EventFeature.stages.systemImage,
+                        composeImage: EventViewer.EventFeature.stages.composeImage,
                         labelTint: EventViewer.EventFeature.stages.labelTint,
                         navigation: .stack
                     ) {
@@ -1134,6 +1142,7 @@ public struct EventViewerView: View {
                         .communications,
                         title: EventViewer.EventFeature.communications.title,
                         systemImage: EventViewer.EventFeature.communications.systemImage,
+                        composeImage: EventViewer.EventFeature.communications.composeImage,
                         labelTint: EventViewer.EventFeature.communications.labelTint,
                         navigation: .stack
                     ) {
@@ -1147,6 +1156,7 @@ public struct EventViewerView: View {
                             .contactInfo,
                             title: EventViewer.EventFeature.contactInfo.title,
                             systemImage: EventViewer.EventFeature.contactInfo.systemImage,
+                            composeImage: EventViewer.EventFeature.contactInfo.composeImage,
                             labelTint: EventViewer.EventFeature.contactInfo.labelTint,
                             navigation: .stack
                         ) {
@@ -1162,6 +1172,7 @@ public struct EventViewerView: View {
                             .location,
                             title: EventViewer.EventFeature.location.title,
                             systemImage: EventViewer.EventFeature.location.systemImage,
+                            composeImage: EventViewer.EventFeature.location.composeImage,
                             labelTint: EventViewer.EventFeature.location.labelTint,
                             navigation: .stack
                         ) {
@@ -1177,6 +1188,7 @@ public struct EventViewerView: View {
                             .siteMap,
                             title: EventViewer.EventFeature.siteMap.title,
                             systemImage: EventViewer.EventFeature.siteMap.systemImage,
+                            composeImage: EventViewer.EventFeature.siteMap.composeImage,
                             labelTint: EventViewer.EventFeature.siteMap.labelTint,
                             navigation: .stack
                         ) {
@@ -1190,6 +1202,7 @@ public struct EventViewerView: View {
                         .posters,
                         title: EventViewer.EventFeature.posters.title,
                         systemImage: EventViewer.EventFeature.posters.systemImage,
+                        composeImage: EventViewer.EventFeature.posters.composeImage,
                         labelTint: EventViewer.EventFeature.posters.labelTint,
                         navigation: .stack
                     ) {
@@ -1205,6 +1218,7 @@ public struct EventViewerView: View {
                         .notifications,
                         title: EventViewer.EventFeature.notifications.title,
                         systemImage: EventViewer.EventFeature.notifications.systemImage,
+                        composeImage: EventViewer.EventFeature.notifications.composeImage,
                         labelTint: EventViewer.EventFeature.notifications.labelTint,
                         navigation: .stack
                     ) {
@@ -1217,10 +1231,14 @@ public struct EventViewerView: View {
                         .settings,
                         title: EventViewer.EventFeature.settings.title,
                         systemImage: EventViewer.EventFeature.settings.systemImage,
+                        composeImage: EventViewer.EventFeature.settings.composeImage,
                         labelTint: EventViewer.EventFeature.settings.labelTint,
                         navigation: .stack
                     ) {
-                        EventSettingsView(store: featureStore)
+                        EventSettingsView(
+                            store: featureStore,
+                            showsAuthoringControls: store.showsAuthoringControls
+                        )
                     }
                 }
 
@@ -1229,6 +1247,7 @@ public struct EventViewerView: View {
                         .workspace,
                         title: EventViewer.EventFeature.workspace.title,
                         systemImage: EventViewer.EventFeature.workspace.systemImage,
+                        composeImage: EventViewer.EventFeature.workspace.composeImage,
                         labelTint: EventViewer.EventFeature.workspace.labelTint,
                         badgeValue: featureStore.changeCount,
                         navigation: .stack
@@ -1242,6 +1261,7 @@ public struct EventViewerView: View {
                         .about,
                         title: EventViewer.EventFeature.about.title,
                         systemImage: EventViewer.EventFeature.about.systemImage,
+                        composeImage: EventViewer.EventFeature.about.composeImage,
                         labelTint: EventViewer.EventFeature.about.labelTint,
                         navigation: .stack
                     ) {
@@ -1403,7 +1423,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventSettings) {
                 viewerTab(.settings) {
-                    EventSettingsView(store: featureStore)
+                    EventSettingsView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.settings)
             }
@@ -1517,7 +1540,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventSettings) {
                 viewerTab(.settings) {
-                    EventSettingsView(store: featureStore)
+                    EventSettingsView(
+                        store: featureStore,
+                        showsAuthoringControls: store.showsAuthoringControls
+                    )
                 }
                 .tag(EventViewer.EventFeature.settings)
             }
@@ -1657,14 +1683,31 @@ private extension EventEditingIntent {
 struct ViewerPlaceholderView: View {
     let title: String
     let systemImage: String
+    let composeImage: String?
     let description: LocalizedStringKey
 
+    init(
+        title: String,
+        systemImage: String,
+        composeImage: String? = nil,
+        description: LocalizedStringKey
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.composeImage = composeImage
+        self.description = description
+    }
+
     var body: some View {
-        ContentUnavailableView(
-            title,
-            systemImage: systemImage,
-            description: Text(description)
-        )
+        ContentUnavailableView {
+            Label(
+                title,
+                systemImage: systemImage,
+                composeImage: composeImage ?? systemImage
+            )
+        } description: {
+            Text(description)
+        }
         .navigationTitle(title)
     }
 }
@@ -1675,7 +1718,7 @@ struct TestFlightShareView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                #if !SKIP
+                #if !SKIP && !os(Android)
                 Image(decorative: qrCode, scale: 1, orientation: .up)
                     .interpolation(.none)
                     .resizable()
@@ -1694,7 +1737,7 @@ struct TestFlightShareView: View {
         .navigationTitle("Share")
     }
 
-    #if !SKIP
+    #if !SKIP && !os(Android)
     var qrCode: CGImage {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(Self.testFlightURL.absoluteString.utf8)
@@ -1707,6 +1750,7 @@ struct TestFlightShareView: View {
     #endif
 }
 
+#if !os(Android)
 #Preview {
     EventViewerView(
         store: Store(
@@ -1721,3 +1765,4 @@ struct TestFlightShareView: View {
         }
     )
 }
+#endif

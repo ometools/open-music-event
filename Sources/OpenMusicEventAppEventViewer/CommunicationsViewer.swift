@@ -127,7 +127,9 @@ public struct CommunicationsViewerView: View {
                                 ReportingLinkLabel(reportingLink: reportingLink)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityHint("Opens this event's reporting link in a browser.")
+                            .portableAccessibilityHint(
+                                Text("Opens this event's reporting link in a browser.")
+                            )
                         }
                     }
 
@@ -144,7 +146,7 @@ public struct CommunicationsViewerView: View {
                                 } label: {
                                     CommunicationChannelRowView(row: row)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .contentShape(Rectangle())
+                                        .portableContentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -156,6 +158,7 @@ public struct CommunicationsViewerView: View {
                 ViewerPlaceholderView(
                     title: "Comms",
                     systemImage: "megaphone",
+                    composeImage: "Icons.Outlined.Campaign",
                     description: store.event == nil
                         ? "This event could not be loaded."
                         : "No communication channels have been added to this event yet."
@@ -490,7 +493,7 @@ public struct CommsPostDetailView: View {
                 if let headerImageURL = store.post.headerImageURL {
                     CachedRemoteImage(url: headerImageURL) { phase in
                         switch phase {
-                        case let .success(image):
+                        case let .success(image, _):
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)

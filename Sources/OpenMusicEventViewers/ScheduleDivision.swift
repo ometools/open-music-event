@@ -21,6 +21,19 @@ public struct ScheduleDivision: Hashable, Identifiable, Sendable {
         }
     }
 
+    public var composeImage: String {
+        switch category?.rawValue {
+        case nil:
+            return "Icons.Outlined.DateRange"
+        case "workshop":
+            return "Icons.Outlined.SelfImprovement"
+        case "discussions":
+            return "Icons.Outlined.Forum"
+        default:
+            return "Icons.Outlined.GridView"
+        }
+    }
+
     public var title: String {
         switch category?.rawValue {
         case nil:

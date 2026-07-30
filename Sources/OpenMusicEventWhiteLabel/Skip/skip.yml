@@ -1,4 +1,17 @@
-# Skip configuration for OpenMusicEventWhiteLabel module
+# Native Fuse configuration for the shared white-label model module.
 
 skip:
   mode: 'native'
+
+build:
+  contents:
+    - block: 'plugins'
+      contents:
+        - 'alias(libs.plugins.android.library)'
+
+    - block: 'android'
+      contents:
+        - 'compileSdk = libs.versions.android.sdk.compile.get().toInt()'
+        - block: 'defaultConfig'
+          contents:
+            - 'minSdk = libs.versions.android.sdk.min.get().toInt()'

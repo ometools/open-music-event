@@ -10,7 +10,9 @@ import OpenMusicEventSource
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SwiftUI
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 public struct TangledSourceImportClient: Sendable {
     public var importSource: @Sendable (OpenMusicEventSourceValidationRequest) async throws -> OpenMusicEventSourceValidationResult
@@ -243,9 +245,11 @@ struct TangledSourceDownloadView: View {
     var body: some View {
         Form {
             Section {
+                #if canImport(UniformTypeIdentifiers) && !os(Android)
                 Button("Open Local Folder") {
                     isSourceFolderImporterPresented = true
                 }
+                #endif
 
                 TextField(
                     "Workspace address",
@@ -303,6 +307,7 @@ struct TangledSourceDownloadView: View {
             }
         }
         .disabled(store.isImporting)
+        #if canImport(UniformTypeIdentifiers) && !os(Android)
         .fileImporter(
             isPresented: $isSourceFolderImporterPresented,
             allowedContentTypes: [.folder],
@@ -318,6 +323,7 @@ struct TangledSourceDownloadView: View {
                 store.send(.sourceFolderSelectionFailed)
             }
         }
+        #endif
         .navigationTitle("Open Shared Workspace")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

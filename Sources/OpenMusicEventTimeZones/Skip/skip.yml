@@ -1,4 +1,5 @@
-# Skip configuration for OpenMusicEventTimeZones module
+# Skip configuration for OpenMusicEventTimeZones module.
+# Its direct SkipSwiftUI product dependency is declared in Package.swift.
 #
 # Kotlin dependencies and Gradle build options for this module can be configured here
 #build:
@@ -10,3 +11,27 @@
 # this is a natively-compiled Skip Fuse module
 skip:
   mode: 'native'
+
+build:
+  contents:
+    - block: 'plugins'
+      contents:
+        - 'alias(libs.plugins.android.library)'
+        - 'alias(libs.plugins.kotlin.compose)'
+
+    - block: 'android'
+      contents:
+        - 'compileSdk = libs.versions.android.sdk.compile.get().toInt()'
+        - block: 'defaultConfig'
+          contents:
+            - 'minSdk = libs.versions.android.sdk.min.get().toInt()'
+
+    - block: 'dependencies'
+      contents:
+        - 'api(project(":SkipSwiftUI"))'
+        - 'api(project(":SkipAndroidBridge"))'
+        - 'api(project(":SkipBridge"))'
+        - 'api(project(":SkipLib"))'
+        - 'api(project(":SkipFoundation"))'
+        - 'api(project(":SkipUI"))'
+        - 'api(project(":SkipModel"))'

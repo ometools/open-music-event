@@ -349,7 +349,7 @@ public struct OpenMusicEventAuthorizationFormView: View {
         }
         .labelStyle(.titleAndIcon)
         .buttonStyle(.borderedProminent)
-        .controlSize(.extraLarge)
+        .accountExtraLargeControlSize()
         .disabled(store.isSubmitDisabled)
     }
 

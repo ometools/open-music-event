@@ -1,4 +1,10 @@
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
 
 public struct ScheduleHourTag: Hashable {
     public var hour: Int
@@ -9,17 +15,17 @@ public struct ScheduleHourTag: Hashable {
 }
 
 public struct HourLabelsWidthPreferenceKey: PreferenceKey {
-    public static let defaultValue: CGFloat = 43
+    public static let defaultValue: ScheduleCGFloat = 43
 
-    public static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    public static func reduce(value: inout ScheduleCGFloat, nextValue: () -> ScheduleCGFloat) {
         value = nextValue()
     }
 }
 
 public struct HourLabelsHeightPreferenceKey: PreferenceKey {
-    public static let defaultValue: CGFloat = 32
+    public static let defaultValue: ScheduleCGFloat = 32
 
-    public static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    public static func reduce(value: inout ScheduleCGFloat, nextValue: () -> ScheduleCGFloat) {
         value = nextValue()
     }
 }

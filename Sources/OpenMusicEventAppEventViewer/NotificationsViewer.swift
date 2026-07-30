@@ -1,5 +1,9 @@
 import ComposableArchitecture2
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct NotificationsViewer {

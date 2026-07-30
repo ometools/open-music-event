@@ -1,4 +1,10 @@
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
 
 public struct ScheduleHourLines: View {
     @Environment(\.scheduleHeight) var scheduleHeight
@@ -20,7 +26,7 @@ public struct ScheduleHourLines: View {
         return result
     }
 
-    var lineHeights: [CGFloat] {
+    var lineHeights: [ScheduleCGFloat] {
         guard let range = scheduleTimeRange else { return [] }
         return hourDates.map { $0.toY(containerHeight: scheduleHeight, in: range) }
     }
@@ -40,8 +46,8 @@ public struct ScheduleHourLines: View {
         GeometryReader { proxy in
             ForEach(lineHeights, id: \.self) { lineHeight in
                 Path { path in
-                    path.move(to: CGPoint(x: 0, y: lineHeight))
-                    path.addLine(to: CGPoint(x: proxy.size.width, y: lineHeight))
+                    path.move(to: ScheduleCGPoint(x: 0, y: lineHeight))
+                    path.addLine(to: ScheduleCGPoint(x: proxy.size.width, y: lineHeight))
                 }
                 .stroke(lineColor)
             }
@@ -55,8 +61,8 @@ public struct ScheduleHourLines: View {
                 if let range = scheduleTimeRange {
                     let lineX = date.toX(containerWidth: proxy.size.width, in: range)
                     Path { path in
-                        path.move(to: CGPoint(x: lineX, y: 0))
-                        path.addLine(to: CGPoint(x: lineX, y: proxy.size.height))
+                        path.move(to: ScheduleCGPoint(x: lineX, y: 0))
+                        path.addLine(to: ScheduleCGPoint(x: lineX, y: proxy.size.height))
                     }
                     .stroke(lineColor)
                 }

@@ -57,7 +57,6 @@ public struct ImageInfo {
 
         var canEditFocusPoint: Bool {
             asset.renderKind == .fullImage
-                && asset.dimensions?.size != nil
         }
 
         var materializationPolicyOptions: [OMERecord.ImageAsset.MaterializationPolicy] {
@@ -391,7 +390,7 @@ struct ImageFocusPointEditor: View {
         .padding(.vertical, 4)
     }
 
-    private var focusPointDescription: String {
+    var focusPointDescription: String {
         guard let focalPoint = asset.focalPoint else { return "Center" }
         return "\(Int((focalPoint.x * 100).rounded()))%, \(Int((focalPoint.y * 100).rounded()))%"
     }
@@ -401,6 +400,7 @@ struct ImageFocusPointPreview: View {
     @Binding var asset: OMERecord.ImageAsset
     let cacheContext: LocalImageCacheContext?
     let previewData: Data?
+    @State var intrinsicSize: CGSize?
 
     var body: some View {
         GeometryReader { geometry in
@@ -413,25 +413,27 @@ struct ImageFocusPointPreview: View {
                 ImageFocusPreviewImage(
                     asset: asset,
                     cacheContext: cacheContext,
-                    previewData: previewData
+                    previewData: previewData,
+                    intrinsicSize: $intrinsicSize
                 )
                 .frame(width: imageRect.width, height: imageRect.height)
                 .position(x: imageRect.midX, y: imageRect.midY)
 
                 focusMarker(in: imageRect)
             }
-            .contentShape(Rectangle())
+            .portableContentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         focusLocationChanged(value.location, in: imageRect)
                     }
             )
+            .allowsHitTesting(intrinsicSize != nil)
         }
     }
 
-    private func fittedImageRect(in size: CGSize) -> CGRect {
-        guard let imageSize = asset.dimensions?.size else {
+    func fittedImageRect(in size: CGSize) -> CGRect {
+        guard let imageSize = intrinsicSize else {
             return CGRect(origin: .zero, size: size)
         }
         let scale = min(size.width / imageSize.width, size.height / imageSize.height)
@@ -447,7 +449,7 @@ struct ImageFocusPointPreview: View {
         )
     }
 
-    private func focusLocationChanged(_ location: CGPoint, in imageRect: CGRect) {
+    func focusLocationChanged(_ location: CGPoint, in imageRect: CGRect) {
         guard imageRect.width > 0, imageRect.height > 0 else { return }
         asset.focalPoint = OMERecord.ImageAsset.FocalPoint(
             x: Double(((location.x - imageRect.minX) / imageRect.width).clamped(to: 0...1)),
@@ -456,7 +458,7 @@ struct ImageFocusPointPreview: View {
     }
 
     @ViewBuilder
-    private func focusMarker(in imageRect: CGRect) -> some View {
+    func focusMarker(in imageRect: CGRect) -> some View {
         let focalPoint = asset.focalPoint ?? OMERecord.ImageAsset.FocalPoint(x: 0.5, y: 0.5)
         let position = CGPoint(
             x: imageRect.minX + CGFloat(focalPoint.x) * imageRect.width,
@@ -486,6 +488,7 @@ struct ImageFocusPreviewImage: View {
     let asset: OMERecord.ImageAsset
     let cacheContext: LocalImageCacheContext?
     let previewData: Data?
+    @Binding var intrinsicSize: CGSize?
 
     var body: some View {
         Group {
@@ -495,6 +498,9 @@ struct ImageFocusPreviewImage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
+                    .onAppear {
+                        intrinsicSize = image.size
+                    }
             } else {
                 storedImage
             }
@@ -504,6 +510,21 @@ struct ImageFocusPreviewImage: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
+                    .onAppear {
+                        intrinsicSize = image.size
+                    }
+            } else {
+                storedImage
+            }
+            #elseif os(Android)
+            if let previewData,
+               let image = UIImage(data: previewData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .onAppear {
+                        intrinsicSize = image.size
+                    }
             } else {
                 storedImage
             }
@@ -513,11 +534,14 @@ struct ImageFocusPreviewImage: View {
         }
     }
 
-    private var storedImage: some View {
+    var storedImage: some View {
         ImageAssetAsyncImage(
             asset: asset,
             cacheContext: cacheContext,
-            contentMode: .fit
+            contentMode: .fit,
+            onIntrinsicSizeLoaded: { intrinsicSize in
+                self.intrinsicSize = intrinsicSize
+            }
         ) {
             Image(systemName: "photo")
                 .font(.title2)
@@ -535,13 +559,6 @@ private extension Array where Element: Equatable {
 private extension Comparable {
     func clamped(to range: ClosedRange<Self>) -> Self {
         min(max(self, range.lowerBound), range.upperBound)
-    }
-}
-
-private extension OMERecord.ImageAsset.Dimensions {
-    var size: CGSize? {
-        guard width > 0, height > 0 else { return nil }
-        return CGSize(width: width, height: height)
     }
 }
 

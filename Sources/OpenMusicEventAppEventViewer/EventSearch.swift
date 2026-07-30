@@ -1,10 +1,42 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import SQLiteData
 import SwiftUITabFeatures
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+#if os(Android) && SKIP_BRIDGE
+struct PeriodicTimelineSchedule {
+    static func periodic(from startDate: Date, by interval: TimeInterval) -> Self {
+        Self()
+    }
+}
+
+struct TimelineView: View {
+    struct Context {
+        let date: Date
+    }
+
+    let content: (Context) -> AnyView
+
+    init<Content: View>(
+        _ schedule: PeriodicTimelineSchedule,
+        @ViewBuilder content: @escaping (Context) -> Content
+    ) {
+        self.content = { context in AnyView(content(context)) }
+    }
+
+    var body: some View {
+        content(Context(date: .now))
+    }
+}
+#endif
 
 public enum EventSearchContent: Equatable, Sendable {
     case dashboard(EventSearchDashboard)
@@ -465,8 +497,8 @@ struct EventSearchStageCard: View {
                 .stroke(stageColor.opacity(0.22))
         }
         .opacity(isClosed ? 0.45 : 1)
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .accessibilityLabel(row.stage.name)
+        .portableContentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityLabel(Text(row.stage.name))
         .onTapGesture {
             openTarget(.stage(row.stage.id.stageID))
         }
@@ -537,7 +569,11 @@ struct EventSearchFeatureCard: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            EventSearchChromeIcon(systemImage: feature.systemImage, tint: feature.tint)
+            EventSearchChromeIcon(
+                systemImage: feature.systemImage,
+                composeImage: feature.composeImage,
+                tint: feature.tint
+            )
             Text(feature.title)
                 .font(.subheadline.weight(.semibold))
                 .multilineTextAlignment(.leading)
@@ -554,6 +590,7 @@ struct EventSearchFeatureCard: View {
 
 struct EventSearchChromeIcon: View {
     let systemImage: String
+    let composeImage: String
     let tint: Color?
     var size: CGFloat = 28
 
@@ -562,7 +599,7 @@ struct EventSearchChromeIcon: View {
             RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
                 .fill(tint ?? .accentColor)
                 .frame(width: size, height: size)
-            Image(systemName: systemImage)
+            Image(system: systemImage, material: composeImage)
                 .font(.system(size: size * 0.5, weight: .semibold))
                 .foregroundStyle(.white)
         }
@@ -623,6 +660,7 @@ struct EventSearchResultRow: View {
                 subtitle: result.document.subtitle ?? result.document.kind.title,
                 chrome: EventSearchChromeIcon(
                     systemImage: result.document.semanticSystemImage,
+                    composeImage: result.document.semanticComposeImage,
                     tint: result.document.semanticTint,
                     size: 44
                 )
@@ -644,7 +682,10 @@ struct EventSearchPerformanceChrome: View {
                 if let stage {
                     ScheduleStageIcon(stage: stage)
                 } else {
-                    Image(systemName: "music.note")
+                    Image(
+                        system: "music.note",
+                        material: "Icons.Outlined.MusicNote"
+                    )
                         .resizable()
                         .scaledToFit()
                         .padding(10)
@@ -683,11 +724,11 @@ struct EventSearchRow<Chrome: View>: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                                .layoutPriority(1)
+                                .portableLayoutPriority(1)
                         }
 
                         PerformanceTimingChip(status: status)
-                            .layoutPriority(1)
+                            .portableLayoutPriority(1)
                     }
                 }
             }
@@ -702,6 +743,11 @@ private extension EventSearchDocument {
     var semanticSystemImage: String {
         guard case let .feature(featureID) = target else { return kind.systemImage }
         return EventSearchFeature.systemImage(for: featureID)
+    }
+
+    var semanticComposeImage: String {
+        guard case let .feature(featureID) = target else { return kind.composeImage }
+        return EventSearchFeature.composeImage(for: featureID)
     }
 
     var semanticTint: Color? {
@@ -722,6 +768,20 @@ private extension EventSearchDocument.Kind {
         case .performance: "music.mic"
         case .poster: "photo.on.rectangle"
         case .stage: "square.grid.2x2"
+        }
+    }
+
+    var composeImage: String {
+        switch self {
+        case .channel: "Icons.Outlined.Forum"
+        case .contact: "Icons.Outlined.Phone"
+        case .contributor: "Icons.Outlined.Groups"
+        case .eventInfo: "Icons.Outlined.Info"
+        case .feature: "Icons.Outlined.GridView"
+        case .location: "Icons.Outlined.PinDrop"
+        case .performance: "Icons.Outlined.MusicNote"
+        case .poster: "Icons.Outlined.PhotoLibrary"
+        case .stage: "Icons.Outlined.GridView"
         }
     }
 
@@ -763,6 +823,10 @@ private extension EventSearchFeature {
         Self.systemImage(for: id)
     }
 
+    var composeImage: String {
+        Self.composeImage(for: id)
+    }
+
     static func tint(for id: ID) -> Color? {
         switch id {
         case EventSearchFeature.KnownID.schedule: .green
@@ -790,6 +854,21 @@ private extension EventSearchFeature {
         case EventSearchFeature.KnownID.alerts: "bell"
         case EventSearchFeature.KnownID.about: "info.circle"
         default: "square.grid.2x2"
+        }
+    }
+
+    static func composeImage(for id: ID) -> String {
+        switch id {
+        case EventSearchFeature.KnownID.schedule: "Icons.Outlined.DateRange"
+        case EventSearchFeature.KnownID.contributors: "Icons.Outlined.Groups"
+        case EventSearchFeature.KnownID.stages: "Icons.Outlined.GridView"
+        case EventSearchFeature.KnownID.communications: "Icons.Outlined.Campaign"
+        case EventSearchFeature.KnownID.location: "Icons.Outlined.PinDrop"
+        case EventSearchFeature.KnownID.contact: "Icons.Outlined.Phone"
+        case EventSearchFeature.KnownID.posters: "Icons.Outlined.PhotoLibrary"
+        case EventSearchFeature.KnownID.alerts: "Icons.Outlined.Notifications"
+        case EventSearchFeature.KnownID.about: "Icons.Outlined.Info"
+        default: "Icons.Outlined.GridView"
         }
     }
 }

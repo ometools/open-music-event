@@ -617,7 +617,9 @@ struct PerformanceSummaryRow: View {
                     .fontWeight(.bold)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    .layoutPriority(1)
+#if !os(Android)
+                    .portableLayoutPriority(1)
+#endif
                     #if os(iOS)
                     .minimumScaleFactor(0.55)
                     #endif
@@ -628,7 +630,7 @@ struct PerformanceSummaryRow: View {
                             endTime: performance.endTime,
                             now: context.date
                         )
-                        .layoutPriority(1)
+                        .portableLayoutPriority(1)
                     }
 
                     Text(
@@ -643,7 +645,9 @@ struct PerformanceSummaryRow: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
-                .layoutPriority(1)
+#if !os(Android)
+                .portableLayoutPriority(1)
+#endif
                 .frame(maxWidth: .infinity, alignment: .center)
 
                 if needsStageDisambiguation {
@@ -726,9 +730,9 @@ private extension String {
 }
 
 struct PerformanceContextIdentity: View {
-    static let bubbleSize: CGFloat = 70
-    static let itemWidth: CGFloat = 96
-    static let labelHeight: CGFloat = 36
+    static let bubbleSize: OMECGFloat = 70
+    static let itemWidth: OMECGFloat = 96
+    static let labelHeight: OMECGFloat = 36
 
     enum Content {
         case contributor(ContributorProfile?, fallbackTitle: String)
@@ -752,7 +756,9 @@ struct PerformanceContextIdentity: View {
         }
         .frame(width: Self.itemWidth)
         .frame(alignment: frameAlignment)
+#if !os(Android)
         .accessibilityElement(children: .combine)
+#endif
     }
 
     @ViewBuilder
@@ -844,6 +850,7 @@ struct PerformanceScheduleBubbleChrome<Content: View>: View {
         #endif
     }
 
+#if os(iOS) || os(macOS)
     @available(iOS 26, macOS 26, *)
     var glassBubble: some View {
         GlassEffectContainer(spacing: 8) {
@@ -856,6 +863,7 @@ struct PerformanceScheduleBubbleChrome<Content: View>: View {
             height: PerformanceContextIdentity.bubbleSize
         )
     }
+#endif
 
     var unselectedBubble: some View {
         ZStack {

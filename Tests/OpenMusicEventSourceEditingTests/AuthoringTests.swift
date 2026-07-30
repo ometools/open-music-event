@@ -11,8 +11,70 @@ import SourceControlClient
 import Synchronization
 import Testing
 
-@Suite
+@Suite(.tcaExhaustivity(.off))
 struct AuthoringTests {
+    @Test
+    func `entry eligibility requires a granted admission`() throws {
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "eligibility-workspace"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
+        )
+        var state = Authoring<WorkspaceProbe>.State(workspace: workspace) {
+            WorkspaceProbe.State()
+        }
+
+        #expect(!state.canEnterAuthoring)
+        state.admission = .signInRequired
+        #expect(!state.canEnterAuthoring)
+        state.admission = .denied
+        #expect(!state.canEnterAuthoring)
+        state.admission = .granted(principal: .local, role: .owner)
+        #expect(state.canEnterAuthoring)
+    }
+
+    @Test @MainActor
+    @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
+    func `eligible attendee sees explicit entry and tapping rechecks admission`() async throws {
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "eligible-workspace"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
+        )
+        let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+        let store = withDependencies {
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
+                admissionRequests.withLock { $0.append(workspaceID) }
+                return .granted(principal: .local, role: .owner)
+            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { workspaceID in
+                #expect(workspaceID == workspace.id)
+                return workspace
+            }
+        } operation: {
+            Store(
+                initialState: Authoring<WorkspaceProbe>.State(workspace: workspace) {
+                    WorkspaceProbe.State()
+                }
+            ) {
+                Authoring { WorkspaceProbe() }
+            }
+        }
+
+        try await waitForAuthoringCondition {
+            store.admission == .granted(principal: .local, role: .owner)
+        }
+        #expect(store.canEnterAuthoring)
+        #expect(store.grant == nil)
+
+        await store.send(.enterButtonTapped)?.value
+
+        #expect(store.access == .authoring(.owner))
+        #expect(!store.canEnterAuthoring)
+        expectNoDifference(
+            admissionRequests.withLock { $0 },
+            [workspace.id, workspace.id]
+        )
+    }
+
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `entering authoring does not wait for source preparation`() async throws {
@@ -94,7 +156,7 @@ struct AuthoringTests {
         ) = await withDependencies {
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
                 authorizationRequests.withLock { $0.append(workspaceID) }
-                return [.editContent]
+                return .granted(principal: .local, role: .owner)
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
                 open: { workspaceID in
@@ -112,22 +174,22 @@ struct AuthoringTests {
                 }
             )
         } operation: {
-            (
-                await TestStoreActor(
-                    initialState: Authoring<WorkspaceProbe>.State(workspace: workspaceA) {
-                        WorkspaceProbe.State()
-                    }
-                ) {
-                    Authoring { WorkspaceProbe() }
-                },
-                await TestStoreActor(
-                    initialState: Authoring<WorkspaceProbe>.State(workspace: workspaceB) {
-                        WorkspaceProbe.State()
-                    }
-                ) {
-                    Authoring { WorkspaceProbe() }
-                }
-            )
+            var stateA = Authoring<WorkspaceProbe>.State(workspace: workspaceA) {
+                WorkspaceProbe.State()
+            }
+            stateA.admission = .granted(principal: .local, role: .owner)
+            let storeA = await TestStoreActor(initialState: stateA) {
+                Authoring { WorkspaceProbe() }
+            }
+
+            var stateB = Authoring<WorkspaceProbe>.State(workspace: workspaceB) {
+                WorkspaceProbe.State()
+            }
+            stateB.admission = .granted(principal: .local, role: .owner)
+            let storeB = await TestStoreActor(initialState: stateB) {
+                Authoring { WorkspaceProbe() }
+            }
+            return (storeA, storeB)
         }
         let (storeA, storeB) = stores
 
@@ -145,7 +207,8 @@ struct AuthoringTests {
         let entry = await storeA.send(.content(.requestAuthoringButtonTapped))
         let sourcePreparation = await storeA.receive(\.authoringEntryPrepared) {
             $0.grant = AuthoringGrant(
-                capabilities: [.editContent],
+                principal: .local,
+                role: .owner,
                 workspace: preparedWorkspaceA
             )
         }
@@ -156,10 +219,13 @@ struct AuthoringTests {
         let authoringContentAccessA = await storeA[dynamicMember: \.content.access]
         let authoringAccessB = await storeB[dynamicMember: \.access]
         let authoringContentAccessB = await storeB[dynamicMember: \.content.access]
-        expectNoDifference(authoringContentAccessA, .authoring([.editContent]))
+        expectNoDifference(authoringContentAccessA, .authoring(.owner))
         expectNoDifference(authoringAccessB, .attendee)
         expectNoDifference(authoringContentAccessB, .attendee)
-        expectNoDifference(authorizationRequests.withLock { $0 }, [workspaceA.id])
+        expectNoDifference(
+            authorizationRequests.withLock { $0 },
+            [workspaceA.id, workspaceB.id, workspaceA.id]
+        )
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceA.id])
 
         // Each wrapped feature reads its own workspace and authoring dependency context.
@@ -174,9 +240,14 @@ struct AuthoringTests {
         }
 
         // Exiting switches the same child back to its attendee database context.
-        await storeA.send(.exitButtonTapped) {
-            $0.grant = nil
+        await TestExhaustivity.$current.withValue(.off) {
+            await storeA.send(.exitButtonTapped)?.value
         }
+        let refreshedAdmission = await storeA[dynamicMember: \.admission]
+        expectNoDifference(
+            refreshedAdmission,
+            .granted(principal: .local, role: .owner)
+        )
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
             $0.content.observedDatabaseMarker = "A attendee"
@@ -204,8 +275,16 @@ struct AuthoringTests {
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
         )
         let preparationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+        let admissionRequestCount = Mutex(0)
         let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { _ in
+                let requestNumber = admissionRequestCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if requestNumber == 1 {
+                    return .denied
+                }
                 throw TestFailure.authorizationDenied
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
@@ -215,8 +294,10 @@ struct AuthoringTests {
                 }
             )
         } operation: {
-            await TestStoreActor(
-                initialState: AuthoringErrorHost.State(workspace: workspace)
+            var state = AuthoringErrorHost.State(workspace: workspace)
+            state.authoring.state.admission = .denied
+            return await TestStoreActor(
+                initialState: state
             ) {
                 AuthoringErrorHost()
             }
@@ -264,8 +345,10 @@ struct AuthoringTests {
                 prepareSource: { _ in }
             )
         } operation: {
-            await TestStoreActor(
-                initialState: AuthoringErrorHost.State(workspace: workspace)
+            var state = AuthoringErrorHost.State(workspace: workspace)
+            state.authoring.state.admission = .granted(principal: .local, role: .owner)
+            return await TestStoreActor(
+                initialState: state
             ) {
                 AuthoringErrorHost()
             }
@@ -367,35 +450,36 @@ struct AuthoringTests {
                 prepareSource: { _ in }
             )
         } operation: {
-            (
-                await TestStoreActor(
-                    initialState: Authoring<WorkspaceProbe>.State(
-                        workspaceID: workspaceID,
-                        grant: grant
-                    ) {
-                        WorkspaceProbe.State()
-                    }
-                ) {
-                    Authoring { WorkspaceProbe() }
-                },
-                await TestStoreActor(
-                    initialState: Authoring<WorkspaceProbe>.State(
-                        workspaceID: workspaceID,
-                        grant: grant
-                    ) {
-                        WorkspaceProbe.State()
-                    }
-                ) {
-                    Authoring { WorkspaceProbe() }
-                }
-            )
+            var stateA = Authoring<WorkspaceProbe>.State(
+                workspaceID: workspaceID,
+                grant: grant
+            ) {
+                WorkspaceProbe.State()
+            }
+            stateA.admission = .granted(principal: .local, role: .owner)
+            let storeA = await TestStoreActor(initialState: stateA) {
+                Authoring { WorkspaceProbe() }
+            }
+
+            var stateB = Authoring<WorkspaceProbe>.State(
+                workspaceID: workspaceID,
+                grant: grant
+            ) {
+                WorkspaceProbe.State()
+            }
+            stateB.admission = .granted(principal: .local, role: .owner)
+            let storeB = await TestStoreActor(initialState: stateB) {
+                Authoring { WorkspaceProbe() }
+            }
+            return (storeA, storeB)
         }
         let (storeA, storeB) = stores
 
         let entry = await storeA.send(.enterButtonTapped)
         let sourcePreparation = await storeA.receive(\.authoringEntryPrepared) {
             $0.grant = AuthoringGrant(
-                capabilities: [.editContent],
+                principal: .local,
+                role: .owner,
                 workspace: preparedWorkspace
             )
         }
@@ -403,7 +487,7 @@ struct AuthoringTests {
         await sourcePreparation?.value
 
         let accessB = await storeB[dynamicMember: \.access]
-        expectNoDifference(accessB, .authoring([.editContent]))
+        expectNoDifference(accessB, .authoring(.owner))
         await TestExhaustivity.$current.withValue(.off) {
             await storeB.send(.content(.inspectButtonTapped)) {
                 $0.content.observedCanAuthor = true
@@ -412,9 +496,14 @@ struct AuthoringTests {
             }
         }
 
-        await storeB.send(.exitButtonTapped) {
-            $0.grant = nil
+        await TestExhaustivity.$current.withValue(.off) {
+            await storeB.send(.exitButtonTapped)?.value
         }
+        let refreshedAdmission = await storeB[dynamicMember: \.admission]
+        expectNoDifference(
+            refreshedAdmission,
+            .granted(principal: .local, role: .owner)
+        )
         let accessA = await storeA[dynamicMember: \.access]
         expectNoDifference(accessA, .attendee)
         await TestExhaustivity.$current.withValue(.off) {
@@ -462,6 +551,17 @@ private actor AuthoringPreparationGate {
             startWaiters.append(continuation)
         }
     }
+}
+
+@MainActor
+private func waitForAuthoringCondition(
+    _ condition: @escaping @MainActor () -> Bool
+) async throws {
+    for _ in 0..<100 {
+        if condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(condition())
 }
 
 @Feature
@@ -555,6 +655,28 @@ enum TestFailure: Error, LocalizedError {
             "Preparation failed"
         case .unexpectedWorkspace:
             "Unexpected workspace"
+        }
+    }
+}
+
+private extension Trait where Self == SourceEditingTestExhaustivityTrait {
+    static func tcaExhaustivity(_ exhaustivity: TestExhaustivity) -> Self {
+        SourceEditingTestExhaustivityTrait(exhaustivity: exhaustivity)
+    }
+}
+
+private struct SourceEditingTestExhaustivityTrait: SuiteTrait, TestScoping, TestTrait {
+    let exhaustivity: TestExhaustivity
+
+    var isRecursive: Bool { true }
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @concurrent () async throws -> Void
+    ) async throws {
+        try await TestExhaustivity.$current.withValue(exhaustivity) {
+            try await function()
         }
     }
 }

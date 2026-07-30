@@ -12,6 +12,81 @@ import Tagged
 import TCATProtoAuthentication
 import XRPCClient
 
+enum AccountImageScale {
+    case medium
+    case large
+}
+
+extension View {
+    @ViewBuilder
+    func accountImageScale(_ scale: AccountImageScale) -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        switch scale {
+        case .medium:
+            self.imageScale(.medium)
+        case .large:
+            self.imageScale(.large)
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    func accountGeometryGroup() -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.geometryGroup()
+        #endif
+    }
+
+    @ViewBuilder
+    func accountExtraLargeControlSize() -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.controlSize(.extraLarge)
+        #endif
+    }
+
+    @ViewBuilder
+    func accountListRowInsets() -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.listRowInsets(EdgeInsets())
+        #endif
+    }
+
+    @ViewBuilder
+    func accountContentShape() -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.contentShape(Rectangle())
+        #endif
+    }
+
+    @ViewBuilder
+    func accountAccessibilityHint(_ hint: Text) -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.accessibilityHint(hint)
+        #endif
+    }
+
+    @ViewBuilder
+    func accountAccessibilityCombineChildren() -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.accessibilityElement(children: .combine)
+        #endif
+    }
+}
+
 @Feature
 public struct Account {
     public init() {}
@@ -896,8 +971,10 @@ public struct AccountPicker: View {
             AccountPickerLabel(row: store.accountRows.first(where: \.isSelected))
                 .environment(\.accountPickerHandleVisibility, .hidden)
         }
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint("Selects the account used for workspace changes and approvals.")
+        .accessibilityLabel(Text(accessibilityLabel))
+        .accountAccessibilityHint(
+            Text("Selects the account used for workspace changes and approvals.")
+        )
         .accountAuthenticationSheet(store: store)
         .task(id: store.accountRows.map(\.id)) {
             await store.send(.accountRowsAppeared)?.value
@@ -927,7 +1004,7 @@ struct AccountPickerLabel: View {
             AccountPickerRow(row: row, showsSelection: false)
         } else {
             Image(systemName: "person")
-                .imageScale(.large)
+                .accountImageScale(.large)
         }
     }
 }
@@ -963,7 +1040,7 @@ struct AccountPickerRow: View {
             )
             .mask(Circle())
             .clipShape(Circle())
-            .geometryGroup()
+            .accountGeometryGroup()
 
             switch handleVisibility {
             case .visible, .automatic:
@@ -978,7 +1055,7 @@ struct AccountPickerRow: View {
                 Image(systemName: "checkmark")
             }
         }
-        .accessibilityElement(children: .combine)
+        .accountAccessibilityCombineChildren()
     }
 }
 
@@ -1089,7 +1166,7 @@ struct AccountRowView: View {
             if row.isSelected && !row.requiresRelog {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
-                    .imageScale(.large)
+                    .accountImageScale(.large)
                     .foregroundStyle(.tint)
                     .transition(.scale.combined(with: .opacity))
             }
@@ -1122,7 +1199,7 @@ struct AccountAvatar: View {
             targetSize: CGSize(width: size, height: size)
         ) { phase in
             switch phase {
-            case let .success(image):
+            case let .success(image, _):
                 image
                     .resizable()
                     .scaledToFill()
@@ -1386,7 +1463,7 @@ struct AccountActorAvatar: View {
             targetSize: CGSize(width: 44, height: 44)
         ) { phase in
             switch phase {
-            case let .success(image):
+            case let .success(image, _):
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -1454,13 +1531,13 @@ struct AccountAuthenticationSubmitSection: View {
             AccountAuthenticationSubmitButton(store: store)
                 .frame(minWidth: 220)
                 .buttonStyle(.borderedProminent)
-                .controlSize(.extraLarge)
+                .accountExtraLargeControlSize()
 
             Spacer(minLength: 0)
         }
         .padding(.vertical, 8)
         .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets())
+        .accountListRowInsets()
         .listRowSeparator(.hidden)
     }
 }
@@ -1487,7 +1564,20 @@ struct SafeEdgeExpansionModifier<ExpansionContent: View>: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        #if os(iOS) || os(macOS)
+        #if os(Android) && SKIP_BRIDGE
+        switch edge {
+        case .top:
+            VStack(spacing: spacing) {
+                styledExpansionContent
+                content
+            }
+        case .bottom:
+            VStack(spacing: spacing) {
+                content
+                styledExpansionContent
+            }
+        }
+        #elseif os(iOS) || os(macOS)
         if #available(iOS 26, macOS 26, *) {
             content.safeAreaBar(edge: edge, spacing: spacing) {
                 styledExpansionContent
@@ -1571,7 +1661,7 @@ struct AccountAuthenticationSafeEdgeAction: View {
         case .signUp:
             AccountAuthenticationSubmitButton(store: store)
                 .buttonStyle(.borderedProminent)
-                .controlSize(.extraLarge)
+                .accountExtraLargeControlSize()
         }
     }
 }
@@ -1617,16 +1707,16 @@ extension View {
         if #available(iOS 26, macOS 26, *) {
             self
                 .buttonStyle(.glassProminent)
-                .controlSize(.extraLarge)
+                .accountExtraLargeControlSize()
         } else {
             self
                 .buttonStyle(.borderedProminent)
-                .controlSize(.extraLarge)
+                .accountExtraLargeControlSize()
         }
         #else
         self
             .buttonStyle(.borderedProminent)
-            .controlSize(.extraLarge)
+            .accountExtraLargeControlSize()
         #endif
     }
 }
@@ -1718,11 +1808,11 @@ struct AccountSignUpServerOptionRow: View {
                     .multilineTextAlignment(.trailing)
             } else if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .imageScale(.large)
+                    .accountImageScale(.large)
                     .foregroundStyle(.tint)
             }
         }
-        .contentShape(Rectangle())
+        .accountContentShape()
         .foregroundStyle(.primary)
     }
 }
@@ -1747,11 +1837,11 @@ struct AccountCustomSignUpServerOptionRow: View {
 
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .imageScale(.large)
+                    .accountImageScale(.large)
                     .foregroundStyle(.tint)
             }
         }
-        .contentShape(Rectangle())
+        .accountContentShape()
         .foregroundStyle(.primary)
     }
 }
@@ -1767,7 +1857,7 @@ struct AccountSignUpServerImageView: View {
                     targetSize: CGSize(width: 44, height: 44)
                 ) { phase in
                     switch phase {
-                    case let .success(image):
+                    case let .success(image, _):
                         image
                             .resizable()
                             .scaledToFill()
@@ -1795,7 +1885,7 @@ struct AccountSignUpServerImagePlaceholder: View {
                 .fill(.secondary.opacity(0.12))
 
             Image(systemName: "server.rack")
-                .imageScale(.medium)
+                .accountImageScale(.medium)
                 .foregroundStyle(.secondary)
         }
     }

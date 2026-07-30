@@ -4,7 +4,11 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventEditors
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct ContactInfoViewer {
@@ -233,8 +237,8 @@ public struct EditContactInfoView: View {
                                 #if os(iOS)
                                 .keyboardType(.phonePad)
                                 #endif
-                            TextField("Description", text: $contactNumber.description, axis: .vertical)
-                                .lineLimit(2...4)
+                            PortableTextField("Description", text: $contactNumber.description, axis: .vertical)
+                                .portableLineLimit(2...4)
 
                             Button("Remove Contact Number", role: .destructive) {
                                 store.send(.removeContactNumberButtonTapped(contactNumber.id))
@@ -299,7 +303,7 @@ struct ContactNumberRow: View {
                 Text(contactNumber.phoneNumber.formattedPhoneNumber)
                     .foregroundStyle(.secondary)
                     #if !os(Android)
-                    .textSelection(.enabled)
+                    .selectableText()
                     #endif
 
                 if let description = contactNumber.displayDescription {

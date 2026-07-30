@@ -225,7 +225,6 @@ public struct LocalImageImportRequest: Equatable, Sendable {
         appearance: OME.ImageAsset.Appearance? = nil,
         materializationPolicy: OME.ImageAsset.MaterializationPolicy,
         thumbhash: String? = nil,
-        dimensions: OME.ImageAsset.Dimensions? = nil,
         focalPoint: OME.ImageAsset.FocalPoint? = nil
     ) {
         self.assetKeyDiscriminator = assetKeyDiscriminator
@@ -237,7 +236,6 @@ public struct LocalImageImportRequest: Equatable, Sendable {
         self.appearance = appearance
         self.materializationPolicy = materializationPolicy
         self.thumbhash = thumbhash
-        self.dimensions = dimensions
         self.focalPoint = focalPoint
     }
 
@@ -250,7 +248,6 @@ public struct LocalImageImportRequest: Equatable, Sendable {
     public var appearance: OME.ImageAsset.Appearance?
     public var materializationPolicy: OME.ImageAsset.MaterializationPolicy
     public var thumbhash: String?
-    public var dimensions: OME.ImageAsset.Dimensions?
     public var focalPoint: OME.ImageAsset.FocalPoint?
 }
 
@@ -292,7 +289,6 @@ public func materializeImportedLocalImage(
         appearance: request.appearance,
         materializationPolicy: request.materializationPolicy,
         thumbhash: request.thumbhash,
-        dimensions: request.dimensions,
         focalPoint: request.focalPoint
     )
     return LocalImageImportResult(

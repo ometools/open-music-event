@@ -2,6 +2,26 @@ import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import SwiftUI
 
+extension View {
+    @ViewBuilder
+    func heroCoordinateSpace(name: String) -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.coordinateSpace(name: name)
+        #endif
+    }
+
+    @ViewBuilder
+    func heroListRowInsets() -> some View {
+        #if os(Android) && SKIP_BRIDGE
+        self
+        #else
+        self.listRowInsets(EdgeInsets())
+        #endif
+    }
+}
+
 public struct HeroImage<Placeholder: View, Overlay: View>: View {
     let title: Text
     let sources: [HeroImageSource]
@@ -188,24 +208,39 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
 
     public var body: some View {
         #if os(Android)
-        ScrollViewReader { proxy in
-            List {
-                heroContent
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 320)
-                    .listRowInsets(EdgeInsets())
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                List {
+                    heroContent
+                        .frame(maxWidth: .infinity)
+                        .frame(height: min(max(geometry.size.width, 280), 420))
+                        // Compensate for SkipUI's list and row padding so the
+                        // hero reaches the screen edges like the Apple layout.
+                        .padding(
+                            EdgeInsets(
+                                top: -24,
+                                leading: -32,
+                                bottom: -8,
+                                trailing: -32
+                            )
+                        )
+                        .zIndex(1)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
 
-                listContent
-            }
-            .navigationTitle(title)
-            .onAppear {
-                if let initialScrollID {
-                    proxy.scrollTo(initialScrollID, anchor: .top)
+                    listContent
                 }
-            }
-            .onChange(of: initialScrollID) { _, newValue in
-                if let newValue {
-                    proxy.scrollTo(newValue, anchor: .top)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .onAppear {
+                    if let initialScrollID {
+                        proxy.scrollTo(initialScrollID, anchor: .top)
+                    }
+                }
+                .onChange(of: initialScrollID) { _, newValue in
+                    if let newValue {
+                        proxy.scrollTo(newValue, anchor: .top)
+                    }
                 }
             }
         }
@@ -242,7 +277,7 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
                 listContent
             }
             .listStyle(.plain)
-            .coordinateSpace(name: coordinateSpaceName)
+            .heroCoordinateSpace(name: coordinateSpaceName)
             .onPreferenceChange(HeroImageOffsetPreferenceKey.self) { minY in
                 geometryOffsetChanged(minY)
             }
@@ -281,7 +316,7 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
             }
             .frame(height: height, alignment: .bottom)
             .background(HeroImageOffsetReader(coordinateSpaceName: coordinateSpaceName))
-            .listRowInsets(EdgeInsets())
+            .heroListRowInsets()
             .listRowSeparator(.hidden, edges: .top)
             .ignoresSafeArea(.all, edges: .top)
             .clipShape(

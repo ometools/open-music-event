@@ -14,6 +14,7 @@ import OpenMusicEventDatabase
 import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
+import Sharing
 import SourceEditing
 import SQLiteData
 import Synchronization
@@ -1073,10 +1074,22 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 )
             ]
         )
+        let grant = Shared<AuthoringGrant?>(
+            value: AuthoringGrant(
+                principal: .local,
+                role: .owner,
+                workspace: WorkspaceContext(
+                    id: EditingWorkspaceRecord.ID(rawValue: "team.retry"),
+                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+                )
+            )
+        )
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
+            $0.authoringContext = AuthoringContext(grant: SharedReader(grant))
+            $0[AuthoringPolicyClient.self] = .authoring
             $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
                 location
             }
@@ -1112,6 +1125,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             store.state.errorNotifications.state.latestError?.operation.rawValue,
             "source.proposal.publish"
         )
+        #expect(grant.wrappedValue != nil)
 
         await withIssueReporters([]) {
             let retryTask = store.send(.proposal(.formSubmitted(store.state.proposal.form.value))) {
@@ -1124,6 +1138,166 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             return
         }
         expectNoDifference(retryFailure.message, "Unable to create proposal.")
+        #expect(grant.wrappedValue != nil)
+
+        await store.dismount()
+    }
+
+    @Test
+    func revokedProposalAccessReturnsToAttendeeWithoutPublishing() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "team.revoked"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+        )
+        let grant = Shared<AuthoringGrant?>(
+            value: AuthoringGrant(
+                principal: .actor(try #require(DID("did:plc:revoked"))),
+                role: .collaborator([.propose]),
+                workspace: workspace
+            )
+        )
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: Draft remains\n".utf8)
+                )
+            ]
+        )
+        let publishRequests = Mutex([SourcePatchPublishRequest]())
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.authoringContext = AuthoringContext(grant: SharedReader(grant))
+            $0[AuthoringPolicyClient.self] = .attendee
+            $0.sourcePatchPublisher = SourcePatchPublisher { request in
+                publishRequests.withLock { $0.append(request) }
+                return SourcePatchPublication()
+            }
+        } operation: {
+            var proposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            proposal.title = "Publish the saved draft"
+            return TestStore(
+                initialState: SourceProposalRevocationHost.State(
+                    grant: grant,
+                    proposal: proposal
+                )
+            ) {
+                SourceProposalRevocationHost()
+            }
+        }
+
+        try await withIssueReporters([]) {
+            let task = store.send(.proposal(.formSubmitted(
+                try #require(store.state.proposal?.form.value)
+            ))) {
+                $0.proposal?.status = .proposing
+            }
+            await task?.value
+        }
+
+        #expect(store.state.grant == nil)
+        #expect(store.state.proposal == nil)
+        #expect(store.state.didRevokeAuthoring)
+        #expect(store.state.savedPatch == patch)
+        expectNoDifference(publishRequests.withLock { $0 }, [])
+        expectNoDifference(
+            store.state.errorNotifications.state.latestError?.message.fallback,
+            "Your authoring access changed. Your edits remain saved."
+        )
+
+        await store.dismount()
+    }
+
+    @Test
+    func proposalFailureRechecksRevokedAccessBeforeReportingFailure() async throws {
+        let database = try makePreparedDatabase()
+        let eventID = testEventID("event-1")
+        let actor = try #require(DID("did:plc:revoked-after-publish"))
+        let workspace = WorkspaceContext(
+            id: EditingWorkspaceRecord.ID(rawValue: "team.revoked-after-publish"),
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
+        )
+        let role = OME.WorkspaceRole.collaborator([.propose])
+        let grant = Shared<AuthoringGrant?>(
+            value: AuthoringGrant(
+                principal: .actor(actor),
+                role: role,
+                workspace: workspace
+            )
+        )
+        let patch = SourcePatch(
+            fileChanges: [
+                SourcePatchFileChange(
+                    path: "events/event-1/event.yml",
+                    kind: .modified,
+                    oldContents: Data("name: Old\n".utf8),
+                    newContents: Data("name: Draft remains\n".utf8)
+                )
+            ]
+        )
+        let admissionRequestCount = Mutex(0)
+        let publishRequestCount = Mutex(0)
+        let store = withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.authoringContext = AuthoringContext(grant: SharedReader(grant))
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
+                #expect(workspaceID == workspace.id)
+                let requestNumber = admissionRequestCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                return requestNumber == 1
+                    ? .granted(principal: .actor(actor), role: role)
+                    : .denied
+            }
+            $0.openMusicEventSourcePatchLocationResolver = OpenMusicEventSourcePatchLocationResolver { _ in
+                SourcePatchLocation(
+                    repositoryURL: URL(fileURLWithPath: "/tmp/source-repository"),
+                    relativePath: "events/event-1"
+                )
+            }
+            $0.sourcePatchPublisher = SourcePatchPublisher { _ in
+                publishRequestCount.withLock { $0 += 1 }
+                throw SourceProposalTestError.failed
+            }
+        } operation: {
+            var proposal = SourceProposalFlow.State(eventID: eventID, patch: patch)
+            proposal.title = "Publish the saved draft"
+            return TestStore(
+                initialState: SourceProposalRevocationHost.State(
+                    grant: grant,
+                    proposal: proposal
+                )
+            ) {
+                SourceProposalRevocationHost()
+            }
+        }
+
+        try await withIssueReporters([]) {
+            let task = store.send(.proposal(.formSubmitted(
+                try #require(store.state.proposal?.form.value)
+            ))) {
+                $0.proposal?.status = .proposing
+            }
+            await task?.value
+        }
+
+        #expect(store.state.grant == nil)
+        #expect(store.state.proposal == nil)
+        #expect(store.state.didRevokeAuthoring)
+        #expect(store.state.savedPatch == patch)
+        #expect(admissionRequestCount.withLock { $0 } == 2)
+        #expect(publishRequestCount.withLock { $0 } == 1)
+        expectNoDifference(
+            store.state.errorNotifications.state.latestError?.message.fallback,
+            "Your authoring access changed. Your edits remain saved."
+        )
 
         await store.dismount()
     }
@@ -2755,6 +2929,48 @@ private struct SourceProposalErrorReportingHost {
         .onEvent(ErrorReported.self) { error, state in
             state.errorNotifications.state.report(error)
         }
+    }
+}
+
+@Feature
+private struct SourceProposalRevocationHost {
+    struct State {
+        init(
+            grant: Shared<AuthoringGrant?>,
+            proposal: SourceProposalFlow.State
+        ) {
+            self._grant = grant
+            self.proposal = proposal
+            self.savedPatch = proposal.patch
+        }
+
+        @Shared var grant: AuthoringGrant?
+        var proposal: SourceProposalFlow.State?
+        var savedPatch: SourcePatch
+        var didRevokeAuthoring = false
+        var errorNotifications = Spawn(ErrorNotifications.State())
+    }
+
+    enum Action {
+        case proposal(SourceProposalFlow.Action)
+    }
+
+    var body: some Feature {
+        Update { _, _ in }
+            .ifLet(\.proposal, action: \.proposal) {
+                SourceProposalFlow()
+            }
+            .spawn(\.errorNotifications) {
+                ErrorNotifications()
+            }
+            .onEvent(AuthoringAccessRevoked.self) { _, state in
+                state.$grant.withLock { $0 = nil }
+                state.proposal = nil
+                state.didRevokeAuthoring = true
+            }
+            .onEvent(ErrorReported.self) { error, state in
+                state.errorNotifications.state.report(error)
+            }
     }
 }
 

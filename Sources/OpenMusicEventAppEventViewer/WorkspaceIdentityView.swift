@@ -12,12 +12,12 @@ public enum WorkspaceActorIdentity: Equatable, Sendable {
 public struct WorkspaceActorIdentityView: View {
     public let label: String
     public let identity: WorkspaceActorIdentity
-    public let avatarSize: CGFloat
+    public let avatarSize: OMEViewerCGFloat
 
     public init(
         label: String,
         identity: WorkspaceActorIdentity,
-        avatarSize: CGFloat = 36
+        avatarSize: OMEViewerCGFloat = 36
     ) {
         self.label = label
         self.identity = identity
@@ -51,7 +51,7 @@ public struct WorkspaceActorIdentityView: View {
 
             Spacer(minLength: 0)
         }
-        .accessibilityElement(children: .combine)
+        .portableAccessibilityElement()
         .accessibilityLabel("\(label): \(title)")
     }
 
@@ -110,11 +110,11 @@ public struct WorkspaceActorIdentityView: View {
 
 public struct WorkspaceActorHandleView: View {
     public let identity: WorkspaceActorIdentity
-    public let avatarSize: CGFloat
+    public let avatarSize: OMEViewerCGFloat
 
     public init(
         identity: WorkspaceActorIdentity,
-        avatarSize: CGFloat = 28
+        avatarSize: OMEViewerCGFloat = 28
     ) {
         self.identity = identity
         self.avatarSize = avatarSize
@@ -134,8 +134,8 @@ public struct WorkspaceActorHandleView: View {
 
             Spacer(minLength: 0)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(handleTitle)
+        .portableAccessibilityElement()
+        .accessibilityLabel(Text(handleTitle))
     }
 
     private var loadedIdentity: ActorIdentity? {
@@ -178,7 +178,7 @@ struct WorkspaceActorAvatar: View {
             targetSize: CGSize(width: size, height: size)
         ) { phase in
             switch phase {
-            case let .success(image):
+            case let .success(image, _):
                 image
                     .resizable()
                     .scaledToFill()

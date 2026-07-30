@@ -8,6 +8,7 @@ public struct SourcePatchInvalidation: Equatable, Sendable {
     public enum Target: Equatable, Sendable {
         case calendar(OME.Calendar.ID)
         case event(OME.Event.ID)
+        case workspace(EditingWorkspaceRecord.ID)
     }
 
     public enum Operation: String, Equatable, Sendable {
@@ -36,6 +37,16 @@ public struct SourcePatchInvalidation: Equatable, Sendable {
         tableName: String
     ) {
         self.target = .calendar(calendarID)
+        self.operation = operation
+        self.tableName = tableName
+    }
+
+    public init(
+        workspaceID: EditingWorkspaceRecord.ID,
+        operation: Operation,
+        tableName: String
+    ) {
+        self.target = .workspace(workspaceID)
         self.operation = operation
         self.tableName = tableName
     }
@@ -146,14 +157,15 @@ private final class SourcePatchInvalidationDatabaseFunction: @unchecked Sendable
         operation: String
     ) {
         guard
-            let ownerID = OME.Organizer.ID(ownerID),
             let targetKind = SourcePatchInvalidationTargetKind(rawValue: targetKind),
             let operation = SourcePatchInvalidation.Operation(rawValue: operation)
         else { return }
 
-        let invalidation = switch targetKind {
+        let invalidation: SourcePatchInvalidation
+        switch targetKind {
         case .calendar:
-            SourcePatchInvalidation(
+            guard let ownerID = OME.Organizer.ID(ownerID) else { return }
+            invalidation = SourcePatchInvalidation(
                 calendarID: OME.Calendar.ID(
                     ownerID: ownerID,
                     calendarID: OME.ID<OME.Calendar>(.init(recordID))
@@ -163,11 +175,18 @@ private final class SourcePatchInvalidationDatabaseFunction: @unchecked Sendable
             )
 
         case .event:
-            SourcePatchInvalidation(
+            guard let ownerID = OME.Organizer.ID(ownerID) else { return }
+            invalidation = SourcePatchInvalidation(
                 eventID: OME.Event.ID(
                     organizerID: ownerID,
                     eventID: OME.ID<OME.Event>(.init(recordID))
                 ),
+                operation: operation,
+                tableName: tableName
+            )
+        case .workspace:
+            invalidation = SourcePatchInvalidation(
+                workspaceID: EditingWorkspaceRecord.ID(rawValue: ownerID),
                 operation: operation,
                 tableName: tableName
             )
@@ -282,6 +301,7 @@ private func triggerName(
 private enum SourcePatchInvalidationTargetKind: String {
     case calendar
     case event
+    case workspace
 }
 
 private struct SourcePatchInvalidationTriggerTarget {
@@ -302,6 +322,12 @@ private struct SourcePatchInvalidationTriggerTarget {
             self.kind = .calendar
             self.ownerIDColumnName = "ownerID"
             self.recordIDColumnName = "calendarID"
+        } else if descriptor.primaryKeyColumns.contains("workspaceID"),
+                  descriptor.primaryKeyColumns.contains("actorID")
+        {
+            self.kind = .workspace
+            self.ownerIDColumnName = "workspaceID"
+            self.recordIDColumnName = "actorID"
         } else {
             throw SourcePatchInvalidationTriggerError(tableName: descriptor.tableName)
         }

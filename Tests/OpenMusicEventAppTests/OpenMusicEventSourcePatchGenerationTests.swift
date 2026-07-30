@@ -4,12 +4,79 @@ import Dependencies
 import Foundation
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import SourceEditing
 import SQLiteData
 import Testing
 
 struct OpenMusicEventSourcePatchGenerationTests {
+    @Test
+    func calendarConversionRendersWorkspaceRelationshipsAsCollaboratorFiles() async throws {
+        let database = try makePreparedDatabase()
+        let ownerID = try #require(DID("did:plc:owner"))
+        let collaboratorID = try #require(DID("did:plc:collaborator"))
+        let source = OME.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "at://did:plc:owner/app.openmusicevent.source/canonical"
+        )
+        let sourceBaseline = SourceBaselineRecord(
+            source: source,
+            databaseFileName: "baseline.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
+        let workspace = EditingWorkspaceRecord(
+            teamSourceBaseline: sourceBaseline,
+            organizerID: ownerID
+        )
+        let calendarID = OME.Calendar.ID(
+            ownerID: ownerID,
+            calendarID: OME.Calendar.defaultID
+        )
+        let publicRecord = try #require(workspace.publicRecord)
+        let relationship = OME.Relationship(
+            subject: .identity(did: collaboratorID, handle: "alice.example"),
+            role: .collaborator([.propose]),
+            object: .record(publicRecord),
+            createdAt: "2026-07-29T00:00:00Z"
+        )
+        let record = WorkspaceRelationshipRecord(
+            id: .init(workspaceID: workspace.id, actorID: collaboratorID),
+            recordKey: "alice",
+            relationship: relationship
+        )
+        try await database.write { db in
+            try OME.Organizer.insert { OME.Organizer.Draft(id: ownerID) }.execute(db)
+            try OME.Calendar.insert {
+                OME.Calendar.Draft(id: calendarID, name: "Workspace Calendar")
+            }
+            .execute(db)
+            try SourceBaselineRecord.insert { sourceBaseline }.execute(db)
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+            try WorkspaceRelationshipRecord.insert { record }.execute(db)
+        }
+
+        let updated = try await withDependencies {
+            $0.defaultDatabase = database
+        } operation: {
+            try await OpenMusicEventCalendarSourcePatchConversion.live.update(
+                OpenMusicEventSourceRepository(
+                    calendar: CalendarDTO(name: "Workspace Calendar"),
+                    events: []
+                ),
+                OpenMusicEventCalendarSourcePatchRequest(
+                    calendarID: calendarID,
+                    sourceBaselineID: sourceBaseline.id
+                )
+            )
+        }
+
+        let collaboratorFile = try #require(updated.collaborators?.first)
+        #expect(collaboratorFile.fileName == "alice")
+        #expect(collaboratorFile.fileType == "yml")
+        #expect(collaboratorFile.data == relationship)
+    }
+
     @Test
     func generatorReadsExistingSourceAndUsesConversion() async throws {
         let fixture = try OpenMusicEventSourcePatchGenerationFixture()
@@ -1037,7 +1104,6 @@ struct OpenMusicEventSourcePatchGenerationTests {
                             role: .logo,
                             renderKind: .transparent,
                             materializationPolicy: .prefetchOnOpen,
-                            dimensions: OME.ImageAsset.Dimensions(width: 640, height: 320),
                             focalPoint: OME.ImageAsset.FocalPoint(x: 0.4, y: 0.6)
                         )
                     ]
@@ -1079,7 +1145,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
         let newText = String(decoding: newContents, as: UTF8.self)
         #expect(newText.contains("name: New Calendar"))
         #expect(newText.contains("file: images/calendar-logo.png"))
-        #expect(newText.contains("dimensions:"))
+        #expect(!newText.contains("dimensions:"))
         #expect(newText.contains("focalPoint:"))
         #expect(!newText.contains("assetKey:"))
         #expect(!newText.contains("url:"))
@@ -1633,7 +1699,6 @@ struct OpenMusicEventSourcePatchGenerationTests {
                             role: .logo,
                             renderKind: .transparent,
                             materializationPolicy: .prefetchOnOpen,
-                            dimensions: OME.ImageAsset.Dimensions(width: 640, height: 320),
                             focalPoint: OME.ImageAsset.FocalPoint(x: 0.25, y: 0.75)
                         )
                     ]
@@ -1676,7 +1741,7 @@ struct OpenMusicEventSourcePatchGenerationTests {
         let newText = String(decoding: newContents, as: UTF8.self)
         #expect(newText.contains("name: Main Meadow"))
         #expect(newText.contains("file: images/meadow-logo.png"))
-        #expect(newText.contains("dimensions:"))
+        #expect(!newText.contains("dimensions:"))
         #expect(newText.contains("focalPoint:"))
         #expect(!newText.contains("assetKey:"))
         #expect(!newText.contains("url:"))

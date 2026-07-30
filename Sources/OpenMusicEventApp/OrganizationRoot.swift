@@ -1,6 +1,10 @@
 import ComposableArchitecture2
 import OpenMusicEventAppEventViewer
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct OrganizationRoot {

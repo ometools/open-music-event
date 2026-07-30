@@ -2,7 +2,11 @@ import ComposableArchitecture2
 import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventDatabase
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 #if !SKIP && canImport(AppKit)
 import AppKit
@@ -332,8 +336,7 @@ public extension ImportImages {
                 role: role,
                 renderKind: renderKind,
                 appearance: appearance,
-                materializationPolicy: materializationPolicy,
-                dimensions: OMERecord.ImageAsset.Dimensions(data: data)
+                materializationPolicy: materializationPolicy
             )
             return ImportedImage(
                 id: id,
@@ -404,7 +407,6 @@ public extension ImportImages {
                 appearance: asset.appearance,
                 materializationPolicy: asset.materializationPolicy,
                 thumbhash: asset.thumbhash,
-                dimensions: asset.dimensions,
                 focalPoint: asset.focalPoint
             )
         }
@@ -489,11 +491,13 @@ public struct ImportImagesView: View {
                 }
             }
         }
+        #if !SKIP && canImport(UniformTypeIdentifiers)
         .importImagesFileImporter(
             isPresented: $isFileImporterPresented,
             allowsMultipleSelection: store.configuration.allowsMultipleSelection,
             onCompletion: fileImportCompleted
         )
+        #endif
         .sheet(item: $store.scope(\.destination, action: \.destination).imageInfo) { imageInfoStore in
             NavigationStack {
                 ImageInfoView(store: imageInfoStore)
@@ -514,7 +518,11 @@ public struct ImportImagesView: View {
             maxSelectionCount: store.configuration.allowsMultipleSelection ? nil : 1,
             matching: .images
         ) {
-            Label("Choose Photos", systemImage: "photo.on.rectangle")
+            Label(
+                "Choose Photos",
+                systemImage: "photo.on.rectangle",
+                composeImage: "Icons.Outlined.PhotoLibrary"
+            )
         }
         #endif
 
@@ -694,20 +702,6 @@ struct ImportedImageThumbnail: View {
                 Image(systemName: "photo")
                     .foregroundStyle(.secondary)
             }
-    }
-}
-
-private extension OMERecord.ImageAsset.Dimensions {
-    init?(data: Data) {
-        #if !SKIP && canImport(UIKit)
-        guard let image = UIImage(data: data) else { return nil }
-        self.init(width: image.size.width, height: image.size.height)
-        #elseif !SKIP && canImport(AppKit)
-        guard let image = NSImage(data: data) else { return nil }
-        self.init(width: image.size.width, height: image.size.height)
-        #else
-        return nil
-        #endif
     }
 }
 

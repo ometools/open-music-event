@@ -92,6 +92,14 @@ private func openMusicEventSourceFilePaths(
     case .calendar:
         return ["calendar.yml"]
 
+    case .collaborator:
+        guard let collaborator = comparedRecord(
+            for: record,
+            as: WorkspaceRelationshipRecord.self,
+            in: recordComparisons
+        ) else { return [] }
+        return ["collaborators/\(collaborator.recordKey).yml"]
+
     case .event:
         guard let event = comparedRecord(
             for: record,

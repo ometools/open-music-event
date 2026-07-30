@@ -18,7 +18,11 @@ import OpenMusicEventEditors
 import OpenMusicEventImages
 import SQLiteData
 import Tagged
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 import XRPCClient
 
 

@@ -257,6 +257,109 @@ struct OpenMusicEventSourceTests {
     }
 
     @Test
+    func workspaceCollaboratorsLiveOutsideCalendarYAML() throws {
+        let collaboratorID = try #require(DID("did:plc:collaborator"))
+        let ownerID = try #require(DID("did:plc:organizer"))
+        let relationship = OME.Relationship(
+            subject: .identity(did: collaboratorID, handle: "alice.example"),
+            role: .collaborator([.propose]),
+            object: .record(
+                OME.Relationship.RecordReference(
+                    author: ownerID,
+                    collection: OME.SourceRecord.nsid,
+                    rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
+                )
+            ),
+            createdAt: "2026-07-29T00:00:00Z"
+        )
+        let repository = OpenMusicEventSourceRepository(
+            calendar: CalendarDTO(name: "Workspace Calendar"),
+            collaborators: [
+                try FileContent(
+                    fileName: "alice",
+                    fileType: "yml",
+                    data: relationship
+                )
+            ],
+            events: []
+        )
+        let repositoryURL = try temporaryRepositoryURL()
+
+        _ = try OpenMusicEventSourceRepositoryFileTree().write(
+            repository,
+            to: repositoryURL
+        )
+        let roundTripped = try OpenMusicEventSourceRepositoryFileTree()
+            .read(from: repositoryURL)
+            .output
+            .requiredValue
+        let calendarYAML = try String(
+            contentsOf: repositoryURL.appending(path: "calendar.yml"),
+            encoding: .utf8
+        )
+
+        expectNoDifference(roundTripped, repository)
+        #expect(!calendarYAML.contains("collaborator"))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: repositoryURL
+                    .appending(path: "collaborators", directoryHint: .isDirectory)
+                    .appending(path: "alice.yml")
+                    .path()
+            )
+        )
+    }
+
+    @Test
+    func sourceInsertionAcceptsOneWorkspaceRelationshipPerActor() throws {
+        let collaboratorID = try #require(DID("did:plc:collaborator"))
+        let ownerID = try #require(DID("did:plc:organizer"))
+        let relationship = workspaceRelationship(
+            collaboratorID: collaboratorID,
+            ownerID: ownerID
+        )
+        let repository = OpenMusicEventSourceRepository(
+            collaborators: [
+                try FileContent(
+                    fileName: "alice",
+                    fileType: "yml",
+                    data: relationship
+                )
+            ],
+            events: []
+        )
+
+        let insertion = try OME.SourceDatabaseInsertion(
+            .init(source: repository, organizerID: ownerID)
+        )
+
+        expectNoDifference(insertion.workspaceRelationships, repository.collaborators ?? [])
+    }
+
+    @Test
+    func sourceInsertionRejectsDuplicateWorkspaceRelationshipsForOneActor() throws {
+        let collaboratorID = try #require(DID("did:plc:collaborator"))
+        let ownerID = try #require(DID("did:plc:organizer"))
+        let relationship = workspaceRelationship(
+            collaboratorID: collaboratorID,
+            ownerID: ownerID
+        )
+        let repository = OpenMusicEventSourceRepository(
+            collaborators: [
+                try FileContent(fileName: "alice", fileType: "yml", data: relationship),
+                try FileContent(fileName: "alice-copy", fileType: "yml", data: relationship),
+            ],
+            events: []
+        )
+
+        #expect(throws: OME.SourceDatabaseInsertion.Error.duplicateWorkspaceCollaborator(collaboratorID)) {
+            try OME.SourceDatabaseInsertion(
+                .init(source: repository, organizerID: ownerID)
+            )
+        }
+    }
+
+    @Test
     func readsLegacyCommunicationMarkdownPosts() throws {
         let repositoryURL = try temporaryRepositoryURL()
         let communicationURL = repositoryURL
@@ -957,7 +1060,6 @@ struct OpenMusicEventSourceTests {
         expectNoDifference(calendarHero.renderKind, .fullImage)
         expectNoDifference(calendarHero.materializationPolicy, .lazy)
         expectNoDifference(calendarHero.source, .url(URL(string: "https://example.com/calendar-hero.jpg")!))
-        expectNoDifference(calendarHero.dimensions, OME.ImageAsset.Dimensions(width: 1600, height: 900))
         expectNoDifference(calendarHero.focalPoint, OME.ImageAsset.FocalPoint(x: 0.35, y: 0.45))
         let calendarLogo = try #require(calendar.images?.first { $0.role == .logo })
         expectNoDifference(calendarLogo.renderKind, .transparent)
@@ -988,6 +1090,11 @@ struct OpenMusicEventSourceTests {
 
         let outputURL = try temporaryRepositoryURL()
         _ = try OpenMusicEventSourceRepositoryFileTree().write(repository, to: outputURL)
+        let outputCalendar = try String(
+            contentsOf: outputURL.appending(path: "calendar.yml"),
+            encoding: .utf8
+        )
+        #expect(!outputCalendar.contains("dimensions:"))
         let roundTripped = try OpenMusicEventSourceRepositoryFileTree()
             .read(from: outputURL)
             .output
@@ -1323,6 +1430,24 @@ struct OpenMusicEventSourceTests {
                 did: did,
                 bio: bio
             )
+        )
+    }
+
+    private func workspaceRelationship(
+        collaboratorID: DID,
+        ownerID: DID
+    ) -> OME.Relationship {
+        OME.Relationship(
+            subject: .identity(did: collaboratorID, handle: "alice.example"),
+            role: .collaborator([.propose]),
+            object: .record(
+                OME.Relationship.RecordReference(
+                    author: ownerID,
+                    collection: OME.SourceRecord.nsid,
+                    rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
+                )
+            ),
+            createdAt: "2026-07-29T00:00:00Z"
         )
     }
 

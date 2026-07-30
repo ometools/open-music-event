@@ -3,7 +3,11 @@ import DateRangePicker
 #endif
 import Foundation
 import OpenMusicEventLexicon
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 public struct EventDateRangeSelection: Equatable {
     public var hasStartDate: Bool
@@ -115,7 +119,7 @@ public struct EventDateRangePicker: View {
             }
         }
         #else
-        Toggle("Start Date", isOn: $selection.hasStartDate.animation())
+        Toggle("Start Date", isOn: $selection.hasStartDate.portableAnimation())
         if selection.hasStartDate {
             DatePicker(
                 "Start Date",
@@ -126,7 +130,7 @@ public struct EventDateRangePicker: View {
             .environment(\.timeZone, selection.timeZone)
         }
 
-        Toggle("Add End Date", isOn: $selection.hasEndDate.animation())
+        Toggle("Add End Date", isOn: $selection.hasEndDate.portableAnimation())
         if selection.hasEndDate {
             DatePicker(
                 "End Date",

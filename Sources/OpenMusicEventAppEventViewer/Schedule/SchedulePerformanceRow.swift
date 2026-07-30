@@ -1,4 +1,5 @@
 import Foundation
+import OpenMusicEventComponents
 import SwiftUI
 
 public struct SchedulePerformanceRow: View {
@@ -48,7 +49,7 @@ public struct SchedulePerformanceRow: View {
 
                     if let timingStatus {
                         PerformanceTimingChip(status: timingStatus)
-                            .layoutPriority(1)
+                            .portableLayoutPriority(1)
                     }
                 }
             }
@@ -66,7 +67,7 @@ public struct SchedulePerformanceRow: View {
         .padding(.vertical, 4)
         .foregroundStyle(.primary)
         .opacity(userScheduleOverlay.isDimmed(performanceID: row.performanceID) ? 0.38 : 1)
-        .accessibilityLabel(accessibilityLabel)
+        .accessibilityLabel(Text(accessibilityLabel))
     }
 
     @ViewBuilder
@@ -74,7 +75,10 @@ public struct SchedulePerformanceRow: View {
         if let stage = row.stage {
             ScheduleStageIcon(stage: stage)
         } else {
-            Image(systemName: "music.note")
+            Image(
+                system: "music.note",
+                material: "Icons.Outlined.MusicNote"
+            )
                 .resizable()
                 .scaledToFit()
                 .padding(14)

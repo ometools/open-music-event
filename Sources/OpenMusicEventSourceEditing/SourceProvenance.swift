@@ -1,3 +1,4 @@
+import ATProto
 import Foundation
 import OpenMusicEventLexicon
 import OpenMusicEventSource
@@ -94,6 +95,8 @@ public struct EditingWorkspaceRecord: Equatable, Sendable, Identifiable {
     public var createdAt: Date
     public var updatedAt: Date
     public var sourceBaselineID: SourceBaselineRecord.ID?
+    @Column(as: OME.Relationship.RecordReference.JSONRepresentation?.self)
+    public var publicRecord: OME.Relationship.RecordReference?
 
     public init(
         id: ID,
@@ -101,7 +104,8 @@ public struct EditingWorkspaceRecord: Equatable, Sendable, Identifiable {
         databaseFileName: String,
         createdAt: Date,
         updatedAt: Date,
-        sourceBaselineID: SourceBaselineRecord.ID? = nil
+        sourceBaselineID: SourceBaselineRecord.ID? = nil,
+        publicRecord: OME.Relationship.RecordReference? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -109,6 +113,7 @@ public struct EditingWorkspaceRecord: Equatable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.sourceBaselineID = sourceBaselineID
+        self.publicRecord = publicRecord
     }
 }
 
@@ -124,15 +129,96 @@ public extension EditingWorkspaceRecord {
         )
     }
 
-    init(teamSourceBaseline sourceBaseline: SourceBaselineRecord) {
+    init(
+        teamSourceBaseline sourceBaseline: SourceBaselineRecord,
+        organizerID: OME.Organizer.ID? = nil
+    ) {
         self.init(
             id: .init(sourceBaselineID: sourceBaseline.id),
             kind: .team,
             databaseFileName: sourceBaseline.databaseFileName,
             createdAt: sourceBaseline.importedAt,
             updatedAt: sourceBaseline.importedAt,
-            sourceBaselineID: sourceBaseline.id
+            sourceBaselineID: sourceBaseline.id,
+            publicRecord: sourceBaseline.sourceKind == .tangled
+                ? organizerID.map(OME.Relationship.RecordReference.init(sourceOrganizerID:))
+                : nil
         )
+    }
+}
+
+public enum WorkspaceIdentity: Equatable, Hashable, Sendable {
+    case local(EditingWorkspaceRecord.ID)
+    case published(
+        localID: EditingWorkspaceRecord.ID,
+        record: OME.Relationship.RecordReference
+    )
+
+    public var localID: EditingWorkspaceRecord.ID {
+        switch self {
+        case let .local(id), let .published(id, _):
+            id
+        }
+    }
+
+    public var publicRecord: OME.Relationship.RecordReference? {
+        guard case let .published(_, record) = self else { return nil }
+        return record
+    }
+}
+
+public extension EditingWorkspaceRecord {
+    var identity: WorkspaceIdentity {
+        publicRecord.map { .published(localID: id, record: $0) } ?? .local(id)
+    }
+}
+
+public extension OME.Relationship.RecordReference {
+    init(sourceOrganizerID: OME.Organizer.ID) {
+        self.init(
+            author: sourceOrganizerID,
+            collection: OME.SourceRecord.nsid,
+            rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
+        )
+    }
+}
+
+@Table("workspaceRelationships")
+public struct WorkspaceRelationshipRecord: Equatable, Sendable, Identifiable {
+    @Selection public struct ID: Codable, Hashable, Sendable {
+        public init(
+            workspaceID: EditingWorkspaceRecord.ID,
+            actorID: DID
+        ) {
+            self.workspaceID = workspaceID
+            self.actorID = actorID
+        }
+
+        public var workspaceID: EditingWorkspaceRecord.ID
+        public var actorID: DID
+    }
+
+    public init(
+        id: ID,
+        recordKey: String,
+        relationship: OME.Relationship
+    ) {
+        self.id = id
+        self.recordKey = recordKey
+        self.relationship = relationship
+    }
+
+    public var id: ID
+    public var recordKey: String
+    @Column(as: OME.Relationship.JSONRepresentation.self)
+    public var relationship: OME.Relationship
+
+    public static func recordKey(for actorID: DID) -> String {
+        Data(actorID.description.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
 

@@ -4,9 +4,13 @@ import Foundation
 import OpenMusicEventComponents
 import OpenMusicEventEditors
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
-#if canImport(MapKit)
+#if !os(Android) && canImport(MapKit)
 import MapKit
 #endif
 
@@ -66,7 +70,7 @@ public struct LocationViewerView: View {
                     ForEach(locations.indices, id: \.self) { index in
                         let location = locations[index]
                         Section {
-                            #if canImport(MapKit)
+                            #if !os(Android) && canImport(MapKit)
                             if let coordinates = location.coordinates {
                                 LocationMapView(coordinates: coordinates)
                                     .frame(minHeight: 320)
@@ -78,7 +82,8 @@ public struct LocationViewerView: View {
                                 LocationInfoRow(
                                     title: "Address",
                                     value: address,
-                                    systemImage: "mappin.and.ellipse"
+                                    systemImage: "mappin.and.ellipse",
+                                    composeImage: "Icons.Outlined.PinDrop"
                                 )
                             }
 
@@ -98,13 +103,21 @@ public struct LocationViewerView: View {
 
                             if let googleMapsURL = location.googleMapsURL {
                                 Link(destination: googleMapsURL) {
-                                    Label("Google Maps", systemImage: "map")
+                                    Label(
+                                        "Google Maps",
+                                        systemImage: "map",
+                                        composeImage: "Icons.Outlined.Map"
+                                    )
                                 }
                             }
 
                             if let directions = location.displayDirections {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond")
+                                    Label(
+                                        "Directions",
+                                        systemImage: "arrow.triangle.turn.up.right.diamond",
+                                        composeImage: "Icons.Outlined.Directions"
+                                    )
                                         .font(.headline)
                                     Text(directions)
                                         .foregroundStyle(.secondary)
@@ -123,6 +136,7 @@ public struct LocationViewerView: View {
                 ViewerPlaceholderView(
                     title: "Location",
                     systemImage: "mappin.and.ellipse",
+                    composeImage: "Icons.Outlined.PinDrop",
                     description: store.event == nil
                         ? "This event could not be loaded."
                         : "No locations have been added to this event yet."
@@ -148,10 +162,14 @@ struct LocationInfoRow: View {
     let title: String
     let value: String
     let systemImage: String
+    var composeImage: String? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Image(systemName: systemImage)
+            Image(
+                system: systemImage,
+                material: composeImage ?? systemImage
+            )
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -160,7 +178,7 @@ struct LocationInfoRow: View {
                 Text(value)
                     .foregroundStyle(.secondary)
                     #if !os(Android)
-                    .textSelection(.enabled)
+                    .selectableText()
                     #endif
             }
         }
@@ -307,13 +325,13 @@ public struct EditLocationView: View {
                 Form {
                     ForEach($store.locations) { $location in
                         Section {
-                            TextField("Address", text: $location.address, axis: .vertical)
-                                .lineLimit(2...4)
+                            PortableTextField("Address", text: $location.address, axis: .vertical)
+                                .portableLineLimit(2...4)
 
-                            TextField("Directions", text: $location.directions, axis: .vertical)
-                                .lineLimit(2...6)
+                            PortableTextField("Directions", text: $location.directions, axis: .vertical)
+                                .portableLineLimit(2...6)
 
-                            Toggle("Coordinates", isOn: $location.hasCoordinates.animation())
+                            Toggle("Coordinates", isOn: $location.hasCoordinates.portableAnimation())
 
                             if location.hasCoordinates {
                                 TextField("Latitude", text: $location.latitude)
@@ -363,6 +381,7 @@ public struct EditLocationView: View {
                 ViewerPlaceholderView(
                     title: "Edit Location",
                     systemImage: "mappin.and.ellipse",
+                    composeImage: "Icons.Outlined.PinDrop",
                     description: "This event could not be loaded."
                 )
             }
@@ -390,7 +409,7 @@ public struct EditLocationView: View {
     }
 }
 
-#if canImport(MapKit)
+#if !os(Android) && canImport(MapKit)
 struct LocationMapView: View {
     let coordinates: OMERecord.Event.Location.Coordinates
 

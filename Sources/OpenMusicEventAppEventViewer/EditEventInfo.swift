@@ -6,7 +6,11 @@ import OpenMusicEventComponents
 import OpenMusicEventTimeZones
 import SQLiteData
 import SwiftUITabFeatures
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct EditEventInfo {
@@ -233,8 +237,8 @@ public struct EditEventInfoView: View {
                     }
 
                     Section("Description") {
-                        TextField("Description", text: $store.draft.description[coalesce: ""], axis: .vertical)
-                            .lineLimit(4...8)
+                        PortableTextField("Description", text: $store.draft.description[coalesce: ""], axis: .vertical)
+                            .portableLineLimit(4...8)
                     }
 
                     Section("Times") {

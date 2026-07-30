@@ -13,8 +13,13 @@ import OpenMusicEventLexicon
 import OpenMusicEventSourceClone
 import OpenMusicEventSourceEditing
 import SourceEditing
+import Sharing
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 public struct SourceWorkspaceSummary: Equatable, Sendable {
     public var availability: SourceChangesAvailability
@@ -387,6 +392,7 @@ public struct EventWorkspace {
         }
 
         public init(target: SourceProposalTarget) {
+            self._authoringGrant = Self.authoringGrant()
             self.target = target
             self._sourceWorkspaceSummary = Fetch(
                 wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
@@ -404,6 +410,7 @@ public struct EventWorkspace {
         public var id: String { target.id }
         @DebugSnapshotIgnored
         @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
+        @SharedReader public var authoringGrant: AuthoringGrant?
         public var isPreparingSourceProposal = false
         public var isRefreshingSource = false
         public var isResettingEdits = false
@@ -412,6 +419,7 @@ public struct EventWorkspace {
         public var sourceProposalStatus: SourceProposalStatus = .idle
         @DebugSnapshotIgnored
         public var sourceProposal: SourceProposalFlow.State?
+        public var collaborators: WorkspaceCollaborators.State?
         public var selectedTangledPullReview: SelectedTangledPullReview?
         public var pendingCreatedTangledPullReviewID: String?
         public var tangledPullReviewStatus: TangledPullReviewStatus = .notLoaded
@@ -487,10 +495,16 @@ public struct EventWorkspace {
                 recordComparisons: sourceWorkspaceSummary.recordComparisons
             )
         }
+
+        private static func authoringGrant() -> SharedReader<AuthoringGrant?> {
+            @Dependency(\.authoringContext) var authoringContext
+            return authoringContext?.$grant ?? SharedReader(value: nil)
+        }
     }
 
     public enum Action {
         case closeTangledPullReviewButtonTapped(TangledPullReview)
+        case collaborators(WorkspaceCollaborators.Action)
         case createEventButtonTapped
         case delegate(Delegate)
         case deleteTangledPullReviewForeverButtonTapped(TangledPullReview)
@@ -881,7 +895,8 @@ public struct EventWorkspace {
                 _ review: TangledPullReview,
                 state: inout State
             ) {
-                guard !state.mergingTangledPullReviewIDs.contains(review.id),
+                guard state.authoringGrant?.role.canMerge == true,
+                      !state.mergingTangledPullReviewIDs.contains(review.id),
                       !state.closingTangledPullReviewIDs.contains(review.id),
                       !state.deletingTangledPullReviewIDs.contains(review.id)
                 else { return }
@@ -975,6 +990,9 @@ public struct EventWorkspace {
             case let .closeTangledPullReviewButtonTapped(review):
                 closeTangledPullReview(review, state: &state)
 
+            case .collaborators:
+                break
+
             case .createEventButtonTapped:
                 guard case let .calendar(calendarID, sourceBaselineID) = state.target else {
                     return
@@ -1062,7 +1080,7 @@ public struct EventWorkspace {
                 state.dismissSourceProposal()
 
             case .proposeChangeButtonTapped:
-                guard state.canPublishSourceProposal else { return }
+                guard state.canProposeChanges else { return }
                 prepareSourceProposal(state: &state)
 
             case let .reviewSemanticDiffButtonTapped(review):
@@ -1180,6 +1198,7 @@ public struct EventWorkspace {
         }
         .onMount { state in
             let target = state.target
+            refreshTangledPullReviews(target: target, state: &state)
             store.addTask {
                 for await invalidation in sourcePatchInvalidations.stream() {
                     guard await target.matches(invalidation: invalidation) else { continue }
@@ -1190,9 +1209,22 @@ public struct EventWorkspace {
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()
         }
+        .ifLet(\.collaborators, action: \.collaborators) {
+            WorkspaceCollaborators()
+        }
         .onChange(of: store.sourceProposal?.status) { _, status, state in
             guard let status else { return }
             state.sourceProposalStatus = status
+        }
+        .onChange(of: store.authoringGrant) { _, _, state in
+            state.reloadCollaboratorsForAuthoringAccess()
+        }
+        .onEvent(AuthoringAccessRevoked.self) { _, state in
+            state.isPreparingSourceProposal = false
+            state.dismissSourceProposal()
+        }
+        .onMount { state in
+            state.reloadCollaboratorsForAuthoringAccess()
         }
         .spawn(\.account) {
             Account()
@@ -1250,7 +1282,7 @@ public struct EventWorkspaceView: View {
         #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .portableSafeAreaTopInset(spacing: 0) {
             workspaceTopBarExtension
         }
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
@@ -1284,6 +1316,10 @@ public struct EventWorkspaceView: View {
         .accountPickerToolbar(store: accountStore)
         .onAppear {
             store.send(.onAppear)
+        }
+        .onChange(of: store.availableWorkspaceTabs) { _, tabs in
+            guard !tabs.contains(selectedTab) else { return }
+            selectedTab = store.defaultWorkspaceTab
         }
         .alert(
             "Reset local changes?",
@@ -1337,7 +1373,7 @@ public struct EventWorkspaceView: View {
                         .foregroundStyle(.secondary)
                     Text(store.sourceWorkspaceSummary.totalCount, format: .number)
                         .font(.title3)
-                        .monospacedDigit()
+                        .portableMonospacedDigit()
                 }
 
                 Spacer()
@@ -1361,7 +1397,7 @@ public struct EventWorkspaceView: View {
                     avatarSize: 32
                 )
 
-                DisclosureGroup("Technical details") {
+                PortableDisclosureGroup("Technical details") {
                     WorkspaceTechnicalValueView(
                         label: "Source address",
                         value: sourceContext.sourceReference
@@ -1396,7 +1432,7 @@ public struct EventWorkspaceView: View {
                     .foregroundStyle(.secondary)
 
                 if showsTechnicalDetails, let sourceContext = store.sourceContext {
-                    DisclosureGroup("Technical details") {
+                    PortableDisclosureGroup("Technical details") {
                         WorkspaceTechnicalValueView(
                             label: "Source address",
                             value: sourceContext.sourceReference
@@ -1453,6 +1489,13 @@ public struct EventWorkspaceView: View {
                 proposeList
             case .review:
                 reviewList
+            case .collaborators:
+                if let collaboratorsStore = store.scope(
+                    \.collaborators,
+                    action: \.collaborators
+                ) {
+                    WorkspaceCollaboratorsView(store: collaboratorsStore)
+                }
             }
 
         case .workspaceNeedsPreparation, .notInWorkspace:
@@ -1606,7 +1649,7 @@ public struct EventWorkspaceView: View {
                             Text(failure.message)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
+                                .selectableText()
                         }
                     }
 
@@ -1760,7 +1803,7 @@ public struct EventWorkspaceView: View {
                             Text(failure.message)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
+                                .selectableText()
                         }
                     }
                 }
@@ -1814,6 +1857,7 @@ public struct EventWorkspaceView: View {
 }
 
 enum EventWorkspaceTab: String, CaseIterable, Identifiable {
+    case collaborators
     case propose
     case review
 
@@ -1821,6 +1865,8 @@ enum EventWorkspaceTab: String, CaseIterable, Identifiable {
 
     func title(for target: SourceProposalTarget) -> String {
         switch self {
+        case .collaborators:
+            "Collaborators"
         case .propose:
             switch target {
             case .calendar:
@@ -1851,7 +1897,7 @@ struct TangledPullReviewRow: View {
                 Text(review.title)
                     .font(.headline)
                     .lineLimit(2)
-                    .layoutPriority(1)
+                    .portableLayoutPriority(1)
                 Spacer()
                 TangledPullReviewStateChip(state: review.state)
             }
@@ -1902,7 +1948,7 @@ struct TangledPullReviewRow: View {
                         Text(closeFailure.message)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                            .selectableText()
                     }
                 }
             }
@@ -1916,7 +1962,7 @@ struct TangledPullReviewRow: View {
                         Text(mergeFailure.message)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                            .selectableText()
                     }
                 }
             }
@@ -1930,7 +1976,7 @@ struct TangledPullReviewRow: View {
                         Text(deleteFailure.message)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                            .selectableText()
                     }
                 }
             }
@@ -2034,7 +2080,7 @@ struct TangledPullReviewDetailView: View {
                             Text(mergeFailure.message)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
+                                .selectableText()
                         }
                     }
                 }
@@ -2043,7 +2089,7 @@ struct TangledPullReviewDetailView: View {
             if let body = review.body, !body.isEmpty {
                 Section("Description") {
                     Text(body)
-                        .textSelection(.enabled)
+                        .selectableText()
                 }
             }
 
@@ -2051,7 +2097,7 @@ struct TangledPullReviewDetailView: View {
 
             if showsTechnicalDetails {
                 Section {
-                    DisclosureGroup("Technical details") {
+                    PortableDisclosureGroup("Technical details") {
                         WorkspaceTechnicalValueView(
                             label: "Review URI",
                             value: review.uri
@@ -2086,7 +2132,7 @@ struct TangledPullReviewDetailView: View {
                         }
                     }
 
-                    DisclosureGroup("Patch metadata") {
+                    PortableDisclosureGroup("Patch metadata") {
                         if review.patchBlobs.isEmpty {
                             Text("No patch metadata")
                                 .foregroundStyle(.secondary)
@@ -2116,11 +2162,11 @@ struct TangledPullReviewDetailView: View {
                         }
                     }
 
-                    DisclosureGroup("Raw review") {
+                    PortableDisclosureGroup("Raw review") {
                         Text(review.rawReviewText)
                             .font(.caption)
                             .monospaced()
-                            .textSelection(.enabled)
+                            .selectableText()
                     }
                 }
             }
@@ -2131,7 +2177,7 @@ struct TangledPullReviewDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .sourceChangeRowStyle(OpenMusicEventSourceChangeRowStyle())
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .portableSafeAreaTopInset(spacing: 0) {
             VStack(spacing: 0) {
                 Button {
                     onMerge()
@@ -2201,7 +2247,7 @@ struct TangledPullReviewDetailView: View {
                         Text(failure.message)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                            .selectableText()
                     }
                 }
 
@@ -2386,7 +2432,7 @@ public struct SourceChangesReviewPanel<SourceSection: View, AuxiliarySection: Vi
                             Spacer()
                             Text(fileChangeCount, format: .number)
                                 .font(.headline)
-                                .monospacedDigit()
+                                .portableMonospacedDigit()
                         }
                     }
                 }
@@ -2494,7 +2540,7 @@ public struct WorkspaceTechnicalValueView: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.caption)
-                .textSelection(.enabled)
+                .selectableText()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -2512,7 +2558,7 @@ struct SourceIndicatorView: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
 
-            DisclosureGroup("Technical details") {
+            PortableDisclosureGroup("Technical details") {
                 WorkspaceTechnicalValueView(
                     label: "Source address",
                     value: sourceContext.sourceReference
@@ -2570,7 +2616,7 @@ public struct SourcePatchStatusView: View {
                     Text(failure.message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .selectableText()
                 }
             }
 
@@ -2580,7 +2626,7 @@ public struct SourcePatchStatusView: View {
                 Spacer()
                 Text(patch.fileChanges.count, format: .number)
                     .font(.headline)
-                    .monospacedDigit()
+                    .portableMonospacedDigit()
             }
 
         case .generating:
@@ -2634,7 +2680,7 @@ public struct SourceProposalStatusView: View {
                     Text(failure.message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .selectableText()
                 }
             }
 
@@ -2668,12 +2714,12 @@ public struct SourceProposalComposerView: View {
                 }
 
                 Section("Description") {
-                    TextField(
+                    PortableTextField(
                         "Description",
                         text: $store.form.value.description,
                         axis: .vertical
                     )
-                    .lineLimit(4...8)
+                    .portableLineLimit(4...8)
                 }
 
                 SourceProposalStatusView(status: store.status)
@@ -2735,7 +2781,7 @@ struct ExistingProposalsSection: View {
                     Text(message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .selectableText()
                 }
 
             case let .loaded(proposals):
@@ -2812,7 +2858,7 @@ struct SourceFileAttributionSection: View {
                             Label {
                                 Text(attribution.filePath)
                                     .lineLimit(2)
-                                    .textSelection(.enabled)
+                                    .selectableText()
                             } icon: {
                                 Image(systemName: "doc.text")
                             }
@@ -2821,7 +2867,7 @@ struct SourceFileAttributionSection: View {
 
                             Text(attribution.recordCountTitle)
                                 .font(.caption)
-                                .monospacedDigit()
+                                .portableMonospacedDigit()
                                 .foregroundStyle(.secondary)
                         }
 
@@ -2832,7 +2878,7 @@ struct SourceFileAttributionSection: View {
                                         .font(.caption2)
                                         .monospaced()
                                         .foregroundStyle(.secondary)
-                                        .textSelection(.enabled)
+                                        .selectableText()
                                 }
                             }
                         }
@@ -2890,7 +2936,7 @@ struct SourceChangeGroupDisclosure: View {
     }
 
     var body: some View {
-        DisclosureGroup {
+        PortableDisclosureGroup {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(kinds, id: \.self) { kind in
                     VStack(alignment: .leading, spacing: 8) {
@@ -2964,12 +3010,12 @@ struct SourceChangeCountBadge: View {
             Text(count, format: .number)
         }
         .font(.caption2.weight(.semibold))
-        .monospacedDigit()
+        .portableMonospacedDigit()
         .foregroundStyle(kind.badgeForegroundStyle)
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(kind.badgeBackgroundStyle, in: Capsule())
-        .accessibilityElement(children: .combine)
+        .portableAccessibilityElement()
         .accessibilityLabel("\(count) \(kind.title)")
     }
 }
@@ -3178,6 +3224,7 @@ private extension EventWorkspace.State {
         guard case let .generated(patch, _) = sourcePatchStatus,
               !patch.isEmpty,
               canPublishSourceProposal,
+              authoringGrant?.role.canPropose == true,
               sourceProposalStatus.canCreateProposal
         else { return false }
         return true
@@ -3192,7 +3239,14 @@ private extension EventWorkspace.State {
 
 extension EventWorkspace.State {
     var availableWorkspaceTabs: [EventWorkspaceTab] {
-        canReviewTangledPullRequests ? [.propose, .review] : [.propose]
+        var tabs: [EventWorkspaceTab] = [.propose]
+        if collaborators != nil {
+            tabs.append(.collaborators)
+        }
+        if canReviewTangledPullRequests {
+            tabs.append(.review)
+        }
+        return tabs
     }
 
     var canGenerateSourcePatch: Bool {
@@ -3204,16 +3258,32 @@ extension EventWorkspace.State {
     }
 
     var canReviewTangledPullRequests: Bool {
-        sourceKind == .tangled
+        sourceKind == .tangled && authoringGrant?.role.canMerge == true
     }
 
     var canProposeChanges: Bool {
         guard sourceWorkspaceSummary.totalCount > 0,
               canPublishSourceProposal,
+              authoringGrant?.role.canPropose == true,
               !sourcePatchStatus.isGenerating,
               !sourceProposalStatus.isProposing
         else { return false }
         return true
+    }
+
+    mutating func reloadCollaboratorsForAuthoringAccess() {
+        guard let grant = authoringGrant,
+              case .actor = grant.principal,
+              grant.role.canManageCollaborators
+        else {
+            collaborators = nil
+            return
+        }
+        guard collaborators?.workspaceID != grant.workspace.id else { return }
+        collaborators = WorkspaceCollaborators.State(
+            workspaceID: grant.workspace.id,
+            role: grant.role
+        )
     }
 }
 
@@ -3340,6 +3410,10 @@ private extension SourceProposalTarget {
                 invalidatedEventID: invalidatedEventID,
                 database: database
             )
+
+        case let .workspace(workspaceID):
+            guard let sourceBaselineID else { return false }
+            return workspaceID == EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
         }
     }
 
@@ -3851,7 +3925,7 @@ struct DefaultSourceRecordChangeRow: View {
                     Text(recordDiff)
                         .font(.caption)
                         .monospaced()
-                        .textSelection(.enabled)
+                        .selectableText()
                 } else {
                     ForEach(record.fieldChanges) { change in
                         SourceFieldChangeRow(change: change)
@@ -5019,7 +5093,7 @@ struct SourceFieldChangeRow: View {
             Text("\(change.baselineValue.sourceDisplayValue) -> \(change.workingValue.sourceDisplayValue)")
                 .font(.caption)
                 .monospaced()
-                .textSelection(.enabled)
+                .selectableText()
         }
     }
 }

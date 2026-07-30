@@ -1,6 +1,7 @@
 import ComposableArchitecture2
 import Dependencies
 import Foundation
+import OpenMusicEventComponents
 import ScheduleComponents
 import Sharing
 import SQLiteData
@@ -452,10 +453,13 @@ struct ScheduleEmptyView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ContentUnavailableView(
-                title,
-                systemImage: "calendar.day.timeline.leading"
-            )
+            ContentUnavailableView {
+                Label(
+                    title,
+                    systemImage: "calendar.day.timeline.leading",
+                    composeImage: "Icons.Outlined.ViewTimeline"
+                )
+            }
             .fixedSize(horizontal: false, vertical: true)
 
             if !otherScheduleDivisions.isEmpty {
@@ -470,7 +474,11 @@ struct ScheduleEmptyView: View {
                 Button {
                     onScheduleDivisionTapped(division)
                 } label: {
-                    Label(division.title, systemImage: division.systemImage)
+                    Label(
+                        division.title,
+                        systemImage: division.systemImage,
+                        composeImage: division.composeImage
+                    )
                 }
             }
         }

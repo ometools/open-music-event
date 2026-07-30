@@ -1,5 +1,11 @@
 import Foundation
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
 
 public struct DateTimeRangeResolutionPolicy: Equatable, Sendable {
     public init(rolloverHour: Int = 6) {

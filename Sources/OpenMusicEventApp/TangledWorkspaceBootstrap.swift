@@ -485,7 +485,10 @@ private func prepareReferenceDatabase(
         .lastPathComponent,
         importedAt: importedAt
     )
-    let newWorkspace = EditingWorkspaceRecord(teamSourceBaseline: newSourceBaseline)
+    let newWorkspace = EditingWorkspaceRecord(
+        teamSourceBaseline: newSourceBaseline,
+        organizerID: organizerID
+    )
     let oldWorkspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: oldSourceBaselineID)
     let newWorkspaceID = newWorkspace.id
 

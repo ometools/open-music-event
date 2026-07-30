@@ -1,5 +1,6 @@
 import ComposableArchitecture2
 import Dependencies
+import OpenMusicEventComponents
 import Sharing
 import SwiftUI
 
@@ -78,8 +79,12 @@ public struct ScheduleKindMenu: View {
 
             if needsStageDisambiguation {
                 Section("Display") {
-                    Toggle(isOn: $store.showStageNameLabels.animation()) {
-                        Label("Show Stage Labels", systemImage: "tag")
+                    Toggle(isOn: $store.showStageNameLabels.portableAnimation()) {
+                        Label(
+                            "Show Stage Labels",
+                            systemImage: "tag",
+                            composeImage: "Icons.Outlined.Sell"
+                        )
                     }
                 }
             }
@@ -97,6 +102,7 @@ public struct ScheduleKindMenu: View {
             modeLabel(
                 title: scheduleKind.title,
                 systemImage: scheduleKind.systemImage,
+                composeImage: scheduleKind.composeImage,
                 isSelected: store.scheduleKind == scheduleKind
             )
         }
@@ -106,6 +112,7 @@ public struct ScheduleKindMenu: View {
     func modeLabel(
         title: String,
         systemImage: String?,
+        composeImage: String?,
         isSelected: Bool
     ) -> some View {
         if isSelected {
@@ -114,8 +121,8 @@ public struct ScheduleKindMenu: View {
             } icon: {
                 Image(systemName: "checkmark")
             }
-        } else if let systemImage {
-            Label(title, systemImage: systemImage)
+        } else if let systemImage, let composeImage {
+            Label(title, systemImage: systemImage, composeImage: composeImage)
         } else {
             Text(title)
         }
@@ -123,8 +130,15 @@ public struct ScheduleKindMenu: View {
 
     @ViewBuilder
     var selectedModeLabel: some View {
-        if let systemImage = store.scheduleKind.systemImage {
-            Label(store.scheduleKind.title, systemImage: systemImage)
+        if
+            let systemImage = store.scheduleKind.systemImage,
+            let composeImage = store.scheduleKind.composeImage
+        {
+            Label(
+                store.scheduleKind.title,
+                systemImage: systemImage,
+                composeImage: composeImage
+            )
         } else {
             Text(store.scheduleKind.title)
         }
@@ -168,8 +182,20 @@ public struct UserScheduleFilterMenu: View {
                 Label("Schedules…", systemImage: "calendar")
             }
         } label: {
-            Label(store.state.userScheduleOverlay.selectedTitle, systemImage: "calendar")
-                .labelStyle(.iconOnly)
+            if store.state.userScheduleOverlay.selectedSchedule != nil {
+                #if SKIP
+                Label(store.state.userScheduleOverlay.selectedTitle, systemImage: "person")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.tint)
+                #else
+                Label(store.state.userScheduleOverlay.selectedTitle, systemImage: "calendar.and.person")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.tint)
+                #endif
+            } else {
+                Label(store.state.userScheduleOverlay.selectedTitle, systemImage: "calendar")
+                    .labelStyle(.iconOnly)
+            }
         }
         .accessibilityLabel("Schedule filter, \(store.state.userScheduleOverlay.selectedTitle)")
     }
@@ -206,6 +232,11 @@ public struct ScheduleViewerView: View {
         self.showsAuthoringControls = showsAuthoringControls
     }
 
+    #if os(Android) && SKIP_BRIDGE
+    public var body: some View {
+        content
+    }
+    #else
     public var body: some View {
         content
             .navigationTitle(
@@ -307,6 +338,7 @@ public struct ScheduleViewerView: View {
                 consumePendingScheduleLaunchAction()
             }
     }
+    #endif
 
     @ViewBuilder
     var content: some View {

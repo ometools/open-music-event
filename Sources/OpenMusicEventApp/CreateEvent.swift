@@ -16,7 +16,17 @@ import OpenMusicEventSourceEditing
 import OpenMusicEventTimeZones
 import SQLiteData
 import SwiftUITabFeatures
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+#if os(Android)
+private typealias _SwiftUIForm = SkipSwiftUI.Form
+#else
+private typealias _SwiftUIForm = SwiftUI.Form
+#endif
 
 private enum AppEventOrganizerIDKey: DependencyKey {
     static let liveValue = OMERecord.Organizer.ID("did:web:local.openmusicevent")!
@@ -427,7 +437,7 @@ struct CreateEventView: View {
     @State var isTimeZonePickerPresented = false
 
     var body: some View {
-        SwiftUI.Form {
+        _SwiftUIForm {
             Section {
                 Text("Start with the basics. This creates the event now so you can come back and fill in artwork, schedule, locations, and the rest later")
                     .font(.subheadline)

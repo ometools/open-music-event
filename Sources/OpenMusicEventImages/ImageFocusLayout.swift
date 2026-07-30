@@ -1,10 +1,24 @@
+#if os(Android)
+import SkipSwiftUI
+
+public typealias ImageFocusCGFloat = SkipSwiftUI.CGFloat
+public typealias ImageFocusCGPoint = SkipSwiftUI.CGPoint
+public typealias ImageFocusCGSize = SkipSwiftUI.CGSize
+public typealias ImageFocusCGRect = SkipSwiftUI.CGRect
+#else
 import CoreGraphics
+
+public typealias ImageFocusCGFloat = CoreGraphics.CGFloat
+public typealias ImageFocusCGPoint = CoreGraphics.CGPoint
+public typealias ImageFocusCGSize = CoreGraphics.CGSize
+public typealias ImageFocusCGRect = CoreGraphics.CGRect
+#endif
 
 public struct ImageFocusLayout: Equatable {
     public init(
-        frame: CGRect,
-        scale: CGFloat,
-        safeRect: CGRect,
+        frame: ImageFocusCGRect,
+        scale: ImageFocusCGFloat,
+        safeRect: ImageFocusCGRect,
         usesFocus: Bool
     ) {
         self.frame = frame
@@ -13,16 +27,16 @@ public struct ImageFocusLayout: Equatable {
         self.usesFocus = usesFocus
     }
 
-    public var frame: CGRect
-    public var scale: CGFloat
-    public var safeRect: CGRect
+    public var frame: ImageFocusCGRect
+    public var scale: ImageFocusCGFloat
+    public var safeRect: ImageFocusCGRect
     public var usesFocus: Bool
 
     public static func layout(
-        imageSize: CGSize,
-        containerSize: CGSize,
-        focalPoint: CGPoint?,
-        safeRect requestedSafeRect: CGRect? = nil
+        imageSize: ImageFocusCGSize,
+        containerSize: ImageFocusCGSize,
+        focalPoint: ImageFocusCGPoint?,
+        safeRect requestedSafeRect: ImageFocusCGRect? = nil
     ) -> Self {
         guard imageSize.width > 0,
               imageSize.height > 0,
@@ -37,7 +51,7 @@ public struct ImageFocusLayout: Equatable {
             )
         }
 
-        let containerRect = CGRect(origin: .zero, size: containerSize)
+        let containerRect = ImageFocusCGRect(origin: .zero, size: containerSize)
         let safeRect = normalizedSafeRect(
             requestedSafeRect ?? containerRect,
             in: containerRect
@@ -56,11 +70,11 @@ public struct ImageFocusLayout: Equatable {
             )
         }
 
-        let normalizedFocus = CGPoint(
+        let normalizedFocus = ImageFocusCGPoint(
             x: focalPoint.x.clamped(to: 0...1),
             y: focalPoint.y.clamped(to: 0...1)
         )
-        let imageFocus = CGPoint(
+        let imageFocus = ImageFocusCGPoint(
             x: normalizedFocus.x * imageSize.width,
             y: normalizedFocus.y * imageSize.height
         )
@@ -123,17 +137,17 @@ public struct ImageFocusLayout: Equatable {
     }
 
     private static func centeredFillLayout(
-        imageSize: CGSize,
-        containerSize: CGSize,
-        scale: CGFloat,
-        safeRect: CGRect
+        imageSize: ImageFocusCGSize,
+        containerSize: ImageFocusCGSize,
+        scale: ImageFocusCGFloat,
+        safeRect: ImageFocusCGRect
     ) -> Self {
-        let renderedSize = CGSize(
+        let renderedSize = ImageFocusCGSize(
             width: imageSize.width * scale,
             height: imageSize.height * scale
         )
         return Self(
-            frame: CGRect(
+            frame: ImageFocusCGRect(
                 x: (containerSize.width - renderedSize.width) / 2,
                 y: (containerSize.height - renderedSize.height) / 2,
                 width: renderedSize.width,
@@ -146,21 +160,21 @@ public struct ImageFocusLayout: Equatable {
     }
 
     private static func layout(
-        imageSize: CGSize,
-        containerSize: CGSize,
-        imageFocus: CGPoint,
-        scale: CGFloat,
-        safeRect: CGRect
+        imageSize: ImageFocusCGSize,
+        containerSize: ImageFocusCGSize,
+        imageFocus: ImageFocusCGPoint,
+        scale: ImageFocusCGFloat,
+        safeRect: ImageFocusCGRect
     ) -> LayoutCandidate {
-        let renderedSize = CGSize(
+        let renderedSize = ImageFocusCGSize(
             width: imageSize.width * scale,
             height: imageSize.height * scale
         )
-        let defaultOrigin = CGPoint(
+        let defaultOrigin = ImageFocusCGPoint(
             x: (containerSize.width - renderedSize.width) / 2,
             y: (containerSize.height - renderedSize.height) / 2
         )
-        let origin = CGPoint(
+        let origin = ImageFocusCGPoint(
             x: origin(
                 focusCoordinate: imageFocus.x,
                 scale: scale,
@@ -176,13 +190,13 @@ public struct ImageFocusLayout: Equatable {
                 defaultOrigin: defaultOrigin.y
             )
         )
-        let displayedFocus = CGPoint(
+        let displayedFocus = ImageFocusCGPoint(
             x: origin.x + imageFocus.x * scale,
             y: origin.y + imageFocus.y * scale
         )
         return LayoutCandidate(
             value: Self(
-                frame: CGRect(origin: origin, size: renderedSize),
+                frame: ImageFocusCGRect(origin: origin, size: renderedSize),
                 scale: scale,
                 safeRect: safeRect,
                 usesFocus: true
@@ -192,12 +206,12 @@ public struct ImageFocusLayout: Equatable {
     }
 
     private static func origin(
-        focusCoordinate: CGFloat,
-        scale: CGFloat,
-        safeRange: ClosedRange<CGFloat>,
-        coverRange: ClosedRange<CGFloat>,
-        defaultOrigin: CGFloat
-    ) -> CGFloat {
+        focusCoordinate: ImageFocusCGFloat,
+        scale: ImageFocusCGFloat,
+        safeRange: ClosedRange<ImageFocusCGFloat>,
+        coverRange: ClosedRange<ImageFocusCGFloat>,
+        defaultOrigin: ImageFocusCGFloat
+    ) -> ImageFocusCGFloat {
         let scaledFocus = focusCoordinate * scale
         let requiredRange = (safeRange.lowerBound - scaledFocus)...(safeRange.upperBound - scaledFocus)
         let overlapLowerBound = max(requiredRange.lowerBound, coverRange.lowerBound)
@@ -222,9 +236,9 @@ public struct ImageFocusLayout: Equatable {
     }
 
     private static func distance(
-        _ value: CGFloat,
-        to range: ClosedRange<CGFloat>
-    ) -> CGFloat {
+        _ value: ImageFocusCGFloat,
+        to range: ClosedRange<ImageFocusCGFloat>
+    ) -> ImageFocusCGFloat {
         if value < range.lowerBound {
             return range.lowerBound - value
         }
@@ -235,9 +249,9 @@ public struct ImageFocusLayout: Equatable {
     }
 
     private static func normalizedSafeRect(
-        _ safeRect: CGRect,
-        in containerRect: CGRect
-    ) -> CGRect {
+        _ safeRect: ImageFocusCGRect,
+        in containerRect: ImageFocusCGRect
+    ) -> ImageFocusCGRect {
         let intersection = safeRect.intersection(containerRect)
         guard !intersection.isNull,
               intersection.width >= 0,
@@ -260,8 +274,8 @@ private extension Comparable {
     }
 }
 
-private extension CGRect {
-    func includes(_ point: CGPoint) -> Bool {
+private extension ImageFocusCGRect {
+    func includes(_ point: ImageFocusCGPoint) -> Bool {
         point.x >= minX
             && point.x <= maxX
             && point.y >= minY

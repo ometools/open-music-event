@@ -99,7 +99,7 @@ struct PerformanceTimingChip: View {
                     Capsule()
                         .fill(backgroundStyle(for: status))
                 }
-                .accessibilityLabel(status.accessibilityTitle)
+                .accessibilityLabel(Text(status.accessibilityTitle))
         }
     }
 

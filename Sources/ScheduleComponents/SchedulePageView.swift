@@ -1,12 +1,22 @@
 import Dependencies
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
 
 public struct SchedulePageView<
     Element: TimelineCard,
     CardContent: View,
     EmptyContent: View
 >: View {
+    #if os(Android)
+    var calendar: Calendar { .current }
+    #else
     @Environment(\.calendar) var calendar
+    #endif
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
 
@@ -54,7 +64,7 @@ public struct SchedulePageView<
         }
     }
 
-    func frame(for timelineCard: Element, in size: CGSize) -> CGRect {
+    func frame(for timelineCard: Element, in size: ScheduleCGSize) -> ScheduleCGRect {
         guard let range = scheduleTimeRange else { return .zero }
         return withDependencies {
             $0.calendar = self.calendar
@@ -70,53 +80,53 @@ public struct SchedulePageView<
 }
 
 public extension TimelineCard {
-    func timeOrigin(containerLength: CGFloat, in range: DateInterval) -> CGFloat {
-        containerLength * CGFloat(dateInterval.start.timeIntervalSince(range.start) / range.duration)
+    func timeOrigin(containerLength: ScheduleCGFloat, in range: DateInterval) -> ScheduleCGFloat {
+        containerLength * ScheduleCGFloat(dateInterval.start.timeIntervalSince(range.start) / range.duration)
     }
 
-    func timeLength(in containerLength: CGFloat, range: DateInterval) -> CGFloat {
-        containerLength * CGFloat(dateInterval.duration / range.duration)
+    func timeLength(in containerLength: ScheduleCGFloat, range: DateInterval) -> ScheduleCGFloat {
+        containerLength * ScheduleCGFloat(dateInterval.duration / range.duration)
     }
 
-    func groupOrigin(containerLength: CGFloat, groupMapping: [Int: Int]) -> CGFloat {
+    func groupOrigin(containerLength: ScheduleCGFloat, groupMapping: [Int: Int]) -> ScheduleCGFloat {
         guard groupMapping.count > 1 else { return 0 }
-        return containerLength / CGFloat(groupMapping.count) * CGFloat(groupMapping[groupWidth.lowerBound] ?? 0)
+        return containerLength / ScheduleCGFloat(groupMapping.count) * ScheduleCGFloat(groupMapping[groupWidth.lowerBound] ?? 0)
     }
 
-    func groupLength(in containerLength: CGFloat, groupMapping: [Int: Int]) -> CGFloat {
+    func groupLength(in containerLength: ScheduleCGFloat, groupMapping: [Int: Int]) -> ScheduleCGFloat {
         guard !groupMapping.isEmpty else { return containerLength }
         guard groupMapping.count > 1 else { return containerLength }
 
         let groupSpanCount = (groupMapping[groupWidth.upperBound] ?? 0)
             - (groupMapping[groupWidth.lowerBound] ?? 0)
             + 1
-        return (containerLength / CGFloat(groupMapping.count)) * CGFloat(groupSpanCount)
+        return (containerLength / ScheduleCGFloat(groupMapping.count)) * ScheduleCGFloat(groupSpanCount)
     }
 
-    func xOrigin(containerWidth: CGFloat, groupMapping: [Int: Int]) -> CGFloat {
+    func xOrigin(containerWidth: ScheduleCGFloat, groupMapping: [Int: Int]) -> ScheduleCGFloat {
         groupOrigin(containerLength: containerWidth, groupMapping: groupMapping)
     }
 
-    func yOrigin(containerHeight: CGFloat, in range: DateInterval) -> CGFloat {
+    func yOrigin(containerHeight: ScheduleCGFloat, in range: DateInterval) -> ScheduleCGFloat {
         timeOrigin(containerLength: containerHeight, in: range)
     }
 
-    func size(in containerSize: CGSize, groupMapping: [Int: Int], range: DateInterval) -> CGSize {
-        CGSize(
+    func size(in containerSize: ScheduleCGSize, groupMapping: [Int: Int], range: DateInterval) -> ScheduleCGSize {
+        ScheduleCGSize(
             width: width(in: containerSize, groupMapping: groupMapping),
             height: height(in: containerSize, range: range)
         )
     }
 
-    func height(in containerSize: CGSize, range: DateInterval) -> CGFloat {
+    func height(in containerSize: ScheduleCGSize, range: DateInterval) -> ScheduleCGFloat {
         timeLength(in: containerSize.height, range: range)
     }
 
-    func width(in containerSize: CGSize, groupMapping: [Int: Int]) -> CGFloat {
+    func width(in containerSize: ScheduleCGSize, groupMapping: [Int: Int]) -> ScheduleCGFloat {
         groupLength(in: containerSize.width, groupMapping: groupMapping)
     }
 
-    func frame(in containerSize: CGSize, groupMapping: [Int: Int], range: DateInterval) -> CGRect {
+    func frame(in containerSize: ScheduleCGSize, groupMapping: [Int: Int], range: DateInterval) -> ScheduleCGRect {
         frame(
             in: containerSize,
             groupMapping: groupMapping,
@@ -126,31 +136,31 @@ public extension TimelineCard {
     }
 
     func frame(
-        in containerSize: CGSize,
+        in containerSize: ScheduleCGSize,
         groupMapping: [Int: Int],
         range: DateInterval,
         orientation: ScheduleTimelineOrientation
-    ) -> CGRect {
+    ) -> ScheduleCGRect {
         switch orientation {
         case .verticalTime:
-            return CGRect(
-                origin: CGPoint(
+            return ScheduleCGRect(
+                origin: ScheduleCGPoint(
                     x: groupOrigin(containerLength: containerSize.width, groupMapping: groupMapping),
                     y: timeOrigin(containerLength: containerSize.height, in: range)
                 ),
-                size: CGSize(
+                size: ScheduleCGSize(
                     width: groupLength(in: containerSize.width, groupMapping: groupMapping),
                     height: timeLength(in: containerSize.height, range: range)
                 )
             )
 
         case .horizontalTime:
-            return CGRect(
-                origin: CGPoint(
+            return ScheduleCGRect(
+                origin: ScheduleCGPoint(
                     x: timeOrigin(containerLength: containerSize.width, in: range),
                     y: groupOrigin(containerLength: containerSize.height, groupMapping: groupMapping)
                 ),
-                size: CGSize(
+                size: ScheduleCGSize(
                     width: timeLength(in: containerSize.width, range: range),
                     height: groupLength(in: containerSize.height, groupMapping: groupMapping)
                 )
@@ -160,7 +170,7 @@ public extension TimelineCard {
 }
 
 private extension View {
-    func placement(_ frame: CGRect) -> some View {
+    func placement(_ frame: ScheduleCGRect) -> some View {
         self
             .frame(width: frame.width, height: frame.height)
             .position(frame.offsetBy(dx: frame.size.width / 2, dy: frame.size.height / 2).origin)

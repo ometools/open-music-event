@@ -2,7 +2,11 @@ import ComposableArchitecture2
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct SiteMapViewer {
@@ -63,6 +67,7 @@ struct SiteMapPlaceholderView: View {
         ViewerPlaceholderView(
             title: "Site Map",
             systemImage: "map",
+            composeImage: "Icons.Outlined.Map",
             description: eventWasLoaded
                 ? "No site map has been added to this event yet."
                 : "This event could not be loaded."

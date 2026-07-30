@@ -4,6 +4,12 @@ import OpenMusicEventAuthentication
 import OpenMusicEventComponents
 import SwiftUI
 
+#if os(Android)
+private typealias _SwiftUIForm = SkipSwiftUI.Form
+#else
+private typealias _SwiftUIForm = SwiftUI.Form
+#endif
+
 @Feature
 public struct Settings {
     public init() {}
@@ -48,7 +54,7 @@ public struct SettingsFeatureView: View {
     public var body: some View {
         let accountStore = store.spawn(\.account)
 
-        Form {
+        _SwiftUIForm {
             AccountView(store: accountStore)
 
             TechnicalDetailsSettingsSection()

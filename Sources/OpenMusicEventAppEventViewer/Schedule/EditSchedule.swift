@@ -3,7 +3,11 @@ import Dependencies
 import Foundation
 import OpenMusicEventComponents
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct EditSchedule {

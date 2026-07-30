@@ -1,6 +1,10 @@
 import OpenMusicEventDatabase
 import OpenMusicEventLexicon
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 public struct DisplayImageAsset: Equatable, Sendable {
     public init(

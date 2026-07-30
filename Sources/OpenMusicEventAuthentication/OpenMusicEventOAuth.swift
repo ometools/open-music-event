@@ -208,7 +208,7 @@ public enum OpenMusicEventOAuth {
     )
 
     public static var signUpServerConfiguration: OAuthSignUpServerConfiguration {
-        @Dependency(\.webMetadataClient) var webMetadataClient
+        @Dependency(\DependencyValues.webMetadataClient) var webMetadataClient: WebMetadataClient
 
         return OAuthSignUpServerConfiguration(
             defaultServerHost: "bsky.social",

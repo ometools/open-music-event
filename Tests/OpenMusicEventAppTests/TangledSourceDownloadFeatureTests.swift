@@ -68,7 +68,7 @@ struct TangledSourceDownloadFeatureTests {
             $0.defaultDatabase = database
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
                 authoringRequests.withLock { $0.append(requestedWorkspaceID) }
-                return [.editContent]
+                return .granted(principal: .local, role: .owner)
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
                 open: { requestedWorkspaceID in
@@ -114,7 +114,7 @@ struct TangledSourceDownloadFeatureTests {
         )
         #expect(
             store.state.teamWorkspaceDetail?.content.access
-                == .authoring([.editContent])
+                == .authoring(.owner)
         )
     }
 
@@ -208,7 +208,26 @@ struct TangledSourceDownloadFeatureTests {
         )
         let firstSourceBaselineID = SourceBaselineRecord.ID(source: firstSourceProvenance)
         let secondSourceBaselineID = SourceBaselineRecord.ID(source: secondSourceProvenance)
-        let sourceRepositoryRemovals = SourceRepositoryRemovalRecorder()
+        let storageRootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-my-events-delete-source-root-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: storageRootURL) }
+        let storedRepositoryURL = SourceRepositoryStorageClient.storedRepositoryURL(
+            for: firstSourceProvenance,
+            rootURL: storageRootURL
+        )
+        let legacyStoredRepositoryURL = legacyStoredRepositoryURL(
+            for: firstSourceProvenance,
+            rootURL: storageRootURL
+        )
+        try FileManager.default.createDirectory(
+            at: storedRepositoryURL,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: legacyStoredRepositoryURL,
+            withIntermediateDirectories: true
+        )
 
         try await insertTeamWorkspace(
             eventID: firstEventID,
@@ -233,10 +252,8 @@ struct TangledSourceDownloadFeatureTests {
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0.sourceRepositoryStorage = SourceRepositoryStorageClient(
-                store: { repositoryURL, _ in repositoryURL },
-                remove: { sourceRepositoryRemovals.record($0) }
-            )
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+            $0.sourceRepositoryStorage = .live
         } operation: {
             var initialState = MyEvents.State()
             initialState.teamWorkspaceDetail = MyEvents.TeamWorkspace.State(
@@ -327,7 +344,8 @@ struct TangledSourceDownloadFeatureTests {
         expectNoDifference(eventWorkspaceRecords.map(\.id), [secondEventID])
         expectNoDifference(teamWorkspaces.map(\.id), [secondSourceBaselineID])
         #expect(appState?.selectedEventID == nil)
-        expectNoDifference(sourceRepositoryRemovals.values, [firstSourceProvenance])
+        #expect(!FileManager.default.fileExists(atPath: storedRepositoryURL.path()))
+        #expect(!FileManager.default.fileExists(atPath: legacyStoredRepositoryURL.path()))
     }
 
     @Test
@@ -1068,6 +1086,7 @@ struct TangledSourceDownloadFeatureTests {
             ref: "main"
         )
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
+        let eventID = importedEventID()
         let result = try validationResult()
         let temporaryURL = FileManager.default.temporaryDirectory
             .appending(path: "source-data-refresh-\(UUID().uuidString)")
@@ -1107,6 +1126,18 @@ struct TangledSourceDownloadFeatureTests {
                     )
                 }
                 .execute(db)
+                try EventSourceProvenanceRecord.insert {
+                    EventSourceProvenanceRecord(
+                        id: eventID,
+                        sourceBaselineID: sourceBaselineID,
+                        sourceKind: sourceProvenance.kind,
+                        sourceReference: sourceProvenance.reference,
+                        ref: sourceProvenance.ref,
+                        eventIDOrigin: .inferred,
+                        sourceEventDirectory: eventID.eventID.rawValue.rawValue
+                    )
+                }
+                .execute(db)
             }
 
             try await sourceDataRefresh.refresh(sourceBaselineID)
@@ -1119,6 +1150,7 @@ struct TangledSourceDownloadFeatureTests {
             [
                 OpenMusicEventSourceValidationRequest(
                     source: sourceProvenance.reference,
+                    organizerID: eventID.organizerID,
                     ref: "main"
                 )
             ]
@@ -1940,6 +1972,63 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
+    func liveStorageRedownloadRemovesLegacyStoredRepository() throws {
+        let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
+            kind: .tangled,
+            reference: "tangled.org/did:plc:redownload-test/repository-\(UUID().uuidString)",
+            ref: "main"
+        )
+        let storageRootURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-redownload-source-root-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: storageRootURL) }
+        let storedRepositoryURL = SourceRepositoryStorageClient.storedRepositoryURL(
+            for: sourceProvenance,
+            rootURL: storageRootURL
+        )
+        let legacyStoredRepositoryURL = legacyStoredRepositoryURL(
+            for: sourceProvenance,
+            rootURL: storageRootURL
+        )
+        try FileManager.default.createDirectory(
+            at: legacyStoredRepositoryURL,
+            withIntermediateDirectories: true
+        )
+        try "previous download".write(
+            to: legacyStoredRepositoryURL.appending(path: "old.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let downloadedRepositoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "ome-redownloaded-source-\(UUID().uuidString)")
+            .standardizedFileURL
+        defer { try? FileManager.default.removeItem(at: downloadedRepositoryURL) }
+        try writeMinimalSourceRepository(at: downloadedRepositoryURL)
+
+        let result = try withDependencies {
+            $0.context = .test
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+        } operation: {
+            try SourceRepositoryStorageClient.live.store(
+                downloadedRepositoryURL,
+                sourceProvenance
+            )
+        }
+
+        #expect(
+            result.normalizedSourceRepositoryPath
+                == storedRepositoryURL.normalizedSourceRepositoryPath
+        )
+        #expect(
+            FileManager.default.fileExists(
+                atPath: storedRepositoryURL.appending(path: "events").path()
+            )
+        )
+        #expect(!FileManager.default.fileExists(atPath: legacyStoredRepositoryURL.path()))
+    }
+
+    @Test
     func liveStoragePreservesOpenReferenceDatabaseWhenReplacingStoredRepository() throws {
         let sourceProvenance = OMERecord.SourceDatabaseInsertion.SourceProvenance(
             kind: .tangled,
@@ -2444,6 +2533,25 @@ private func storedRepositoryBackupURLs(for storedURL: URL) throws -> [URL] {
     return try FileManager.default
         .contentsOfDirectory(at: parentURL, includingPropertiesForKeys: nil)
         .filter { $0.lastPathComponent.hasPrefix(backupPrefix) }
+}
+
+private func legacyStoredRepositoryURL(
+    for provenance: OMERecord.SourceDatabaseInsertion.SourceProvenance,
+    rootURL: URL
+) -> URL {
+    let components = [
+        provenance.kind.rawValue,
+        provenance.reference,
+        provenance.ref ?? "",
+    ]
+    let directoryName = Data(components.joined(separator: "\u{1F}").utf8)
+        .base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+    return rootURL
+        .standardizedFileURL
+        .appendingPathComponent(directoryName, isDirectory: true)
 }
 
 private func removeStoredRepositoryBackups(for storedURL: URL) {

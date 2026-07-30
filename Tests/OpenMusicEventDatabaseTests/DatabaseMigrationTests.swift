@@ -379,6 +379,7 @@ struct DatabaseMigrationTests {
                 "role",
                 "object",
                 "createdAt",
+                "capabilities",
             ])
 
             let confirmationColumns = try String.fetchAll(
@@ -423,6 +424,41 @@ struct DatabaseMigrationTests {
 
             #expect(try OME.Relationship.fetchAll(db) == [relationship])
             #expect(try OME.RelationshipConfirmation.fetchAll(db) == [confirmation])
+        }
+    }
+
+    @Test
+    func workspaceRelationshipMigrationCreatesPublicIdentityAndRosterStorage() async throws {
+        let database = try migratedDatabase()
+
+        try await database.read { db in
+            let workspaceColumns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('editingWorkspaces')"#
+            )
+            #expect(workspaceColumns.contains("publicRecord"))
+
+            let relationshipColumns = try String.fetchAll(
+                db,
+                sql: #"SELECT "name" FROM pragma_table_info('workspaceRelationships')"#
+            )
+            #expect(relationshipColumns == [
+                "workspaceID",
+                "actorID",
+                "recordKey",
+                "relationship",
+            ])
+            #expect(
+                try String.fetchAll(
+                    db,
+                    sql: """
+                        SELECT "name"
+                        FROM pragma_table_info('workspaceRelationships')
+                        WHERE "pk" > 0
+                        ORDER BY "pk"
+                        """
+                ) == ["workspaceID", "actorID"]
+            )
         }
     }
 

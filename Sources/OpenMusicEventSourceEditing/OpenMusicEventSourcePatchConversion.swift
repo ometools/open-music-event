@@ -74,7 +74,7 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
             @Dependency(\.defaultDatabase) var database
             @Dependency(\.openMusicEventSourcePatchConversion) var eventConversion
 
-            let (calendar, sourceEvents) = try await database.read { db in
+            let (calendar, sourceEvents, collaborators) = try await database.read { db in
                 let calendar = try OME.Calendar
                     .where { $0.id.eq(request.calendarID) }
                     .fetchOne(db)
@@ -85,7 +85,15 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
                     .sorted { lhs, rhs in
                         lhs.sourceEventDirectory < rhs.sourceEventDirectory
                     }
-                return (calendar, sourceEvents)
+                let collaborators = try WorkspaceRelationshipRecord
+                    .where {
+                        $0.id.workspaceID.eq(
+                            EditingWorkspaceRecord.ID(sourceBaselineID: request.sourceBaselineID)
+                        )
+                    }
+                    .fetchAll(db)
+                    .sorted { $0.recordKey < $1.recordKey }
+                return (calendar, sourceEvents, collaborators)
             }
             guard let calendar else {
                 throw OpenMusicEventCalendarSourcePatchConversionError.calendarNotFound(request.calendarID)
@@ -103,6 +111,22 @@ public extension OpenMusicEventCalendarSourcePatchConversion {
                         parentLocalID: request.calendarID.calendarID.rawValue.rawValue
                     )
                 )
+            let existingCollaborators = Dictionary(
+                uniqueKeysWithValues: (sourceRepository.collaborators ?? []).map {
+                    ($0.fileName, $0)
+                }
+            )
+            let collaboratorFiles = try collaborators.map { collaborator in
+                if let existing = existingCollaborators[collaborator.recordKey] {
+                    return try existing.map { _ in collaborator.relationship }
+                }
+                return try FileContent(
+                    fileName: collaborator.recordKey,
+                    fileType: "yml",
+                    data: collaborator.relationship
+                )
+            }
+            sourceRepository.collaborators = collaboratorFiles.isEmpty ? nil : collaboratorFiles
             var eventsByDirectory = Dictionary(
                 uniqueKeysWithValues: sourceRepository.events.map { ($0.directoryName, $0) }
             )
@@ -221,7 +245,7 @@ private struct OpenMusicEventSourceRecords {
                     .where { $0.id.eventID.eq(eventID.eventID) }
                     .fetchAll(db)
 
-            case .calendar:
+            case .calendar, .collaborator:
                 break
             }
         }

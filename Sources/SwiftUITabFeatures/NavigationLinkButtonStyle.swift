@@ -1,4 +1,8 @@
+#if os(Android) || ROBOLECTRIC
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 public struct NavigationLinkButtonStyle: ButtonStyle {
     @Environment(\.colorScheme) var colorScheme
@@ -11,7 +15,7 @@ public struct NavigationLinkButtonStyle: ButtonStyle {
     func background(_ configuration: Configuration) -> Color {
         #if os(iOS)
         configuration.isPressed ? Color(.tertiarySystemBackground) : Color(.systemBackground)
-        #elseif os(Android) || os(macOS)
+        #elseif os(Android) || ROBOLECTRIC || os(macOS)
         Color.clear
         #else
         Color.clear
@@ -32,7 +36,7 @@ public struct NavigationLinkButtonStyle: ButtonStyle {
         .contentShape(Rectangle())
         .background(background(configuration))
         .padding(.vertical, -verticalPadding)
-        #elseif os(Android)
+        #elseif os(Android) || ROBOLECTRIC
         configuration.label
         #else
         configuration.label
@@ -59,8 +63,12 @@ public struct NavigationLinkButtonStyle: ButtonStyle {
 
 public extension View {
     func navigationLinkListRowStyle() -> some View {
+        #if os(Android) || ROBOLECTRIC
+        self
+        #else
         self
             .buttonStyle(NavigationLinkButtonStyle(verticalPadding: 12))
+        #endif
     }
 }
 

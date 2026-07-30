@@ -3,7 +3,11 @@ import CustomDump
 import Dependencies
 import Foundation
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 import Testing
 
 @testable import OpenMusicEventDatabase
@@ -104,6 +108,32 @@ struct PosterImportTests {
     }
 
     @Test
+    func `contributor photo focus editing does not require stored geometry`() {
+        let photo = OMERecord.ImageAsset(
+            source: .url(URL(string: "https://example.com/contributor.jpg")!),
+            role: .photo,
+            renderKind: .fullImage,
+            materializationPolicy: .lazy
+        )
+
+        // A remote contributor photo exposes Focus before its pixels have loaded.
+        let photoState = ImageInfo.State(
+            asset: photo,
+            configuration: .contributorPhoto
+        )
+        #expect(photoState.canEditFocusPoint)
+
+        // Transparent artwork still has no focal crop to edit.
+        var logo = photo
+        logo.renderKind = .transparent
+        let logoState = ImageInfo.State(
+            asset: logo,
+            configuration: .contributorLogo
+        )
+        #expect(!logoState.canEditFocusPoint)
+    }
+
+    @Test
     func importingPosterImageReplacesExistingLocalBlob() async throws {
         let database = try makePreparedDatabase()
         let eventID = eventID("event-1")
@@ -197,7 +227,6 @@ struct PosterImportTests {
         )
         var editedAsset = importedImage.asset
         editedAsset.appearance = .dark
-        editedAsset.dimensions = OMERecord.ImageAsset.Dimensions(width: 1200, height: 1800)
         editedAsset.focalPoint = OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
 
         let store = Store(
@@ -223,7 +252,6 @@ struct PosterImportTests {
         let updatedImage = try #require(store.images.first)
         expectNoDifference(updatedImage.asset, editedAsset)
         expectNoDifference(updatedImage.localImageImportRequest.appearance, .dark)
-        expectNoDifference(updatedImage.localImageImportRequest.dimensions, editedAsset.dimensions)
         expectNoDifference(updatedImage.localImageImportRequest.focalPoint, editedAsset.focalPoint)
         #expect(store.spawn(\.imageInfo) == nil)
     }
@@ -310,7 +338,6 @@ struct PosterImportTests {
             renderKind: .fullImage,
             appearance: .dark,
             materializationPolicy: .lazy,
-            dimensions: OMERecord.ImageAsset.Dimensions(width: 1200, height: 1800),
             focalPoint: OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
         )
 
@@ -324,7 +351,6 @@ struct PosterImportTests {
         }
 
         expectNoDifference(preparedImages.images.map(\.appearance), [nil])
-        expectNoDifference(preparedImages.images.map(\.dimensions), [asset.dimensions])
         expectNoDifference(preparedImages.images.map(\.focalPoint), [asset.focalPoint])
     }
 
@@ -466,7 +492,6 @@ struct PosterImportTests {
         })
         var editedAsset = poster.image
         editedAsset.appearance = .dark
-        editedAsset.dimensions = OMERecord.ImageAsset.Dimensions(width: 1200, height: 1800)
         editedAsset.focalPoint = OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
         var expectedAsset = editedAsset
         expectedAsset.appearance = nil
@@ -507,7 +532,6 @@ struct PosterImportTests {
         })
         var editedAsset = poster.image
         editedAsset.appearance = .dark
-        editedAsset.dimensions = OMERecord.ImageAsset.Dimensions(width: 1200, height: 1800)
         editedAsset.focalPoint = OMERecord.ImageAsset.FocalPoint(x: 0.4, y: 0.65)
         var expectedAsset = editedAsset
         expectedAsset.appearance = nil

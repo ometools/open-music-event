@@ -46,6 +46,8 @@ public extension OME {
                 incomingSourceReference: String
             )
             case duplicateEventID(OME.Event.ID)
+            case duplicateWorkspaceCollaborator(DID)
+            case invalidWorkspaceRelationship(String)
             case invalidLocalTime(String)
             case missingPosterImage(String)
             case missingSourceRootForFileAsset(String)
@@ -191,6 +193,7 @@ public extension OME {
         public var scheduleItemPerformanceDetails: [OME.ScheduleItem.PerformanceDetails.Draft]
         public var scheduleItemContributors: [OME.ScheduleItem.Contributor.Draft]
         public var relationships: [OME.Relationship]
+        public var workspaceRelationships: [FileContent<OME.Relationship>]
         public var pendingFileImageAssets: [PendingFileImageAsset]
 
         public init(_ configuration: Configuration) throws {
@@ -212,7 +215,35 @@ public extension OME {
             self.scheduleItemPerformanceDetails = []
             self.scheduleItemContributors = []
             self.relationships = []
+            self.workspaceRelationships = []
             self.pendingFileImageAssets = []
+
+            let workspaceReference = OME.Relationship.RecordReference(
+                author: configuration.organizerID,
+                collection: OME.SourceRecord.nsid,
+                rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
+            )
+            var collaboratorIDs: Set<DID> = []
+            for relationshipFile in configuration.source.collaborators ?? [] {
+                let relationship = relationshipFile.data
+                guard relationship.type == OME.Relationship.collection.rawValue,
+                      case .collaborator = relationship.workspaceRole,
+                      case let .known(.identity(identity)) = relationship.subject,
+                      case let .known(.record(object)) = relationship.object,
+                      object.uri == workspaceReference.uri,
+                      object.cid == nil,
+                      OME.Relationship.Validation.relationshipAuthor(
+                          configuration.organizerID,
+                          canAssert: relationship
+                      )
+                else {
+                    throw Error.invalidWorkspaceRelationship(relationshipFile.fileName)
+                }
+                guard collaboratorIDs.insert(identity.did).inserted else {
+                    throw Error.duplicateWorkspaceCollaborator(identity.did)
+                }
+                workspaceRelationships.append(relationshipFile)
+            }
 
             let sourceCalendar = configuration.source.calendar ?? CalendarDTO.defaultCalendar
             var calendar = sourceCalendar.recordDraft(ownerID: configuration.organizerID)
@@ -995,7 +1026,6 @@ public extension OME {
                         appearance: variant.appearance,
                         materializationPolicy: image.materializationPolicy,
                         thumbhash: variant.payload.thumbhash,
-                        dimensions: variant.payload.dimensions,
                         focalPoint: variant.payload.focalPoint
                     )
                 }
@@ -1144,6 +1174,12 @@ extension OME.SourceDatabaseInsertion.Error: LocalizedError {
 
         case let .duplicateEventID(eventID):
             return "Source resolves more than one event to '\(eventID.eventID.rawValue.rawValue)' for organizer '\(eventID.organizerID)'. Give each event a unique explicit ID."
+
+        case let .duplicateWorkspaceCollaborator(actorID):
+            return "Workspace source contains more than one collaborator relationship for '\(actorID)'. Keep one active relationship per collaborator."
+
+        case let .invalidWorkspaceRelationship(fileName):
+            return "Collaborator file '\(fileName)' must contain a collaborator relationship from an actor DID to this workspace's canonical source record."
 
         case let .invalidLocalTime(value):
             return "Invalid local time: \(value)"

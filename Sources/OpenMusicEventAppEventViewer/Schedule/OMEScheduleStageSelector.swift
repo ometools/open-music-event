@@ -3,7 +3,11 @@ import LiquidGlassSegmentedPicker
 #endif
 import OpenMusicEventDatabase
 import OpenMusicEventImages
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 private enum ShowStageNameLabelsEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
@@ -76,6 +80,14 @@ struct OMEScheduleStageSelector: View {
     #endif
 
     var standardPicker: some View {
+        #if os(Android)
+        AndroidScheduleStagePicker(
+            stages: stages,
+            selectedStageID: $selectedStageID,
+            resolvedSelectedStageID: resolvedSelectedStageID,
+            showStageNameLabels: showStageNameLabels
+        )
+        #else
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(stages) { stage in
@@ -113,13 +125,85 @@ struct OMEScheduleStageSelector: View {
                         .opacity(unavailableStageIDs.contains(stage.id.stageID) ? 0.45 : 1)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(stage.name)
+                    .accessibilityLabel(Text(stage.name))
                 }
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
         }
         .background(Color.secondary.opacity(0.06))
+        #endif
+    }
+}
+
+struct AndroidScheduleStagePicker: View {
+    let stages: [OMERecord.Stage]
+    @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
+    let resolvedSelectedStageID: OMERecord.ID<OMERecord.Stage>?
+    let showStageNameLabels: Bool
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(stages) { stage in
+                    AndroidScheduleStagePickerItem(
+                        stage: stage,
+                        isSelected: resolvedSelectedStageID == stage.id.stageID,
+                        showStageNameLabel: showStageNameLabels
+                    ) {
+                        selectedStageID = stage.id.stageID
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+        }
+        .background(Color.secondary.opacity(0.06))
+    }
+}
+
+struct AndroidScheduleStagePickerItem: View {
+    let stage: OMERecord.Stage
+    let isSelected: Bool
+    let showStageNameLabel: Bool
+    let select: () -> Void
+
+    var itemWidth: CGFloat {
+        showStageNameLabel ? 124 : 82
+    }
+
+    var iconForegroundColor: Color {
+        isSelected ? .white : stage.color.swiftUIColor
+    }
+
+    var iconBackgroundColor: Color {
+        isSelected ? stage.color.swiftUIColor : Color.secondary.opacity(0.12)
+    }
+
+    var body: some View {
+        Button(action: select) {
+            VStack(spacing: 4) {
+                ScheduleStageIcon(stage: stage)
+                    .frame(width: 54, height: 54)
+                    .padding(8)
+                    .foregroundStyle(iconForegroundColor)
+                    .background {
+                        Circle()
+                            .fill(iconBackgroundColor)
+                    }
+
+                if showStageNameLabel {
+                    Text(stage.name)
+                        .font(.caption2)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(isSelected ? stage.color.swiftUIColor : .secondary)
+                }
+            }
+            .frame(width: itemWidth)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(stage.name))
     }
 }
 
@@ -138,6 +222,10 @@ struct ScheduleStageIcon: View {
 
     @ViewBuilder
     var fallback: some View {
+        #if os(Android)
+        Text(stage.initials)
+            .font(.system(size: 24, weight: .heavy))
+        #else
         if let systemIconName = stage.systemIconName {
             Image(systemName: systemIconName)
                 .resizable()
@@ -155,6 +243,7 @@ struct ScheduleStageIcon: View {
                 .minimumScaleFactor(0.2)
                 #endif
         }
+        #endif
     }
 }
 

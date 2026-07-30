@@ -7,7 +7,11 @@ import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
 import SwiftUITabFeatures
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct CalendarDetail {

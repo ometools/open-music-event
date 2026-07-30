@@ -1,4 +1,8 @@
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 private enum NeedsStageDisambiguationEnvironmentKey: EnvironmentKey {
     static let defaultValue = true

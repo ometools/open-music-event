@@ -379,7 +379,10 @@ extension OrganizerSourceWorkspaceClient {
                     }
                     .execute(db)
 
-                    let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
+                    let workspace = EditingWorkspaceRecord(
+                        teamSourceBaseline: sourceBaseline,
+                        organizerID: importedEventID.organizerID
+                    )
                     try EditingWorkspaceRecord.insert {
                         workspace
                     } onConflict: {

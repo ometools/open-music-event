@@ -72,12 +72,19 @@ public extension SourceRepositoryStorageClient {
             },
             store: { repositoryURL, provenance in
                 guard provenance.kind == .tangled else { return repositoryURL.standardizedFileURL }
-                let destinationURL = try storedRepositoryURL(
+                let rootURL = try sourceRepositoryStorageRoot.rootURL()
+                let destinationURL = storedRepositoryURL(
                     for: provenance,
-                    rootURL: sourceRepositoryStorageRoot.rootURL()
+                    rootURL: rootURL
                 )
                 let sourceURL = repositoryURL.standardizedFileURL
                 let standardizedDestinationURL = destinationURL.standardizedFileURL
+                try removeStoredRepository(
+                    at: legacyStoredRepositoryURL(
+                        for: provenance,
+                        rootURL: rootURL
+                    )
+                )
                 guard sourceURL != standardizedDestinationURL else {
                     return standardizedDestinationURL
                 }
@@ -86,15 +93,19 @@ public extension SourceRepositoryStorageClient {
             },
             remove: { provenance in
                 guard provenance.kind == .tangled else { return }
-                let url = try storedRepositoryURL(
-                    for: provenance,
-                    rootURL: sourceRepositoryStorageRoot.rootURL()
+                let rootURL = try sourceRepositoryStorageRoot.rootURL()
+                try removeStoredRepository(
+                    at: storedRepositoryURL(
+                        for: provenance,
+                        rootURL: rootURL
+                    )
                 )
-                do {
-                    try FileManager.default.removeItem(at: url)
-                } catch {
-                    guard error.isMissingFile else { throw error }
-                }
+                try removeStoredRepository(
+                    at: legacyStoredRepositoryURL(
+                        for: provenance,
+                        rootURL: rootURL
+                    )
+                )
             }
         )
     }
@@ -159,15 +170,46 @@ public extension SourceRepositoryStorageClient {
     static func directoryName(
         for provenance: OME.SourceDatabaseInsertion.SourceProvenance
     ) -> String {
-        let components = [
-            provenance.kind.rawValue,
-            provenance.reference,
-        ]
-        return Data(components.joined(separator: "\u{1F}").utf8)
+        directoryName(
+            components: [
+                provenance.kind.rawValue,
+                provenance.reference,
+            ]
+        )
+    }
+
+    private static func legacyStoredRepositoryURL(
+        for provenance: OME.SourceDatabaseInsertion.SourceProvenance,
+        rootURL: URL
+    ) -> URL {
+        rootURL
+            .standardizedFileURL
+            .appendingPathComponent(
+                directoryName(
+                    components: [
+                        provenance.kind.rawValue,
+                        provenance.reference,
+                        provenance.ref ?? "",
+                    ]
+                ),
+                isDirectory: true
+            )
+    }
+
+    private static func directoryName(components: [String]) -> String {
+        Data(components.joined(separator: "\u{1F}").utf8)
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func removeStoredRepository(at url: URL) throws {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            guard error.isMissingFile else { throw error }
+        }
     }
 
     private static func replaceItem(

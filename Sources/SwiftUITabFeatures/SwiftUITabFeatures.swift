@@ -1,4 +1,8 @@
+#if os(Android) || ROBOLECTRIC
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 import Tagged
 
 public enum TabFeatureTag {}

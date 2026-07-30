@@ -34,13 +34,12 @@ public enum EventEditingIntent: Equatable, Sendable {
 
 extension EventFeature {
     public static let editorFeatures: [Self] = [
-        .settings,
         .workspace,
     ]
 
     public var isEditorFeature: Bool {
         switch self {
-        case .settings, .workspace:
+        case .workspace:
             true
         case .schedule,
              .contributors,
@@ -51,6 +50,7 @@ extension EventFeature {
              .siteMap,
              .posters,
              .notifications,
+             .settings,
              .search,
 //             .share,
              .about:

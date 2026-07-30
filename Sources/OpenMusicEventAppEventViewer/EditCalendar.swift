@@ -6,7 +6,11 @@ import OpenMusicEventComponents
 import OpenMusicEventDatabase
 import OpenMusicEventImages
 import SQLiteData
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 @Feature
 public struct EditCalendar {

@@ -208,12 +208,14 @@ public struct ContributorsViewerView: View {
                 ViewerPlaceholderView(
                     title: "Contributors",
                     systemImage: "person.3",
+                    composeImage: "Icons.Outlined.Groups",
                     description: "No contributors have been added to this event yet."
                 )
             } else if store.filteredContributorRows.isEmpty {
                 ViewerPlaceholderView(
                     title: "No Results",
                     systemImage: "person.3",
+                    composeImage: "Icons.Outlined.Groups",
                     description: "No contributors match your search."
                 )
             } else {
@@ -1196,8 +1198,12 @@ struct EditContributorLoadedForm: View {
             )
 
             Section("Bio") {
-                TextField("Bio", text: $store.form.value.bio, axis: .vertical)
-                    .lineLimit(4...8)
+                PortableTextField(
+                    "Bio",
+                    text: $store.form.value.bio,
+                    axis: .vertical
+                )
+                    .portableLineLimit(4...8)
             }
 
             ImageAssetPickerSection(
@@ -1474,7 +1480,7 @@ struct ContributorActorAvatar: View {
             targetSize: CGSize(width: 44, height: 44)
         ) { phase in
             switch phase {
-            case let .success(image):
+            case let .success(image, _):
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -1586,7 +1592,7 @@ struct ContributorLinkRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .contentShape(Rectangle())
+            .portableContentShape(Rectangle())
         }
     }
 }

@@ -5,9 +5,11 @@ import CustomDump
 import Dependencies
 import Foundation
 import OpenMusicEventAuthentication
+import OpenMusicEventLexicon
 import OpenMusicEventSourceEditing
 import Sharing
 import SQLiteData
+import Synchronization
 import TCATProtoAuthentication
 import Testing
 
@@ -17,92 +19,228 @@ import Testing
 @Suite("Open Music Event authoring context")
 struct OpenMusicEventAuthoringTests {
     @Test
-    func signedOutTeamEntryProducesOneCombinedAuthorization() async throws {
+    func signedOutTeamEntryRequestsOnlyBaseSignIn() async throws {
         let database = try makePreparedDatabase()
-        let workspace = teamWorkspace("signed-out")
+        let ownerID = try #require(DID("did:plc:workspace-owner"))
+        let workspace = teamWorkspace("signed-out", ownerID: ownerID)
         try await insert(workspace, into: database)
         let recorder = AuthorizationRequirementRecorder()
 
-        let capabilities = try await withDependencies {
+        let policy = AuthoringPolicyClient.openMusicEvent
+        let admission = try await withDependencies {
             $0.defaultDatabase = database
+            $0.getOptionalDefaultSession = { nil }
             $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
                 await recorder.record(requirement)
             }
         } operation: {
-            try await AuthoringPolicyClient.openMusicEvent.authorize(workspace.id)
+            let admission = try await policy.admission(workspace.id)
+            try await policy.requestSignIn()
+            return admission
         }
 
-        expectNoDifference(capabilities, [.editContent])
+        expectNoDifference(admission, .signInRequired)
         let recordedRequirements = await recorder.requirements
         expectNoDifference(
             recordedRequirements,
-            [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
+            [OpenMusicEventOAuth.baseAuthRequirement]
         )
     }
 
     @Test
-    func baseTokenTeamEntryProducesOneCombinedUpgrade() async throws {
+    func workspaceOwnerIsAdmittedWithoutActionPermissionUpgrade() async throws {
         let session = testSession(
             permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
         )
-        let storage = testStorage(session: session)
-        let center = AuthorizationRequestCenter()
-        let requests = OAuthAuthorizationRequests(center: center)
-            .automaticallyUpgradingCurrentAccount(storage: storage)
-        let stream = await center.requests()
-        var iterator = stream.makeAsyncIterator()
-        let authorization = Task {
-            try await withDependencies {
-                $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
-            } operation: {
-                try await requests.broker().authorize(
-                    OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
+        let ownerID = try #require(DID(session.accountID.rawValue.description))
+        let database = try makePreparedDatabase()
+        let workspace = teamWorkspace("owner", ownerID: ownerID)
+        try await insert(workspace, into: database)
+
+        let admission = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.getOptionalDefaultSession = { session }
+            $0.tangledRepositoryMembership = .init { _, expectedOwnerID, actorID in
+                expectedOwnerID == ownerID && actorID == ownerID
+            }
+        } operation: {
+            try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
+        }
+
+        expectNoDifference(
+            admission,
+            .granted(principal: .actor(ownerID), role: .owner)
+        )
+    }
+
+    @Test
+    func workspaceOwnerIsDeniedWhenTheRepositoryOwnerDoesNotMatch() async throws {
+        let session = testSession(
+            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+        )
+        let workspaceOwnerID = try #require(DID(session.accountID.rawValue.description))
+        let repositoryOwnerID = try #require(DID("did:plc:different-repository-owner"))
+        let database = try makePreparedDatabase()
+        let workspace = teamWorkspace("owner-mismatch", ownerID: workspaceOwnerID)
+        try await insert(workspace, into: database)
+
+        let admission = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.getOptionalDefaultSession = { session }
+            $0.tangledRepositoryMembership = .init { _, expectedOwnerID, actorID in
+                expectedOwnerID == repositoryOwnerID && actorID == repositoryOwnerID
+            }
+        } operation: {
+            try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
+        }
+
+        expectNoDifference(admission, .denied)
+    }
+
+    @Test
+    func collaboratorIsAdmittedWithTheRelationshipRole() async throws {
+        let session = testSession(
+            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+        )
+        let collaboratorID = try #require(DID(session.accountID.rawValue.description))
+        let ownerID = try #require(DID("did:plc:workspace-owner"))
+        let database = try makePreparedDatabase()
+        let workspace = teamWorkspace("collaborator", ownerID: ownerID)
+        let publicRecord = try #require(workspace.publicRecord)
+        let relationship = OME.Relationship(
+            subject: .identity(did: collaboratorID),
+            role: .collaborator([.propose]),
+            object: .record(publicRecord),
+            createdAt: "2026-07-29T00:00:00Z"
+        )
+        let baseline = try sourceBaseline(for: workspace)
+        try await database.write { db in
+            try SourceBaselineRecord.insert { baseline }.execute(db)
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+            try WorkspaceRelationshipRecord.insert {
+                WorkspaceRelationshipRecord(
+                    id: .init(workspaceID: workspace.id, actorID: collaboratorID),
+                    recordKey: WorkspaceRelationshipRecord.recordKey(for: collaboratorID),
+                    relationship: relationship
                 )
             }
+            .execute(db)
         }
 
-        var request = await iterator.next() ?? nil
-        if request == nil {
-            request = await iterator.next() ?? nil
+        let admission = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.getOptionalDefaultSession = { session }
+            $0.tangledRepositoryMembership = .init { _, expectedOwnerID, actorID in
+                expectedOwnerID == ownerID && actorID == collaboratorID
+            }
+        } operation: {
+            try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
         }
-        let activeRequest = try #require(request)
-        #expect(activeRequest.startsImmediately)
-        #expect(activeRequest.loginHint == session.accountID.rawValue.description)
-        #expect(
-            activeRequest.requirement
-                == OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
+
+        expectNoDifference(
+            admission,
+            .granted(
+                principal: .actor(collaboratorID),
+                role: .collaborator([.propose])
+            )
         )
+    }
 
-        await center.cancel()
-        await #expect(throws: CancellationError.self) {
-            try await authorization.value
+    @Test
+    func tangledMembershipWithoutAnOMERoleIsDenied() async throws {
+        let session = testSession(
+            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+        )
+        let database = try makePreparedDatabase()
+        let workspace = teamWorkspace(
+            "tangled-only",
+            ownerID: try #require(DID("did:plc:other-owner"))
+        )
+        try await insert(workspace, into: database)
+
+        let admission = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.getOptionalDefaultSession = { session }
+            $0.tangledRepositoryMembership = .init { _, _, _ in true }
+        } operation: {
+            try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
+        }
+
+        expectNoDifference(admission, .denied)
+    }
+
+    @Test
+    func OMERoleWithoutTangledMembershipIsDenied() async throws {
+        let session = testSession(
+            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+        )
+        let ownerID = try #require(DID(session.accountID.rawValue.description))
+        let database = try makePreparedDatabase()
+        let workspace = teamWorkspace("ome-only", ownerID: ownerID)
+        try await insert(workspace, into: database)
+
+        let admission = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.getOptionalDefaultSession = { session }
+            $0.tangledRepositoryMembership = .init { _, _, _ in false }
+        } operation: {
+            try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
+        }
+
+        expectNoDifference(admission, .denied)
+    }
+
+    @Test
+    func repositoryMembershipLookupFailureIsPropagated() async throws {
+        let session = testSession(
+            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+        )
+        let ownerID = try #require(DID(session.accountID.rawValue.description))
+        let database = try makePreparedDatabase()
+        let workspace = teamWorkspace("lookup-failure", ownerID: ownerID)
+        try await insert(workspace, into: database)
+
+        await #expect(throws: RepositoryMembershipLookupFailure.self) {
+            try await withDependencies {
+                $0.defaultDatabase = database
+                $0.getOptionalDefaultSession = { session }
+                $0.tangledRepositoryMembership = .init { _, _, _ in
+                    throw RepositoryMembershipLookupFailure()
+                }
+            } operation: {
+                try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
+            }
         }
     }
 
     @Test
-    func alreadyAuthorizedTeamEntryProducesNoPresentation() async throws {
+    func malformedTangledSourceIsDeniedWithoutMembershipLookup() async throws {
         let session = testSession(
-            permissions: OpenMusicEventOAuth
-                .tangledPullRequestWorkflowAuthRequirement
-                .permissions
+            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
         )
-        let storage = testStorage(session: session)
-        let center = AuthorizationRequestCenter()
-        let requests = OAuthAuthorizationRequests(center: center)
-            .automaticallyUpgradingCurrentAccount(storage: storage)
-
-        try await withDependencies {
-            $0.oauthAppManifest = OpenMusicEventOAuth.appManifest
-        } operation: {
-            try await requests.broker().authorize(
-                OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
-            )
+        let ownerID = try #require(DID(session.accountID.rawValue.description))
+        let database = try makePreparedDatabase()
+        let workspace = teamWorkspace("malformed-source", ownerID: ownerID)
+        var baseline = try sourceBaseline(for: workspace)
+        baseline.sourceReference = "not-a-repository-reference"
+        let malformedBaseline = baseline
+        try await database.write { db in
+            try SourceBaselineRecord.insert { malformedBaseline }.execute(db)
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
         }
 
-        let stream = await center.requests()
-        var iterator = stream.makeAsyncIterator()
-        let activeRequest = await iterator.next() ?? nil
-        #expect(activeRequest == nil)
+        let admission = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.getOptionalDefaultSession = { session }
+            $0.tangledRepositoryMembership = .init { _, _, _ in
+                Issue.record("Malformed source must fail before membership lookup")
+                return true
+            }
+        } operation: {
+            try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
+        }
+
+        expectNoDifference(admission, .denied)
     }
 
     @Test
@@ -112,16 +250,16 @@ struct OpenMusicEventAuthoringTests {
         try await insert(workspace, into: database)
         let recorder = AuthorizationRequirementRecorder()
 
-        let capabilities = try await withDependencies {
+        let admission = try await withDependencies {
             $0.defaultDatabase = database
             $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
                 await recorder.record(requirement)
             }
         } operation: {
-            try await AuthoringPolicyClient.openMusicEvent.authorize(workspace.id)
+            try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
         }
 
-        expectNoDifference(capabilities, [.editContent])
+        expectNoDifference(admission, .granted(principal: .local, role: .owner))
         let recordedRequirements = await recorder.requirements
         expectNoDifference(recordedRequirements, [])
     }
@@ -129,26 +267,33 @@ struct OpenMusicEventAuthoringTests {
     @Test
     func authorizationLossClearsTheWorkspaceAuthoringGrant() async throws {
         let database = try makePreparedDatabase()
-        let workspace = teamWorkspace("invalidation")
-        try await insert(workspace, into: database)
         let session = testSession(
             permissions: OpenMusicEventOAuth
                 .tangledPullRequestWorkflowAuthRequirement
                 .permissions
         )
+        let actorID = try #require(DID(session.accountID.rawValue.description))
+        let workspace = teamWorkspace("invalidation", ownerID: actorID)
+        try await insert(workspace, into: database)
         let storage = testStorage(session: session)
         let workspaceContext = WorkspaceContext(
             id: workspace.id,
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )
+        let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
         let grant = Shared<AuthoringGrant?>(
             value: AuthoringGrant(
-                capabilities: [.editContent],
+                principal: .actor(actorID),
+                role: .owner,
                 workspace: workspaceContext
             )
         )
         let store = withDependencies {
             $0.defaultDatabase = database
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
+                admissionRequests.withLock { $0.append(workspaceID) }
+                return .signInRequired
+            }
         } operation: {
             Store(
                 initialState: OpenMusicEventAuthoring<AuthoringProbe>.State(
@@ -175,9 +320,11 @@ struct OpenMusicEventAuthoringTests {
         await store.send(.authentication(.resetAuthentication))?.value
         try await waitForCondition {
             grant.wrappedValue == nil
+                && store.content.admission == .signInRequired
         }
         #expect(!store.content.access.canEditContent)
         #expect(grant.wrappedValue == nil)
+        expectNoDifference(admissionRequests.withLock { $0 }, [workspace.id])
     }
 
     @Test
@@ -209,18 +356,49 @@ struct OpenMusicEventAuthoringTests {
         _ workspace: EditingWorkspaceRecord,
         into database: any DatabaseWriter
     ) async throws {
+        let baseline: SourceBaselineRecord?
+        if workspace.kind == .team {
+            baseline = try sourceBaseline(for: workspace)
+        } else {
+            baseline = nil
+        }
         try await database.write { db in
+            if let baseline {
+                try SourceBaselineRecord.insert { baseline }.execute(db)
+            }
             try EditingWorkspaceRecord.insert { workspace }.execute(db)
         }
     }
 
-    private func teamWorkspace(_ name: String) -> EditingWorkspaceRecord {
+    private func sourceBaseline(
+        for workspace: EditingWorkspaceRecord
+    ) throws -> SourceBaselineRecord {
+        SourceBaselineRecord(
+            id: try #require(workspace.sourceBaselineID),
+            sourceKind: .tangled,
+            sourceReference: "tangled.org/did:plc:repository/source",
+            ref: "main",
+            databaseFileName: workspace.databaseFileName,
+            importedAt: workspace.createdAt
+        )
+    }
+
+    private func teamWorkspace(
+        _ name: String,
+        ownerID: DID
+    ) -> EditingWorkspaceRecord {
         EditingWorkspaceRecord(
             id: .init(rawValue: "team.\(name)"),
             kind: .team,
             databaseFileName: "\(name).sqlite",
             createdAt: Date(timeIntervalSince1970: 1),
-            updatedAt: Date(timeIntervalSince1970: 1)
+            updatedAt: Date(timeIntervalSince1970: 1),
+            sourceBaselineID: SourceBaselineRecord.ID(rawValue: "baseline.\(name)"),
+            publicRecord: OME.Relationship.RecordReference(
+                author: ownerID,
+                collection: OME.SourceRecord.nsid,
+                rkey: ATProto.Record.Key(rawValue: OME.SourceRecord.canonicalRecordKey)
+            )
         )
     }
 
@@ -249,6 +427,8 @@ private struct AuthoringIdentityProbe {
 
     enum Action {}
 }
+
+private struct RepositoryMembershipLookupFailure: Error {}
 
 private actor AuthorizationRequirementRecorder {
     private(set) var requirements: [OAuth.AuthRequirement] = []
@@ -281,8 +461,9 @@ private func testStorage(session: OAuth.Session) -> OAuthSessionStorage {
     )
 }
 
+@MainActor
 private func waitForCondition(
-    _ condition: @escaping @Sendable () -> Bool
+    _ condition: @escaping @MainActor () -> Bool
 ) async throws {
     for _ in 0..<100 {
         if condition() { return }

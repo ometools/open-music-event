@@ -93,6 +93,8 @@ public struct SourceProposalFlow {
     @Dependency(\.sourcePatchPublisher) var sourcePatchPublisher
     @Dependency(\.workspaceContext) var workspaceContext
     @Dependency(WorkspacePreparationClient.self) var workspacePreparation
+    @Dependency(\.authoringContext) var authoringContext
+    @Dependency(AuthoringPolicyClient.self) var authoringPolicy
 
     public var body: some Feature {
         let _ = Self._logChanges()
@@ -127,21 +129,69 @@ public struct SourceProposalFlow {
                 let target = state.target
                 let workspaceID = workspaceContext?.id
                 let workspacePreparation = workspacePreparation
+                let authoringContext = authoringContext
+                let authoringPolicy = authoringPolicy
+                let store = store
 
                 state.status = .proposing
                 store.addTask {
-                    let publication = await store.withErrorHandling(
-                        fallbackMessage: .sourceProposalPublishFailed,
-                        operation: .sourceProposalPublish
-                    ) {
-                        if let workspaceID {
-                            try await workspacePreparation.prepareSource(workspaceID)
+                    let revokeAuthoring: (any Error) async -> Void = { error in
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .authoringAccessChanged,
+                            operation: .sourceProposalPublish
+                        )
+                        do {
+                            let task = try store.post(
+                                key: AuthoringAccessRevoked.self,
+                                value: ()
+                            )
+                            await task?.value
+                        } catch {}
+                    }
+                    let reportProposalFailure: (any Error) async -> Void = { error in
+                        do {
+                            try store.modify {
+                                $0.status = .failed(
+                                    EventWorkspace.SourceProposalFailure(
+                                        SourceProposalPublishFailed()
+                                    )
+                                )
+                            }
+                        } catch {
+                            return
                         }
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .sourceProposalPublishFailed,
+                            operation: .sourceProposalPublish
+                        )
+                    }
+
+                    switch await Self.revalidatedAuthoringAccess(
+                        authoringContext: authoringContext,
+                        authoringPolicy: authoringPolicy
+                    ) {
+                    case .current, .notMounted:
+                        break
+                    case .revoked:
+                        await revokeAuthoring(AuthoringPolicyError.admissionDenied)
+                        return
+                    case let .unavailable(error):
+                        await reportProposalFailure(error)
+                        return
+                    }
+
+                    if let workspaceID {
+                        try await workspacePreparation.prepareSource(workspaceID)
+                    }
+
+                    do {
                         let location = try await target.resolveLocation(
                             calendarSourcePatchLocationResolver: calendarSourcePatchLocationResolver,
                             sourcePatchLocationResolver: sourcePatchLocationResolver
                         )
-                        return try await sourcePatchPublisher.publish(
+                        let publication = try await sourcePatchPublisher.publish(
                             SourcePatchPublishRequest(
                                 description: description,
                                 location: location,
@@ -149,27 +199,26 @@ public struct SourceProposalFlow {
                                 title: title
                             )
                         )
-                    } cleanup: {
-                        $0.status = .failed(
-                            EventWorkspace.SourceProposalFailure(
-                                SourceProposalPublishFailed()
-                            )
-                        )
-                    }
-
-                    guard let publication else {
+                        try store.modify {
+                            $0.status = .created(publication)
+                        }
+                        try store.send(.delegate(.created(publication)))
+                    } catch {
                         if Task.isCancelled {
                             try store.modify {
                                 $0.status = .composing
                             }
+                            return
                         }
-                        return
+                        if case .revoked = await Self.revalidatedAuthoringAccess(
+                            authoringContext: authoringContext,
+                            authoringPolicy: authoringPolicy
+                        ) {
+                            await revokeAuthoring(error)
+                        } else {
+                            await reportProposalFailure(error)
+                        }
                     }
-
-                    try store.modify {
-                        $0.status = .created(publication)
-                    }
-                    try store.send(.delegate(.created(publication)))
                 }
 
             case .delegate:
@@ -185,6 +234,35 @@ public struct SourceProposalFlow {
             }
         }
     }
+
+    enum RevalidatedAuthoringAccess {
+        case current
+        case notMounted
+        case revoked
+        case unavailable(any Error)
+    }
+
+    static func revalidatedAuthoringAccess(
+        authoringContext: AuthoringContext?,
+        authoringPolicy: AuthoringPolicyClient
+    ) async -> RevalidatedAuthoringAccess {
+        guard let grant = authoringContext?.grant else {
+            return .notMounted
+        }
+        do {
+            let admission = try await authoringPolicy.admission(grant.workspace.id)
+            guard case let .granted(principal, role) = admission,
+                  principal == grant.principal,
+                  role == grant.role
+            else {
+                return .revoked
+            }
+            return .current
+        } catch {
+            return .unavailable(error)
+        }
+    }
+
 }
 
 enum SourceProposalFormFieldID {
@@ -206,6 +284,10 @@ private extension SourceProposalFlow.FormFeature {
 }
 
 private extension UserFacingText {
+    static let authoringAccessChanged = Self(
+        "Your authoring access changed. Your edits remain saved.",
+        fallback: "Your authoring access changed. Your edits remain saved."
+    )
     static let sourceProposalPublishFailed = Self(
         "Unable to create proposal.",
         fallback: "Unable to create proposal."

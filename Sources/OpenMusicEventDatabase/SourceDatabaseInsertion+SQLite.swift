@@ -175,6 +175,7 @@ private enum PreparedSourceDatabaseInsertionError: Error {
 private struct PreparedSourceDatabaseInsertion {
     var sourceBaselines: [SourceBaselineRecord]
     var editingWorkspaces: [EditingWorkspaceRecord]
+    var workspaceRelationships: [WorkspaceRelationshipRecord]
     var organizers: [OME.Organizer.Draft]
     var calendars: [OME.Calendar.Draft]
     var calendarEntries: [OME.CalendarEntry.Draft]
@@ -216,8 +217,32 @@ private struct PreparedSourceDatabaseInsertion {
             return EventSourceProvenanceRecord(provenance, sourceBaselineID: baseline.id)
         }
         self.sourceBaselines = sourceBaselinesByID.values.sorted { $0.id.rawValue < $1.id.rawValue }
-        self.editingWorkspaces = sourceBaselines.map {
-            EditingWorkspaceRecord(teamSourceBaseline: $0)
+        let organizerIDsByBaselineID = Dictionary(
+            sourceInsertion.eventSourceProvenances.map {
+                (SourceBaselineRecord.ID(source: $0.source), $0.eventID.organizerID)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        self.editingWorkspaces = sourceBaselines.map { sourceBaseline in
+            EditingWorkspaceRecord(
+                teamSourceBaseline: sourceBaseline,
+                organizerID: organizerIDsByBaselineID[sourceBaseline.id]
+            )
+        }
+        self.workspaceRelationships = sourceBaselines.flatMap { sourceBaseline in
+            sourceInsertion.workspaceRelationships.compactMap { file in
+                guard case let .known(.identity(identity)) = file.data.subject else {
+                    return nil
+                }
+                return WorkspaceRelationshipRecord(
+                    id: WorkspaceRelationshipRecord.ID(
+                        workspaceID: EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaseline.id),
+                        actorID: identity.did
+                    ),
+                    recordKey: file.fileName,
+                    relationship: file.data
+                )
+            }
         }
         self.eventEditingWorkspaces = eventSourceProvenances.map { provenance in
             EventEditingWorkspaceRecord(
@@ -375,12 +400,22 @@ private struct PreparedSourceDatabaseInsertion {
             }
             .execute(db)
         }
+        for workspace in editingWorkspaces {
+            try WorkspaceRelationshipRecord
+                .where { $0.id.workspaceID.eq(workspace.id) }
+                .delete()
+                .execute(db)
+        }
         for calendar in calendars {
             guard let calendarID = calendar.id else { continue }
             try OME.CalendarEntry
                 .where { $0.id.calendarOwnerID.eq(calendarID.ownerID) }
                 .where { $0.id.calendarID.eq(calendarID.calendarID) }
                 .delete()
+                .execute(db)
+        }
+        if !workspaceRelationships.isEmpty {
+            try WorkspaceRelationshipRecord.insert { workspaceRelationships }
                 .execute(db)
         }
         if !calendarEntries.isEmpty {

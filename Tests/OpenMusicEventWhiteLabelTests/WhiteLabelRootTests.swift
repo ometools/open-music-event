@@ -477,7 +477,7 @@ struct WhiteLabelRootTests {
       ) {
         $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
           await recorder.record(requestedWorkspaceID)
-          return [.editContent]
+          return .granted(principal: .local, role: .owner)
         }
         $0.whiteLabelSourceRegistry = .codeBacked([organizerID: descriptor])
         $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { importedOrganizerID, _ in
@@ -493,12 +493,14 @@ struct WhiteLabelRootTests {
 
       // A downloaded workspace opens for attendees even when authoring could be authorized.
       await load(store)
+      await waitForAuthoringEligibility(in: store)
 
       #expect(store.state.teamWorkspaceDetail?.state.content.workspaceID == workspaceID)
       #expect(store.state.teamWorkspaceDetail?.state.content.access == .attendee)
+      #expect(store.state.teamWorkspaceDetail?.state.content.canEnterAuthoring == true)
       #expect(!store.state.showsAuthoringControls)
       let workspaceIDs = await recorder.workspaceIDs()
-      expectNoDifference(workspaceIDs, [])
+      expectNoDifference(workspaceIDs, [workspaceID])
     }
   }
 
@@ -523,7 +525,7 @@ struct WhiteLabelRootTests {
       ) {
         $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
           await recorder.record(requestedWorkspaceID)
-          return [.editContent]
+          return .granted(principal: .local, role: .owner)
         }
         $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
           open: { requestedWorkspaceID in
@@ -565,7 +567,7 @@ struct WhiteLabelRootTests {
       )
       #expect(
         store.state.teamWorkspaceDetail?.state.content.access
-          == .authoring([.editContent])
+          == .authoring(.owner)
       )
       #expect(store.state.showsAuthoringControls)
       #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == false)
@@ -579,11 +581,11 @@ struct WhiteLabelRootTests {
       let workspaceIDs = await recorder.workspaceIDs()
       expectNoDifference(
         workspaceIDs,
-        [workspaceID]
+        [workspaceID, workspaceID]
       )
       #expect(
         store.state.teamWorkspaceDetail?.state.content.access
-          == .authoring([.editContent])
+          == .authoring(.owner)
       )
       #expect(store.state.showsAuthoringControls)
       #expect(store.state.teamWorkspaceDetail?.state.content.entry.isRunning == false)
@@ -633,13 +635,13 @@ struct WhiteLabelRootTests {
       var automaticallyRefreshesStoredAuthentication
 
       #expect(!automaticallyRefreshesStoredAuthentication)
-      let capabilities = try await authoringPolicy.authorize(workspace.id)
-      expectNoDifference(capabilities, [.editContent])
+      let admission = try await authoringPolicy.admission(workspace.id)
+      expectNoDifference(admission, .granted(principal: .local, role: .owner))
     }
 
     #expect(
       await recorder.requirements
-        == [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
+        == []
     )
   }
 
@@ -1001,6 +1003,17 @@ struct WhiteLabelRootTests {
       try? await Task.sleep(for: .milliseconds(10))
     }
     #expect(loadIsSettled(store.state))
+  }
+
+  private func waitForAuthoringEligibility(in store: TestStore<WhiteLabelRoot>) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(1))
+    while store.state.teamWorkspaceDetail?.state.content.canEnterAuthoring != true,
+      clock.now < deadline
+    {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(store.state.teamWorkspaceDetail?.state.content.canEnterAuthoring == true)
   }
 
   private func loadIsSettled(_ state: WhiteLabelRoot.State) -> Bool {

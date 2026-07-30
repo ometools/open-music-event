@@ -179,9 +179,16 @@ private func saveOpenMusicEventSharedValue<Value>(_ value: Shared<Value>) async 
 }
 
 private func openMusicEventTerminalAuthErrorMessage(_ error: Error) -> ErrorMessage {
-    ErrorMessage(
+    #if SKIP
+    let subtitle = TCATProtoAuthentication.LocalizedStringResource(
+            stringLiteral: error.localizedDescription
+        )
+    #else
+    let subtitle = LocalizedStringResource(stringLiteral: error.localizedDescription)
+    #endif
+    return ErrorMessage(
         message: "Session Expired",
-        subtitle: LocalizedStringResource(stringLiteral: error.localizedDescription),
+        subtitle: subtitle,
         originalError: error
     )
 }

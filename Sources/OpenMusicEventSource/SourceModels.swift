@@ -3,18 +3,21 @@ import OpenMusicEventLexicon
 
 public struct OpenMusicEventSourceRepository: Equatable, Sendable {
     public var calendar: CalendarDTO?
+    public var collaborators: [FileContent<OME.Relationship>]?
     public var events: [DirectoryContent<OpenMusicEventSourceEvent>]
 
     public init(
         calendar: CalendarDTO? = nil,
+        collaborators: [FileContent<OME.Relationship>]? = nil,
         events: [DirectoryContent<OpenMusicEventSourceEvent>]
     ) {
         self.calendar = calendar
+        self.collaborators = collaborators
         self.events = events
     }
 
     public init(events: [DirectoryContent<OpenMusicEventSourceEvent>]) {
-        self.init(calendar: nil, events: events)
+        self.init(calendar: nil, collaborators: nil, events: events)
     }
 }
 

@@ -1,6 +1,10 @@
 import Foundation
 import ScheduleComponents
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 
 struct SchedulePerformanceTimelineCard: DateIntervalRepresentable, Equatable, Identifiable {
     let performance: OMERecord.Performance
@@ -29,8 +33,8 @@ struct ScheduleTimelineCardView: View {
         }
         .buttonStyle(.plain)
         .opacity(userScheduleOverlay.isDimmed(performanceID: performance.id.performanceID) ? 0.38 : 1)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(performance.timeRangeText)
+        .accessibilityLabel(Text(accessibilityLabel))
+        .portableAccessibilityHint(Text(performance.timeRangeText))
         .contextMenu {
             PerformanceReactionMenuContent(
                 performanceID: performance.id,
@@ -132,7 +136,7 @@ struct ScheduleTimelineCardView: View {
         .background {
             ScheduleTimelineCardBackground(stageColor: stage.color.swiftUIColor)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .portableContentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     var accessibilityLabel: String {

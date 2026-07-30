@@ -1,4 +1,0 @@
-# Skip configuration for LiquidGlassSegmentedPicker module
-
-skip:
-  mode: 'native'

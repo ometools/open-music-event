@@ -27,6 +27,41 @@ extension OpenMusicEvent {
         ]
         .joined(separator: " ")
     }
+
+    public enum WorkspaceRole: Codable, Equatable, Hashable, Sendable {
+        case owner
+        case collaborator(Set<Capability>)
+
+        public enum Capability: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+            case propose
+            case merge
+        }
+
+        public var canEdit: Bool { true }
+
+        public var canManageCollaborators: Bool {
+            guard case .owner = self else { return false }
+            return true
+        }
+
+        public var canPropose: Bool {
+            switch self {
+            case .owner:
+                true
+            case let .collaborator(capabilities):
+                capabilities.contains(.propose)
+            }
+        }
+
+        public var canMerge: Bool {
+            switch self {
+            case .owner:
+                true
+            case let .collaborator(capabilities):
+                capabilities.contains(.merge)
+            }
+        }
+    }
 }
 
 extension OpenMusicEvent {
@@ -39,6 +74,8 @@ extension OpenMusicEvent {
         @Column(as: Open<Entity>.JSONRepresentation.self)
         public var subject: Open<Entity>
         public var role: Role
+        @Column(as: [OpenMusicEvent.WorkspaceRole.Capability].JSONRepresentation?.self)
+        public var capabilities: [OpenMusicEvent.WorkspaceRole.Capability]?
         @Column(as: Open<Entity>.JSONRepresentation?.self)
         public var object: Open<Entity>?
         public var createdAt: String
@@ -47,12 +84,14 @@ extension OpenMusicEvent {
             type: String = Self.collection.rawValue,
             subject: Open<Entity>,
             role: Role,
+            capabilities: [OpenMusicEvent.WorkspaceRole.Capability]? = nil,
             object: Open<Entity>? = nil,
             createdAt: String
         ) {
             self.type = type
             self.subject = subject
             self.role = role
+            self.capabilities = capabilities
             self.object = object
             self.createdAt = createdAt
         }
@@ -61,6 +100,7 @@ extension OpenMusicEvent {
             type: String = Self.collection.rawValue,
             subject: Entity,
             role: Role,
+            capabilities: [OpenMusicEvent.WorkspaceRole.Capability]? = nil,
             object: Entity? = nil,
             createdAt: String
         ) {
@@ -68,6 +108,7 @@ extension OpenMusicEvent {
                 type: type,
                 subject: .known(subject),
                 role: role,
+                capabilities: capabilities,
                 object: object.map { .known($0) },
                 createdAt: createdAt
             )
@@ -77,6 +118,7 @@ extension OpenMusicEvent {
             type: String = Self.collection.rawValue,
             subject: RecordReference,
             role: Role,
+            capabilities: [OpenMusicEvent.WorkspaceRole.Capability]? = nil,
             object: RecordReference,
             createdAt: String
         ) {
@@ -84,15 +126,55 @@ extension OpenMusicEvent {
                 type: type,
                 subject: .record(subject),
                 role: role,
+                capabilities: capabilities,
                 object: .record(object),
                 createdAt: createdAt
             )
+        }
+
+        public init(
+            type: String = Self.collection.rawValue,
+            subject: Entity,
+            role: OpenMusicEvent.WorkspaceRole,
+            object: Entity,
+            createdAt: String
+        ) {
+            let storedRole: Role
+            let capabilities: [OpenMusicEvent.WorkspaceRole.Capability]?
+            switch role {
+            case .owner:
+                storedRole = .owner
+                capabilities = nil
+            case let .collaborator(values):
+                storedRole = .collaborator
+                capabilities = values.sorted { $0.rawValue < $1.rawValue }
+            }
+            self.init(
+                type: type,
+                subject: subject,
+                role: storedRole,
+                capabilities: capabilities,
+                object: object,
+                createdAt: createdAt
+            )
+        }
+
+        public var workspaceRole: OpenMusicEvent.WorkspaceRole? {
+            switch role {
+            case .owner:
+                .owner
+            case .collaborator:
+                .collaborator(Set(capabilities ?? []))
+            default:
+                nil
+            }
         }
 
         enum CodingKeys: String, CodingKey {
             case type = "$type"
             case subject
             case role
+            case capabilities
             case object
             case createdAt
         }
@@ -102,6 +184,10 @@ extension OpenMusicEvent {
             type = try container.decodeIfPresent(String.self, forKey: .type) ?? Self.collection.rawValue
             subject = try container.decode(Open<Entity>.self, forKey: .subject)
             role = try container.decode(Role.self, forKey: .role)
+            capabilities = try container.decodeIfPresent(
+                [OpenMusicEvent.WorkspaceRole.Capability].self,
+                forKey: .capabilities
+            )
             object = try container.decodeIfPresent(Open<Entity>.self, forKey: .object)
             createdAt = try container.decode(String.self, forKey: .createdAt)
         }
@@ -252,6 +338,11 @@ extension OpenMusicEvent.Relationship {
             self.cid = cid
         }
 
+        public var author: DID? {
+            guard case let .did(did) = uri.authority else { return nil }
+            return did
+        }
+
         public init(
             type: String = Self.type,
             author: DID,
@@ -352,6 +443,8 @@ extension OpenMusicEvent.Relationship {
         }
 
         public static let contributor = Self("contributor")
+        public static let collaborator = Self("collaborator")
+        public static let owner = Self("owner")
         public static let developer = Self("developer")
         public static let maintainer = Self("maintainer")
         public static let organizer = Self("organizer")

@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 public extension Date {
     func ceil(precision: TimeInterval) -> Date {
@@ -19,14 +18,14 @@ public extension Date {
         return Date(timeIntervalSinceReferenceDate: seconds)
     }
 
-    func toY(containerHeight: CGFloat, in range: DateInterval) -> CGFloat {
+    func toY(containerHeight: ScheduleCGFloat, in range: DateInterval) -> ScheduleCGFloat {
         let progress = timeIntervalSince(range.start) / range.duration
-        return containerHeight * CGFloat(progress)
+        return containerHeight * ScheduleCGFloat(progress)
     }
 
-    func toX(containerWidth: CGFloat, in range: DateInterval) -> CGFloat {
+    func toX(containerWidth: ScheduleCGFloat, in range: DateInterval) -> ScheduleCGFloat {
         let progress = timeIntervalSince(range.start) / range.duration
-        return containerWidth * CGFloat(progress)
+        return containerWidth * ScheduleCGFloat(progress)
     }
 }
 

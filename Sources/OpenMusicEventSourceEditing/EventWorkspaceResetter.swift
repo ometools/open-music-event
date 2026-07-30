@@ -210,8 +210,21 @@ private func resetOpenMusicEventSourceChanges(
     try SourceEditingResetter().reset(
         in: db,
         baselineSchemaName: baselineSchemaName,
-        descriptors: OME.sourceMetadataRecordTypes.map(\.descriptor),
+        descriptors: OME.sourceMetadataProjections
+            .filter { $0.fileFamily == .calendar }
+            .map(\.recordType.descriptor),
         scope: .openMusicEventCalendar(calendarID: calendarID)
+    )
+
+    try SourceEditingResetter().reset(
+        in: db,
+        baselineSchemaName: baselineSchemaName,
+        descriptors: OME.sourceMetadataProjections
+            .filter { $0.fileFamily == .collaborator }
+            .map(\.recordType.descriptor),
+        scope: .openMusicEventWorkspace(
+            EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
+        )
     )
 
     for eventID in try openMusicEventSourceEventIDs(

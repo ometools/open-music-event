@@ -422,7 +422,7 @@ public struct UserSchedulesListView: View {
                                         .accessibilityLabel("Selected schedule")
                                 }
                             }
-                            .contentShape(Rectangle())
+                            .portableContentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
 

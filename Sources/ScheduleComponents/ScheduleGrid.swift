@@ -1,4 +1,10 @@
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
+
+// SKIP INSERT: import skip.ui.*
 
 public struct ScheduleGrid<Content: View>: View {
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation

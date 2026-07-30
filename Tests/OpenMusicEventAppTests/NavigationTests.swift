@@ -19,7 +19,11 @@ import Sharing
 import SQLiteData
 import SourceEditing
 import Synchronization
+#if os(Android)
+import SkipSwiftUI
+#elseif canImport(SwiftUI)
 import SwiftUI
+#endif
 import Testing
 import XRPCClient
 
@@ -385,6 +389,7 @@ struct NavigationTests {
         )
     }
 
+    #if !os(Android)
     @Test
     func navigationRequestReplacesMountedEventViewer() async throws {
         let database = try makePreparedDatabase()
@@ -403,6 +408,7 @@ struct NavigationTests {
         #expect(appState?.selectedEventID == secondEventID)
         #expect(store.state.root.eventViewer?.content.content.eventID == secondEventID)
     }
+    #endif
 
     @Test
     func navigationRequestSelectsContributorContributorsDestination() throws {
@@ -549,7 +555,7 @@ struct NavigationTests {
             $0.defaultEventID = eventID
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
                 authorizationRequests.withLock { $0.append(workspaceID) }
-                return [.editContent]
+                return .granted(principal: .local, role: .owner)
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
                 open: { workspaceID in
@@ -583,7 +589,7 @@ struct NavigationTests {
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceID])
         #expect(
             store.state.root.eventViewer?.content.access
-                == .authoring([.editContent])
+                == .authoring(.owner)
         )
         #expect(
             store.state.root.eventViewer?.content.content.installedFeatures
@@ -678,7 +684,7 @@ struct NavigationTests {
             #expect(eventViewerStore.eventID == eventID)
             #expect(
                 eventWorkspaceAuthoringStore.access
-                    == .authoring([.editContent])
+                    == .authoring(.owner)
             )
             #expect(eventViewerStore.installedFeatures.contains(.workspace))
             #expect(eventViewerStore.installedFeatures.contains(.settings))
@@ -690,6 +696,10 @@ struct NavigationTests {
         let database = try makePreparedDatabase()
         let eventID = eventID("source-event-list-authoring")
         let sourceProvenance = sourceProvenance("source-event-list-authoring")
+        let workspaceID = EditingWorkspaceRecord.ID(
+            sourceBaselineID: SourceBaselineRecord.ID(source: sourceProvenance)
+        )
+        let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
 
         try await database.write { db in
             try Self.insertOrganizer(db, id: testOrganizerID)
@@ -709,9 +719,9 @@ struct NavigationTests {
         try await withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { _ in
-                Issue.record("Browsing an event must not request authoring")
-                return [.editContent]
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
+                admissionRequests.withLock { $0.append(workspaceID) }
+                return .granted(principal: .local, role: .owner)
             }
             $0.defaultDatabase = database
             $0.defaultEventID = eventID
@@ -728,9 +738,14 @@ struct NavigationTests {
             )
             let authoringStore = eventAuthoringStore.scope(\.content, action: \.content)
             let eventViewerStore = authoringStore.scope(\.content, action: \.content)
+            await waitUntil {
+                authoringStore.canEnterAuthoring
+            }
             #expect(eventViewerStore.eventID == eventID)
             #expect(authoringStore.access == .attendee)
+            #expect(authoringStore.canEnterAuthoring)
             #expect(!eventViewerStore.installedFeatures.contains(.workspace))
+            expectNoDifference(admissionRequests.withLock { $0 }, [workspaceID])
         }
     }
 
@@ -1291,7 +1306,7 @@ struct NavigationTests {
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: workspaceDatabase)
         )
         let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(capabilities: [.editContent], workspace: workspace)
+            value: AuthoringGrant(principal: .local, role: .owner, workspace: workspace)
         )
 
         let store = withIssueReporters([reporter]) {
@@ -1361,7 +1376,7 @@ struct NavigationTests {
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: workspaceDatabase)
         )
         let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(capabilities: [.editContent], workspace: workspace)
+            value: AuthoringGrant(principal: .local, role: .owner, workspace: workspace)
         )
 
         let store = withIssueReporters([reporter]) {
@@ -1379,7 +1394,7 @@ struct NavigationTests {
             }
         }
 
-        #expect(store.state.eventViewer.authoringAccess == .authoring([.editContent]))
+        #expect(store.state.eventViewer.authoringAccess == .authoring(.owner))
         #expect(store.state.eventViewer.eventWorkspace?.eventID == eventID)
         #expect(reporter.messages.isEmpty)
     }
@@ -1422,7 +1437,7 @@ struct NavigationTests {
                 #expect(requestedWorkspaceID == workspaceID)
                 @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 try await authorizationBroker.authorize(requirement)
-                return [.editContent]
+                return .granted(principal: .local, role: .owner)
             }
         } operation: {
             TestStore(
@@ -1444,7 +1459,7 @@ struct NavigationTests {
         }
         await task?.value
 
-        #expect(store.state.access == .authoring([.editContent]))
+        #expect(store.state.access == .authoring(.owner))
         store.send(.content(.manageSourceButtonTapped))
         #expect(store.state.content.teamWorkspaceEditor?.sourceBaselineID == sourceBaselineID)
         #expect(store.state.content.teamWorkspaceEditor?.calendarID == calendarID)
@@ -2102,6 +2117,7 @@ struct NavigationTests {
         #expect(store.state.eventViewer.destination?.eventInfoForm?.eventID == eventID)
     }
 
+    #if !os(Android)
     @Test
     func eventViewerSelectsEditorFeatureWithAuthoringGrant() async throws {
         let database = try makePreparedDatabase()
@@ -2129,7 +2145,7 @@ struct NavigationTests {
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )
         let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(capabilities: [.editContent], workspace: workspace)
+            value: AuthoringGrant(principal: .local, role: .owner, workspace: workspace)
         )
 
         let store = withDependencies {
@@ -2151,9 +2167,10 @@ struct NavigationTests {
             $0.eventViewer.selectedFeature = .workspace
         }
 
-        #expect(store.state.eventViewer.authoringAccess == .authoring([.editContent]))
+        #expect(store.state.eventViewer.authoringAccess == .authoring(.owner))
         #expect(store.state.eventViewer.selectedFeature == .workspace)
     }
+    #endif
 
     @Test
     func eventViewerOpensEditIntentWithAuthoringGrant() async throws {
@@ -2169,7 +2186,7 @@ struct NavigationTests {
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )
         let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(capabilities: [.editContent], workspace: workspace)
+            value: AuthoringGrant(principal: .local, role: .owner, workspace: workspace)
         )
 
         await withDependencies {
@@ -2194,7 +2211,7 @@ struct NavigationTests {
                 store.eventViewer.destination?.eventInfoForm?.eventID == eventID
             }
 
-            #expect(store.eventViewer.authoringAccess == .authoring([.editContent]))
+            #expect(store.eventViewer.authoringAccess == .authoring(.owner))
             #expect(store.eventViewer.destination?.eventInfoForm?.eventID == eventID)
         }
     }
@@ -4800,7 +4817,7 @@ struct NavigationTests {
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
         )
         let grant = Shared<AuthoringGrant?>(
-            value: AuthoringGrant(capabilities: [.editContent], workspace: workspace)
+            value: AuthoringGrant(principal: .local, role: .owner, workspace: workspace)
         )
 
         let state = withDependencies {
@@ -4902,9 +4919,9 @@ struct NavigationTests {
 
         #expect(state.authoringAccess == .attendee)
         #expect(!state.installedFeatures.contains(.workspace))
-        #expect(!state.installedFeatures.contains(.settings))
+        #expect(state.installedFeatures.contains(.settings))
         #expect(state.eventWorkspace == nil)
-        #expect(state.eventSettings == nil)
+        #expect(state.eventSettings?.eventID == eventID)
     }
 
     @Test
@@ -7654,7 +7671,8 @@ struct NavigationTests {
         }
         let grant = Shared<AuthoringGrant?>(
             value: AuthoringGrant(
-                capabilities: [.editContent],
+                principal: .local,
+                role: .owner,
                 workspace: WorkspaceContext(
                     id: workspaceID,
                     sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
@@ -7698,7 +7716,7 @@ struct NavigationTests {
 
         #expect(
             store.state.root.eventViewer?.content.access
-                == .authoring([.editContent])
+                == .authoring(.owner)
         )
         #expect(
             store.state.root.eventViewer?.content.content.installedFeatures
@@ -7735,7 +7753,7 @@ struct NavigationTests {
             $0.defaultDatabase = database
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
                 authorizationRequests.withLock { $0.append(requestedWorkspaceID) }
-                return [.editContent]
+                return .granted(principal: .local, role: .owner)
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
                 open: { requestedWorkspaceID in
@@ -7774,7 +7792,7 @@ struct NavigationTests {
         await authorizationTask?.value
         #expect(
             store.state.teamWorkspaceDetail?.state.content.access
-                == .authoring([.editContent])
+                == .authoring(.owner)
         )
         expectNoDifference(authorizationRequests.withLock { $0 }, [workspaceID])
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceID])
