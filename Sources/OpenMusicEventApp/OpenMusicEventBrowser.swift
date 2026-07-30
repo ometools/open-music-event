@@ -1046,10 +1046,6 @@ public struct TeamWorkspaceDetail {
             .compactMap { $0 }
         }
 
-        var canManageSource: Bool {
-            sourceBaseline != nil && editableCalendarID != nil
-        }
-
         var canUploadToTangled: Bool {
             sourceBaseline?.sourceKind == .local
         }
@@ -1500,7 +1496,11 @@ public struct TeamWorkspaceDetailView: View {
                         .labelStyle(.iconOnly)
                 }
             }
-            if showsAuthoringControls, isManageWorkspaceToolbarItemVisible && store.canManageSource {
+            if showsAuthoringControls,
+               isManageWorkspaceToolbarItemVisible,
+               store.sourceBaseline != nil,
+               store.editableCalendarID != nil
+            {
                 Button {
                     store.send(.manageSourceButtonTapped)
                 } label: {

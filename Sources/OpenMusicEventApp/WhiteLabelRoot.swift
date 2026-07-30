@@ -513,46 +513,37 @@ public struct WhiteLabelRootView: View {
 }
 
 struct WhiteLabelRootActionsMenu: View {
-    let store: StoreOf<WhiteLabelRoot>
+    let store: StoreOf<OpenMusicEventSourceEditing.Authoring<TeamWorkspaceDetail>>
 
     var body: some View {
         Menu {
-            if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
-                let authoringStore = authorizationStore.scope(\.content, action: \.content)
-                if authoringStore.canEnterAuthoring {
-                    Button {
-                        authoringStore.send(.enterButtonTapped)
-                    } label: {
-                        Label {
-                            Text("Enter Authoring")
-                        } icon: {
-                            if authoringStore.entry.isRunning {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "square.and.pencil")
-                            }
-                        }
-                    }
-                    .disabled(authoringStore.entry.isRunning)
-                } else {
-                    let teamWorkspaceDetailStore = authoringStore.scope(
-                        \.content,
-                        action: \.content
-                    )
-                    if teamWorkspaceDetailStore.canManageSource {
-                        Button {
-                            teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
-                        } label: {
-                            Label(
-                                "Workspace",
-                                systemImage: EventFeature.workspace.systemImage,
-                                composeImage: EventFeature.workspace.composeImage
-                            )
+            if store.canEnterAuthoring {
+                Button {
+                    store.send(.enterButtonTapped)
+                } label: {
+                    Label {
+                        Text("Enter Authoring")
+                    } icon: {
+                        if store.entry.isRunning {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "square.and.pencil")
                         }
                     }
                 }
+                .disabled(store.entry.isRunning)
+            } else if store.access.canEditContent {
+                let teamWorkspaceDetailStore = store.scope(\.content, action: \.content)
+                Button {
+                    teamWorkspaceDetailStore.send(.manageSourceButtonTapped)
+                } label: {
+                    Label(
+                        "Workspace",
+                        systemImage: EventFeature.workspace.systemImage,
+                        composeImage: EventFeature.workspace.composeImage
+                    )
+                }
             }
-
         } label: {
             Label("Actions", systemImage: "gearshape")
                 .labelStyle(.iconOnly)
@@ -578,8 +569,13 @@ extension View {
                 }
                 #endif
 
-                ToolbarItem(placement: .primaryAction) {
-                    WhiteLabelRootActionsMenu(store: store)
+                if let authorizationStore = store.spawn(\.teamWorkspaceDetail) {
+                    let authoringStore = authorizationStore.scope(\.content, action: \.content)
+                    if authoringStore.canEnterAuthoring || authoringStore.access.canEditContent {
+                        ToolbarItem(placement: .primaryAction) {
+                            WhiteLabelRootActionsMenu(store: authoringStore)
+                        }
+                    }
                 }
             }
         }
