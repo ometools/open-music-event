@@ -126,9 +126,21 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     }
 
     var displayAsset: OME.ImageAsset? {
-        if resolvedTaskID == resolutionTaskID {
-            return resolvedAsset
-        }
+        Self.displayAsset(
+            asset: asset,
+            resolvedAsset: resolvedTaskID == resolutionTaskID
+                ? resolvedAsset
+                : nil
+        )
+    }
+
+    static func displayAsset(
+        asset: OME.ImageAsset?,
+        resolvedAsset: OME.ImageAsset?
+    ) -> OME.ImageAsset? {
+        guard var asset, let resolvedAsset else { return asset }
+        asset.assetKey = resolvedAsset.assetKey
+        asset.source = resolvedAsset.source
         return asset
     }
 
