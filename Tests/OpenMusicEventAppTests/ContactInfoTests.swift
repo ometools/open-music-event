@@ -19,7 +19,7 @@ import Testing
 @Suite
 struct ContactInfoTests {
     @Test
-    func reportingLinksBelongToContactInsteadOfCommunications() async throws {
+    func reportingLinksAreAvailableInContactAndCommunications() async throws {
         let database = try makeContactInfoDatabase()
         let eventID = contactInfoEventID()
         let reportingLinks = [
@@ -56,9 +56,11 @@ struct ContactInfoTests {
             }
         }
 
+        // Reporting links make both attendee surfaces available from the same event data.
         #expect(contactStore.hasContent)
+        #expect(communicationsStore.hasContent)
         expectNoDifference(contactStore.event?.reportingLinks, reportingLinks)
-        #expect(!communicationsStore.hasContent)
+        expectNoDifference(communicationsStore.event?.reportingLinks, reportingLinks)
     }
 
     @Test

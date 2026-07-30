@@ -54,7 +54,7 @@ public struct CommunicationsViewer {
         }
 
         var hasContent: Bool {
-            event != nil && !channels.isEmpty
+            event != nil && (!(event?.reportingLinks ?? []).isEmpty || !channels.isEmpty)
         }
     }
 
@@ -121,6 +121,20 @@ public struct CommunicationsViewerView: View {
         Group {
             if store.hasContent {
                 List {
+                    if let reportingLinks = store.event?.reportingLinks, !reportingLinks.isEmpty {
+                        Section("Incident Reporting") {
+                            ForEach(Array(reportingLinks.enumerated()), id: \.offset) { _, reportingLink in
+                                Link(destination: reportingLink.url) {
+                                    ReportingLinkLabel(reportingLink: reportingLink)
+                                }
+                                .buttonStyle(.plain)
+                                .portableAccessibilityHint(
+                                    Text("Opens \(reportingLink.name) in a browser.")
+                                )
+                            }
+                        }
+                    }
+
                     if store.channelRows.isEmpty {
                         Section {
                             Text("No communication channels have been added to this event yet.")
@@ -611,6 +625,37 @@ struct CommunicationChannelRowView: View {
             Image(systemName: "bell.fill")
                 .accessibilityLabel("Notifications enabled")
         }
+    }
+}
+
+struct ReportingLinkLabel: View {
+    let reportingLink: OMERecord.Event.ReportingLink
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(reportingLink.name)
+                .font(.headline.weight(.bold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .foregroundStyle(.white)
+                .background(.red, in: RoundedRectangle(cornerRadius: 8))
+
+            if let description = reportingLink.displayDescription {
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private extension OMERecord.Event.ReportingLink {
+    var displayDescription: String? {
+        guard let description else { return nil }
+
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
