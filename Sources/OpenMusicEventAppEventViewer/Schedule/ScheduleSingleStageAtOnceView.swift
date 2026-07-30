@@ -277,13 +277,13 @@ public struct ScheduleSingleStageAtOnceView: View {
                 systemImage: "music.note.list",
                 description: Text("No stages have been added to this schedule division yet.")
             )
-        } else if let timeRange {
-            ScheduleStageTimelinePager(
+        } else {
+            ScheduleStagePager(
                 selectedStageID: $store.selectedStageID,
                 stages: visibleStages,
                 performances: visiblePerformances,
                 timeRange: timeRange,
-                pageHeight: scheduleHeight(for: timeRange),
+                pageHeight: timeRange.map { scheduleHeight(for: $0) },
                 userScheduleOverlay: userScheduleOverlay,
                 scheduleDivision: store.scheduleDivision,
                 scheduleTitle: selectedScheduleTitle,
@@ -309,14 +309,6 @@ public struct ScheduleSingleStageAtOnceView: View {
                 onPerformanceTapped: { performanceID in
                     store.send(.performanceButtonTapped(performanceID))
                 },
-                onScheduleDivisionTapped: { division in
-                    store.send(.scheduleDivisionButtonTapped(division))
-                }
-            )
-        } else if let selectedStage {
-            ScheduleEmptyStageView(
-                title: emptyStageTitle(for: selectedStage),
-                otherScheduleDivisions: otherScheduleDivisions,
                 onScheduleDivisionTapped: { division in
                     store.send(.scheduleDivisionButtonTapped(division))
                 }
@@ -379,24 +371,12 @@ public struct ScheduleSingleStageAtOnceView: View {
         )
     }
 
-    var selectedStage: OMERecord.Stage? {
-        guard let resolvedSelectedStageID else { return nil }
-        return visibleStages.first { $0.id.stageID == resolvedSelectedStageID }
-    }
-
     func resolveSelectedStage() {
         guard !visibleStages.isEmpty else { return }
         guard store.state.scheduleViewerState.selectedStageID != resolvedSelectedStageID else { return }
         $store.selectedStageID.wrappedValue = resolvedSelectedStageID
     }
 
-    func emptyStageTitle(for stage: OMERecord.Stage) -> String {
-        ScheduleViewer.emptyStageTitle(
-            scheduleDivision: store.scheduleDivision,
-            scheduleTitle: selectedScheduleTitle,
-            stage: stage
-        )
-    }
 }
 
 struct ScheduleEmptyStageView: View {
@@ -410,6 +390,7 @@ struct ScheduleEmptyStageView: View {
                 title,
                 systemImage: "calendar.day.timeline.leading"
             )
+            .fixedSize(horizontal: false, vertical: true)
 
             if !otherScheduleDivisions.isEmpty {
                 scheduleDivisionButtons
@@ -430,14 +411,14 @@ struct ScheduleEmptyStageView: View {
     }
 }
 
-struct ScheduleStageTimelinePager: View {
+struct ScheduleStagePager: View {
     @Environment(\.scheduleNowScrollRequest) var scheduleNowScrollRequest
     @Binding var selectedStageID: OMERecord.ID<OMERecord.Stage>?
 
     let stages: [OMERecord.Stage]
     let performances: [OMERecord.Performance]
-    let timeRange: DateInterval
-    let pageHeight: CGFloat
+    let timeRange: DateInterval?
+    let pageHeight: CGFloat?
     let userScheduleOverlay: UserScheduleOverlay
     let scheduleDivision: ScheduleViewer.ScheduleDivision
     let scheduleTitle: String
@@ -453,26 +434,61 @@ struct ScheduleStageTimelinePager: View {
     let onPerformanceTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
     let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
 
+    @ViewBuilder
     var body: some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                ScrollView {
-                    HorizontalPageView(page: $selectedStageID) {
-                        ForEach(stages) { stage in
-                            stagePage(stage, width: geometry.size.width)
+        if let timeRange, let pageHeight {
+            ScrollViewReader { proxy in
+                GeometryReader { geometry in
+                    ScrollView {
+                        HorizontalPageView(page: $selectedStageID) {
+                            ForEach(stages) { stage in
+                                stagePage(
+                                    stage,
+                                    width: geometry.size.width,
+                                    timeRange: timeRange,
+                                    pageHeight: pageHeight
+                                )
+                            }
                         }
+                        .frame(height: pageHeight)
                     }
-                    .frame(height: pageHeight)
+                }
+                .onChange(of: scheduleNowScrollRequest) { _, request in
+                    guard let request else { return }
+                    scrollToCurrentTime(proxy: proxy, animated: request.animated)
                 }
             }
-            .onChange(of: scheduleNowScrollRequest) { _, request in
-                guard let request else { return }
-                scrollToCurrentTime(proxy: proxy, animated: request.animated)
+        } else {
+            GeometryReader { geometry in
+                HorizontalPageView(page: $selectedStageID) {
+                    ForEach(stages) { stage in
+                        ScheduleEmptyStageView(
+                            title: ScheduleViewer.emptyStageTitle(
+                                scheduleDivision: scheduleDivision,
+                                scheduleTitle: scheduleTitle,
+                                stage: stage
+                            ),
+                            otherScheduleDivisions: otherScheduleDivisions,
+                            onScheduleDivisionTapped: onScheduleDivisionTapped
+                        )
+                        .id(stage.id.stageID)
+                        .tag(Optional(stage.id.stageID))
+                        .frame(
+                            width: geometry.size.width,
+                            height: geometry.size.height
+                        )
+                    }
+                }
             }
         }
     }
 
-    func stagePage(_ stage: OMERecord.Stage, width: CGFloat) -> some View {
+    func stagePage(
+        _ stage: OMERecord.Stage,
+        width: CGFloat,
+        timeRange: DateInterval,
+        pageHeight: CGFloat
+    ) -> some View {
         ScheduleFixedStageTimeline(
             stage: stage,
             performances: performances(for: stage),

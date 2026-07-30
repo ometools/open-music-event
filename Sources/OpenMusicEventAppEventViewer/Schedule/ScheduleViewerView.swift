@@ -212,6 +212,16 @@ public struct ScheduleViewerView: View {
                 store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID)
             )
             .toolbar {
+                #if os(macOS) && !SKIP
+                ToolbarItem(placement: .automatic) {
+                    UserScheduleFilterMenu(store: store)
+                }
+                #else
+                ToolbarItem(placement: .topBarLeading) {
+                    UserScheduleFilterMenu(store: store)
+                }
+                #endif
+
                 if currentTimeDestination != nil {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Now") {
@@ -226,9 +236,6 @@ public struct ScheduleViewerView: View {
                             selectedScheduleID: selectedScheduleID
                         )
                     }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    UserScheduleFilterMenu(store: store)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     ScheduleKindMenu(store: store)
