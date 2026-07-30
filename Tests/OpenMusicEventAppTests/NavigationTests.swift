@@ -7470,7 +7470,7 @@ struct NavigationTests {
     }
 
     @Test
-    func eventViewerDestinationBindingPresentsAndDismissesSpawnedStore() throws {
+    func eventViewerDestinationBindingPresentsAndDismissesStore() throws {
         let eventID = eventID("event-1")
         let database = try makePreparedDatabase()
         @Bindable var store = withDependencies {
@@ -7897,6 +7897,59 @@ struct NavigationTests {
             store.state.root.eventViewer?.content.content.installedFeatures
                 .contains(.workspace) == false
         )
+    }
+
+    @Test
+    func whiteLabelRestoredEventViewerAllowsWhiteLabelLoadToComplete() async throws {
+        let eventID = eventID("event-1")
+        let database = try makePreparedDatabase()
+        try await database.write { db in
+            try Self.insertOrganizer(db, id: testOrganizerID)
+            try Self.insertEvent(db, id: eventID, name: "Event One")
+        }
+        let configuration = WhiteLabelAppConfiguration(
+            brand: WhiteLabelBrand(displayName: "Test Festival"),
+            organizerID: testOrganizerID
+        )
+
+        try await withDependencies {
+            $0.context = .test
+            $0.defaultDatabase = database
+            $0.defaultEventID = eventID
+            $0.whiteLabelSourceRegistry = WhiteLabelSourceRegistryClient { organizerID in
+                #expect(organizerID == testOrganizerID)
+                return WhiteLabelSourceDescriptor(
+                    reference: .source("tangled.org/woody.fm/test-festival")
+                )
+            }
+            $0.whiteLabelSourceImport = WhiteLabelSourceImportClient { organizerID, _ in
+                #expect(organizerID == testOrganizerID)
+                return [eventID]
+            }
+        } operation: {
+            @Bindable var store = Store(
+                initialState: OpenMusicEventAppRoot.State(
+                    variant: .whiteLabel(configuration),
+                    selectedEventIDAtLaunch: eventID
+                )
+            ) {
+                OpenMusicEventAppRoot()
+            }
+
+            let eventViewerStore = try #require(
+                $store.scope(\.destination, action: \.destination).eventViewer.wrappedValue
+            )
+            let whiteLabelStore = try #require(store.spawn(\.whiteLabelRoot))
+
+            await whiteLabelStore.send(.task)?.value
+            await waitUntil {
+                whiteLabelStore.loadingPhase == .idle
+                    && whiteLabelStore.organizerID == testOrganizerID
+            }
+
+            #expect(eventViewerStore.state.id == eventID)
+            #expect(whiteLabelStore.errorMessage == nil)
+        }
     }
 
     @Test

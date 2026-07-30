@@ -31,12 +31,10 @@ public struct OpenMusicEventAppRoot {
             self.variant = variant
             if variant.persistsSelectedEvent, let selectedEventIDAtLaunch {
                 self.destination = .eventViewer(
-                    Spawn(
-                        OpenMusicEventAppRoot.makeWorkspaceEventViewerState(
-                            eventID: selectedEventIDAtLaunch,
-                            target: nil,
-                            pendingScheduleLaunchAction: .jumpToCurrentTime
-                        )
+                    OpenMusicEventAppRoot.makeWorkspaceEventViewerState(
+                        eventID: selectedEventIDAtLaunch,
+                        target: nil,
+                        pendingScheduleLaunchAction: .jumpToCurrentTime
                     )
                 )
             }
@@ -64,7 +62,7 @@ public struct OpenMusicEventAppRoot {
             appState?.selectedEventID
         }
 
-        public var eventViewer: Spawn<OpenMusicEventAuthoring<EventViewer>>? {
+        public var eventViewer: OpenMusicEventAuthoring<EventViewer>.State? {
             get {
                 guard case let .eventViewer(eventViewer) = destination else { return nil }
                 return eventViewer
@@ -90,7 +88,7 @@ public struct OpenMusicEventAppRoot {
 
     @Feature
     public enum Destination {
-        case eventViewer(Spawn<OpenMusicEventAuthoring<EventViewer>>)
+        case eventViewer(OpenMusicEventAuthoring<EventViewer>)
     }
 
     @Dependency(\.defaultDatabase) var database
@@ -111,12 +109,10 @@ public struct OpenMusicEventAppRoot {
             (OMERecord.Event.ID, EventTarget?, inout State) -> Void = { eventID, target, state in
             let workspaceID = Self.workspaceID(for: eventID)
             let mountedAuthoring = state.mountedAuthoring(for: workspaceID)
-            state.eventViewer = Spawn(
-                Self.makeWorkspaceEventViewerState(
-                    eventID: eventID,
-                    target: target,
-                    mountedAuthoring: mountedAuthoring
-                )
+            state.eventViewer = Self.makeWorkspaceEventViewerState(
+                eventID: eventID,
+                target: target,
+                mountedAuthoring: mountedAuthoring
             )
             prefetchAssetsOnOpen(eventID)
         }
@@ -197,7 +193,7 @@ public struct OpenMusicEventAppRoot {
             handleNavigationRequest(request, &state)
         }
         .onEvent(OAuthAuthorizationInvalidated.self) { _, state in
-            state.eventViewer?.state.content.invalidateAuthoring()
+            state.eventViewer?.content.invalidateAuthoring()
         }
         .onEvent(LocalEventDeletionRequested.self) { eventID, _ in
             store.addTask {
@@ -362,9 +358,9 @@ private extension OpenMusicEventAppRoot.State {
         for workspaceID: EditingWorkspaceRecord.ID
     ) -> OpenMusicEventAppRoot.MountedAuthoring? {
         if let eventViewer,
-           eventViewer.state.content.workspaceID == workspaceID {
+           eventViewer.content.workspaceID == workspaceID {
             return .init(
-                grant: eventViewer.state.content.$grant
+                grant: eventViewer.content.$grant
             )
         }
         if let whiteLabelAuthoring = whiteLabelRoot?
