@@ -64,6 +64,34 @@ struct AccountTests {
     }
 
     @Test
+    func accountListButtonPresentsAccountsSheet() async throws {
+        let session = try accountTestSession(
+            did: "did:plc:alice123",
+            pdsHost: "alice.pds.example"
+        )
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(session)
+        let store = Store(
+            initialState: Account.State.localTestState(
+                sessionStore: Shared(value: sessionStoreValue),
+                selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
+            )
+        ) {
+            Account()
+        }
+
+        let presentationTask = store.send(.accountListButtonTapped)
+        await presentationTask?.value
+
+        #expect(store.isAccountManagementSheetPresented)
+
+        let dismissalTask = store.send(.accountManagementSheetDismissed)
+        await dismissalTask?.value
+
+        #expect(store.isAccountManagementSheetPresented == false)
+    }
+
+    @Test
     func accountButtonClearsSignInFormWhenAddingAnotherAccount() async throws {
         let session = try accountTestSession(
             did: "did:plc:alice123",

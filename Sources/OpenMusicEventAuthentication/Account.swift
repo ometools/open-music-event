@@ -248,6 +248,7 @@ public struct Account {
 
     public struct State: Equatable {
         public init(
+            isAccountManagementSheetPresented: Bool = false,
             isAuthenticationSheetPresented: Bool = false,
             authRequirement: OAuth.AuthRequirement = OpenMusicEventOAuth.baseAuthRequirement,
             selectedMode: Mode = .signIn,
@@ -267,6 +268,7 @@ public struct Account {
                 .id
 
             self.authRequirement = authRequirement
+            self.isAccountManagementSheetPresented = isAccountManagementSheetPresented
             self.isAuthenticationSheetPresented = isAuthenticationSheetPresented
             self._selectedSessionID = selectedSessionID
             self._recentlyUsedAccountIDs = recentlyUsedAccountIDs
@@ -287,6 +289,7 @@ public struct Account {
         }
 
         public init(
+            isAccountManagementSheetPresented: Bool = false,
             isAuthenticationSheetPresented: Bool = false,
             authRequirement: OAuth.AuthRequirement = OpenMusicEventOAuth.baseAuthRequirement,
             selectedMode: Mode = .signIn,
@@ -298,6 +301,7 @@ public struct Account {
             recentlyUsedAccountIDs: Shared<[Atmosphere.Account.ID]> = Shared(value: [])
         ) {
             self.init(
+                isAccountManagementSheetPresented: isAccountManagementSheetPresented,
                 isAuthenticationSheetPresented: isAuthenticationSheetPresented,
                 authRequirement: authRequirement,
                 selectedMode: selectedMode,
@@ -314,6 +318,7 @@ public struct Account {
         }
 
         public var authRequirement: OAuth.AuthRequirement
+        public var isAccountManagementSheetPresented: Bool
         public var isAuthenticationSheetPresented: Bool
         public var accountIdentities: [Atmosphere.Account.ID: AccountIdentityResolution] = [:]
         public var accountSessionValidationStatuses: [Atmosphere.Account.ID: AccountSessionValidationStatus] = [:]
@@ -472,7 +477,9 @@ public struct Account {
     public enum Action {
         case accountButtonTapped
         case accountIdentityResponse(Atmosphere.Account.ID, ActorIdentity?)
+        case accountListButtonTapped
         case accountLogOutButtonTapped(Atmosphere.Account.ID)
+        case accountManagementSheetDismissed
         case accountRowTapped(Atmosphere.Account.ID)
         case accountRowsAppeared
         case accountSessionValidationResponse(
@@ -529,6 +536,9 @@ public struct Account {
                         .loaded($0)
                     } ?? .failed
 
+                case .accountListButtonTapped:
+                    state.isAccountManagementSheetPresented = true
+
                 case .accountLogOutButtonTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
                     state.accountIdentities[accountID] = nil
@@ -567,6 +577,9 @@ public struct Account {
                             await authorizationRequests.cancel()
                         }
                     }
+
+                case .accountManagementSheetDismissed:
+                    state.isAccountManagementSheetPresented = false
 
                 case .accountRowTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
@@ -966,6 +979,14 @@ public struct AccountPicker: View {
                         AccountPickerRow(row: row)
                     }
                 }
+
+                Divider()
+
+                Button {
+                    store.send(.accountListButtonTapped)
+                } label: {
+                    Label("Accounts", systemImage: "person")
+                }
             }
         } label: {
             AccountPickerLabel(row: store.accountRows.first(where: \.isSelected))
@@ -975,6 +996,9 @@ public struct AccountPicker: View {
         .accountAccessibilityHint(
             Text("Selects the account used for workspace changes and approvals.")
         )
+        .sheet(isPresented: $store.isAccountManagementSheetPresented) {
+            AccountManagementSheetView(store: store)
+        }
         .accountAuthenticationSheet(store: store)
         .task(id: store.accountRows.map(\.id)) {
             await store.send(.accountRowsAppeared)?.value
@@ -993,6 +1017,34 @@ public struct AccountPicker: View {
         withAnimation(SwiftUI.Animation.easeInOut(duration: 0.2)) {
             _ = store.send(.accountRowTapped(row.id))
         }
+    }
+}
+
+struct AccountManagementSheetView: View {
+    @Bindable var store: StoreOf<Account>
+
+    var body: some View {
+        NavigationStack {
+            SwiftUI.Form {
+                AccountView(store: store)
+            }
+            #if os(macOS)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+            #endif
+            .navigationTitle("Accounts")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        store.send(.accountManagementSheetDismissed)
+                    } label: {
+                        Label("Close", systemImage: "xmark")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+            }
+        }
+        .accountAuthenticationSheet(store: store)
     }
 }
 
