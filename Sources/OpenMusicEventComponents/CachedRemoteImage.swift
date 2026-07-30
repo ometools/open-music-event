@@ -18,7 +18,7 @@ public typealias CachedRemoteImageSize = CGSize
 
 public enum CachedRemoteImagePhase {
     case empty
-    case success(Image, intrinsicSize: CGSize)
+    case success(Image, intrinsicSize: CachedRemoteImageSize)
     case failure
     case unavailable
 }
@@ -54,7 +54,7 @@ public struct CachedRemoteImage<Content: View>: View {
             }
     }
 
-    var targetPixelSize: CGSize? {
+    var targetPixelSize: CachedRemoteImageSize? {
         #if os(iOS)
         targetSize.map {
             CGSize(width: $0.width * displayScale, height: $0.height * displayScale)
@@ -129,7 +129,7 @@ public struct CachedRemoteImage<Content: View>: View {
 
 struct CachedRemoteLoadedImage {
     let image: Image
-    let intrinsicSize: CGSize
+    let intrinsicSize: CachedRemoteImageSize
 }
 
 #if os(iOS)

@@ -17,6 +17,8 @@ public struct SchedulePageView<
     #else
     @Environment(\.calendar) var calendar
     #endif
+    @Environment(\.scheduleHeight) var scheduleHeight
+    @Environment(\.scheduleWidth) var scheduleWidth
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
 
@@ -75,11 +77,15 @@ public struct SchedulePageView<
 
     func frame(for timelineCard: Element, in size: ScheduleCGSize) -> ScheduleCGRect {
         guard let range = scheduleTimeRange else { return .zero }
+        let layoutSize = ScheduleCGSize(
+            width: scheduleWidth > 0 ? scheduleWidth : size.width,
+            height: scheduleHeight
+        )
         return withDependencies {
             $0.calendar = self.calendar
         } operation: {
             timelineCard.frame(
-                in: size,
+                in: layoutSize,
                 groupMapping: groupMapping,
                 range: range,
                 orientation: scheduleTimelineOrientation

@@ -17,6 +17,10 @@ private enum ScheduleHeightEnvironmentKey: EnvironmentKey {
     static let defaultValue: ScheduleCGFloat = 1500
 }
 
+private enum ScheduleWidthEnvironmentKey: EnvironmentKey {
+    static let defaultValue: ScheduleCGFloat = 0
+}
+
 private enum ScheduleTimelineOrientationEnvironmentKey: EnvironmentKey {
     static let defaultValue = ScheduleTimelineOrientation.verticalTime
 }
@@ -50,6 +54,11 @@ public extension EnvironmentValues {
     var scheduleHeight: ScheduleCGFloat {
         get { self[ScheduleHeightEnvironmentKey.self] }
         set { self[ScheduleHeightEnvironmentKey.self] = newValue }
+    }
+
+    var scheduleWidth: ScheduleCGFloat {
+        get { self[ScheduleWidthEnvironmentKey.self] }
+        set { self[ScheduleWidthEnvironmentKey.self] = newValue }
     }
 
     var scheduleTimelineOrientation: ScheduleTimelineOrientation {

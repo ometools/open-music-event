@@ -5,112 +5,144 @@ import SkipSwiftUI
 import SwiftUI
 #endif
 
-public extension Image {
-    init(system: String, material: String) {
-        #if os(Android)
-        if let assetName = Self.materialAssetName(for: material) {
-            self = Image(assetName, bundle: .module).renderingMode(.template)
-        } else {
-            self.init(systemName: material)
-        }
-        #else
-        self.init(systemName: system)
-        #endif
+public struct MappedSystemImage: View {
+    let systemName: String
+
+    public init(systemName: String) {
+        self.systemName = systemName
     }
 
-    private static func materialAssetName(for name: String) -> String? {
-        switch name {
-        case "Icons.Outlined.Campaign": "MaterialCampaign"
-        case "Icons.Outlined.Directions": "MaterialDirections"
-        case "Icons.Outlined.FormatListBulleted": "MaterialFormatListBulleted"
-        case "Icons.Outlined.Forum": "MaterialForum"
-        case "Icons.Outlined.GridView": "MaterialGridView"
-        case "Icons.Outlined.Groups": "MaterialGroups"
-        case "Icons.Outlined.Inventory2": "MaterialInventory2"
-        case "Icons.Outlined.Map": "MaterialMap"
-        case "Icons.Outlined.MusicNote": "MaterialMusicNote"
-        case "Icons.Outlined.PhotoLibrary": "MaterialPhotoLibrary"
-        case "Icons.Outlined.PinDrop": "MaterialPinDrop"
-        case "Icons.Outlined.QueueMusic": "MaterialQueueMusic"
-        case "Icons.Outlined.SelfImprovement": "MaterialSelfImprovement"
-        case "Icons.Outlined.Sell": "MaterialSell"
-        case "Icons.Outlined.ViewColumn": "MaterialViewColumn"
-        case "Icons.Outlined.ViewTimeline": "MaterialViewTimeline"
-        default: nil
+    public var body: some View {
+        #if os(Android)
+        ComposeView {
+            MaterialSystemImageComposer(systemName: systemName)
         }
+        #else
+        Image(systemName: systemName)
+            .resizable()
+            .scaledToFit()
+        #endif
     }
 }
 
 #if os(Android)
-public struct ComposeLabelIcon: View {
-    let systemImage: String
-    let composeImage: String
+public struct MappedSystemLabelIcon: View {
+    let systemName: String
 
     public var body: some View {
-        Image(system: systemImage, material: composeImage)
-            .resizable()
-            .scaledToFit()
+        MappedSystemImage(systemName: systemName)
             .frame(width: 24, height: 24)
     }
 }
 
-public extension Label where Title == Text, Icon == ComposeLabelIcon {
-    init(
-        _ titleKey: LocalizedStringKey,
-        systemImage: String,
-        composeImage: String
-    ) {
+public extension Label where Title == Text, Icon == MappedSystemLabelIcon {
+    init(_ titleKey: LocalizedStringKey, mappedSystemImage systemName: String) {
         self.init {
             Text(titleKey)
         } icon: {
-            ComposeLabelIcon(
-                systemImage: systemImage,
-                composeImage: composeImage
-            )
+            MappedSystemLabelIcon(systemName: systemName)
         }
     }
 
     @_disfavoredOverload
-    init<S>(
-        _ title: S,
-        systemImage: String,
-        composeImage: String
-    ) where S: StringProtocol {
+    init<S>(_ title: S, mappedSystemImage systemName: String) where S: StringProtocol {
         self.init {
             Text(title)
         } icon: {
-            ComposeLabelIcon(
-                systemImage: systemImage,
-                composeImage: composeImage
-            )
+            MappedSystemLabelIcon(systemName: systemName)
         }
     }
 }
 #else
 public extension Label where Title == Text, Icon == Image {
-    init(
-        _ titleKey: LocalizedStringKey,
-        systemImage: String,
-        composeImage: String
-    ) {
+    init(_ titleKey: LocalizedStringKey, mappedSystemImage systemName: String) {
         self.init {
             Text(titleKey)
         } icon: {
-            Image(system: systemImage, material: composeImage)
+            Image(systemName: systemName)
         }
     }
 
     @_disfavoredOverload
-    init<S>(
-        _ title: S,
-        systemImage: String,
-        composeImage: String
-    ) where S: StringProtocol {
+    init<S>(_ title: S, mappedSystemImage systemName: String) where S: StringProtocol {
         self.init {
             Text(title)
         } icon: {
-            Image(system: systemImage, material: composeImage)
+            Image(systemName: systemName)
         }
+    }
+}
+#endif
+
+#if SKIP
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.__
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
+
+struct MaterialSystemImageComposer: ContentComposer {
+    let systemName: String
+
+    @Composable func Compose(context: ComposeContext) {
+        let imageVector: ImageVector
+        switch systemName {
+        case "arrow.triangle.turn.up.right.diamond":
+            imageVector = Icons.Outlined.Directions
+        case "bubble.left.and.bubble.right":
+            imageVector = Icons.Outlined.Forum
+        case "calendar":
+            imageVector = Icons.Outlined.DateRange
+        case "calendar.day.timeline.leading":
+            imageVector = Icons.Outlined.ViewTimeline
+        case "ellipsis":
+            imageVector = Icons.Outlined.MoreHoriz
+        case "figure.mind.and.body":
+            imageVector = Icons.Outlined.SelfImprovement
+        case "info.circle":
+            imageVector = Icons.Outlined.Info
+        case "list.bullet":
+            imageVector = Icons.Outlined.FormatListBulleted
+        case "magnifyingglass":
+            imageVector = Icons.Outlined.Search
+        case "map":
+            imageVector = Icons.Outlined.Map
+        case "mappin.and.ellipse":
+            imageVector = Icons.Outlined.PinDrop
+        case "megaphone":
+            imageVector = Icons.Outlined.Campaign
+        case "music.note", "music.mic":
+            imageVector = Icons.Outlined.MusicNote
+        case "music.note.list":
+            imageVector = Icons.Outlined.QueueMusic
+        case "person", "person.3":
+            imageVector = Icons.Outlined.Groups
+        case "phone":
+            imageVector = Icons.Outlined.Phone
+        case "photo.on.rectangle":
+            imageVector = Icons.Outlined.PhotoLibrary
+        case "rectangle.split.1x2":
+            imageVector = Icons.Outlined.ViewWeek
+        case "rectangle.split.3x1":
+            imageVector = Icons.Outlined.ViewColumn
+        case "square.grid.2x2":
+            imageVector = Icons.Outlined.GridView
+        case "tag":
+            imageVector = Icons.Outlined.Sell
+        case "tray.full":
+            imageVector = Icons.Outlined.Inventory2
+        case "bell":
+            imageVector = Icons.Outlined.Notifications
+        case "gearshape":
+            imageVector = Icons.Outlined.Settings
+        default:
+            imageVector = Icons.Outlined.Warning
+        }
+
+        Icon(
+            imageVector: imageVector,
+            contentDescription: nil,
+            modifier: context.modifier
+        )
     }
 }
 #endif

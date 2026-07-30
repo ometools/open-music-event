@@ -176,12 +176,7 @@ struct ContributorSchedulePerformanceRow: View {
         if let stage = row.stage {
             ScheduleStageIcon(stage: stage)
         } else {
-            Image(
-                system: "music.note",
-                material: "Icons.Outlined.MusicNote"
-            )
-                .resizable()
-                .scaledToFit()
+            MappedSystemImage(systemName: "music.note")
                 .padding(10)
                 .foregroundStyle(.secondary)
         }

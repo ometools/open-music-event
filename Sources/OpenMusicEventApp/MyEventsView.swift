@@ -349,11 +349,8 @@ struct EventRowView: View {
                 EventImageSourceChain(
                     sources: imageSources[...]
                 ) {
-                    Image(
-                        system: "music.note",
-                        material: "Icons.Outlined.MusicNote"
-                    )
-                        .font(.system(size: 24, weight: .semibold))
+                    MappedSystemImage(systemName: "music.note")
+                        .frame(width: 24, height: 24)
                         .foregroundStyle(.secondary)
                 }
                 .padding(10)

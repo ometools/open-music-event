@@ -15,6 +15,7 @@ Options:
   --launch                 Launch the app after install. Implies --install.
   --logs                   Dump focused logcat output after launch/install.
   --serial SERIAL          Android device serial. Default: ANDROID_SERIAL or emulator-5554.
+  --app-root PATH          Skip app package to build. Default: this OME checkout.
   --target TARGET          Skip module target for --lane module. Default: OpenMusicEventApp.
   --smoke-root PATH        Stable cache/scratch root. Default: /private/tmp/ome-android-smoke.
   --compiler-lock PATH     Android compiler lock. Default: /private/tmp/woody-swift-compiler-android.lock.
@@ -82,6 +83,7 @@ run() {
 }
 
 ROOT="$(repo_root)"
+APP_ROOT="$ROOT"
 SCRIPT_PATH="$ROOT/Scripts/android-smoke-build.sh"
 COMPILER_LANE_COMMAND=(env OME_ANDROID_COMPILER_LANE_ACTIVE=1 "$SCRIPT_PATH")
 if [[ $# -gt 0 ]]; then
@@ -127,6 +129,11 @@ while [[ $# -gt 0 ]]; do
     --serial)
       [[ $# -ge 2 ]] || fail "--serial requires a device serial"
       ANDROID_SERIAL="$2"
+      shift 2
+      ;;
+    --app-root)
+      [[ $# -ge 2 ]] || fail "--app-root requires a path"
+      APP_ROOT="$2"
       shift 2
       ;;
     --target)
@@ -182,19 +189,21 @@ case "$LANE" in
   *) fail "--lane must be apk, module, or both" ;;
 esac
 
+APP_ROOT="$(cd "$APP_ROOT" && pwd -P)" || fail "app root does not exist: $APP_ROOT"
+
 if [[ "$COMPILER_LANE_ACTIVE" != "1" ]]; then
   [[ -x "$COMPILER_LANE_SCRIPT" ]] || fail "compiler lane script is not executable: $COMPILER_LANE_SCRIPT"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     "$COMPILER_LANE_SCRIPT" \
-      --repo "$ROOT" \
+      --repo "$APP_ROOT" \
       --lock-file "$COMPILER_LOCK_FILE" \
       --dry-run \
       exec "${COMPILER_LANE_COMMAND[@]}"
     COMPILER_LANE_ACTIVE=1
   else
     exec "$COMPILER_LANE_SCRIPT" \
-      --repo "$ROOT" \
+      --repo "$APP_ROOT" \
       --lock-file "$COMPILER_LOCK_FILE" \
       exec "${COMPILER_LANE_COMMAND[@]}"
   fi
@@ -218,8 +227,8 @@ fi
 [[ -d "$SKIPLOCAL" ]] || fail "SKIPLOCAL does not exist: $SKIPLOCAL"
 [[ -d "$SKIP_SHARING_SWIFT_SHARING" ]] || fail "local swift-sharing does not exist: $SKIP_SHARING_SWIFT_SHARING"
 [[ -x "$GRADLE_BIN" ]] || fail "Gradle is not executable: $GRADLE_BIN"
-[[ -d "$ROOT/Android" ]] || fail "Android project not found at $ROOT/Android"
-[[ -f "$ROOT/Skip.env" ]] || fail "Skip.env not found at $ROOT/Skip.env"
+[[ -d "$APP_ROOT/Android" ]] || fail "Android project not found at $APP_ROOT/Android"
+[[ -f "$APP_ROOT/Skip.env" ]] || fail "Skip.env not found at $APP_ROOT/Skip.env"
 
 export JAVA_HOME="${JAVA_HOME:-/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home}"
 export ANDROID_HOME="${ANDROID_HOME:-${HOME}/Library/Android/sdk}"
@@ -251,15 +260,16 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     "$CLANG_MODULE_CACHE_PATH" \
     "$SWIFT_MODULECACHE_PATH" \
     "$CFFIXED_USER_HOME" \
+    "$SMOKE_ROOT/bin" \
     "$SKIPSTONE_BUILD_ROOT" \
     "$SKIPSTONE_SWIFTPM_ROOT/cache" \
     "$SKIPSTONE_SWIFTPM_ROOT/config" \
     "$SKIPSTONE_SWIFTPM_ROOT/security"
 fi
 
-ANDROID_APPLICATION_ID="${ANDROID_APPLICATION_ID:-$(read_skip_env_value ANDROID_APPLICATION_ID "$ROOT/Skip.env")}"
+ANDROID_APPLICATION_ID="${ANDROID_APPLICATION_ID:-$(read_skip_env_value ANDROID_APPLICATION_ID "$APP_ROOT/Skip.env")}"
 if [[ -z "$ANDROID_APPLICATION_ID" ]]; then
-  ANDROID_APPLICATION_ID="$(read_skip_env_value PRODUCT_BUNDLE_IDENTIFIER "$ROOT/Skip.env")"
+  ANDROID_APPLICATION_ID="$(read_skip_env_value PRODUCT_BUNDLE_IDENTIFIER "$APP_ROOT/Skip.env")"
 fi
 [[ -n "$ANDROID_APPLICATION_ID" ]] || fail "could not determine Android application id from Skip.env"
 
@@ -304,16 +314,49 @@ ensure_skip_command() {
   [[ -x "$SKIP_COMMAND_OVERRIDE" ]] || fail "local SkipRunner is not executable: $SKIP_COMMAND_OVERRIDE"
 }
 
+# Gradle daemons outlive the shell that launched them and therefore do not
+# reliably inherit SKIPLOCAL. The generated Fuse build does explicitly forward
+# SKIP_COMMAND_OVERRIDE, so route that command through a stable wrapper that
+# restores the local toolchain selection for every nested SwiftPM invocation.
+configure_nested_skip_command() {
+  local skip_runner_command="$SKIP_COMMAND_OVERRIDE"
+  local skip_command_wrapper="$SMOKE_ROOT/bin/SkipRunner-observation-aware"
+  local quoted_skiplocal
+  local quoted_skip_runner
+  local quoted_wrapper
+
+  printf -v quoted_skiplocal '%q' "$SKIPLOCAL"
+  printf -v quoted_skip_runner '%q' "$skip_runner_command"
+  printf -v quoted_wrapper '%q' "$skip_command_wrapper"
+
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    {
+      printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
+      printf 'export SKIPLOCAL=%s\n' "$quoted_skiplocal"
+      printf 'export SKIP_COMMAND_OVERRIDE=%s\n' "$quoted_wrapper"
+      printf 'exec %s "$@"\n' "$quoted_skip_runner"
+    } > "$skip_command_wrapper"
+    chmod +x "$skip_command_wrapper"
+  fi
+
+  SKIP_RUNNER_COMMAND="$skip_runner_command"
+  SKIP_COMMAND_OVERRIDE="$skip_command_wrapper"
+  export SKIP_COMMAND_OVERRIDE
+}
+
 if [[ "$DRY_RUN" -eq 0 ]]; then
   verify_swift_sdks
   ensure_skip_command
 fi
+configure_nested_skip_command
 
 echo "Android smoke build"
-echo "  repo:        $ROOT"
+echo "  wiring repo: $ROOT"
+echo "  app root:    $APP_ROOT"
 echo "  lane:        $LANE"
 echo "  compiler lock: $COMPILER_LOCK_FILE"
-echo "  skip:        $SKIP_COMMAND_OVERRIDE"
+echo "  skip runner: $SKIP_RUNNER_COMMAND"
+echo "  nested skip: $SKIP_COMMAND_OVERRIDE"
 echo "  skip build:  $SKIPSTONE_BUILD_ROOT"
 echo "  SKIPLOCAL:   $SKIPLOCAL"
 echo "  Sharing:     $SKIP_SHARING_SWIFT_SHARING"
@@ -333,7 +376,7 @@ fi
 
 build_module() {
   run "$SKIP_COMMAND_OVERRIDE" android build \
-    --package-path "$ROOT" \
+    --package-path "$APP_ROOT" \
     --scratch-path "$MODULE_SCRATCH_PATH" \
     --configuration debug \
     --plain \
@@ -343,11 +386,12 @@ build_module() {
 
 native_build_config() {
   cat <<CONFIG
-version=1
+version=2
 swift_android_sdk_bundle=$SWIFT_ANDROID_SDK_BUNDLE
 swift_toolchain_dir=$SWIFT_TOOLCHAIN_DIR
 skiplocal=$SKIPLOCAL
 skip_command=$SKIP_COMMAND_OVERRIDE
+skip_runner=$SKIP_RUNNER_COMMAND
 skip_sharing_swift_sharing=$SKIP_SHARING_SWIFT_SHARING
 ome_android_app_build=$OME_ANDROID_APP_BUILD
 CONFIG
@@ -392,11 +436,34 @@ invalidate_stale_swiftui_modules() {
       run rm -f "$metadata"
     done
   done < <(
-    find "$ROOT/.build/plugins/outputs" \
+    find "$APP_ROOT/.build/plugins/outputs" \
       -type f \
       -path '*/build/swift/*-unknown-linux-android*/debug/Modules/SwiftUI.swiftmodule' \
       -print0 2>/dev/null
   )
+}
+
+verify_observation_bridges() {
+  local bridge
+  local bridge_count=0
+  local failure_count=0
+
+  while IFS= read -r -d '' bridge; do
+    bridge_count=$((bridge_count + 1))
+    if ! rg -q 'withObservationTracking' "$bridge"; then
+      echo "error: generated OME bridge is not observation-aware: $bridge" >&2
+      failure_count=$((failure_count + 1))
+    fi
+  done < <(
+    find "$APP_ROOT/.build/plugins/outputs" \
+      -type f \
+      -path '*/SkipBridgeGenerated/OpenMusicEventAppRoot_Bridge.swift' \
+      -print0 2>/dev/null
+  )
+
+  [[ "$bridge_count" -gt 0 ]] || fail "no generated OpenMusicEventAppRoot bridge found under $APP_ROOT/.build/plugins/outputs"
+  [[ "$failure_count" -eq 0 ]] || fail "$failure_count generated OME observation bridge(s) used the wrong Skipstone toolchain"
+  echo "Verified $bridge_count observation-aware generated OME bridge(s)"
 }
 
 record_native_build_config() {
@@ -407,7 +474,10 @@ record_native_build_config() {
 
 build_apk() {
   invalidate_stale_swiftui_modules
-  run "$SKIP_COMMAND_OVERRIDE" gradle -p "$ROOT/Android" :app:assembleDebug
+  run "$SKIP_COMMAND_OVERRIDE" gradle -p "$APP_ROOT/Android" :app:assembleDebug
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    verify_observation_bridges
+  fi
   record_native_build_config
 }
 
@@ -415,8 +485,8 @@ apk_path() {
   local output_dir
 
   for output_dir in \
-    "$ROOT/.build/Android/app/outputs/apk/debug" \
-    "$ROOT/Android/app/build/outputs/apk/debug"
+    "$APP_ROOT/.build/Android/app/outputs/apk/debug" \
+    "$APP_ROOT/Android/app/build/outputs/apk/debug"
   do
     [[ -d "$output_dir" ]] || continue
     find "$output_dir" -type f -name '*.apk' -print
@@ -442,7 +512,7 @@ fi
 
 if [[ "$INSTALL" -eq 1 ]]; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    APK_PATH="$ROOT/.build/Android/app/outputs/apk/debug/app-debug.apk"
+    APK_PATH="$APP_ROOT/.build/Android/app/outputs/apk/debug/app-debug.apk"
   else
     APK_PATH="$(apk_path)"
     [[ -n "$APK_PATH" ]] || fail "no debug APK found under Android/app/build/outputs/apk/debug"

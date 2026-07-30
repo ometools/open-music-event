@@ -208,14 +208,12 @@ public struct ContributorsViewerView: View {
                 ViewerPlaceholderView(
                     title: "Contributors",
                     systemImage: "person.3",
-                    composeImage: "Icons.Outlined.Groups",
                     description: "No contributors have been added to this event yet."
                 )
             } else if store.filteredContributorRows.isEmpty {
                 ViewerPlaceholderView(
                     title: "No Results",
                     systemImage: "person.3",
-                    composeImage: "Icons.Outlined.Groups",
                     description: "No contributors match your search."
                 )
             } else {

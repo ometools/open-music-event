@@ -1097,7 +1097,6 @@ public struct EventViewerView: View {
                         feature,
                         title: feature.title,
                         systemImage: feature.systemImage,
-                        composeImage: feature.composeImage,
                         labelTint: feature.labelTint,
                         navigation: .stack
                     ) {
@@ -1115,7 +1114,6 @@ public struct EventViewerView: View {
                         .contributors,
                         title: EventViewer.EventFeature.contributors.title,
                         systemImage: EventViewer.EventFeature.contributors.systemImage,
-                        composeImage: EventViewer.EventFeature.contributors.composeImage,
                         labelTint: EventViewer.EventFeature.contributors.labelTint,
                         navigation: .stack
                     ) {
@@ -1131,7 +1129,6 @@ public struct EventViewerView: View {
                         .stages,
                         title: EventViewer.EventFeature.stages.title,
                         systemImage: EventViewer.EventFeature.stages.systemImage,
-                        composeImage: EventViewer.EventFeature.stages.composeImage,
                         labelTint: EventViewer.EventFeature.stages.labelTint,
                         navigation: .stack
                     ) {
@@ -1147,7 +1144,6 @@ public struct EventViewerView: View {
                         .communications,
                         title: EventViewer.EventFeature.communications.title,
                         systemImage: EventViewer.EventFeature.communications.systemImage,
-                        composeImage: EventViewer.EventFeature.communications.composeImage,
                         labelTint: EventViewer.EventFeature.communications.labelTint,
                         navigation: .stack
                     ) {
@@ -1161,7 +1157,6 @@ public struct EventViewerView: View {
                             .contactInfo,
                             title: EventViewer.EventFeature.contactInfo.title,
                             systemImage: EventViewer.EventFeature.contactInfo.systemImage,
-                            composeImage: EventViewer.EventFeature.contactInfo.composeImage,
                             labelTint: EventViewer.EventFeature.contactInfo.labelTint,
                             navigation: .stack
                         ) {
@@ -1177,7 +1172,6 @@ public struct EventViewerView: View {
                             .location,
                             title: EventViewer.EventFeature.location.title,
                             systemImage: EventViewer.EventFeature.location.systemImage,
-                            composeImage: EventViewer.EventFeature.location.composeImage,
                             labelTint: EventViewer.EventFeature.location.labelTint,
                             navigation: .stack
                         ) {
@@ -1193,7 +1187,6 @@ public struct EventViewerView: View {
                             .siteMap,
                             title: EventViewer.EventFeature.siteMap.title,
                             systemImage: EventViewer.EventFeature.siteMap.systemImage,
-                            composeImage: EventViewer.EventFeature.siteMap.composeImage,
                             labelTint: EventViewer.EventFeature.siteMap.labelTint,
                             navigation: .stack
                         ) {
@@ -1207,7 +1200,6 @@ public struct EventViewerView: View {
                         .posters,
                         title: EventViewer.EventFeature.posters.title,
                         systemImage: EventViewer.EventFeature.posters.systemImage,
-                        composeImage: EventViewer.EventFeature.posters.composeImage,
                         labelTint: EventViewer.EventFeature.posters.labelTint,
                         navigation: .stack
                     ) {
@@ -1223,7 +1215,6 @@ public struct EventViewerView: View {
                         .notifications,
                         title: EventViewer.EventFeature.notifications.title,
                         systemImage: EventViewer.EventFeature.notifications.systemImage,
-                        composeImage: EventViewer.EventFeature.notifications.composeImage,
                         labelTint: EventViewer.EventFeature.notifications.labelTint,
                         navigation: .stack
                     ) {
@@ -1236,7 +1227,6 @@ public struct EventViewerView: View {
                         .settings,
                         title: EventViewer.EventFeature.settings.title,
                         systemImage: EventViewer.EventFeature.settings.systemImage,
-                        composeImage: EventViewer.EventFeature.settings.composeImage,
                         labelTint: EventViewer.EventFeature.settings.labelTint,
                         navigation: .stack
                     ) {
@@ -1253,7 +1243,6 @@ public struct EventViewerView: View {
                         .workspace,
                         title: EventViewer.EventFeature.workspace.title,
                         systemImage: EventViewer.EventFeature.workspace.systemImage,
-                        composeImage: EventViewer.EventFeature.workspace.composeImage,
                         labelTint: EventViewer.EventFeature.workspace.labelTint,
                         badgeValue: featureStore.changeCount,
                         navigation: .stack
@@ -1270,7 +1259,6 @@ public struct EventViewerView: View {
                         .about,
                         title: EventViewer.EventFeature.about.title,
                         systemImage: EventViewer.EventFeature.about.systemImage,
-                        composeImage: EventViewer.EventFeature.about.composeImage,
                         labelTint: EventViewer.EventFeature.about.labelTint,
                         navigation: .stack
                     ) {
@@ -1699,18 +1687,15 @@ private extension EventEditingIntent {
 struct ViewerPlaceholderView: View {
     let title: String
     let systemImage: String
-    let composeImage: String?
     let description: LocalizedStringKey
 
     init(
         title: String,
         systemImage: String,
-        composeImage: String? = nil,
         description: LocalizedStringKey
     ) {
         self.title = title
         self.systemImage = systemImage
-        self.composeImage = composeImage
         self.description = description
     }
 
@@ -1718,8 +1703,7 @@ struct ViewerPlaceholderView: View {
         ContentUnavailableView {
             Label(
                 title,
-                systemImage: systemImage,
-                composeImage: composeImage ?? systemImage
+                mappedSystemImage: systemImage
             )
         } description: {
             Text(description)

@@ -5,10 +5,6 @@ skip:
 
 build:
   contents:
-    - block: 'plugins'
-      contents:
-        - 'alias(libs.plugins.android.library)'
-
     - block: 'android'
       contents:
         - 'compileSdk = libs.versions.android.sdk.compile.get().toInt()'

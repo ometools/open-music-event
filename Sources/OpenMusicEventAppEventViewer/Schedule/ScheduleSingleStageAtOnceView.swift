@@ -460,8 +460,7 @@ struct ScheduleEmptyView: View {
             ContentUnavailableView {
                 Label(
                     title,
-                    systemImage: "calendar.day.timeline.leading",
-                    composeImage: "Icons.Outlined.ViewTimeline"
+                    mappedSystemImage: "calendar.day.timeline.leading"
                 )
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -480,8 +479,7 @@ struct ScheduleEmptyView: View {
                 } label: {
                     Label(
                         division.title,
-                        systemImage: division.systemImage,
-                        composeImage: division.composeImage
+                        mappedSystemImage: division.systemImage
                     )
                 }
             }

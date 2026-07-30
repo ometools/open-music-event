@@ -144,7 +144,6 @@ struct SwiftUITabFeaturesTests {
             DemoTab.schedule,
             title: "Schedule",
             systemImage: "calendar",
-            composeImage: "Icons.Outlined.DateRange",
             navigation: .stack
         ) {
             EmptyView()
@@ -153,8 +152,6 @@ struct SwiftUITabFeaturesTests {
         #expect(feature.metadata.value == .schedule)
         #expect(feature.metadata.title == "Schedule")
         #expect(feature.metadata.systemImage == symbol("calendar"))
-        #expect(feature.metadata.composeImage == symbol("Icons.Outlined.DateRange"))
-        #expect(feature.metadata.effectiveComposeImage == symbol("Icons.Outlined.DateRange"))
         #expect(feature.metadata.role == nil)
     }
 

@@ -8,6 +8,7 @@ import SwiftUI
 
 public struct ScheduleHourLines: View {
     @Environment(\.scheduleHeight) var scheduleHeight
+    @Environment(\.scheduleWidth) var scheduleWidth
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
 
@@ -47,7 +48,10 @@ public struct ScheduleHourLines: View {
             ForEach(lineHeights, id: \.self) { lineHeight in
                 Path { path in
                     path.move(to: ScheduleCGPoint(x: 0, y: lineHeight))
-                    path.addLine(to: ScheduleCGPoint(x: proxy.size.width, y: lineHeight))
+                    path.addLine(to: ScheduleCGPoint(
+                        x: scheduleWidth > 0 ? scheduleWidth : proxy.size.width,
+                        y: lineHeight
+                    ))
                 }
                 .stroke(lineColor)
             }
@@ -59,10 +63,13 @@ public struct ScheduleHourLines: View {
         GeometryReader { proxy in
             ForEach(hourDates, id: \.self) { date in
                 if let range = scheduleTimeRange {
-                    let lineX = date.toX(containerWidth: proxy.size.width, in: range)
+                    let lineX = date.toX(
+                        containerWidth: scheduleWidth > 0 ? scheduleWidth : proxy.size.width,
+                        in: range
+                    )
                     Path { path in
                         path.move(to: ScheduleCGPoint(x: lineX, y: 0))
-                        path.addLine(to: ScheduleCGPoint(x: lineX, y: proxy.size.height))
+                        path.addLine(to: ScheduleCGPoint(x: lineX, y: scheduleHeight))
                     }
                     .stroke(lineColor)
                 }

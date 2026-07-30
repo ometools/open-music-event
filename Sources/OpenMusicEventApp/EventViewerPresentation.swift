@@ -77,6 +77,14 @@ struct OpenMusicEventViewerPresentation<
         }
     }
 
+    #if os(Android) && SKIP_BRIDGE
+    // Skip's native bridge currently drops the ViewModifier `content:` label.
+    // Keep the protocol requirement above and provide the generated call shape.
+    func body(_ base: Content) -> some View {
+        body(content: base)
+    }
+    #endif
+
     private var presentationBinding: Binding<Item?> {
         guard launchAnimation == .disabled, !hasAppeared else {
             return $item

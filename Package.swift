@@ -286,7 +286,6 @@ var targets: [Target] = [
     .target(
         name: "OpenMusicEventComponents",
         dependencies: openMusicEventComponentsDependencies,
-        resources: [.process("Resources")],
         plugins: skipstonePlugins
     ),
     .target(

@@ -562,7 +562,6 @@ public struct StagesViewerView: View {
                 ViewerPlaceholderView(
                     title: "No Results",
                     systemImage: "square.grid.2x2",
-                    composeImage: "Icons.Outlined.GridView",
                     description: "No stages match your search."
                 )
             } else {
@@ -648,11 +647,8 @@ struct EmptyStagesView: View {
         VStack(spacing: 16) {
             Spacer()
 
-            Image(
-                system: "square.grid.2x2",
-                material: "Icons.Outlined.GridView"
-            )
-                .font(.system(size: 52))
+            MappedSystemImage(systemName: "square.grid.2x2")
+                .frame(width: 52, height: 52)
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 6) {
@@ -1120,8 +1116,7 @@ public struct StageDetailView: View {
                         ContentUnavailableView {
                             Label(
                                 "Stage",
-                                systemImage: "square.grid.2x2",
-                                composeImage: "Icons.Outlined.GridView"
+                                mappedSystemImage: "square.grid.2x2"
                             )
                         } description: {
                             Text(verbatim: store.stageID.rawValue.rawValue)
@@ -2115,7 +2110,6 @@ struct EditStageContent: View {
             ViewerPlaceholderView(
                 title: store.navigationTitle,
                 systemImage: "square.grid.2x2",
-                composeImage: "Icons.Outlined.GridView",
                 description: "This event stage could not be loaded."
             )
         }

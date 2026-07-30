@@ -375,7 +375,7 @@ public struct WhiteLabelRootView: View {
                         store: teamWorkspaceDetailStore,
                         showsAuthoringControls: authoringStore.access.canEditContent
                     )
-                    .whiteLabelRootActionsToolbar(store: store)
+                    .whiteLabelRootToolbar(store: store)
                 }
                 #else
                 OpenMusicEventAuthorizationView(store: authorizationStore) { authoringStore in
@@ -475,11 +475,8 @@ public struct WhiteLabelRootView: View {
         var body: some View {
             Section {
                 HStack(spacing: 12) {
-                    Image(
-                        system: configuration.brand.systemImage,
-                        material: configuration.brand.composeImage
-                    )
-                        .font(.title2)
+                    MappedSystemImage(systemName: configuration.brand.systemImage)
+                        .frame(width: 24, height: 24)
                         .foregroundColor(.accentColor)
                     VStack(alignment: .leading) {
                         Text(configuration.brand.displayName)
@@ -547,8 +544,7 @@ struct WhiteLabelRootActionsMenu: View {
                 } label: {
                     Label(
                         "Workspace",
-                        systemImage: EventFeature.workspace.systemImage,
-                        composeImage: EventFeature.workspace.composeImage
+                        mappedSystemImage: EventFeature.workspace.systemImage
                     )
                 }
             }

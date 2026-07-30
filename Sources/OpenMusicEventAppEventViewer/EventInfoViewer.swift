@@ -96,11 +96,8 @@ public struct EventInfoViewerView: View {
                         sources: heroImageSources,
                         titleSources: heroImageTitleSources
                     ) {
-                        Image(
-                            system: "music.note",
-                            material: "Icons.Outlined.MusicNote"
-                        )
-                            .font(.system(size: 82, weight: .semibold))
+                        MappedSystemImage(systemName: "music.note")
+                            .frame(width: 82, height: 82)
                     }
                 } content: {
                     if let description = event.eventInfoDescription {

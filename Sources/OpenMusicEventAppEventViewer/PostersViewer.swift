@@ -688,8 +688,7 @@ public struct PostersViewerView: View {
                 ContentUnavailableView {
                     Label(
                         "Posters",
-                        systemImage: "photo.on.rectangle",
-                        composeImage: "Icons.Outlined.PhotoLibrary"
+                        mappedSystemImage: "photo.on.rectangle"
                     )
                 } description: {
                     Text("No posters have been added to this event yet.")

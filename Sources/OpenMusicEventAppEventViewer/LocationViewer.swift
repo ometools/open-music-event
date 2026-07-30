@@ -82,8 +82,7 @@ public struct LocationViewerView: View {
                                 LocationInfoRow(
                                     title: "Address",
                                     value: address,
-                                    systemImage: "mappin.and.ellipse",
-                                    composeImage: "Icons.Outlined.PinDrop"
+                                    systemImage: "mappin.and.ellipse"
                                 )
                             }
 
@@ -105,8 +104,7 @@ public struct LocationViewerView: View {
                                 Link(destination: googleMapsURL) {
                                     Label(
                                         "Google Maps",
-                                        systemImage: "map",
-                                        composeImage: "Icons.Outlined.Map"
+                                        mappedSystemImage: "map"
                                     )
                                 }
                             }
@@ -115,8 +113,7 @@ public struct LocationViewerView: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Label(
                                         "Directions",
-                                        systemImage: "arrow.triangle.turn.up.right.diamond",
-                                        composeImage: "Icons.Outlined.Directions"
+                                        mappedSystemImage: "arrow.triangle.turn.up.right.diamond"
                                     )
                                         .font(.headline)
                                     Text(directions)
@@ -136,7 +133,6 @@ public struct LocationViewerView: View {
                 ViewerPlaceholderView(
                     title: "Location",
                     systemImage: "mappin.and.ellipse",
-                    composeImage: "Icons.Outlined.PinDrop",
                     description: store.event == nil
                         ? "This event could not be loaded."
                         : "No locations have been added to this event yet."
@@ -162,14 +158,10 @@ struct LocationInfoRow: View {
     let title: String
     let value: String
     let systemImage: String
-    var composeImage: String? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Image(
-                system: systemImage,
-                material: composeImage ?? systemImage
-            )
+            MappedSystemImage(systemName: systemImage)
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -381,7 +373,6 @@ public struct EditLocationView: View {
                 ViewerPlaceholderView(
                     title: "Edit Location",
                     systemImage: "mappin.and.ellipse",
-                    composeImage: "Icons.Outlined.PinDrop",
                     description: "This event could not be loaded."
                 )
             }

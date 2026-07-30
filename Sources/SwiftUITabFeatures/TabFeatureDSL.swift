@@ -140,7 +140,6 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
     public var value: Value
     public var title: String?
     public var systemImage: TabFeatureSymbolName?
-    public var composeImage: TabFeatureSymbolName?
     public var labelTint: Color?
     public var badgeValue: Int?
     public var role: TabFeatureRole?
@@ -151,7 +150,6 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         value: Value,
         title: String? = nil,
         systemImage: TabFeatureSymbolName? = nil,
-        composeImage: TabFeatureSymbolName? = nil,
         labelTint: Color? = nil,
         badgeValue: Int? = nil,
         role: TabFeatureRole? = nil,
@@ -161,7 +159,6 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         self.value = value
         self.title = title
         self.systemImage = systemImage
-        self.composeImage = composeImage
         self.labelTint = labelTint
         self.badgeValue = badgeValue
         self.role = role
@@ -189,9 +186,6 @@ public struct TabFeatureMetadata<Value: TabFeatureValue>: Sendable {
         self.systemImage ?? self.role?.systemImage ?? .init("")
     }
 
-    public var effectiveComposeImage: TabFeatureSymbolName {
-        self.composeImage ?? self.effectiveSystemImage
-    }
 }
 
 public protocol TabFeatureContent {
@@ -277,7 +271,6 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
     public let value: Value
     public let title: String?
     public let systemImage: TabFeatureSymbolName?
-    public let composeImage: TabFeatureSymbolName?
     public let labelTint: Color?
     public let badgeValue: Int?
     public let role: TabFeatureRole?
@@ -289,7 +282,6 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         _ value: Value,
         title: String,
         systemImage: String,
-        composeImage: String? = nil,
         labelTint: Color? = nil,
         badgeValue: Int? = nil,
         navigation: TabFeatureNavigation? = nil,
@@ -298,7 +290,6 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
         self.value = value
         self.title = title
         self.systemImage = .init(systemImage)
-        self.composeImage = composeImage.map { TabFeatureSymbolName(rawValue: $0) }
         self.labelTint = labelTint
         self.badgeValue = badgeValue
         self.role = nil
@@ -324,7 +315,6 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             self.title = nil
             self.systemImage = nil
         }
-        self.composeImage = nil
         self.labelTint = labelTint
         self.badgeValue = badgeValue
         self.role = role
@@ -342,7 +332,6 @@ public struct TabFeature<Value: TabFeatureValue, Content: View>: TabFeatureConte
             value: self.value,
             title: self.title,
             systemImage: self.systemImage,
-            composeImage: self.composeImage,
             labelTint: self.labelTint,
             badgeValue: self.badgeValue,
             role: self.role,
@@ -715,9 +704,8 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                         Label {
                             Text(feature.effectiveTitle)
                         } icon: {
-                            Image(
-                                system: feature.effectiveSystemImage.rawValue,
-                                material: feature.effectiveComposeImage.rawValue
+                            MappedSystemImage(
+                                systemName: feature.effectiveSystemImage.rawValue
                             )
                         }
                     }
@@ -737,7 +725,7 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                     Label {
                         Text("More")
                     } icon: {
-                        Image(system: "ellipsis", material: "Icons.Outlined.MoreHoriz")
+                        MappedSystemImage(systemName: "ellipsis")
                     }
                 }
                 .tag(TabFeaturesSelection<Value>.more)
@@ -750,9 +738,8 @@ public struct TabFeaturesView<Value: TabFeatureValue>: View {
                         Label {
                             Text(searchTab.effectiveTitle)
                         } icon: {
-                            Image(
-                                system: searchTab.effectiveSystemImage.rawValue,
-                                material: "Icons.Outlined.Search"
+                            MappedSystemImage(
+                                systemName: searchTab.effectiveSystemImage.rawValue
                             )
                         }
                     }
@@ -1147,7 +1134,6 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
             TabFeatureMoreRow(
                 title: feature.effectiveTitle,
                 systemImage: feature.effectiveSystemImage,
-                composeImage: feature.effectiveComposeImage,
                 labelTint: feature.labelTint,
                 badgeValue: feature.badgeValue
             )
@@ -1213,7 +1199,6 @@ struct TabFeaturesMoreView<Value: TabFeatureValue>: View {
 struct TabFeatureMoreRow: View {
     let title: String
     let systemImage: TabFeatureSymbolName
-    let composeImage: TabFeatureSymbolName
     let labelTint: Color?
     let badgeValue: Int?
 
@@ -1224,12 +1209,7 @@ struct TabFeatureMoreRow: View {
                     .fill(labelTint ?? .accentColor)
                     .frame(width: 28, height: 28)
 
-                Image(
-                    system: systemImage.rawValue,
-                    material: composeImage.rawValue
-                )
-                    .resizable()
-                    .scaledToFit()
+                MappedSystemImage(systemName: systemImage.rawValue)
                     .frame(width: 16, height: 16)
                     .foregroundStyle(.white)
             }

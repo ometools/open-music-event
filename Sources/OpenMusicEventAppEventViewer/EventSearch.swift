@@ -603,7 +603,6 @@ struct EventSearchFeatureCard: View {
         HStack(spacing: 10) {
             EventSearchChromeIcon(
                 systemImage: feature.systemImage,
-                composeImage: feature.composeImage,
                 tint: feature.tint
             )
             Text(feature.title)
@@ -622,7 +621,6 @@ struct EventSearchFeatureCard: View {
 
 struct EventSearchChromeIcon: View {
     let systemImage: String
-    let composeImage: String
     let tint: Color?
     var size: CGFloat = 28
 
@@ -631,8 +629,8 @@ struct EventSearchChromeIcon: View {
             RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
                 .fill(tint ?? .accentColor)
                 .frame(width: size, height: size)
-            Image(system: systemImage, material: composeImage)
-                .font(.system(size: size * 0.5, weight: .semibold))
+            MappedSystemImage(systemName: systemImage)
+                .frame(width: size * 0.5, height: size * 0.5)
                 .foregroundStyle(.white)
         }
     }
@@ -698,7 +696,6 @@ struct EventSearchResultRow: View {
                 subtitle: result.document.subtitle ?? result.document.kind.title,
                 chrome: EventSearchChromeIcon(
                     systemImage: result.document.semanticSystemImage,
-                    composeImage: result.document.semanticComposeImage,
                     tint: result.document.semanticTint,
                     size: 44
                 )
@@ -720,12 +717,7 @@ struct EventSearchPerformanceChrome: View {
                 if let stage {
                     ScheduleStageIcon(stage: stage)
                 } else {
-                    Image(
-                        system: "music.note",
-                        material: "Icons.Outlined.MusicNote"
-                    )
-                        .resizable()
-                        .scaledToFit()
+                    MappedSystemImage(systemName: "music.note")
                         .padding(10)
                         .foregroundStyle(.secondary)
                 }
@@ -790,11 +782,6 @@ private extension EventSearchDocument {
         return EventSearchFeature.systemImage(for: featureID)
     }
 
-    var semanticComposeImage: String {
-        guard case let .feature(featureID) = target else { return kind.composeImage }
-        return EventSearchFeature.composeImage(for: featureID)
-    }
-
     var semanticTint: Color? {
         guard case let .feature(featureID) = target else { return kind.tint }
         return EventSearchFeature.tint(for: featureID)
@@ -813,20 +800,6 @@ private extension EventSearchDocument.Kind {
         case .performance: "music.mic"
         case .poster: "photo.on.rectangle"
         case .stage: "square.grid.2x2"
-        }
-    }
-
-    var composeImage: String {
-        switch self {
-        case .channel: "Icons.Outlined.Forum"
-        case .contact: "Icons.Outlined.Phone"
-        case .contributor: "Icons.Outlined.Groups"
-        case .eventInfo: "Icons.Outlined.Info"
-        case .feature: "Icons.Outlined.GridView"
-        case .location: "Icons.Outlined.PinDrop"
-        case .performance: "Icons.Outlined.MusicNote"
-        case .poster: "Icons.Outlined.PhotoLibrary"
-        case .stage: "Icons.Outlined.GridView"
         }
     }
 
@@ -868,10 +841,6 @@ private extension EventSearchFeature {
         Self.systemImage(for: id)
     }
 
-    var composeImage: String {
-        Self.composeImage(for: id)
-    }
-
     static func tint(for id: ID) -> Color? {
         switch id {
         case EventSearchFeature.KnownID.schedule: .green
@@ -902,20 +871,6 @@ private extension EventSearchFeature {
         }
     }
 
-    static func composeImage(for id: ID) -> String {
-        switch id {
-        case EventSearchFeature.KnownID.schedule: "Icons.Outlined.DateRange"
-        case EventSearchFeature.KnownID.contributors: "Icons.Outlined.Groups"
-        case EventSearchFeature.KnownID.stages: "Icons.Outlined.GridView"
-        case EventSearchFeature.KnownID.communications: "Icons.Outlined.Campaign"
-        case EventSearchFeature.KnownID.location: "Icons.Outlined.PinDrop"
-        case EventSearchFeature.KnownID.contact: "Icons.Outlined.Phone"
-        case EventSearchFeature.KnownID.posters: "Icons.Outlined.PhotoLibrary"
-        case EventSearchFeature.KnownID.alerts: "Icons.Outlined.Notifications"
-        case EventSearchFeature.KnownID.about: "Icons.Outlined.Info"
-        default: "Icons.Outlined.GridView"
-        }
-    }
 }
 
 private extension EventTarget {

@@ -268,7 +268,14 @@ struct FocusedAsyncImage: View {
 
             image
                 .frame(width: layout.frame.width, height: layout.frame.height)
-                .offset(x: layout.frame.minX, y: layout.frame.minY)
+                .padding(
+                    EdgeInsets(
+                        top: layout.frame.minY,
+                        leading: layout.frame.minX,
+                        bottom: geometry.size.height - layout.frame.maxY,
+                        trailing: geometry.size.width - layout.frame.maxX
+                    )
+                )
         }
         .clipped()
     }

@@ -213,25 +213,19 @@ public struct HeroImageList<HeroContent: View, ListContent: View>: View {
                 List {
                     heroContent
                         .frame(maxWidth: .infinity)
-                        .frame(height: min(max(geometry.size.width, 280), 420))
-                        // Compensate for SkipUI's list and row padding so the
-                        // hero reaches the screen edges like the Apple layout.
-                        .padding(
-                            EdgeInsets(
-                                top: -24,
-                                leading: -32,
-                                bottom: -8,
-                                trailing: -32
-                            )
-                        )
+                        .frame(height: heroHeight(for: geometry.size.width))
                         .zIndex(1)
+                        .heroListRowInsets()
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
 
                     listContent
                 }
+                .listStyle(.plain)
+                .ignoresSafeArea(.all, edges: .top)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.hidden)
                 .onAppear {
                     if let initialScrollID {
                         proxy.scrollTo(initialScrollID, anchor: .top)

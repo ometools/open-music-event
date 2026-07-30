@@ -221,37 +221,6 @@ public enum EventFeature: Hashable, Sendable, LosslessStringConvertible, TabFeat
         }
     }
 
-    public var composeImage: String {
-        switch self {
-        case let .schedule(division):
-            division.composeImage
-        case .contributors:
-            "Icons.Outlined.Groups"
-        case .stages:
-            "Icons.Outlined.GridView"
-        case .communications:
-            "Icons.Outlined.Campaign"
-        case .contactInfo:
-            "Icons.Outlined.Phone"
-        case .location:
-            "Icons.Outlined.PinDrop"
-        case .siteMap:
-            "Icons.Outlined.Map"
-        case .posters:
-            "Icons.Outlined.PhotoLibrary"
-        case .notifications:
-            "Icons.Outlined.Notifications"
-        case .settings:
-            "Icons.Outlined.Settings"
-        case .workspace:
-            "Icons.Outlined.Inventory2"
-        case .search:
-            "Icons.Outlined.Search"
-        case .about:
-            "Icons.Outlined.Info"
-        }
-    }
-
     public var title: String {
         switch self {
         case let .schedule(division):

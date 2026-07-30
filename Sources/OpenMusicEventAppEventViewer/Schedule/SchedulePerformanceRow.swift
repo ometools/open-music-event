@@ -82,12 +82,7 @@ public struct SchedulePerformanceRow: View {
         if let stage = row.stage {
             ScheduleStageIcon(stage: stage)
         } else {
-            Image(
-                system: "music.note",
-                material: "Icons.Outlined.MusicNote"
-            )
-                .resizable()
-                .scaledToFit()
+            MappedSystemImage(systemName: "music.note")
                 .padding(14)
                 .foregroundStyle(.secondary)
         }

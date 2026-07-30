@@ -82,8 +82,7 @@ public struct ScheduleKindMenu: View {
                     Toggle(isOn: $store.showStageNameLabels.portableAnimation()) {
                         Label(
                             "Show Stage Labels",
-                            systemImage: "tag",
-                            composeImage: "Icons.Outlined.Sell"
+                            mappedSystemImage: "tag"
                         )
                     }
                 }
@@ -102,7 +101,6 @@ public struct ScheduleKindMenu: View {
             modeLabel(
                 title: scheduleKind.title,
                 systemImage: scheduleKind.systemImage,
-                composeImage: scheduleKind.composeImage,
                 isSelected: store.scheduleKind == scheduleKind
             )
         }
@@ -112,7 +110,6 @@ public struct ScheduleKindMenu: View {
     func modeLabel(
         title: String,
         systemImage: String?,
-        composeImage: String?,
         isSelected: Bool
     ) -> some View {
         if isSelected {
@@ -121,8 +118,8 @@ public struct ScheduleKindMenu: View {
             } icon: {
                 Image(systemName: "checkmark")
             }
-        } else if let systemImage, let composeImage {
-            Label(title, systemImage: systemImage, composeImage: composeImage)
+        } else if let systemImage {
+            Label(title, mappedSystemImage: systemImage)
         } else {
             Text(title)
         }
@@ -130,14 +127,10 @@ public struct ScheduleKindMenu: View {
 
     @ViewBuilder
     var selectedModeLabel: some View {
-        if
-            let systemImage = store.scheduleKind.systemImage,
-            let composeImage = store.scheduleKind.composeImage
-        {
+        if let systemImage = store.scheduleKind.systemImage {
             Label(
                 store.scheduleKind.title,
-                systemImage: systemImage,
-                composeImage: composeImage
+                mappedSystemImage: systemImage
             )
         } else {
             Text(store.scheduleKind.title)
@@ -232,18 +225,18 @@ public struct ScheduleViewerView: View {
         self.showsAuthoringControls = showsAuthoringControls
     }
 
-    #if os(Android) && SKIP_BRIDGE
     public var body: some View {
         content
-    }
-    #else
-    public var body: some View {
-        content
-            .navigationTitle(
-                store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID)
-            )
+            .navigationTitle(navigationTitle)
             .toolbar {
-                #if os(macOS) && !SKIP
+                #if os(Android)
+                ToolbarItem(placement: .topBarLeading) {
+                    HStack(spacing: 8) {
+                        UserScheduleFilterMenu(store: store)
+                        androidScheduleTitle
+                    }
+                }
+                #elseif os(macOS) && !SKIP
                 ToolbarItem(placement: .automatic) {
                     UserScheduleFilterMenu(store: store)
                 }
@@ -253,6 +246,24 @@ public struct ScheduleViewerView: View {
                 }
                 #endif
 
+                #if os(Android)
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 8) {
+                        if currentTimeDestination != nil {
+                            Button("Now") {
+                                jumpToCurrentTime(animated: true)
+                            }
+                        }
+                        if showsAuthoringControls {
+                            ScheduleAddMenu(
+                                store: store,
+                                selectedScheduleID: selectedScheduleID
+                            )
+                        }
+                        ScheduleKindMenu(store: store)
+                    }
+                }
+#else
                 if currentTimeDestination != nil {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Now") {
@@ -271,7 +282,9 @@ public struct ScheduleViewerView: View {
                 ToolbarItem(placement: .primaryAction) {
                     ScheduleKindMenu(store: store)
                 }
+                #endif
             }
+            #if !os(Android)
             .toolbarTitleMenu {
                 if !store.state.usesSingletonSchedule {
                     ForEach(store.schedules) { schedule in
@@ -281,6 +294,7 @@ public struct ScheduleViewerView: View {
                     }
                 }
             }
+            #endif
             #if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -337,6 +351,40 @@ public struct ScheduleViewerView: View {
             .onAppear {
                 consumePendingScheduleLaunchAction()
             }
+    }
+
+    var selectedScheduleTitle: String {
+        store.state.selectedScheduleTitle(selectedScheduleID: selectedScheduleID)
+    }
+
+    var navigationTitle: String {
+        #if os(Android)
+        ""
+        #else
+        selectedScheduleTitle
+        #endif
+    }
+
+    #if os(Android)
+    @ViewBuilder
+    var androidScheduleTitle: some View {
+        if store.state.usesSingletonSchedule {
+            Text(selectedScheduleTitle)
+        } else {
+            Menu {
+                ForEach(store.schedules) { schedule in
+                    Button(ScheduleViewer.scheduleTitle(schedule)) {
+                        selectedScheduleID = schedule.id.scheduleID
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedScheduleTitle)
+                    Image(systemName: "chevron.down")
+                }
+            }
+            .accessibilityLabel("Schedule, \(selectedScheduleTitle)")
+        }
     }
     #endif
 

@@ -520,8 +520,7 @@ public struct ImportImagesView: View {
         ) {
             Label(
                 "Choose Photos",
-                systemImage: "photo.on.rectangle",
-                composeImage: "Icons.Outlined.PhotoLibrary"
+                mappedSystemImage: "photo.on.rectangle"
             )
         }
         #endif

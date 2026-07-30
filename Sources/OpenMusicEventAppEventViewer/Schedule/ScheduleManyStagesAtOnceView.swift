@@ -382,6 +382,7 @@ public struct ScheduleManyStagesAtOnceView: View {
                     .frame(width: timelineWidth, height: totalHeight)
                     .environment(\.scheduleTimelineOrientation, .horizontalTime)
                     .environment(\.scheduleHeight, timelineHeight)
+                    .environment(\.scheduleWidth, timelineWidth)
                     .environment(\.scheduleTimeRange, timeRange)
                     .environment(\.shouldShowTimeIndicator, true)
             }
@@ -472,6 +473,7 @@ public struct ScheduleManyStagesAtOnceView: View {
                     height: pageHeight
                 )
                 .environment(\.scheduleHeight, pageHeight)
+                .environment(\.scheduleWidth, contentWidth(for: availableWidth))
                 .environment(\.scheduleTimeRange, timeRange)
                 .environment(\.shouldShowTimeIndicator, true)
             }
@@ -908,27 +910,15 @@ struct ScheduleManyStagesStageRail: View {
         }
         .frame(width: width, alignment: .top)
         .background(alignment: .leading) {
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        railBackgroundColor,
-                        railBackgroundColor.opacity(0.64),
-                        railBackgroundColor.opacity(0.0),
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .mask {
-                        LinearGradient(
-                            colors: [.white.opacity(0.42), .white.opacity(0.14), .clear],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    }
-            }
+            LinearGradient(
+                colors: [
+                    railBackgroundColor.opacity(0.08),
+                    railBackgroundColor.opacity(0.03),
+                    .clear,
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
         }
     }
 

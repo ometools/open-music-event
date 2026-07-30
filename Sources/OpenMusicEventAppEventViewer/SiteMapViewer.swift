@@ -67,7 +67,6 @@ struct SiteMapPlaceholderView: View {
         ViewerPlaceholderView(
             title: "Site Map",
             systemImage: "map",
-            composeImage: "Icons.Outlined.Map",
             description: eventWasLoaded
                 ? "No site map has been added to this event yet."
                 : "This event could not be loaded."

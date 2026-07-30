@@ -37,6 +37,7 @@ struct TimelineView: View {
 struct TimeIndicatorView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.scheduleHeight) var scheduleHeight
+    @Environment(\.scheduleWidth) var scheduleWidth
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
     @Environment(\.shouldShowTimeIndicator) var shouldShowTimeIndicator
@@ -68,7 +69,7 @@ struct TimeIndicatorView: View {
                     case .verticalTime:
                         verticalTimeIndicator(at: context.date)
                             .position(
-                                x: geometry.size.width / 2,
+                                x: (scheduleWidth > 0 ? scheduleWidth : geometry.size.width) / 2,
                                 y: context.date.toY(
                                     containerHeight: scheduleHeight,
                                     in: scheduleTimeRange
@@ -80,7 +81,7 @@ struct TimeIndicatorView: View {
                         horizontalTimeIndicator(at: context.date, height: geometry.size.height)
                             .position(
                                 x: context.date.toX(
-                                    containerWidth: geometry.size.width,
+                                    containerWidth: scheduleWidth > 0 ? scheduleWidth : geometry.size.width,
                                     in: scheduleTimeRange
                                 ),
                                 y: geometry.size.height / 2

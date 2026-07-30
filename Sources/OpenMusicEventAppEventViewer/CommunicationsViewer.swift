@@ -160,7 +160,6 @@ public struct CommunicationsViewerView: View {
                 ViewerPlaceholderView(
                     title: "Comms",
                     systemImage: "megaphone",
-                    composeImage: "Icons.Outlined.Campaign",
                     description: store.event == nil
                         ? "This event could not be loaded."
                         : "No communication channels have been added to this event yet."

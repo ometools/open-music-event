@@ -32,6 +32,7 @@ public struct HourLabelsHeightPreferenceKey: PreferenceKey {
 
 public struct ScheduleHourLabelsView: View {
     @Environment(\.scheduleHeight) var scheduleHeight
+    @Environment(\.scheduleWidth) var scheduleWidth
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
     @ScaledMetric var hourLabelsHeight = HourLabelsHeightPreferenceKey.defaultValue
@@ -99,7 +100,10 @@ public struct ScheduleHourLabelsView: View {
                         #endif
                         .foregroundStyle(.secondary)
                         .position(
-                            x: date.toX(containerWidth: geometry.size.width, in: range),
+                            x: date.toX(
+                                containerWidth: scheduleWidth > 0 ? scheduleWidth : geometry.size.width,
+                                in: range
+                            ),
                             y: hourLabelsHeight / 2
                         )
                 }
