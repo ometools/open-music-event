@@ -585,6 +585,7 @@ struct PerformanceHeroView: View {
 struct PerformanceSummaryRow: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
     @Environment(\.needsStageDisambiguation) var needsStageDisambiguation
+    @Environment(\.timeZone) var deviceTimeZone
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage?
     let contributors: [ContributorProfile]
@@ -611,7 +612,11 @@ struct PerformanceSummaryRow: View {
 
                 VStack(spacing: 2) {
                     Text(
-                        ScheduleViewer.performanceRowTimeRange(for: performance, timeZone: timeZone)
+                        ScheduleViewer.performanceRowTimeRange(
+                            for: performance,
+                            timeZone: timeZone,
+                            timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                        )
                     )
                     .font(.headline)
                     .fontWeight(.bold)

@@ -25,16 +25,22 @@ public struct SchedulePageView<
     let emptyContent: EmptyContent
     let groupMapping: [Int: Int]
     let groups: [Int]
+    let currentTimeLabel: (Date) -> String
+    let hourLabel: (Date) -> String
 
     public init(
         _ cards: [Element],
         groups: [Int]? = nil,
+        currentTimeLabel: @escaping (Date) -> String,
+        hourLabel: @escaping (Date) -> String,
         @ViewBuilder cardContent: @escaping (Element) -> CardContent,
         @ViewBuilder emptyContent: () -> EmptyContent
     ) {
         self.cards = cards
         self.cardContent = cardContent
+        self.currentTimeLabel = currentTimeLabel
         self.emptyContent = emptyContent()
+        self.hourLabel = hourLabel
 
         let groups = groups ?? Array(Set(cards.map(\.groupWidth.lowerBound))).sorted()
         self.groups = Array(Set(groups)).sorted()
@@ -44,7 +50,10 @@ public struct SchedulePageView<
     }
 
     public var body: some View {
-        ScheduleGrid {
+        ScheduleGrid(
+            currentTimeLabel: currentTimeLabel,
+            hourLabel: hourLabel
+        ) {
             if cards.isEmpty || scheduleTimeRange == nil {
                 emptyContent
             } else {

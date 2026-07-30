@@ -44,6 +44,7 @@ struct TimeIndicatorView: View {
     let gradientHeight: ScheduleCGFloat = 30
     let textWidth: ScheduleCGFloat = 43
     let horizontalLabelHeight = HourLabelsHeightPreferenceKey.defaultValue
+    let label: (Date) -> String
 
     var backgroundColor: Color {
         switch colorScheme {
@@ -93,7 +94,8 @@ struct TimeIndicatorView: View {
 
     func verticalTimeIndicator(at date: Date) -> some View {
         ZStack(alignment: .leading) {
-            Text(currentTime(at: date))
+            Text(label(date))
+                .lineLimit(1)
                 .foregroundStyle(Color.accentColor)
                 .font(.caption)
                 .fontWeight(.semibold)
@@ -133,7 +135,8 @@ struct TimeIndicatorView: View {
                 .frame(width: 5, height: 5)
                 .offset(y: horizontalLabelHeight - 2)
 
-            Text(currentTime(at: date))
+            Text(label(date))
+                .lineLimit(1)
                 .foregroundStyle(Color.accentColor)
                 .font(.caption)
                 .fontWeight(.semibold)
@@ -150,14 +153,5 @@ struct TimeIndicatorView: View {
                 }
         }
         .frame(width: textWidth + 16, height: height, alignment: .top)
-    }
-
-    func currentTime(at date: Date) -> String {
-        Date.FormatStyle.dateTime
-            .hour(.defaultDigits(amPM: .narrow))
-            .minute()
-            .format(date)
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "")
     }
 }

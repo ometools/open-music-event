@@ -36,8 +36,11 @@ public struct ScheduleHourLabelsView: View {
     @Environment(\.scheduleTimeRange) var scheduleTimeRange
     @ScaledMetric var hourLabelsHeight = HourLabelsHeightPreferenceKey.defaultValue
     @ScaledMetric var hourLabelsWidth = HourLabelsWidthPreferenceKey.defaultValue
+    let label: (Date) -> String
 
-    public init() {}
+    public init(label: @escaping (Date) -> String) {
+        self.label = label
+    }
 
     var hourDates: [Date] {
         guard let range = scheduleTimeRange else { return [] }
@@ -65,8 +68,8 @@ public struct ScheduleHourLabelsView: View {
         GeometryReader { _ in
             ForEach(hourDates, id: \.self) { date in
                 if let range = scheduleTimeRange {
-                    Text(timeString(for: date))
-                        .id(ScheduleHourTag(hour: Calendar.current.component(.hour, from: date)))
+                    Text(label(date))
+                        .id(date)
                         .lineLimit(1)
                         .font(.caption)
                         #if os(iOS)
@@ -87,8 +90,8 @@ public struct ScheduleHourLabelsView: View {
         GeometryReader { geometry in
             ForEach(hourDates, id: \.self) { date in
                 if let range = scheduleTimeRange {
-                    Text(timeString(for: date))
-                        .id(ScheduleHourTag(hour: Calendar.current.component(.hour, from: date)))
+                    Text(label(date))
+                        .id(date)
                         .lineLimit(1)
                         .font(.caption)
                         #if os(iOS)
@@ -103,20 +106,5 @@ public struct ScheduleHourLabelsView: View {
             }
         }
         .frame(height: hourLabelsHeight)
-    }
-
-    func timeString(for date: Date) -> String {
-        let hour = Calendar.current.component(.hour, from: date)
-        switch hour {
-        case 0:
-            return "mdnt"
-        case 12:
-            return "noon"
-        default:
-            return date
-                .formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated)))
-                .lowercased()
-                .replacingOccurrences(of: " ", with: "")
-        }
     }
 }

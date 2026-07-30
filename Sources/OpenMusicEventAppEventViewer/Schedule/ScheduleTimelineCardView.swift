@@ -19,6 +19,7 @@ struct ScheduleTimelineCardView: View {
     @Environment(\.performanceReactionMenuContext) var reactionMenuContext
     let performance: OMERecord.Performance
     let stage: OMERecord.Stage
+    let timeRangeText: String
     let userScheduleOverlay: UserScheduleOverlay
     let showsAuthoringControls: Bool
     let userScheduleMembershipAction: (UserSchedule.ID) -> Void
@@ -34,7 +35,7 @@ struct ScheduleTimelineCardView: View {
         .buttonStyle(.plain)
         .opacity(userScheduleOverlay.isDimmed(performanceID: performance.id.performanceID) ? 0.38 : 1)
         .accessibilityLabel(Text(accessibilityLabel))
-        .portableAccessibilityHint(Text(performance.timeRangeText))
+        .portableAccessibilityHint(Text(timeRangeText))
         .contextMenu {
             PerformanceReactionMenuContent(
                 performanceID: performance.id,
@@ -117,7 +118,7 @@ struct ScheduleTimelineCardView: View {
             }
 
             HStack(spacing: 6) {
-                Text(performance.timeRangeText)
+                Text(timeRangeText)
             }
             .font(.caption)
             .fontWeight(.medium)

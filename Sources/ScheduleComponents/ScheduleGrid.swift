@@ -1,3 +1,4 @@
+import Foundation
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -10,9 +11,17 @@ public struct ScheduleGrid<Content: View>: View {
     @Environment(\.scheduleTimelineOrientation) var scheduleTimelineOrientation
 
     let content: Content
+    let currentTimeLabel: (Date) -> String
+    let hourLabel: (Date) -> String
 
-    public init(@ViewBuilder content: () -> Content = { EmptyView() }) {
+    public init(
+        currentTimeLabel: @escaping (Date) -> String,
+        hourLabel: @escaping (Date) -> String,
+        @ViewBuilder content: () -> Content = { EmptyView() }
+    ) {
         self.content = content()
+        self.currentTimeLabel = currentTimeLabel
+        self.hourLabel = hourLabel
     }
 
     public var body: some View {
@@ -28,7 +37,7 @@ public struct ScheduleGrid<Content: View>: View {
     var verticalTimeGrid: some View {
         ZStack {
             HStack {
-                ScheduleHourLabelsView()
+                ScheduleHourLabelsView(label: hourLabel)
                     .zIndex(0)
 
                 ZStack {
@@ -43,7 +52,7 @@ public struct ScheduleGrid<Content: View>: View {
                 }
             }
 
-            TimeIndicatorView()
+            TimeIndicatorView(label: currentTimeLabel)
         }
         .ignoresSafeArea(edges: .trailing)
     }
@@ -51,7 +60,7 @@ public struct ScheduleGrid<Content: View>: View {
     var horizontalTimeGrid: some View {
         ZStack {
             VStack(spacing: 0) {
-                ScheduleHourLabelsView()
+                ScheduleHourLabelsView(label: hourLabel)
                     .zIndex(0)
 
                 ZStack {
@@ -66,7 +75,7 @@ public struct ScheduleGrid<Content: View>: View {
                 }
             }
 
-            TimeIndicatorView()
+            TimeIndicatorView(label: currentTimeLabel)
         }
         .ignoresSafeArea(edges: .bottom)
     }

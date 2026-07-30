@@ -257,6 +257,8 @@ public struct EventSearch {
 }
 
 public struct EventSearchView: View {
+    @Dependency(\.defaultEventTimeZone) var defaultEventTimeZone
+    @Environment(\.timeZone) var deviceTimeZone
     @Bindable var store: StoreOf<EventSearch>
 
     public init(store: StoreOf<EventSearch>) {
@@ -273,6 +275,8 @@ public struct EventSearchView: View {
                     now: context.date,
                     contributors: store.contributors,
                     event: store.event,
+                    timeZone: store.event?.timeZone ?? defaultEventTimeZone,
+                    timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
                     performanceContributors: store.performanceContributors,
                     performanceRows: store.performanceRows,
                     scheduleViewerStates: store.scheduleViewerStates,
@@ -302,6 +306,8 @@ struct EventSearchContentView: View {
     let now: Date
     let contributors: [ContributorProfile]
     let event: OMERecord.Event?
+    let timeZone: TimeZone
+    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
     let performanceContributors: [OMERecord.Performance.Contributors]
     let performanceRows: [PerformanceRow]
     let scheduleViewerStates: [ScheduleViewerState]
@@ -315,6 +321,8 @@ struct EventSearchContentView: View {
                 now: now,
                 contributors: contributors,
                 event: event,
+                timeZone: timeZone,
+                timeZoneDisclosure: timeZoneDisclosure,
                 performanceContributors: performanceContributors,
                 scheduleViewerStates: scheduleViewerStates,
                 openTarget: openTarget
@@ -336,7 +344,8 @@ struct EventSearchContentView: View {
                         contributor: contributor(for: result),
                         performanceRow: performanceRow(for: result),
                         now: now,
-                        timeZone: event?.timeZone ?? .current
+                        timeZone: timeZone,
+                        timeZoneDisclosure: timeZoneDisclosure
                     )
                 }
                 .navigationLinkListRowStyle()
@@ -361,6 +370,8 @@ struct EventSearchDashboardView: View {
     let now: Date
     let contributors: [ContributorProfile]
     let event: OMERecord.Event?
+    let timeZone: TimeZone
+    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
     let performanceContributors: [OMERecord.Performance.Contributors]
     let scheduleViewerStates: [ScheduleViewerState]
     let openTarget: (EventSearchDocument.Target) -> Void
@@ -385,7 +396,8 @@ struct EventSearchDashboardView: View {
                                 now: now,
                                 leadContributors: leadContributors,
                                 showStageNameLabels: showStageNameLabels(for: row.stage),
-                                timeZone: event?.timeZone ?? .current,
+                                timeZone: timeZone,
+                                timeZoneDisclosure: timeZoneDisclosure,
                                 openTarget: openTarget
                             )
                         }
@@ -458,6 +470,7 @@ struct EventSearchStageCard: View {
     let leadContributors: [OMERecord.ID<OMERecord.Performance>: ContributorProfile]
     let showStageNameLabels: Bool
     let timeZone: TimeZone
+    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
     let openTarget: (EventSearchDocument.Target) -> Void
 
     var body: some View {
@@ -498,7 +511,7 @@ struct EventSearchStageCard: View {
         }
         .opacity(isClosed ? 0.45 : 1)
         .portableContentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .accessibilityLabel(Text(row.stage.name))
+        .accessibilityLabel(Text(accessibilityLabel))
         .onTapGesture {
             openTarget(.stage(row.stage.id.stageID))
         }
@@ -555,12 +568,25 @@ struct EventSearchStageCard: View {
         row.nowPlayingRows.isEmpty && row.comingNextRows.isEmpty
     }
 
+    var accessibilityLabel: String {
+        var parts = [row.stage.name]
+        if let performance = row.nowPlayingRows.first {
+            parts.append("Now, \(performance.title)")
+        }
+        if let performance = row.comingNextRows.first {
+            parts.append(
+                "Up next, \(performance.title), starts \(startTimeText(for: performance.performance.startTime))"
+            )
+        }
+        return parts.joined(separator: ", ")
+    }
+
     func startTimeText(for startTime: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: startTime).lowercased()
+        ScheduleViewer.formattedTime(
+            for: startTime,
+            timeZone: timeZone,
+            timeZoneDisclosure: timeZoneDisclosure
+        )
     }
 }
 
@@ -611,6 +637,7 @@ struct EventSearchPerformanceRow: View {
     let row: PerformanceRow
     let now: Date
     let timeZone: TimeZone
+    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
 
     var body: some View {
         EventSearchRow(
@@ -618,6 +645,7 @@ struct EventSearchPerformanceRow: View {
             subtitle: ScheduleViewer.performanceRowSubtitle(
                 for: row.performance,
                 timeZone: timeZone,
+                timeZoneDisclosure: timeZoneDisclosure,
                 policy: dateTimeRangeResolutionPolicy
             ),
             status: PerformanceTimingStatus(
@@ -636,6 +664,7 @@ struct EventSearchResultRow: View {
     let performanceRow: PerformanceRow?
     let now: Date
     let timeZone: TimeZone
+    let timeZoneDisclosure: ScheduleViewer.EventTimeZoneDisclosure
 
     var body: some View {
         if let contributor {
@@ -652,7 +681,8 @@ struct EventSearchResultRow: View {
             EventSearchPerformanceRow(
                 row: performanceRow,
                 now: now,
-                timeZone: timeZone
+                timeZone: timeZone,
+                timeZoneDisclosure: timeZoneDisclosure
             )
         } else {
             EventSearchRow(

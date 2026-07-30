@@ -26,6 +26,11 @@ public struct ScheduleViewer {
         let performanceID: OMERecord.ID<OMERecord.Performance>
     }
 
+    enum EventTimeZoneDisclosure: Equatable, Sendable {
+        case never
+        case whenDeviceClockDiffers(TimeZone)
+    }
+
     public struct State {
         public init(
             eventID: OMERecord.Event.ID,
@@ -366,29 +371,37 @@ public struct ScheduleViewer {
     static func performanceRowSubtitle(
         for performance: OMERecord.Performance,
         timeZone: TimeZone,
+        timeZoneDisclosure: EventTimeZoneDisclosure = .never,
         policy: DateTimeRangeResolutionPolicy = .default
     ) -> String {
         """
-        \(performanceRowTimeRange(for: performance, timeZone: timeZone))
+        \(performanceRowTimeRange(
+            for: performance,
+            timeZone: timeZone,
+            timeZoneDisclosure: timeZoneDisclosure
+        ))
         \(daySegment(for: performance.startTime, timeZone: timeZone, policy: policy))
         """
     }
 
     static func performanceRowTimeRange(
         for performance: OMERecord.Performance,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        timeZoneDisclosure: EventTimeZoneDisclosure = .never
     ) -> String {
         formattedTimeRange(
             start: performance.startTime,
             end: performance.endTime,
-            timeZone: timeZone
+            timeZone: timeZone,
+            timeZoneDisclosure: timeZoneDisclosure
         )
     }
 
     static func formattedTimeRange(
         start: Date,
         end: Date,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        timeZoneDisclosure: EventTimeZoneDisclosure = .never
     ) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -405,8 +418,81 @@ public struct ScheduleViewer {
         endFormatter.timeZone = timeZone
         endFormatter.dateFormat = "h:mm a"
 
-        return "\(timeFormatter.string(from: start)) - \(endFormatter.string(from: end))"
+        let timeRange = "\(timeFormatter.string(from: start)) - \(endFormatter.string(from: end))"
             .lowercased()
+        return timeRange + timeZoneSuffix(
+            for: start,
+            eventTimeZone: timeZone,
+            disclosure: timeZoneDisclosure
+        )
+    }
+
+    static func formattedTime(
+        for date: Date,
+        timeZone: TimeZone,
+        timeZoneDisclosure: EventTimeZoneDisclosure = .never
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "h:mm a"
+        return formatter.string(from: date).lowercased()
+            + timeZoneSuffix(
+                for: date,
+                eventTimeZone: timeZone,
+                disclosure: timeZoneDisclosure
+            )
+    }
+
+    static func hourLabel(for date: Date, timeZone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        switch calendar.component(.hour, from: date) {
+        case 0:
+            return "mdnt"
+        case 12:
+            return "noon"
+        default:
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = timeZone
+            formatter.dateFormat = "ha"
+            return formatter.string(from: date)
+                .lowercased()
+                .replacingOccurrences(of: " ", with: "")
+        }
+    }
+
+    static func currentTimeLabel(
+        for date: Date,
+        timeZone: TimeZone,
+        timeZoneDisclosure: EventTimeZoneDisclosure = .never
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "h:mma"
+        let time = formatter.string(from: date)
+            .lowercased()
+            .replacingOccurrences(of: "am", with: "a")
+            .replacingOccurrences(of: "pm", with: "p")
+        return time + timeZoneSuffix(
+            for: date,
+            eventTimeZone: timeZone,
+            disclosure: timeZoneDisclosure
+        )
+    }
+
+    static func timeZoneSuffix(
+        for date: Date,
+        eventTimeZone: TimeZone,
+        disclosure: EventTimeZoneDisclosure
+    ) -> String {
+        guard case let .whenDeviceClockDiffers(deviceTimeZone) = disclosure,
+              eventTimeZone.secondsFromGMT(for: date) != deviceTimeZone.secondsFromGMT(for: date),
+              let abbreviation = eventTimeZone.abbreviation(for: date)
+        else { return "" }
+        return " (\(abbreviation.uppercased()))"
     }
 
     static func daySegment(
@@ -957,13 +1043,6 @@ extension OMERecord.Performance {
         return description?.isEmpty == false ? description : nil
     }
 
-    var timeRangeText: String {
-        ScheduleViewer.formattedTimeRange(
-            start: startTime,
-            end: endTime,
-            timeZone: .current
-        )
-    }
 }
 
 private extension LocalDate {

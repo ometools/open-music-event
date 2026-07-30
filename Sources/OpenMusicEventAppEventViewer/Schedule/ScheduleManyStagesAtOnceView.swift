@@ -209,6 +209,7 @@ public struct ScheduleManyStagesAtOnceView: View {
     @Environment(\.schedulePointsPerHour) var schedulePointsPerHour
     @Environment(\.scheduleTimeBuffer) var scheduleTimeBuffer
     @Environment(\.showStageNameLabels) var showStageNameLabels
+    @Environment(\.timeZone) var deviceTimeZone
 
     public init(
         store: StoreOf<ScheduleManyStagesAtOnce>,
@@ -500,10 +501,27 @@ public struct ScheduleManyStagesAtOnceView: View {
     }
 
     var timelinePage: some View {
-        SchedulePageView(timelineCards, groups: timelineGroups) { card in
+        SchedulePageView(
+            timelineCards,
+            groups: timelineGroups,
+            currentTimeLabel: {
+                ScheduleViewer.currentTimeLabel(
+                    for: $0,
+                    timeZone: store.timeZone,
+                    timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                )
+            },
+            hourLabel: {
+                ScheduleViewer.hourLabel(for: $0, timeZone: store.timeZone)
+            }
+        ) { card in
             ScheduleTimelineCardView(
                 performance: card.performance,
                 stage: card.stage,
+                timeRangeText: ScheduleViewer.performanceRowTimeRange(
+                    for: card.performance,
+                    timeZone: store.timeZone
+                ),
                 userScheduleOverlay: userScheduleOverlay,
                 showsAuthoringControls: showsAuthoringControls,
                 userScheduleMembershipAction: { scheduleID in

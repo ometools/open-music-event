@@ -350,6 +350,7 @@ public struct ScheduleSingleStageAtOnceView: View {
                 stages: visibleStages,
                 performances: visiblePerformances,
                 timeRange: timeRange,
+                timeZone: store.timeZone,
                 pageHeight: timeRange.map { scheduleHeight(for: $0) },
                 userScheduleOverlay: userScheduleOverlay,
                 scheduleDivision: store.scheduleDivision,
@@ -492,6 +493,7 @@ struct ScheduleStagePager: View {
     let stages: [OMERecord.Stage]
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval?
+    let timeZone: TimeZone
     let pageHeight: CGFloat?
     let userScheduleOverlay: UserScheduleOverlay
     let scheduleDivision: ScheduleViewer.ScheduleDivision
@@ -567,6 +569,7 @@ struct ScheduleStagePager: View {
             stage: stage,
             performances: performances(for: stage),
             timeRange: timeRange,
+            timeZone: timeZone,
             pageHeight: pageHeight,
             userScheduleOverlay: userScheduleOverlay,
             emptyTitle: ScheduleViewer.emptyStageTitle(
@@ -607,6 +610,7 @@ struct ScheduleFixedStageTimeline: View {
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
+    let timeZone: TimeZone
     let pageHeight: CGFloat
     let userScheduleOverlay: UserScheduleOverlay
     let emptyTitle: String
@@ -626,6 +630,7 @@ struct ScheduleFixedStageTimeline: View {
         stage: OMERecord.Stage,
         performances: [OMERecord.Performance],
         timeRange: DateInterval,
+        timeZone: TimeZone,
         pageHeight: CGFloat,
         userScheduleOverlay: UserScheduleOverlay,
         emptyTitle: String,
@@ -644,6 +649,7 @@ struct ScheduleFixedStageTimeline: View {
         self.stage = stage
         self.performances = performances
         self.timeRange = timeRange
+        self.timeZone = timeZone
         self.pageHeight = pageHeight
         self.userScheduleOverlay = userScheduleOverlay
         self.emptyTitle = emptyTitle
@@ -662,6 +668,7 @@ struct ScheduleFixedStageTimeline: View {
             stage: stage,
             performances: performances,
             timeRange: timeRange,
+            timeZone: timeZone,
             userScheduleOverlay: userScheduleOverlay,
             emptyTitle: emptyTitle,
             otherScheduleDivisions: otherScheduleDivisions,
@@ -681,9 +688,11 @@ struct ScheduleFixedStageTimeline: View {
 }
 
 struct ScheduleStageTimelinePage: View {
+    @Environment(\.timeZone) var deviceTimeZone
     let stage: OMERecord.Stage
     let performances: [OMERecord.Performance]
     let timeRange: DateInterval
+    let timeZone: TimeZone
     let userScheduleOverlay: UserScheduleOverlay
     let emptyTitle: String
     let otherScheduleDivisions: [ScheduleViewer.ScheduleDivision]
@@ -699,10 +708,26 @@ struct ScheduleStageTimelinePage: View {
     let onScheduleDivisionTapped: (ScheduleViewer.ScheduleDivision) -> Void
 
     var body: some View {
-        SchedulePageView(timelineCards) { card in
+        SchedulePageView(
+            timelineCards,
+            currentTimeLabel: {
+                ScheduleViewer.currentTimeLabel(
+                    for: $0,
+                    timeZone: timeZone,
+                    timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone)
+                )
+            },
+            hourLabel: {
+                ScheduleViewer.hourLabel(for: $0, timeZone: timeZone)
+            }
+        ) { card in
             ScheduleTimelineCardView(
                 performance: card.item.performance,
                 stage: stage,
+                timeRangeText: ScheduleViewer.performanceRowTimeRange(
+                    for: card.item.performance,
+                    timeZone: timeZone
+                ),
                 userScheduleOverlay: userScheduleOverlay,
                 showsAuthoringControls: showsAuthoringControls,
                 userScheduleMembershipAction: { scheduleID in

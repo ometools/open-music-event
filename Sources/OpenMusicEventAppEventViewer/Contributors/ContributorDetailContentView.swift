@@ -92,6 +92,7 @@ struct ContributorDetailSectionsView: View {
 
 struct ContributorScheduleSection: View {
     @Environment(\.dateTimeRangeResolutionPolicy) var dateTimeRangeResolutionPolicy
+    @Environment(\.timeZone) var deviceTimeZone
     let performanceRows: [PerformanceRow]
     let timeZone: TimeZone
     let performanceButtonTapped: (OMERecord.ID<OMERecord.Performance>) -> Void
@@ -109,6 +110,7 @@ struct ContributorScheduleSection: View {
                                 subtitle: ScheduleViewer.performanceRowSubtitle(
                                     for: row.performance,
                                     timeZone: timeZone,
+                                    timeZoneDisclosure: .whenDeviceClockDiffers(deviceTimeZone),
                                     policy: dateTimeRangeResolutionPolicy
                                 ),
                                 now: context.date

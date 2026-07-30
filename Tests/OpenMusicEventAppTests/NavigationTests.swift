@@ -3255,6 +3255,85 @@ struct NavigationTests {
         )
     }
 
+    @Test
+    func eventTimeZoneDisclosureUsesTheEffectiveOffsetAndSeasonalAbbreviation() throws {
+        let eventTimeZone = try #require(TimeZone(identifier: "America/Denver"))
+        let matchingDeviceTimeZone = try #require(TimeZone(identifier: "America/Edmonton"))
+        let differentDeviceTimeZone = try #require(TimeZone(identifier: "America/Vancouver"))
+        let summer = try #require(LocalDate("2026-09-04"))
+        let winter = try #require(LocalDate("2026-01-02"))
+        let summerStart = try #require(summer.at(hour: 18, in: eventTimeZone))
+        let summerEnd = try #require(summer.at(hour: 19, in: eventTimeZone))
+        let winterStart = try #require(winter.at(hour: 18, in: eventTimeZone))
+        let winterEnd = try #require(winter.at(hour: 19, in: eventTimeZone))
+
+        // A visitor whose device clock disagrees sees the event's current abbreviation.
+        expectNoDifference(
+            ScheduleViewer.formattedTimeRange(
+                start: summerStart,
+                end: summerEnd,
+                timeZone: eventTimeZone,
+                timeZoneDisclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
+            ),
+            "6:00 - 7:00 pm (MDT)"
+        )
+
+        // Different zone identifiers do not add noise when both clocks agree.
+        expectNoDifference(
+            ScheduleViewer.formattedTimeRange(
+                start: summerStart,
+                end: summerEnd,
+                timeZone: eventTimeZone,
+                timeZoneDisclosure: .whenDeviceClockDiffers(matchingDeviceTimeZone)
+            ),
+            "6:00 - 7:00 pm"
+        )
+
+        // The event abbreviation follows daylight-saving rules at the performance date.
+        expectNoDifference(
+            ScheduleViewer.formattedTimeRange(
+                start: winterStart,
+                end: winterEnd,
+                timeZone: eventTimeZone,
+                timeZoneDisclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
+            ),
+            "6:00 - 7:00 pm (MST)"
+        )
+
+        // Dense schedule surfaces still render the event clock without repeating a suffix.
+        expectNoDifference(
+            ScheduleViewer.formattedTimeRange(
+                start: summerStart,
+                end: summerEnd,
+                timeZone: eventTimeZone,
+                timeZoneDisclosure: .never
+            ),
+            "6:00 - 7:00 pm"
+        )
+
+        // The feature supplies event-clock labels to the reusable timeline components.
+        expectNoDifference(
+            ScheduleViewer.hourLabel(for: summerStart, timeZone: eventTimeZone),
+            "6pm"
+        )
+        expectNoDifference(
+            ScheduleViewer.currentTimeLabel(
+                for: summerStart,
+                timeZone: eventTimeZone,
+                timeZoneDisclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
+            ),
+            "6:00p (MDT)"
+        )
+        expectNoDifference(
+            ScheduleViewer.formattedTime(
+                for: summerStart,
+                timeZone: eventTimeZone,
+                timeZoneDisclosure: .whenDeviceClockDiffers(differentDeviceTimeZone)
+            ),
+            "6:00 pm (MDT)"
+        )
+    }
+
     @Test(arguments: ["alice.bsky.social", "did:plc:alice123"])
     func contributorProfileUsesCachedBlueskyProfileDataForGeneratedActor(actorString: String) async throws {
         let database = try makePreparedDatabase()

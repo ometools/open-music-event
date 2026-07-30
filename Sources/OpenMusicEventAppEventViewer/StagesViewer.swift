@@ -1130,6 +1130,7 @@ public struct StageDetailView: View {
 }
 
 struct StageScheduleView: View {
+    @Dependency(\.defaultEventTimeZone) var eventTimeZone
     let stage: OMERecord.Stage
     @Bindable var store: StoreOf<StageDetail>
     @Binding var selectedScheduleID: OMERecord.ID<OMERecord.Schedule>?
@@ -1161,6 +1162,7 @@ struct StageScheduleView: View {
                     stage: stage,
                     performances: store.selectedSchedulePerformances,
                     timeRange: timeRange,
+                    timeZone: eventTimeZone,
                     pageHeight: scheduleHeight(for: timeRange),
                     userScheduleOverlay: UserScheduleOverlay(
                         schedules: [],
