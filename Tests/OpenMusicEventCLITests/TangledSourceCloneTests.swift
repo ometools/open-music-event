@@ -208,20 +208,24 @@ struct TangledSourceCloneTests {
     @Test(arguments: [
         (
             SourceControlRemoteFailure.Kind.connection,
-            "failed to start SSH session"
+            "failed to start SSH session",
+            2
         ),
         (
             SourceControlRemoteFailure.Kind.timedOut,
-            "failed to authenticate SSH session: Timed out waiting on socket"
+            "failed to authenticate SSH session: Timed out waiting on socket",
+            1
         ),
         (
             SourceControlRemoteFailure.Kind.timedOut,
-            "SSH could not read data: Timed out waiting on socket"
+            "SSH could not read data: Timed out waiting on socket",
+            1
         ),
     ])
-    func gitCheckoutRetriesATransientSSHFailureAfterRemovingPartialClone(
+    func gitCheckoutRetriesOnlyConnectionFailuresAndRemovesPartialClone(
         failureKind: SourceControlRemoteFailure.Kind,
-        failureMessage: String
+        failureMessage: String,
+        expectedCloneAttempts: Int
     ) async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
         let ownerHandle = Atmosphere.Account.Handle("woody.fm")
@@ -242,8 +246,16 @@ struct TangledSourceCloneTests {
         )
         let cloneRequests = Mutex([CloneRequest]())
         let cloneAttempts = Mutex(0)
+        let expectedError = SourceControlError.remoteOperationFailed(
+            SourceControlRemoteFailure(
+                kind: failureKind,
+                message: failureMessage
+            )
+        )
 
-        let checkout = try await withDependencies {
+        var checkout: TangledSourceCheckout?
+        do {
+            checkout = try await withDependencies {
             $0[Atmosphere.Account.Client.self] = Atmosphere.Account.Client(
                 resolveHandle: { handle in
                     expectNoDifference(handle, ownerHandle)
@@ -305,12 +317,7 @@ struct TangledSourceCloneTests {
                             at: request.destinationURL,
                             withIntermediateDirectories: true
                         )
-                        throw SourceControlError.remoteOperationFailed(
-                            SourceControlRemoteFailure(
-                                kind: failureKind,
-                                message: failureMessage
-                            )
-                        )
+                        throw expectedError
                     }
                     #expect(
                         !FileManager.default.fileExists(
@@ -332,20 +339,33 @@ struct TangledSourceCloneTests {
             $0.tangledSSHCredentials = TangledSSHCredentialsClient {
                 credentials
             }
-        } operation: {
-            try await TangledSourceCheckoutClient.git.checkout(
-                TangledSourceCheckoutRequest(
-                    repository: repository,
-                    ref: "refs/heads/main",
-                    outputURL: outputURL
+            } operation: {
+                try await TangledSourceCheckoutClient.git.checkout(
+                    TangledSourceCheckoutRequest(
+                        repository: repository,
+                        ref: "refs/heads/main",
+                        outputURL: outputURL
+                    )
+                )
+            }
+        } catch let error as SourceControlError {
+            guard expectedCloneAttempts == 1 else { throw error }
+            expectNoDifference(error, expectedError)
+        }
+
+        if expectedCloneAttempts == 2 {
+            #expect(checkout?.repositoryURL == outputURL)
+        } else {
+            #expect(checkout == nil)
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: outputURL.path(percentEncoded: false)
                 )
             )
         }
-
-        #expect(checkout.repositoryURL == outputURL)
-        #expect(cloneAttempts.withLock { $0 } == 2)
+        #expect(cloneAttempts.withLock { $0 } == expectedCloneAttempts)
         let request = try #require(cloneRequests.withLock { $0.first })
-        #expect(cloneRequests.withLock { $0.count } == 2)
+        #expect(cloneRequests.withLock { $0.count } == expectedCloneAttempts)
         #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(request.checkout == "main")
         #expect(request.destinationURL == outputURL)

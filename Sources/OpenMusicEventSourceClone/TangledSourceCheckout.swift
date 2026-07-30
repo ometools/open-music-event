@@ -144,26 +144,18 @@ public extension TangledSourceCheckoutClient {
                     remote: cloneRequest.remote.url,
                     attempt: 1
                 )
-            } catch where error.isTransientSourceControlRemoteFailure {
+            } catch {
+                let cloneError = error
+                let willRetry = error.isRetryableSourceControlConnectionFailure
                 TangledSourceCheckoutDiagnostics.logCloneFailure(
                     error,
                     remote: cloneRequest.remote.url,
                     attempt: 1,
-                    willRetry: true
+                    willRetry: willRetry
                 )
-                do {
-                    if FileManager.default.fileExists(
-                        atPath: request.outputURL.path(percentEncoded: false)
-                    ) {
-                        try FileManager.default.removeItem(at: request.outputURL)
-                    }
-                } catch {
-                    TangledSourceCheckoutDiagnostics.logRetryCleanupFailure(
-                        error,
-                        outputURL: request.outputURL
-                    )
-                    throw error
-                }
+                try Self.removePartialClone(at: request.outputURL, attempt: 1)
+                guard willRetry else { throw cloneError }
+
                 do {
                     TangledSourceCheckoutDiagnostics.logCloneStarted(
                         remote: cloneRequest.remote.url,
@@ -175,24 +167,35 @@ public extension TangledSourceCheckoutClient {
                         attempt: 2
                     )
                 } catch {
+                    let cloneError = error
                     TangledSourceCheckoutDiagnostics.logCloneFailure(
                         error,
                         remote: cloneRequest.remote.url,
                         attempt: 2,
                         willRetry: false
                     )
-                    throw error
+                    try Self.removePartialClone(at: request.outputURL, attempt: 2)
+                    throw cloneError
                 }
-            } catch {
-                TangledSourceCheckoutDiagnostics.logCloneFailure(
-                    error,
-                    remote: cloneRequest.remote.url,
-                    attempt: 1,
-                    willRetry: false
-                )
-                throw error
             }
             return TangledSourceCheckout(repositoryURL: request.outputURL)
+        }
+    }
+
+    private static func removePartialClone(at outputURL: URL, attempt: Int) throws {
+        do {
+            if FileManager.default.fileExists(
+                atPath: outputURL.path(percentEncoded: false)
+            ) {
+                try FileManager.default.removeItem(at: outputURL)
+            }
+        } catch {
+            TangledSourceCheckoutDiagnostics.logCloneCleanupFailure(
+                error,
+                outputURL: outputURL,
+                attempt: attempt
+            )
+            throw error
         }
     }
 
@@ -391,12 +394,12 @@ private struct TangledRepositoryOwnerResolution: Sendable {
 }
 
 private extension Error {
-    var isTransientSourceControlRemoteFailure: Bool {
+    var isRetryableSourceControlConnectionFailure: Bool {
         guard let sourceControlError = self as? SourceControlError,
               case let .remoteOperationFailed(failure) = sourceControlError else {
             return false
         }
-        return failure.kind == .connection || failure.kind == .timedOut
+        return failure.kind == .connection
     }
 }
 
@@ -482,10 +485,15 @@ private enum TangledSourceCheckoutDiagnostics {
         failure(message)
     }
 
-    static func logRetryCleanupFailure(_ error: Error, outputURL: URL) {
+    static func logCloneCleanupFailure(
+        _ error: Error,
+        outputURL: URL,
+        attempt: Int
+    ) {
         let message = """
-        Tangled source checkout retry cleanup failed
+        Tangled source checkout clone cleanup failed
         destination: \(outputURL.path(percentEncoded: false))
+        attempt: \(attempt)
         error: \(String(describing: error))
         """
         failure(message)
