@@ -823,6 +823,9 @@
     "Unable to resolve the repository owner." : {
 
     },
+    "Unable to restore the saved event workspace." : {
+
+    },
     "Unable to restore your account session." : {
 
     },

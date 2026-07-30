@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "499CD4382AC5B799001AE8D8"
-               BuildableName = "OpenMusicEvent.app"
+               BuildableName = "OpenMusicEventApp.app"
                BlueprintName = "OpenMusicEvent App"
                ReferencedContainer = "container:OpenMusicEvent.xcodeproj">
             </BuildableReference>
@@ -45,7 +45,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "499CD4382AC5B799001AE8D8"
-            BuildableName = "OpenMusicEvent.app"
+            BuildableName = "OpenMusicEventApp.app"
             BlueprintName = "OpenMusicEvent App"
             ReferencedContainer = "container:OpenMusicEvent.xcodeproj">
          </BuildableReference>
@@ -62,7 +62,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "499CD4382AC5B799001AE8D8"
-            BuildableName = "OpenMusicEvent.app"
+            BuildableName = "OpenMusicEventApp.app"
             BlueprintName = "OpenMusicEvent App"
             ReferencedContainer = "container:OpenMusicEvent.xcodeproj">
          </BuildableReference>
