@@ -135,9 +135,15 @@ public struct SourceProposalFlow {
 
                 state.status = .proposing
                 store.addTask {
-                    let revokeAuthoring: (any Error) async -> Void = { error in
+                    switch await Self.revalidatedAuthoringAccess(
+                        authoringContext: authoringContext,
+                        authoringPolicy: authoringPolicy
+                    ) {
+                    case .current, .notMounted:
+                        break
+                    case .revoked:
                         await store.reportError(
-                            error,
+                            AuthoringPolicyError.admissionDenied,
                             fallbackMessage: .authoringAccessChanged,
                             operation: .sourceProposalPublish
                         )
@@ -148,8 +154,8 @@ public struct SourceProposalFlow {
                             )
                             await task?.value
                         } catch {}
-                    }
-                    let reportProposalFailure: (any Error) async -> Void = { error in
+                        return
+                    case let .unavailable(error):
                         do {
                             try store.modify {
                                 $0.status = .failed(
@@ -166,19 +172,6 @@ public struct SourceProposalFlow {
                             fallbackMessage: .sourceProposalPublishFailed,
                             operation: .sourceProposalPublish
                         )
-                    }
-
-                    switch await Self.revalidatedAuthoringAccess(
-                        authoringContext: authoringContext,
-                        authoringPolicy: authoringPolicy
-                    ) {
-                    case .current, .notMounted:
-                        break
-                    case .revoked:
-                        await revokeAuthoring(AuthoringPolicyError.admissionDenied)
-                        return
-                    case let .unavailable(error):
-                        await reportProposalFailure(error)
                         return
                     }
 
@@ -214,9 +207,35 @@ public struct SourceProposalFlow {
                             authoringContext: authoringContext,
                             authoringPolicy: authoringPolicy
                         ) {
-                            await revokeAuthoring(error)
+                            await store.reportError(
+                                error,
+                                fallbackMessage: .authoringAccessChanged,
+                                operation: .sourceProposalPublish
+                            )
+                            do {
+                                let task = try store.post(
+                                    key: AuthoringAccessRevoked.self,
+                                    value: ()
+                                )
+                                await task?.value
+                            } catch {}
                         } else {
-                            await reportProposalFailure(error)
+                            do {
+                                try store.modify {
+                                    $0.status = .failed(
+                                        EventWorkspace.SourceProposalFailure(
+                                            SourceProposalPublishFailed()
+                                        )
+                                    )
+                                }
+                            } catch {
+                                return
+                            }
+                            await store.reportError(
+                                error,
+                                fallbackMessage: .sourceProposalPublishFailed,
+                                operation: .sourceProposalPublish
+                            )
                         }
                     }
                 }

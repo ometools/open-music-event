@@ -45,10 +45,13 @@ struct AuthoringTests {
                 admissionRequests.withLock { $0.append(workspaceID) }
                 return .granted(principal: .local, role: .owner)
             }
-            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { workspaceID in
-                #expect(workspaceID == workspace.id)
-                return workspace
-            }
+            $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
+                open: { workspaceID in
+                    #expect(workspaceID == workspace.id)
+                    return workspace
+                },
+                prepareSource: { _ in }
+            )
         } operation: {
             Store(
                 initialState: Authoring<WorkspaceProbe>.State(workspace: workspace) {
@@ -109,7 +112,8 @@ struct AuthoringTests {
         let entry = await store.send(.enterButtonTapped)
         let sourcePreparation = await store.receive(\.authoringEntryPrepared) {
             $0.grant = AuthoringGrant(
-                capabilities: [.editContent],
+                principal: .local,
+                role: .owner,
                 workspace: workspace
             )
         }
@@ -119,7 +123,7 @@ struct AuthoringTests {
         let access = await store[dynamicMember: \.access]
         expectNoDifference(
             access,
-            .authoring([.editContent])
+            .authoring(.owner)
         )
 
         await preparationGate.finish()
@@ -401,7 +405,8 @@ struct AuthoringTests {
                 \.authoringEntryPrepared
             ) {
                 $0.authoring.grant = AuthoringGrant(
-                    capabilities: [.editContent],
+                    principal: .local,
+                    role: .owner,
                     workspace: workspace
                 )
             }
@@ -417,7 +422,7 @@ struct AuthoringTests {
         }
 
         let access = await store[dynamicMember: \.authoring.state.access]
-        expectNoDifference(access, .authoring([.editContent]))
+        expectNoDifference(access, .authoring(.owner))
 
         await store.dismount()
     }
