@@ -144,7 +144,7 @@ public extension TangledSourceCheckoutClient {
                     remote: cloneRequest.remote.url,
                     attempt: 1
                 )
-            } catch where error.isTransientSSHSessionFailure {
+            } catch where error.isTransientSourceControlRemoteFailure {
                 TangledSourceCheckoutDiagnostics.logCloneFailure(
                     error,
                     remote: cloneRequest.remote.url,
@@ -391,16 +391,12 @@ private struct TangledRepositoryOwnerResolution: Sendable {
 }
 
 private extension Error {
-    var isTransientSSHSessionFailure: Bool {
+    var isTransientSourceControlRemoteFailure: Bool {
         guard let sourceControlError = self as? SourceControlError,
-              case let .operationFailed(message) = sourceControlError else {
+              case let .remoteOperationFailed(failure) = sourceControlError else {
             return false
         }
-        return message.localizedCaseInsensitiveContains("failed to start ssh session")
-            || (
-                message.localizedCaseInsensitiveContains("failed to authenticate ssh session")
-                    && message.localizedCaseInsensitiveContains("timed out waiting on socket")
-            )
+        return failure.kind == .connection || failure.kind == .timedOut
     }
 }
 

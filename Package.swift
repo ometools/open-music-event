@@ -416,6 +416,10 @@ var targets: [Target] = [
             "OpenMusicEventSourceEditing",
             .product(name: "CustomDump", package: "swift-custom-dump"),
             .product(name: "DependenciesTestSupport", package: "swift-dependencies"),
+            .product(
+                name: "SourceControlClient",
+                package: "swift-dependencies-source-control-client"
+            ),
         ]
     ),
     .testTarget(

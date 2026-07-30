@@ -206,10 +206,21 @@ struct TangledSourceCloneTests {
     }
 
     @Test(arguments: [
-        "failed to start SSH session",
-        "failed to authenticate SSH session: Timed out waiting on socket",
+        (
+            SourceControlRemoteFailure.Kind.connection,
+            "failed to start SSH session"
+        ),
+        (
+            SourceControlRemoteFailure.Kind.timedOut,
+            "failed to authenticate SSH session: Timed out waiting on socket"
+        ),
+        (
+            SourceControlRemoteFailure.Kind.timedOut,
+            "SSH could not read data: Timed out waiting on socket"
+        ),
     ])
     func gitCheckoutRetriesATransientSSHFailureAfterRemovingPartialClone(
+        failureKind: SourceControlRemoteFailure.Kind,
         failureMessage: String
     ) async throws {
         let ownerDID = try #require(DID("did:plc:owner123"))
@@ -294,7 +305,12 @@ struct TangledSourceCloneTests {
                             at: request.destinationURL,
                             withIntermediateDirectories: true
                         )
-                        throw SourceControlError.operationFailed(failureMessage)
+                        throw SourceControlError.remoteOperationFailed(
+                            SourceControlRemoteFailure(
+                                kind: failureKind,
+                                message: failureMessage
+                            )
+                        )
                     }
                     #expect(
                         !FileManager.default.fileExists(

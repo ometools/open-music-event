@@ -7,6 +7,7 @@ import GRDB
 import IssueReporting
 import OpenMusicEventSourceEditing
 import Sharing
+import SourceControlClient
 import Synchronization
 import Testing
 
@@ -165,6 +166,9 @@ struct AuthoringTests {
             await store.send(to: \.authoring, .enterButtonTapped)?.value
         }
         await store.expect {
+            $0.reportedErrorDebugDescription = String(
+                describing: TestFailure.authorizationDenied
+            )
             $0.reportedErrorMessage = "Unable to enter authoring."
             $0.reportedErrorOperation = ErrorOperation(
                 rawValue: "authoring.entry.authorization"
@@ -183,6 +187,12 @@ struct AuthoringTests {
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `preparation failure reports an ephemeral issue and remains attendee`() async throws {
+        let failure = SourceControlError.remoteOperationFailed(
+            SourceControlRemoteFailure(
+                kind: .timedOut,
+                message: "SSH could not read data: Timed out waiting on socket"
+            )
+        )
         let workspace = WorkspaceContext(
             id: EditingWorkspaceRecord.ID(rawValue: "workspace-preparation-failed"),
             sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
@@ -190,7 +200,7 @@ struct AuthoringTests {
         let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
             $0[AuthoringPolicyClient.self] = .authoring
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient { _ in
-                throw TestFailure.preparationFailed
+                throw failure
             }
         } operation: {
             await TestStoreActor(
@@ -205,6 +215,7 @@ struct AuthoringTests {
         }
         await store.expect {
             $0.reportedErrorMessage = "Unable to enter authoring."
+            $0.reportedErrorDebugDescription = String(describing: failure)
             $0.reportedErrorOperation = ErrorOperation(
                 rawValue: "authoring.entry.preparation"
             )
@@ -317,6 +328,7 @@ struct AuthoringErrorHost {
         }
 
         var authoring: Spawn<Authoring<WorkspaceProbe>>
+        var reportedErrorDebugDescription: String?
         var reportedErrorMessage: String?
         var reportedErrorOperation: ErrorOperation?
     }
@@ -329,6 +341,7 @@ struct AuthoringErrorHost {
                 Authoring { WorkspaceProbe() }
             }
             .onEvent(ErrorReported.self) { error, state in
+                state.reportedErrorDebugDescription = error.debugDescription
                 state.reportedErrorMessage = error.message.fallback
                 state.reportedErrorOperation = error.operation
             }
