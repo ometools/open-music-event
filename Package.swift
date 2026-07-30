@@ -265,13 +265,13 @@ openMusicEventComponentsDependencies.append(
     .product(name: "SkipFuseUI", package: "skip-fuse-ui")
 )
 openMusicEventTimeZonesDependencies.append(
-    .product(name: "SkipSwiftUI", package: "skip-fuse-ui")
+    .product(name: "SkipFuseUI", package: "skip-fuse-ui")
 )
 openMusicEventWhiteLabelDependencies.append(
     .product(name: "SkipFuseUI", package: "skip-fuse-ui")
 )
 scheduleComponentsDependencies.append(
-    .product(name: "SkipSwiftUI", package: "skip-fuse-ui")
+    .product(name: "SkipFuseUI", package: "skip-fuse-ui")
 )
 #endif
 
