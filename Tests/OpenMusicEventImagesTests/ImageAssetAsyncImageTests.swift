@@ -1,3 +1,7 @@
+import ATProto
+#if canImport(AppKit)
+import AppKit
+#endif
 import CustomDump
 import OpenMusicEventLexicon
 import SwiftUI
@@ -7,6 +11,36 @@ import Testing
 
 @MainActor
 struct ImageAssetAsyncImageTests {
+    #if canImport(AppKit)
+    @Test
+    func `unavailable hero logo does not constrain fallback title width`() {
+        let unavailableLogo = OME.ImageAsset(
+            source: .blob(
+                ATProto.Blob(
+                    ref: "bafkreiunavailablelogo",
+                    mimeType: "image/png",
+                    size: 1
+                )
+            ),
+            role: .logo,
+            renderKind: .transparent,
+            materializationPolicy: .lazy
+        )
+        let titleSources: [HeroImageTitleSource] = [
+            .logo(DisplayImageAsset(asset: unavailableLogo)),
+            .title,
+        ]
+        let titleSourceChain = HeroImageTitleSourceChain(
+            title: Text("Abstrvct Azure"),
+            sources: titleSources[...]
+        )
+
+        let hostingView = NSHostingView(rootView: titleSourceChain)
+
+        #expect(hostingView.fittingSize.width > 164)
+    }
+    #endif
+
     @Test
     func `resolved image location preserves current rendering metadata`() throws {
         let remoteURL = try #require(URL(string: "https://example.com/hero.jpg"))

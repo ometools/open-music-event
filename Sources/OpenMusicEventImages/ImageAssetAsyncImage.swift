@@ -18,6 +18,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     let asset: OME.ImageAsset?
     let cacheContext: LocalImageCacheContext?
     var contentMode: ContentMode?
+    var renderedImageSize: CGSize?
     var focusSafeAreaInsets: EdgeInsets
     let onIntrinsicSizeLoaded: (CGSize) -> Void
     @ViewBuilder var placeholder: (ImageAssetPlaceholderReason) -> Placeholder
@@ -30,6 +31,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
+        renderedImageSize: CGSize? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping () -> Placeholder
@@ -37,6 +39,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         self.asset = asset
         self.cacheContext = cacheContext
         self.contentMode = contentMode
+        self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
         self.onIntrinsicSizeLoaded = onIntrinsicSizeLoaded
         self.placeholder = { _ in placeholder() }
@@ -46,6 +49,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         asset: OME.ImageAsset?,
         cacheContext: LocalImageCacheContext? = nil,
         contentMode: ContentMode? = nil,
+        renderedImageSize: CGSize? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
@@ -53,6 +57,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         self.asset = asset
         self.cacheContext = cacheContext
         self.contentMode = contentMode
+        self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
         self.onIntrinsicSizeLoaded = onIntrinsicSizeLoaded
         self.placeholder = placeholder
@@ -61,6 +66,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     public init(
         image: DisplayImageAsset?,
         contentMode: ContentMode? = nil,
+        renderedImageSize: CGSize? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping () -> Placeholder
@@ -68,6 +74,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         self.asset = image?.asset
         self.cacheContext = image?.cacheContext
         self.contentMode = contentMode
+        self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
         self.onIntrinsicSizeLoaded = onIntrinsicSizeLoaded
         self.placeholder = { _ in placeholder() }
@@ -76,6 +83,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
     public init(
         image: DisplayImageAsset?,
         contentMode: ContentMode? = nil,
+        renderedImageSize: CGSize? = nil,
         focusSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onIntrinsicSizeLoaded: @escaping (CGSize) -> Void = { _ in },
         @ViewBuilder placeholder: @escaping (ImageAssetPlaceholderReason) -> Placeholder
@@ -83,6 +91,7 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
         self.asset = image?.asset
         self.cacheContext = image?.cacheContext
         self.contentMode = contentMode
+        self.renderedImageSize = renderedImageSize
         self.focusSafeAreaInsets = focusSafeAreaInsets
         self.onIntrinsicSizeLoaded = onIntrinsicSizeLoaded
         self.placeholder = placeholder
@@ -110,6 +119,10 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
                         image,
                         intrinsicSize: intrinsicSize,
                         asset: displayAsset
+                    )
+                    .frame(
+                        width: renderedImageSize?.width,
+                        height: renderedImageSize?.height
                     )
                     .onAppear {
                         onIntrinsicSizeLoaded(intrinsicSize)

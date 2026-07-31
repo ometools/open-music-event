@@ -531,18 +531,24 @@ struct HeroImageTitleSourceChain: View {
         if let source = sources.first {
             switch source {
             case let .logo(image):
+                let logoSize = CGSize(width: 164, height: 72)
                 ImageAssetAsyncImage(
                     image: image,
-                    contentMode: .fit
+                    contentMode: .fit,
+                    renderedImageSize: logoSize
                 ) { reason in
                     switch reason {
                     case .loading:
                         Color.clear
+                            .frame(
+                                width: logoSize.width,
+                                height: logoSize.height,
+                                alignment: .leading
+                            )
                     case .failure, .unavailable:
                         nextSource
                     }
                 }
-                .frame(width: 164, height: 72, alignment: .leading)
                 .accessibilityLabel(title)
 
             case .title:
