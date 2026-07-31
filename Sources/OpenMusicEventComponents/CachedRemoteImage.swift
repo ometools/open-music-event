@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(ImageIO)
+import ImageIO
+#endif
 #if os(Android)
 import SkipSwiftUI
 #elseif canImport(SwiftUI)
@@ -178,12 +181,19 @@ final class CachedRemoteImageStore {
             )
         }
 
-        guard let decodedImage = UIImage(data: data) else {
-            throw CachedRemoteImageError.invalidImageData
+        let preparedImage: UIImage
+        if let targetPixelSize {
+            let decodedImage = try decodeCachedRemoteCGImage(
+                data,
+                targetPixelSize: targetPixelSize
+            )
+            preparedImage = UIImage(cgImage: decodedImage)
+        } else {
+            guard let decodedImage = UIImage(data: data) else {
+                throw CachedRemoteImageError.invalidImageData
+            }
+            preparedImage = decodedImage
         }
-        let preparedImage = decodedImage.preparingThumbnail(
-            targetPixelSize: targetPixelSize
-        )
         let cost = Int(preparedImage.size.width * preparedImage.scale)
             * Int(preparedImage.size.height * preparedImage.scale)
             * 4
@@ -265,36 +275,32 @@ enum CachedRemoteImageError: Error {
     case invalidImageData
 }
 
-#if os(iOS)
-extension UIImage {
-    func preparingThumbnail(targetPixelSize: CGSize?) -> UIImage {
-        guard let targetPixelSize,
-              targetPixelSize.width > 0,
-              targetPixelSize.height > 0 else {
-            return self
-        }
-
-        let sourcePixelSize = CGSize(
-            width: size.width * scale,
-            height: size.height * scale
-        )
-        let scaleRatio = min(
-            targetPixelSize.width / sourcePixelSize.width,
-            targetPixelSize.height / sourcePixelSize.height,
-            1
-        )
-        guard scaleRatio < 1 else { return self }
-
-        let thumbnailSize = CGSize(
-            width: max(1, sourcePixelSize.width * scaleRatio),
-            height: max(1, sourcePixelSize.height * scaleRatio)
-        )
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        return UIGraphicsImageRenderer(size: thumbnailSize, format: format).image { _ in
-            draw(in: CGRect(origin: .zero, size: thumbnailSize))
-        }
+#if canImport(ImageIO) && !os(Android)
+func decodeCachedRemoteCGImage(
+    _ data: Data,
+    targetPixelSize: CGSize
+) throws -> CGImage {
+    guard targetPixelSize.width > 0,
+          targetPixelSize.height > 0,
+          let source = CGImageSourceCreateWithData(
+              data as CFData,
+              [kCGImageSourceShouldCache: false] as CFDictionary
+          ),
+          let image = CGImageSourceCreateThumbnailAtIndex(
+              source,
+              0,
+              [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceShouldCacheImmediately: true,
+                  kCGImageSourceThumbnailMaxPixelSize: max(
+                      targetPixelSize.width,
+                      targetPixelSize.height
+                  ),
+              ] as CFDictionary
+          ) else {
+        throw CachedRemoteImageError.invalidImageData
     }
+    return image
 }
 #endif

@@ -1562,7 +1562,11 @@ struct ContributorArtworkView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(.secondary.opacity(0.12))
 
-            ImageAssetAsyncImage(asset: asset, cacheContext: cacheContext) {
+            ImageAssetAsyncImage(
+                asset: asset,
+                cacheContext: cacheContext,
+                renderedImageSize: CGSize(width: size, height: size)
+            ) {
                 placeholder
             }
         }

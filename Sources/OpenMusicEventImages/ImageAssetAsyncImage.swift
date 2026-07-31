@@ -109,7 +109,8 @@ public struct ImageAssetAsyncImage<Placeholder: View>: View {
                   let url = displayAsset.url {
             CachedRemoteImage(
                 url: url,
-                cacheKey: renderingCacheKey
+                cacheKey: renderingCacheKey,
+                targetSize: renderedImageSize
             ) { phase in
                 switch phase {
                 case .empty:
