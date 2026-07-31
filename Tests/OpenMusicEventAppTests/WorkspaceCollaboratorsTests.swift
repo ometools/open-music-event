@@ -175,7 +175,7 @@ struct WorkspaceCollaboratorsTests {
         EditingWorkspaceRecord(
             id: .init(rawValue: "team.workspace"),
             kind: .team,
-            databaseFileName: "workspace.sqlite",
+            referenceDatabaseFileName: "workspace.sqlite",
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 1),
             publicRecord: OME.Relationship.RecordReference(

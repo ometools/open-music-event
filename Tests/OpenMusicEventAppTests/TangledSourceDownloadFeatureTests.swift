@@ -61,23 +61,15 @@ struct TangledSourceDownloadFeatureTests {
             sourceProvenance: sourceProvenance,
             into: database
         )
-        let authoringRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
         let preparedWorkspaceIDs = Mutex<[EditingWorkspaceRecord.ID]>([])
 
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
-            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { requestedWorkspaceID in
-                authoringRequests.withLock { $0.append(requestedWorkspaceID) }
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { _ in
                 return .granted(principal: .local, role: .owner)
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { requestedWorkspaceID in
-                    EditingWorkspace(
-                        id: requestedWorkspaceID,
-                        sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-                    )
-                },
                 prepareSource: { requestedWorkspaceID in
                     preparedWorkspaceIDs.withLock { $0.append(requestedWorkspaceID) }
                 }
@@ -96,7 +88,6 @@ struct TangledSourceDownloadFeatureTests {
                 == sourceBaselineID
         )
         #expect(store.state.teamWorkspaceDetail?.content.access == .attendee)
-        #expect(authoringRequests.withLock { $0.isEmpty })
         #expect(preparedWorkspaceIDs.withLock { $0.isEmpty })
 
         // The explicit action grants authoring immediately and starts source promotion.
@@ -105,10 +96,6 @@ struct TangledSourceDownloadFeatureTests {
         )
         await entryTask?.value
 
-        expectNoDifference(
-            authoringRequests.withLock { $0 },
-            [workspaceID]
-        )
         expectNoDifference(
             preparedWorkspaceIDs.withLock { $0 },
             [workspaceID]
@@ -1080,7 +1067,7 @@ struct TangledSourceDownloadFeatureTests {
     }
 
     @Test
-    func sourceDataRefreshImportsSourceBaselineUsingBaseContext() async throws {
+    func sourceDataRefreshImportsSourceBaselineUsingRootDefaultContext() async throws {
         let recorder = SourceDataRefreshImportRecorder()
         let sourceProvenance = tangledSourceProvenance(
             "refresh-source",
@@ -1094,20 +1081,6 @@ struct TangledSourceDownloadFeatureTests {
             .appending(path: "source-data-refresh-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
-        let baselineDatabasePath = temporaryURL.appending(path: "baseline.sqlite").path()
-        let baselineDatabase = try DatabasePool(path: baselineDatabasePath)
-        try await baselineDatabase.write { db in
-            try db.execute(sql: "PRAGMA user_version = 0")
-        }
-        let sourceEditingSession = try SourceEditingSession(
-            workingDatabasePath: temporaryURL.appending(path: "working.sqlite").path(),
-            baselineDatabasePath: baselineDatabasePath
-        )
-        try await sourceEditingSession.database.write { db in
-            try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
-            try db.execute(sql: "INSERT INTO marker VALUES ('working')")
-        }
-
         try await withDependencies {
             $0.context = .test
             try OME.prepareDependencies(&$0)
@@ -1150,7 +1123,6 @@ struct TangledSourceDownloadFeatureTests {
                 }
                 .execute(db)
             }
-            $0.defaultDatabase = sourceEditingSession.database
             $0.tangledSourceImport = TangledSourceImportClient { request in
                 @Dependency(\.defaultDatabase) var database
                 let databaseMarker = try await database.read { db in
@@ -1262,15 +1234,11 @@ struct TangledSourceDownloadFeatureTests {
         let requestedSourceProvenance = try refreshRequest.tangledSourceProvenance()
         let sourceProvenance = try #require(requestedSourceProvenance)
         let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
         let storageRootURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-rebased-source-root-\(UUID().uuidString)")
         let workingRootURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-rebased-working-root-\(UUID().uuidString)")
         let refreshUUID = UUID()
-        let sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient.fileBacked(
-            workingDirectory: workingRootURL
-        )
         defer {
             try? FileManager.default.removeItem(at: storageRootURL)
             try? FileManager.default.removeItem(at: workingRootURL)
@@ -1302,18 +1270,6 @@ struct TangledSourceDownloadFeatureTests {
         } operation: {
             try await initialInsertion.migrateAndInsert(into: database)
         }
-        let workspace = try withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
-            $0.sourceRepositoryStorage = .live
-            $0.sourceReferenceDatabase = .live
-            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-            $0.sourceWorkspaceDatabasePreparation = .openMusicEvent
-            $0.sourceWorkspaceDatabase = sourceWorkspaceDatabase
-        } operation: {
-            try sourceWorkspaceDatabase.workspace(workspaceID)
-        }
-
         let existingEventID = try await database.read { db in
             try #require(
                 try OMERecord.Event
@@ -1322,7 +1278,7 @@ struct TangledSourceDownloadFeatureTests {
                     .id
             )
         }
-        try await workspace.database.write { db in
+        try await database.write { db in
             try OMERecord.Event
                 .find(existingEventID)
                 .update { $0.name = "Locally Edited" }
@@ -1337,7 +1293,6 @@ struct TangledSourceDownloadFeatureTests {
             $0.sourceRepositoryStorage = .live
             $0.sourceReferenceDatabase = .live
             $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-            $0.sourceWorkspaceDatabase = sourceWorkspaceDatabase
             $0.openMusicEventSourcePatchConversion = .live
             $0.openMusicEventCalendarSourcePatchConversion = .live
             $0.sourceWorkingTreeMaterializer = .live(
@@ -1377,18 +1332,11 @@ struct TangledSourceDownloadFeatureTests {
         }
 
         #expect(result.repositoryURL == storedRepositoryURL)
-        let attendeeEventNames = try await database.read { db in
+        let defaultEventNames = try await database.read { db in
             try OMERecord.Event.fetchAll(db).map(\.name).sorted()
         }
         expectNoDifference(
-            attendeeEventNames,
-            ["Backend Added", "Backend Existing"]
-        )
-        let workingEventNames = try await workspace.database.read { db in
-            try OMERecord.Event.fetchAll(db).map(\.name).sorted()
-        }
-        expectNoDifference(
-            workingEventNames,
+            defaultEventNames,
             ["Backend Added", "Locally Edited"]
         )
 
@@ -1405,10 +1353,16 @@ struct TangledSourceDownloadFeatureTests {
             ["Backend Added", "Backend Existing"]
         )
 
-        let summary = try await workspace.database.read { db in
+        let summary = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
+            $0.sourceRepositoryStorage = .live
+            $0.sourceReferenceDatabase = .live
+            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+        } operation: {
             try SourceEditSummary.query(
                 sourceBaselineID: sourceBaselineID,
-                in: db
+                using: database
             )
         }
         #expect(summary.availability == .available)
@@ -1426,16 +1380,11 @@ struct TangledSourceDownloadFeatureTests {
         )
         let requestedSourceProvenance = try refreshRequest.tangledSourceProvenance()
         let sourceProvenance = try #require(requestedSourceProvenance)
-        let sourceBaselineID = SourceBaselineRecord.ID(source: sourceProvenance)
-        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
         let storageRootURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-conflicting-source-root-\(UUID().uuidString)")
         let workingRootURL = FileManager.default.temporaryDirectory
             .appending(path: "ome-conflicting-working-root-\(UUID().uuidString)")
         let refreshUUID = UUID()
-        let sourceWorkspaceDatabase = SourceWorkspaceDatabaseClient.fileBacked(
-            workingDirectory: workingRootURL
-        )
         defer {
             try? FileManager.default.removeItem(at: storageRootURL)
             try? FileManager.default.removeItem(at: workingRootURL)
@@ -1467,18 +1416,6 @@ struct TangledSourceDownloadFeatureTests {
         } operation: {
             try await initialInsertion.migrateAndInsert(into: database)
         }
-        let workspace = try withDependencies {
-            $0.defaultDatabase = database
-            $0.sourceRepositoryStorageRoot = .rooted(at: storageRootURL)
-            $0.sourceRepositoryStorage = .live
-            $0.sourceReferenceDatabase = .live
-            $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-            $0.sourceWorkspaceDatabasePreparation = .openMusicEvent
-            $0.sourceWorkspaceDatabase = sourceWorkspaceDatabase
-        } operation: {
-            try sourceWorkspaceDatabase.workspace(workspaceID)
-        }
-
         let existingEventID = try await database.read { db in
             try #require(
                 try OMERecord.Event
@@ -1487,7 +1424,7 @@ struct TangledSourceDownloadFeatureTests {
                     .id
             )
         }
-        try await workspace.database.write { db in
+        try await database.write { db in
             try OMERecord.Event
                 .find(existingEventID)
                 .update { $0.name = "Locally Edited" }
@@ -1503,7 +1440,6 @@ struct TangledSourceDownloadFeatureTests {
                 $0.sourceRepositoryStorage = .live
                 $0.sourceReferenceDatabase = .live
                 $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-                $0.sourceWorkspaceDatabase = sourceWorkspaceDatabase
                 $0.openMusicEventSourcePatchConversion = .live
                 $0.openMusicEventCalendarSourcePatchConversion = .live
                 $0.sourceWorkingTreeMaterializer = .live(
@@ -1539,14 +1475,10 @@ struct TangledSourceDownloadFeatureTests {
             .staleFile(path: "events/existing/event.yml")
         )
 
-        let attendeeEventNames = try await database.read { db in
+        let defaultEventNames = try await database.read { db in
             try OMERecord.Event.fetchAll(db).map(\.name).sorted()
         }
-        expectNoDifference(attendeeEventNames, ["Backend Existing"])
-        let workingEventNames = try await workspace.database.read { db in
-            try OMERecord.Event.fetchAll(db).map(\.name).sorted()
-        }
-        expectNoDifference(workingEventNames, ["Locally Edited"])
+        expectNoDifference(defaultEventNames, ["Locally Edited"])
 
         let referenceDatabaseURL = try SourceReferenceDatabaseClient
             .referenceDatabaseURL(repositoryURL: storedRepositoryURL)

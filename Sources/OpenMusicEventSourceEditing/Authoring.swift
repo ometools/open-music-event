@@ -44,30 +44,64 @@ public enum AuthoringAccess: Equatable, Sendable {
 public struct AuthoringGrant: Equatable, Sendable {
     public var principal: AuthoringPrincipal
     public var role: OME.WorkspaceRole
-    public var workspace: EditingWorkspace
+    public var workspaceID: EditingWorkspaceRecord.ID
 
     public init(
         principal: AuthoringPrincipal,
         role: OME.WorkspaceRole,
-        workspace: EditingWorkspace
+        workspaceID: EditingWorkspaceRecord.ID
     ) {
         self.principal = principal
         self.role = role
-        self.workspace = workspace
-    }
-
-    public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.principal == rhs.principal
-            && lhs.role == rhs.role
-            && lhs.workspace.id == rhs.workspace.id
-            && lhs.workspace.sourceEditingSession?.workingDatabasePath
-                == rhs.workspace.sourceEditingSession?.workingDatabasePath
-            && lhs.workspace.sourceEditingSession?.baselineDatabasePath
-                == rhs.workspace.sourceEditingSession?.baselineDatabasePath
+        self.workspaceID = workspaceID
     }
 
     public var access: AuthoringAccess {
         .authoring(role)
+    }
+}
+
+private enum AuthoringGrantReaderKey: DependencyKey {
+    static var liveValue: SharedReader<AuthoringGrant?> {
+        SharedReader(value: nil)
+    }
+
+    static var testValue: SharedReader<AuthoringGrant?> {
+        SharedReader(value: nil)
+    }
+}
+
+private enum EditingWorkspaceIDKey: DependencyKey {
+    static var liveValue: EditingWorkspaceRecord.ID? { nil }
+    static var testValue: EditingWorkspaceRecord.ID? { nil }
+}
+
+public extension DependencyValues {
+    var authoringGrant: SharedReader<AuthoringGrant?> {
+        get { self[AuthoringGrantReaderKey.self] }
+        set { self[AuthoringGrantReaderKey.self] = newValue }
+    }
+
+    var editingWorkspaceID: EditingWorkspaceRecord.ID? {
+        get { self[EditingWorkspaceIDKey.self] }
+        set { self[EditingWorkspaceIDKey.self] = newValue }
+    }
+
+    /// A workspace ID selects authorization and reference metadata; it never selects a writable
+    /// database. Authoring and workspace features must inherit the application's
+    /// `defaultDatabase` unchanged.
+    mutating func useAuthoringContext(
+        _ workspaceID: EditingWorkspaceRecord.ID,
+        grant: SharedReader<AuthoringGrant?>
+    ) {
+        if let grantedWorkspaceID = grant.wrappedValue?.workspaceID {
+            precondition(
+                grantedWorkspaceID == workspaceID,
+                "An authoring grant cannot be used for a different workspace."
+            )
+        }
+        authoringGrant = grant
+        editingWorkspaceID = workspaceID
     }
 }
 
@@ -154,28 +188,19 @@ public struct Authoring<Content: FeatureProtocol> {
             initiallyRequestsEntry: Bool = false,
             makeContentState: () -> Content.State
         ) {
-            @Dependency(\.defaultDatabase) var database
             @Dependency(WorkspaceAuthoringActivationClient.self) var activations
-            @Dependency(WorkspacePreparationClient.self) var preparation
-            let attendeeWorkspace = EditingWorkspace(
-                id: workspaceID,
-                sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-            )
             let restoration = Result {
                 try activations.current(workspaceID)
             }
             let activation = try? restoration.get()
-            let restoredWorkspace = activation.flatMap { _ in
-                try? preparation.open(workspaceID)
-            } ?? attendeeWorkspace
             self.init(
-                attendeeWorkspace: attendeeWorkspace,
+                workspaceID: workspaceID,
                 grant: Shared(
                     value: activation.map {
                         AuthoringGrant(
                             principal: $0.principal,
                             role: $0.role,
-                            workspace: restoredWorkspace
+                            workspaceID: workspaceID
                         )
                     }
                 ),
@@ -188,51 +213,25 @@ public struct Authoring<Content: FeatureProtocol> {
         }
 
         public init(
-            workspace: EditingWorkspace,
-            initiallyRequestsEntry: Bool = false,
-            makeContentState: () -> Content.State
-        ) {
-            self.init(
-                attendeeWorkspace: workspace,
-                grant: Shared(value: nil),
-                initiallyRequestsEntry: initiallyRequestsEntry,
-                makeContentState: makeContentState
-            )
-        }
-
-        public init(
             workspaceID: EditingWorkspaceRecord.ID,
             grant: Shared<AuthoringGrant?>,
             initiallyRequestsEntry: Bool = false,
             makeContentState: () -> Content.State
         ) {
-            @Dependency(\.defaultDatabase) var database
-            self.init(
-                attendeeWorkspace: EditingWorkspace(
-                    id: workspaceID,
-                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-                ),
-                grant: grant,
-                initiallyRequestsEntry: initiallyRequestsEntry,
-                makeContentState: makeContentState
-            )
-        }
-
-        private init(
-            attendeeWorkspace: EditingWorkspace,
-            grant: Shared<AuthoringGrant?>,
-            initiallyRequestsEntry: Bool,
-            makeContentState: () -> Content.State
-        ) {
+            if let grantedWorkspaceID = grant.wrappedValue?.workspaceID {
+                precondition(
+                    grantedWorkspaceID == workspaceID,
+                    "An authoring grant cannot be used for a different workspace."
+                )
+            }
             self._grant = grant
-            self.attendeeWorkspace = attendeeWorkspace
+            self.workspaceID = workspaceID
             self.admission = grant.wrappedValue.map {
                 .granted(principal: $0.principal, role: $0.role)
             }
             self.initiallyRequestsEntry = initiallyRequestsEntry
-            let workspace = grant.wrappedValue?.workspace ?? attendeeWorkspace
             self.content = withDependencies {
-                $0.useAuthoringContext(workspace, grant: SharedReader(grant))
+                $0.useAuthoringContext(workspaceID, grant: SharedReader(grant))
             } operation: {
                 makeContentState()
             }
@@ -246,8 +245,8 @@ public struct Authoring<Content: FeatureProtocol> {
         @StoreTaskID public var entry
         @StoreTaskID public var sourcePreparation
         @DebugSnapshotIgnored var activationRestorationErrorDescription: String?
-        @DebugSnapshotIgnored public var attendeeWorkspace: EditingWorkspace
         @DebugSnapshotIgnored var initiallyRequestsEntry: Bool
+        @DebugSnapshotIgnored public var workspaceID: EditingWorkspaceRecord.ID
 
         public var access: AuthoringAccess {
             grant?.access ?? .attendee
@@ -258,19 +257,6 @@ public struct Authoring<Content: FeatureProtocol> {
                   case .granted = admission
             else { return false }
             return true
-        }
-
-        public var workspace: EditingWorkspace {
-            guard let grant else { return attendeeWorkspace }
-            precondition(
-                grant.workspace.id == attendeeWorkspace.id,
-                "An authoring grant cannot be mounted into a different workspace."
-            )
-            return grant.workspace
-        }
-
-        public var workspaceID: EditingWorkspaceRecord.ID {
-            attendeeWorkspace.id
         }
 
         public mutating func invalidateAuthoring() {
@@ -286,7 +272,6 @@ public struct Authoring<Content: FeatureProtocol> {
         case enterButtonTapped
         case exitButtonTapped
         case refreshAdmission
-        case sourceWorkspacePrepared(EditingWorkspace)
     }
 
     @Dependency(WorkspaceAuthoringActivationClient.self) var activations
@@ -302,8 +287,8 @@ public struct Authoring<Content: FeatureProtocol> {
                     role: grant.role
                 )
                 state.$grant.withLock { $0 = grant }
-                AuthoringEntryDiagnostics.logDone(workspaceID: grant.workspace.id)
-                prepareSource(state: &state, workspaceID: grant.workspace.id)
+                AuthoringEntryDiagnostics.logDone(workspaceID: grant.workspaceID)
+                prepareSource(state: &state, workspaceID: grant.workspaceID)
 
             case .authoringExitPersisted:
                 state.invalidateAuthoring()
@@ -321,24 +306,13 @@ public struct Authoring<Content: FeatureProtocol> {
             case .refreshAdmission:
                 refreshAdmission(state: &state)
 
-            case let .sourceWorkspacePrepared(workspace):
-                guard var grant = state.grant,
-                      grant.workspace.id == workspace.id
-                else { return }
-                grant.workspace = workspace
-                state.$grant.withLock { $0 = grant }
             }
         }
         Scope(\.content, action: \.content) {
             makeContent()
                 .transformDependency(\.self) { dependencies in
-                    let workspace = store.grant?.workspace ?? store.attendeeWorkspace
-                    precondition(
-                        workspace.id == store.attendeeWorkspace.id,
-                        "An authoring grant cannot be mounted into a different workspace."
-                    )
                     dependencies.useAuthoringContext(
-                        workspace,
+                        store.workspaceID,
                         grant: SharedReader(store.$grant)
                     )
                 }
@@ -395,7 +369,6 @@ public struct Authoring<Content: FeatureProtocol> {
         let admissionCheck = state.admissionCheck
         state.admission = nil
         let workspaceID = state.workspaceID
-        let attendeeWorkspace = state.attendeeWorkspace
         store.addTask(id: state.entry) {
             await admissionCheck.cancel()?.value
             try store.modify {
@@ -444,14 +417,12 @@ public struct Authoring<Content: FeatureProtocol> {
 
             do {
                 try await activations.activate(workspaceID, principal, role)
-                let workspace = (try? preparation.open(workspaceID))
-                    ?? attendeeWorkspace
                 try store.send(
                     .authoringEntryPrepared(
                         AuthoringGrant(
                             principal: principal,
                             role: role,
-                            workspace: workspace
+                            workspaceID: workspaceID
                         )
                     )
                 )
@@ -503,12 +474,7 @@ public struct Authoring<Content: FeatureProtocol> {
         guard !state.sourcePreparation.isRunning else { return }
         store.addTask(id: state.sourcePreparation) {
             do {
-                if let workspace = try? preparation.open(workspaceID) {
-                    try store.send(.sourceWorkspacePrepared(workspace))
-                }
                 try await preparation.prepareSource(workspaceID)
-                let workspace = try preparation.open(workspaceID)
-                try store.send(.sourceWorkspacePrepared(workspace))
             } catch {
                 AuthoringEntryDiagnostics.logFailed(
                     error,

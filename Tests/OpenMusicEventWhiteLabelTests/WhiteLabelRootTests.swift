@@ -528,12 +528,6 @@ struct WhiteLabelRootTests {
           return .granted(principal: .local, role: .owner)
         }
         $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-          open: { requestedWorkspaceID in
-            EditingWorkspace(
-              id: requestedWorkspaceID,
-              sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-            )
-          },
           prepareSource: { requestedWorkspaceID in
             await preparationGate.prepare(requestedWorkspaceID)
           }

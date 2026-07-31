@@ -48,7 +48,7 @@ private func resetOpenMusicEvent(eventID: OME.Event.ID) throws {
     @Dependency(\.defaultDatabase) var database
     @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
 
-    try database.write { db in
+    try database.writeWithoutTransaction { db in
         try resetOpenMusicEvent(
             eventID: eventID,
             in: db,
@@ -64,7 +64,7 @@ private func resetOpenMusicEventSourceChanges(
     @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
     @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
 
-    try database.write { db in
+    try database.writeWithoutTransaction { db in
         switch target {
         case let .calendar(calendarID, sourceBaselineID):
             try resetOpenMusicEventSourceChanges(
@@ -124,36 +124,25 @@ private func resetOpenMusicEvent(
             .fetchOne(db)
     }
 
-    if let baselineSchemaName = try SourceEditingSession
-        .attachedBaselineSchemaName(in: db)
-    {
-        try SourceEditingResetter().reset(
-            in: db,
-            baselineSchemaName: baselineSchemaName,
-            descriptors: OME.sourceTableDescriptors,
-            scope: .openMusicEvent(eventID: eventID)
+    let baselineDatabase: SourceBaselineDatabase?
+    do {
+        baselineDatabase = try workspaceReferenceDatabase.existing(
+            workspace,
+            sourceBaseline: sourceBaseline
         )
-    } else {
-        let baselineDatabase: SourceBaselineDatabase?
-        do {
-            baselineDatabase = try workspaceReferenceDatabase.existing(
-                workspace,
-                sourceBaseline: sourceBaseline
-            )
-        } catch WorkspaceReferenceDatabaseError.sourceBaselineMissing(_),
-                WorkspaceReferenceDatabaseError.teamWorkspaceMissingSourceBaseline(_) {
-            baselineDatabase = nil
-        }
-        guard let baselineDatabase else {
-            throw EventWorkspaceResetError.workspaceNeedsPreparation(eventID)
-        }
-        try SourceEditingResetter().reset(
-            in: db,
-            baselineDatabase: baselineDatabase,
-            descriptors: OME.sourceTableDescriptors,
-            scope: .openMusicEvent(eventID: eventID)
-        )
+    } catch WorkspaceReferenceDatabaseError.sourceBaselineMissing(_),
+            WorkspaceReferenceDatabaseError.teamWorkspaceMissingSourceBaseline(_) {
+        baselineDatabase = nil
     }
+    guard let baselineDatabase else {
+        throw EventWorkspaceResetError.workspaceNeedsPreparation(eventID)
+    }
+    try SourceEditingResetter().reset(
+        in: db,
+        baselineDatabase: baselineDatabase,
+        descriptors: OME.sourceTableDescriptors,
+        scope: .openMusicEvent(eventID: eventID)
+    )
 }
 
 private func resetOpenMusicEventSourceChanges(
@@ -169,28 +158,17 @@ private func resetOpenMusicEventSourceChanges(
         throw EventWorkspaceResetError.sourceBaselineNotFound(sourceBaselineID)
     }
 
-    if let baselineSchemaName = try SourceEditingSession
-        .attachedBaselineSchemaName(in: db)
-    {
-        try resetOpenMusicEventSourceChanges(
-            sourceBaselineID: sourceBaselineID,
-            calendarID: calendarID,
-            in: db,
-            baselineSchemaName: baselineSchemaName
-        )
-    } else {
-        guard let baselineDatabase = try sourceReferenceDatabase.existing(
-            sourceBaseline.sourceProvenance
-        ) else {
-            throw EventWorkspaceResetError.sourceWorkspaceNeedsPreparation(sourceBaselineID)
-        }
-        try resetOpenMusicEventSourceChanges(
-            sourceBaselineID: sourceBaselineID,
-            calendarID: calendarID,
-            in: db,
-            baselineDatabase: baselineDatabase
-        )
+    guard let baselineDatabase = try sourceReferenceDatabase.existing(
+        sourceBaseline.sourceProvenance
+    ) else {
+        throw EventWorkspaceResetError.sourceWorkspaceNeedsPreparation(sourceBaselineID)
     }
+    try resetOpenMusicEventSourceChanges(
+        sourceBaselineID: sourceBaselineID,
+        calendarID: calendarID,
+        in: db,
+        baselineDatabase: baselineDatabase
+    )
 }
 
 private func resetOpenMusicEventSourceChanges(
@@ -240,22 +218,17 @@ private func resetOpenMusicEventSourceChanges(
     in db: Database,
     baselineDatabase: SourceBaselineDatabase
 ) throws {
-    let baselineSchemaName = "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
-
-    try #sql(
-        "ATTACH DATABASE \(bind: baselineDatabase.path) AS \(quote: baselineSchemaName)"
-    )
-    .execute(db)
-    defer {
-        try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+    try baselineDatabase.withAttached(to: db) { baselineSchemaName in
+        try db.inTransaction {
+            try resetOpenMusicEventSourceChanges(
+                sourceBaselineID: sourceBaselineID,
+                calendarID: calendarID,
+                in: db,
+                baselineSchemaName: baselineSchemaName
+            )
+            return .commit
+        }
     }
-
-    try resetOpenMusicEventSourceChanges(
-        sourceBaselineID: sourceBaselineID,
-        calendarID: calendarID,
-        in: db,
-        baselineSchemaName: baselineSchemaName
-    )
 }
 
 public extension SourceRecordScope {

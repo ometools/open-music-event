@@ -18,10 +18,6 @@ struct AuthoringTests {
     func `persisted activation restores authoring before source preparation`() async throws {
         let database = try DatabaseQueue()
         let workspaceID = EditingWorkspaceRecord.ID(rawValue: "restored-workspace")
-        let workspace = EditingWorkspace(
-            id: workspaceID,
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-        )
         let activation = WorkspaceAuthoringActivationRecord(
             id: workspaceID,
             principal: .local,
@@ -46,10 +42,6 @@ struct AuthoringTests {
                 return .denied
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { requestedWorkspaceID in
-                    #expect(requestedWorkspaceID == workspaceID)
-                    return workspace
-                },
                 prepareSource: { requestedWorkspaceID in
                     await preparationGate.prepare(requestedWorkspaceID)
                 }
@@ -74,7 +66,7 @@ struct AuthoringTests {
 
         await preparationGate.finish()
         try await waitForAuthoringCondition {
-            store.grant?.workspace.id == workspaceID
+            store.grant?.workspaceID == workspaceID
                 && store.sourcePreparation.isRunning == false
         }
         expectNoDifference(admissionRequests.withLock { $0 }, [])
@@ -82,11 +74,8 @@ struct AuthoringTests {
 
     @Test
     func `entry eligibility requires a granted admission`() throws {
-        let workspace = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(rawValue: "eligibility-workspace"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
-        )
-        var state = Authoring<WorkspaceProbe>.State(workspace: workspace) {
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "eligibility-workspace")
+        var state = Authoring<WorkspaceProbe>.State(workspaceID: workspaceID) {
             WorkspaceProbe.State()
         }
 
@@ -102,10 +91,7 @@ struct AuthoringTests {
     @Test @MainActor
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `eligible attendee sees explicit entry and tapping rechecks admission`() async throws {
-        let workspace = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(rawValue: "eligible-workspace"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
-        )
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "eligible-workspace")
         let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
         let store = withDependencies {
             $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
@@ -113,15 +99,11 @@ struct AuthoringTests {
                 return .granted(principal: .local, role: .owner)
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { workspaceID in
-                    #expect(workspaceID == workspace.id)
-                    return workspace
-                },
                 prepareSource: { _ in }
             )
         } operation: {
             Store(
-                initialState: Authoring<WorkspaceProbe>.State(workspace: workspace) {
+                initialState: Authoring<WorkspaceProbe>.State(workspaceID: workspaceID) {
                     WorkspaceProbe.State()
                 }
             ) {
@@ -141,18 +123,14 @@ struct AuthoringTests {
         #expect(!store.canEnterAuthoring)
         expectNoDifference(
             admissionRequests.withLock { $0 },
-            [workspace.id, workspace.id]
+            [workspaceID, workspaceID]
         )
     }
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `entering authoring does not wait for source preparation`() async throws {
-        let database = try DatabaseQueue()
-        let workspace = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(rawValue: "instant-authoring"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-        )
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "instant-authoring")
         let preparationGate = AuthoringPreparationGate()
         let persistedActivations = Mutex<[WorkspaceAuthoringActivationRecord]>([])
         let activatedAt = Date(timeIntervalSince1970: 2_000)
@@ -176,17 +154,13 @@ struct AuthoringTests {
             )
             $0[AuthoringPolicyClient.self] = .authoring
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { workspaceID in
-                    #expect(workspaceID == workspace.id)
-                    return workspace
-                },
                 prepareSource: { workspaceID in
                     await preparationGate.prepare(workspaceID)
                 }
             )
         } operation: {
             await TestStoreActor(
-                initialState: Authoring<WorkspaceProbe>.State(workspace: workspace) {
+                initialState: Authoring<WorkspaceProbe>.State(workspaceID: workspaceID) {
                     WorkspaceProbe.State()
                 }
             ) {
@@ -199,12 +173,12 @@ struct AuthoringTests {
             $0.grant = AuthoringGrant(
                 principal: .local,
                 role: .owner,
-                workspace: workspace
+                workspaceID: workspaceID
             )
         }
         let preparationRequests = await preparationGate.waitForPreparationToStart()
 
-        expectNoDifference(preparationRequests, [workspace.id])
+        expectNoDifference(preparationRequests, [workspaceID])
         let access = await store[dynamicMember: \.access]
         expectNoDifference(
             access,
@@ -214,7 +188,7 @@ struct AuthoringTests {
             persistedActivations.withLock { $0 },
             [
                 WorkspaceAuthoringActivationRecord(
-                    id: workspace.id,
+                    id: workspaceID,
                     principal: .local,
                     role: .owner,
                     activatedAt: activatedAt
@@ -232,25 +206,9 @@ struct AuthoringTests {
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `entering authoring changes only the selected authoring context`() async throws {
         let appDatabase = try DatabaseQueue()
-        let referenceDatabaseA = try DatabaseQueue()
-        let preparedReferenceDatabaseA = try DatabaseQueue()
-        let referenceDatabaseB = try DatabaseQueue()
         try setMarker("app", in: appDatabase)
-        try setMarker("A reference", in: referenceDatabaseA)
-        try setMarker("A prepared reference", in: preparedReferenceDatabaseA)
-        try setMarker("B reference", in: referenceDatabaseB)
-        let workspaceA = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(rawValue: "workspace-a"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: referenceDatabaseA)
-        )
-        let preparedWorkspaceA = EditingWorkspace(
-            id: workspaceA.id,
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: preparedReferenceDatabaseA)
-        )
-        let workspaceB = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(rawValue: "workspace-b"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: referenceDatabaseB)
-        )
+        let workspaceA = EditingWorkspaceRecord.ID(rawValue: "workspace-a")
+        let workspaceB = EditingWorkspaceRecord.ID(rawValue: "workspace-b")
         let authorizationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
         let preparationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
 
@@ -264,22 +222,12 @@ struct AuthoringTests {
                 return .granted(principal: .local, role: .owner)
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { workspaceID in
-                    switch workspaceID {
-                    case workspaceA.id:
-                        return preparedWorkspaceA
-                    case workspaceB.id:
-                        return workspaceB
-                    default:
-                        throw TestFailure.unexpectedWorkspace
-                    }
-                },
                 prepareSource: { workspaceID in
                     preparationRequests.withLock { $0.append(workspaceID) }
                 }
             )
         } operation: {
-            var stateA = Authoring<WorkspaceProbe>.State(workspace: workspaceA) {
+            var stateA = Authoring<WorkspaceProbe>.State(workspaceID: workspaceA) {
                 WorkspaceProbe.State()
             }
             stateA.admission = .granted(principal: .local, role: .owner)
@@ -287,7 +235,7 @@ struct AuthoringTests {
                 Authoring { WorkspaceProbe() }
             }
 
-            var stateB = Authoring<WorkspaceProbe>.State(workspace: workspaceB) {
+            var stateB = Authoring<WorkspaceProbe>.State(workspaceID: workspaceB) {
                 WorkspaceProbe.State()
             }
             stateB.admission = .granted(principal: .local, role: .owner)
@@ -314,7 +262,7 @@ struct AuthoringTests {
             $0.grant = AuthoringGrant(
                 principal: .local,
                 role: .owner,
-                workspace: preparedWorkspaceA
+                workspaceID: workspaceA
             )
         }
         await entry?.value
@@ -329,20 +277,20 @@ struct AuthoringTests {
         expectNoDifference(authoringContentAccessB, .attendee)
         expectNoDifference(
             authorizationRequests.withLock { $0 },
-            [workspaceA.id, workspaceB.id, workspaceA.id]
+            [workspaceA, workspaceB, workspaceA]
         )
-        expectNoDifference(preparationRequests.withLock { $0 }, [workspaceA.id])
+        expectNoDifference(preparationRequests.withLock { $0 }, [workspaceA])
 
         // Each wrapped feature reads the app database and its own authoring grant.
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = true
             $0.content.observedDatabaseMarker = "app"
-            $0.content.observedWorkspaceID = workspaceA.id
+            $0.content.observedWorkspaceID = workspaceA
         }
         await storeB.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
             $0.content.observedDatabaseMarker = "app"
-            $0.content.observedWorkspaceID = workspaceB.id
+            $0.content.observedWorkspaceID = workspaceB
         }
 
         // Exiting revokes the same child's grant without changing its app database.
@@ -376,10 +324,7 @@ struct AuthoringTests {
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `authorization failure reports an ephemeral issue and remains attendee`() async throws {
-        let workspace = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(rawValue: "workspace-denied"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
-        )
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "workspace-denied")
         let preparationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
         let admissionRequestCount = Mutex(0)
         let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
@@ -394,13 +339,12 @@ struct AuthoringTests {
                 throw TestFailure.authorizationDenied
             }
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { _ in workspace },
                 prepareSource: { workspaceID in
                     preparationRequests.withLock { $0.append(workspaceID) }
                 }
             )
         } operation: {
-            var state = AuthoringErrorHost.State(workspace: workspace)
+            var state = AuthoringErrorHost.State(workspaceID: workspaceID)
             state.authoring.state.admission = .denied
             return await TestStoreActor(
                 initialState: state
@@ -433,25 +377,21 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `workspace opening failure reports an ephemeral issue and keeps authoring`() async throws {
+    func `source checkout failure reports an ephemeral issue and keeps authoring`() async throws {
         let failure = SourceControlError.remoteOperationFailed(
             SourceControlRemoteFailure(
                 kind: .timedOut,
                 message: "SSH could not read data: Timed out waiting on socket"
             )
         )
-        let workspace = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(rawValue: "workspace-preparation-failed"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
-        )
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "workspace-preparation-failed")
         let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
             $0[AuthoringPolicyClient.self] = .authoring
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { _ in throw failure },
-                prepareSource: { _ in }
+                prepareSource: { _ in throw failure }
             )
         } operation: {
-            var state = AuthoringErrorHost.State(workspace: workspace)
+            var state = AuthoringErrorHost.State(workspaceID: workspaceID)
             state.authoring.state.admission = .granted(principal: .local, role: .owner)
             return await TestStoreActor(
                 initialState: state
@@ -483,19 +423,15 @@ struct AuthoringTests {
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
     func `source preparation failure reports an ephemeral issue and keeps authoring`() async throws {
-        let workspace = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(rawValue: "workspace-source-preparation-failed"),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: try DatabaseQueue())
-        )
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "workspace-source-preparation-failed")
         let store: TestStoreActor<AuthoringErrorHost> = await withDependencies {
             $0[AuthoringPolicyClient.self] = .authoring
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { _ in workspace },
                 prepareSource: { _ in throw TestFailure.preparationFailed }
             )
         } operation: {
             await TestStoreActor(
-                initialState: AuthoringErrorHost.State(workspace: workspace)
+                initialState: AuthoringErrorHost.State(workspaceID: workspaceID)
             ) {
                 AuthoringErrorHost()
             }
@@ -510,7 +446,7 @@ struct AuthoringTests {
                 $0.authoring.grant = AuthoringGrant(
                     principal: .local,
                     role: .owner,
-                    workspace: workspace
+                    workspaceID: workspaceID
                 )
             }
             await entry?.value
@@ -532,16 +468,10 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `one grant carries access while preserving the app database across mounts`() async throws {
+    func `one grant carries access while preserving the root default database`() async throws {
         let attendeeDatabase = try DatabaseQueue()
-        let authoringDatabase = try DatabaseQueue()
         try setMarker("attendee", in: attendeeDatabase)
-        try setMarker("authoring", in: authoringDatabase)
         let workspaceID = EditingWorkspaceRecord.ID(rawValue: "shared-workspace")
-        let preparedWorkspace = EditingWorkspace(
-            id: workspaceID,
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: authoringDatabase)
-        )
         let grant = Shared<AuthoringGrant?>(value: nil)
 
         let stores: (
@@ -551,10 +481,6 @@ struct AuthoringTests {
             $0.defaultDatabase = attendeeDatabase
             $0[AuthoringPolicyClient.self] = .authoring
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { id in
-                    #expect(id == workspaceID)
-                    return preparedWorkspace
-                },
                 prepareSource: { _ in }
             )
         } operation: {
@@ -588,7 +514,7 @@ struct AuthoringTests {
             $0.grant = AuthoringGrant(
                 principal: .local,
                 role: .owner,
-                workspace: preparedWorkspace
+                workspaceID: workspaceID
             )
         }
         await entry?.value
@@ -675,9 +601,9 @@ private func waitForAuthoringCondition(
 @Feature
 struct AuthoringErrorHost {
     struct State {
-        init(workspace: EditingWorkspace) {
+        init(workspaceID: EditingWorkspaceRecord.ID) {
             self.authoring = Spawn(
-                Authoring<WorkspaceProbe>.State(workspace: workspace) {
+                Authoring<WorkspaceProbe>.State(workspaceID: workspaceID) {
                     WorkspaceProbe.State()
                 }
             )

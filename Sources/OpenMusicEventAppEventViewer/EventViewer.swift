@@ -734,13 +734,7 @@ public struct EventViewer {
         private func eventWorkspaceSpawn(
             eventID: OMERecord.Event.ID
         ) -> Spawn<EventWorkspace> {
-            @Dependency(\.authoringGrant) var authoringGrant
-            return withDependencies {
-                guard let workspace = authoringGrant.wrappedValue?.workspace else { return }
-                $0.mount(workspace, grant: authoringGrant)
-            } operation: {
-                Spawn(EventWorkspace.State(eventID: eventID))
-            }
+            Spawn(EventWorkspace.State(eventID: eventID))
         }
 
         private static func eventTimeZone(eventID: OMERecord.Event.ID) -> TimeZone {
@@ -819,20 +813,7 @@ public struct EventViewer {
 
             case let .sourceDataRefreshCompleted(request):
                 guard request.eventID == state.eventID else { return }
-                var sourceWorkspaceSummary: Fetch<SourceWorkspaceSummary>?
                 state.reloadAfterSourceDataRefresh()
-                sourceWorkspaceSummary = state.eventWorkspace?
-                    .state
-                    .$sourceWorkspaceSummary
-                guard let sourceWorkspaceSummary else { return }
-                store.addTask {
-                    let _: Void? = await store.withErrorHandling(
-                        fallbackMessage: .sourceDataRefreshFailed,
-                        operation: .sourceDataRefresh
-                    ) {
-                        try await sourceWorkspaceSummary.load()
-                    }
-                }
             }
         }
         .onChange(of: store.authoringGrant) { oldGrant, newGrant, state in
@@ -945,11 +926,6 @@ public struct EventViewer {
         }
         .ifLet(\.eventWorkspace) {
             EventWorkspace()
-                .transformDependency(\.self) { dependencies in
-                    let grant = dependencies.authoringGrant
-                    guard let workspace = grant.wrappedValue?.workspace else { return }
-                    dependencies.mount(workspace, grant: grant)
-                }
         }
         .spawn(\.account) {
             Account()

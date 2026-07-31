@@ -509,38 +509,13 @@ struct CreateEventTests {
         database: any DatabaseWriter,
         workspaceReferenceDirectory: URL
     ) async throws -> EventWorkspaceSummary {
-        let workspace = try await database.read { db in
-            let eventWorkspace = try #require(
-                try EventEditingWorkspaceRecord
-                    .where { $0.id.eq(eventID) }
-                    .fetchOne(db)
-            )
-            return try #require(
-                try EditingWorkspaceRecord
-                    .where { $0.id.eq(eventWorkspace.workspaceID) }
-                    .fetchOne(db)
-            )
-        }
-        let workingDirectoryURL = try temporaryDirectoryURL()
-        defer { try? FileManager.default.removeItem(at: workingDirectoryURL) }
-        let workingDatabasePath = workingDirectoryURL
-            .appending(path: "working.sqlite")
-            .path()
-        let workingDatabase = try DatabasePool(path: workingDatabasePath)
-        try database.backup(to: workingDatabase)
-        let sourceEditingSession = try SourceEditingSession(
-            workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: workspaceReferenceDirectory
-                .standardizedFileURL
-                .appending(path: workspace.databaseFileName)
-                .path()
-        )
         return try await withDependencies {
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.workspaceReferenceDatabase = .fileBacked(
+                localReferenceDirectory: workspaceReferenceDirectory
+            )
         } operation: {
-            try await sourceEditingSession.database.read { db in
-                try EventWorkspaceSummary.query(eventID: eventID, in: db)
-            }
+            try EventWorkspaceSummary.query(eventID: eventID, using: database)
         }
     }
 

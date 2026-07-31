@@ -91,7 +91,7 @@ public struct EditingWorkspaceRecord: Equatable, Sendable, Identifiable {
 
     public var id: ID
     public var kind: Kind
-    public var databaseFileName: String
+    public var referenceDatabaseFileName: String
     public var createdAt: Date
     public var updatedAt: Date
     public var sourceBaselineID: SourceBaselineRecord.ID?
@@ -101,7 +101,7 @@ public struct EditingWorkspaceRecord: Equatable, Sendable, Identifiable {
     public init(
         id: ID,
         kind: Kind,
-        databaseFileName: String,
+        referenceDatabaseFileName: String,
         createdAt: Date,
         updatedAt: Date,
         sourceBaselineID: SourceBaselineRecord.ID? = nil,
@@ -109,7 +109,7 @@ public struct EditingWorkspaceRecord: Equatable, Sendable, Identifiable {
     ) {
         self.id = id
         self.kind = kind
-        self.databaseFileName = databaseFileName
+        self.referenceDatabaseFileName = referenceDatabaseFileName
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.sourceBaselineID = sourceBaselineID
@@ -123,7 +123,7 @@ public extension EditingWorkspaceRecord {
         self.init(
             id: workspaceID,
             kind: .local,
-            databaseFileName: "\(workspaceID.rawValue).sqlite",
+            referenceDatabaseFileName: "\(workspaceID.rawValue).sqlite",
             createdAt: createdAt,
             updatedAt: createdAt
         )
@@ -136,7 +136,7 @@ public extension EditingWorkspaceRecord {
         self.init(
             id: .init(sourceBaselineID: sourceBaseline.id),
             kind: .team,
-            databaseFileName: sourceBaseline.databaseFileName,
+            referenceDatabaseFileName: sourceBaseline.databaseFileName,
             createdAt: sourceBaseline.importedAt,
             updatedAt: sourceBaseline.importedAt,
             sourceBaselineID: sourceBaseline.id,

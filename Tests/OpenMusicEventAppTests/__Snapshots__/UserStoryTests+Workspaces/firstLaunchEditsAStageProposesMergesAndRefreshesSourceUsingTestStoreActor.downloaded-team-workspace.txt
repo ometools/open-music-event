@@ -2,7 +2,6 @@ TeamWorkspaceDetail.State(
   _destination: nil,
   _editCalendar: nil,
   _teamWorkspaceEditor: nil,
-  _isPreparingTeamWorkspaceEditor: false,
   _calendar: OpenMusicEvent.Calendar(
     id: OpenMusicEvent.Calendar.ID(
       ownerID: DID(

@@ -32,6 +32,9 @@ public struct StagedSourceReferenceDatabase: Sendable {
     }
 }
 
+/// Reference databases are snapshots. They may be updated only by controlled import/refresh and
+/// must be attached read-only for application comparisons. They must never become
+/// `defaultDatabase`.
 public struct SourceReferenceDatabaseClient: Sendable {
     public var url: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL
     public var prepareForImport: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> StagedSourceReferenceDatabase
@@ -344,7 +347,7 @@ public extension WorkspaceReferenceDatabaseClient {
         let directory = try directory ?? defaultLocalReferenceDirectory()
         return directory
             .standardizedFileURL
-            .appending(path: workspace.databaseFileName)
+            .appending(path: workspace.referenceDatabaseFileName)
     }
 
     private static func defaultLocalReferenceDirectory() throws -> URL {

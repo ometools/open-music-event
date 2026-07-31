@@ -59,19 +59,40 @@ extension DependencyValues {
             database,
             sourcePatchInvalidations: sourcePatchInvalidations
         )
+
+        if context == .live {
+            do {
+                try removeObsoleteEditingWorkspaceDatabases()
+            } catch {
+                logger.error("Unable to remove obsolete editing workspace databases: \(String(describing: error))")
+            }
+        }
+
+        // This is the only production installation of defaultDatabase. Feature dependency
+        // subtrees must never replace it.
         defaultDatabase = database
     }
 }
 
-public extension SourceWorkspaceDatabasePreparationClient {
-    static var openMusicEvent: Self {
-        Self { database in
-            @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
-            try prepareOpenMusicEventDatabase(
-                database,
-                sourcePatchInvalidations: sourcePatchInvalidations
-            )
-        }
+func removeObsoleteEditingWorkspaceDatabases(
+    applicationSupportDirectory: URL? = nil
+) throws {
+    let applicationSupportDirectory = try applicationSupportDirectory ?? FileManager.default.url(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask,
+        appropriateFor: nil,
+        create: true
+    )
+    let obsoleteDirectory = applicationSupportDirectory
+        .standardizedFileURL
+        .appending(path: "EditingWorkspaces", directoryHint: .isDirectory)
+    do {
+        try FileManager.default.removeItem(at: obsoleteDirectory)
+    } catch {
+        let error = error as NSError
+        guard error.domain == NSCocoaErrorDomain,
+              error.code == NSFileNoSuchFileError
+        else { throw error }
     }
 }
 

@@ -16,6 +16,7 @@ import SourceEditing
 import SnapshotTesting
 import SnapshotTestingCustomDump
 import SQLiteData
+import Sharing
 import Synchronization
 import Testing
 
@@ -198,18 +199,134 @@ extension UserStoryTests {
         }
 
         @Test
-        func firstLaunchEditsAStageProposesMergesAndRefreshesSource() async throws {
-            if #available(macOS 26, *) {
-                try await firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor()
+        func populatedScheduleAuthoringEditProposalMergeRefreshUsesDefaultAndReference() async throws {
+            let defaultDatabaseURL = FileManager.default.temporaryDirectory
+                .appending(path: "testival-default.sqlite")
+            try? FileManager.default.removeItem(at: defaultDatabaseURL)
+            let database = try UserStory.makePreparedStoryDatabase(at: defaultDatabaseURL)
+            let backend = try TestivalPullRequestBackend(database: database)
+            let sourceDescriptor = WhiteLabelSourceDescriptor(
+                reference: .source("https://tangled.org/testival/source"),
+                version: "main"
+            )
+
+            let importTask = Task {
+                try await backend.whiteLabelSourceImport.ensureImported(
+                    UserStory.organizerID,
+                    sourceDescriptor
+                )
+            }
+            await backend.firstLaunch.waitForSourceImport()
+            await backend.firstLaunch.releaseSourceImport()
+            let importedEventIDs = try await importTask.value
+            expectNoDifference(importedEventIDs, [UserStory.eventID])
+
+            let calendarID = OMERecord.Calendar.ID(
+                ownerID: UserStory.organizerID,
+                calendarID: OMERecord.Calendar.defaultID
+            )
+            let target = SourceProposalTarget.calendar(calendarID, backend.sourceBaselineID)
+            let workspaceID = EditingWorkspaceRecord.ID(
+                sourceBaselineID: backend.sourceBaselineID
+            )
+            let authoringGrant = Shared<AuthoringGrant?>(
+                value: AuthoringGrant(
+                    principal: .local,
+                    role: .owner,
+                    workspaceID: workspaceID
+                )
+            )
+
+            try await withDependencies {
+                $0.context = .test
+                $0.defaultDatabase = database
+                $0.sourceReferenceDatabase = backend.sourceReferenceDatabase
+                $0.sourceReferenceDatabaseMigrator = .openMusicEvent
+                $0.useAuthoringContext(
+                    workspaceID,
+                    grant: SharedReader(authoringGrant)
+                )
+            } operation: {
+                // Schedule and Workspace both inherit the populated application database.
+                let scheduleStages = try await database.read { db in
+                    try ScheduleViewer.stagesQuery(eventID: UserStory.eventID).fetchAll(db)
+                }
+                #expect(
+                    scheduleStages.contains { $0.id.stageID == UserStory.meadowStageID }
+                )
+
+                @Dependency(\.defaultDatabase) var inheritedDatabase
+                let inheritedStages = try await inheritedDatabase.read { db in
+                    try ScheduleViewer.stagesQuery(eventID: UserStory.eventID).fetchAll(db)
+                }
+                expectNoDifference(inheritedStages, scheduleStages)
+
+                try await TestivalPullRequestBackend.applyEditedStage(to: inheritedDatabase)
+                let editedSummary = try SourceWorkspaceSummary.query(
+                    target: target,
+                    using: inheritedDatabase
+                )
+                expectNoDifference(editedSummary.totalCount, 1)
+
+                let patchGenerator = SourcePatchGenerator<OpenMusicEventCalendarSourcePatchRequest> {
+                    request in
+                    expectNoDifference(
+                        request,
+                        OpenMusicEventCalendarSourcePatchRequest(
+                            calendarID: calendarID,
+                            sourceBaselineID: backend.sourceBaselineID
+                        )
+                    )
+                    return backend.expectedStagePatch
+                }
+                let patch = try await patchGenerator.generate(
+                    OpenMusicEventCalendarSourcePatchRequest(
+                        calendarID: calendarID,
+                        sourceBaselineID: backend.sourceBaselineID
+                    )
+                )
+                let publication = try await backend.sourcePatchPublisher.publish(
+                    SourcePatchPublishRequest(
+                        description: "Renames Meadow and updates the stage image.",
+                        location: SourcePatchLocation(
+                            repositoryURL: FileManager.default.temporaryDirectory
+                        ),
+                        patch: patch,
+                        title: "Update Meadow stage details"
+                    )
+                )
+                expectNoDifference(publication, backend.createdPublication)
+
+                let reviewRequest = OpenMusicEventTangledPullReviewRequest(target: target)
+                let reviews = try await backend.tangledPullReviewClient.list(reviewRequest)
+                expectNoDifference(reviews, [backend.createdReview])
+                try await backend.tangledPullReviewClient.merge(
+                    OpenMusicEventTangledPullReviewMergeRequest(
+                        target: target,
+                        review: backend.createdReview
+                    )
+                )
+                try await backend.sourceDataRefresh.refresh(backend.sourceBaselineID)
+
+                let refreshedSummary = try SourceWorkspaceSummary.query(
+                    target: target,
+                    using: inheritedDatabase
+                )
+                expectNoDifference(refreshedSummary.totalCount, 0)
+                let refreshedDefaultStage = try await backend.stage(UserStory.meadowStageID)
+                let refreshedReferenceStage = try await backend.referenceStage(
+                    UserStory.meadowStageID
+                )
+                expectNoDifference(refreshedDefaultStage, refreshedReferenceStage)
             }
         }
 
         @available(macOS 26, *)
         private func firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor() async throws {
-            let workingDatabaseURL = FileManager.default.temporaryDirectory
-                .appending(path: "testival-source-working.sqlite")
-            try? FileManager.default.removeItem(at: workingDatabaseURL)
-            let database = try UserStory.makePreparedStoryDatabase(at: workingDatabaseURL)
+            let defaultDatabaseURL = FileManager.default.temporaryDirectory
+                .appending(path: "testival-default.sqlite")
+            try? FileManager.default.removeItem(at: defaultDatabaseURL)
+            let database = try UserStory.makePreparedStoryDatabase(at: defaultDatabaseURL)
             let backend = try TestivalPullRequestBackend(database: database)
 
             let eventID = UserStory.eventID
@@ -222,13 +339,12 @@ extension UserStoryTests {
                 $0[AuthoringPolicyClient.self] = backend.authoringPolicy
                 $0.context = .test
                 $0.continuousClock = ImmediateClock()
+                $0.date = .constant(Date(timeIntervalSince1970: 1_784_169_600))
                 $0.defaultDatabase = database
                 $0.defaultEventID = eventID
-                $0.sourceEditingWorkingDatabasePath = workingDatabaseURL.path
                 $0.sourceDataRefresh = backend.sourceDataRefresh
                 $0.sourceReferenceDatabase = backend.sourceReferenceDatabase
                 $0.sourceReferenceDatabaseMigrator = .openMusicEvent
-                $0.sourceWorkspaceDatabase = .live
                 $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
                     SourcePatchGenerator { request in
                         #expect(
@@ -344,7 +460,8 @@ extension UserStoryTests {
             assertSnapshot(
                 of: teamWorkspace,
                 as: .customDump,
-                named: "downloaded-team-workspace"
+                named: "downloaded-team-workspace",
+                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
             )
 
             // The user enters authoring mode for the downloaded source workspace.
@@ -409,7 +526,8 @@ extension UserStoryTests {
             assertSnapshot(
                 of: stageForm,
                 as: .customDump,
-                named: "stage-form-before-workspace-proposal"
+                named: "stage-form-before-workspace-proposal",
+                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
             )
 
             // The user changes public stage data that should become the pull request.
@@ -428,7 +546,7 @@ extension UserStoryTests {
                 .saveButtonTapped
             )?.value
 
-            // The saved row is immediately visible from the working database.
+            // The saved row is immediately visible from the application default database.
             let savedStage = try await backend.stage(stageID)
             expectNoDifference(savedStage.name, "Meadow Workshop")
             expectNoDifference(savedStage.category, OMERecord.Stage.Category("workshop"))
@@ -446,7 +564,8 @@ extension UserStoryTests {
             assertSnapshot(
                 of: workspace.sourceWorkspaceSummary,
                 as: .customDump,
-                named: "workspace-diff-before-proposal"
+                named: "workspace-diff-before-proposal",
+                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
             )
 
             // The user checks the generated source patch before proposing it.
@@ -470,7 +589,8 @@ extension UserStoryTests {
             assertSnapshot(
                 of: sourcePatchStatus,
                 as: .customDump,
-                named: "generated-stage-patch"
+                named: "generated-stage-patch",
+                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
             )
 
             return expectedGeneratedStageStatus
@@ -512,7 +632,8 @@ extension UserStoryTests {
             assertSnapshot(
                 of: proposal,
                 as: .customDump,
-                named: "proposal-composer-before-publish"
+                named: "proposal-composer-before-publish",
+                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
             )
 
             // The user writes a clear PR title and description.
@@ -575,7 +696,8 @@ extension UserStoryTests {
             assertSnapshot(
                 of: semanticDiffStatus,
                 as: .customDump,
-                named: "created-review-semantic-diff"
+                named: "created-review-semantic-diff",
+                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
             )
 
             // The user merges the pull request.
@@ -611,7 +733,8 @@ extension UserStoryTests {
             assertSnapshot(
                 of: refreshedWorkspace.sourceWorkspaceSummary,
                 as: .customDump,
-                named: "workspace-after-merge-refresh"
+                named: "workspace-after-merge-refresh",
+                testName: "firstLaunchEditsAStageProposesMergesAndRefreshesSourceUsingTestStoreActor"
             )
 
         }
@@ -851,6 +974,7 @@ private struct TestivalPullRequestBackend {
     let expectedStagePatch: SourcePatch
     let expectedStageSourceFileAttributions: [SourceFileAttribution]
     let firstLaunch: TestivalFirstLaunch
+    let referenceDatabase: SourceBaselineDatabase
     let sourceBaselineID: SourceBaselineRecord.ID
     let sourceDataRefresh: SourceDataRefreshClient
     let sourcePatchPublisher: SourcePatchPublisher
@@ -925,10 +1049,11 @@ private struct TestivalPullRequestBackend {
         self.expectedStagePatch = expectedStagePatch
         self.expectedStageSourceFileAttributions = expectedStageSourceFileAttributions
         self.firstLaunch = firstLaunch
+        self.referenceDatabase = baselineDatabase
         self.sourceBaselineID = sourceBaselineID
         self.sourceDataRefresh = SourceDataRefreshClient { _ in
-            try await Self.applyMergedStage(to: database)
-            try await Self.applyMergedStage(to: baselineDatabase.database)
+            try await Self.applyEditedStage(to: database)
+            try await Self.applyEditedStage(to: baselineDatabase.database)
         }
         self.sourceReferenceDatabase = .test(database: baselineDatabase)
         self.sourcePatchPublisher = SourcePatchPublisher { _ in
@@ -978,13 +1103,13 @@ private struct TestivalPullRequestBackend {
             try await Self.stabilizeSourceImportMetadata(
                 in: database,
                 sourceBaselineID: sourceBaselineID,
-                databaseFileName: baselineDatabaseURL.lastPathComponent,
+                referenceDatabaseFileName: baselineDatabaseURL.lastPathComponent,
                 importedAt: importedAt
             )
             try await Self.stabilizeSourceImportMetadata(
                 in: baselineDatabase.database,
                 sourceBaselineID: sourceBaselineID,
-                databaseFileName: baselineDatabaseURL.lastPathComponent,
+                referenceDatabaseFileName: baselineDatabaseURL.lastPathComponent,
                 importedAt: importedAt
             )
             await firstLaunch.finishSourceImport()
@@ -999,7 +1124,7 @@ private struct TestivalPullRequestBackend {
         }
     }
 
-    private static func applyMergedStage(to database: any DatabaseWriter) async throws {
+    fileprivate static func applyEditedStage(to database: any DatabaseWriter) async throws {
         let mergedHeroURL = try #require(URL(
             string: "https://cdn.example.com/stages/meadow-workshop-hero.png"
         ))
@@ -1020,6 +1145,17 @@ private struct TestivalPullRequestBackend {
                 .filter { $0.role != .hero }
                 + [.stageHero(url: mergedHeroURL)]
             try OMERecord.Stage.update(stage).execute(db)
+        }
+    }
+
+    func referenceStage(
+        _ stageID: OMERecord.ID<OMERecord.Stage>
+    ) async throws -> OMERecord.Stage {
+        try await referenceDatabase.database.read { db in
+            try #require(
+                try StageDetail.stageQuery(stageID: stageID, eventID: UserStory.eventID)
+                    .fetchOne(db)
+            )
         }
     }
 
@@ -1103,14 +1239,14 @@ private struct TestivalPullRequestBackend {
     private static func stabilizeSourceImportMetadata(
         in database: any DatabaseWriter,
         sourceBaselineID: SourceBaselineRecord.ID,
-        databaseFileName: String,
+        referenceDatabaseFileName: String,
         importedAt: Date
     ) async throws {
         try await database.write { db in
             try #sql("""
                 UPDATE "sourceBaselines"
                 SET
-                  "databaseFileName" = \(bind: databaseFileName),
+                  "databaseFileName" = \(bind: referenceDatabaseFileName),
                   "importedAt" = \(bind: importedAt)
                 WHERE "id" = \(bind: sourceBaselineID.rawValue)
                 """)
@@ -1118,7 +1254,7 @@ private struct TestivalPullRequestBackend {
             try #sql("""
                 UPDATE "editingWorkspaces"
                 SET
-                  "databaseFileName" = \(bind: databaseFileName),
+                  "referenceDatabaseFileName" = \(bind: referenceDatabaseFileName),
                   "createdAt" = \(bind: importedAt),
                   "updatedAt" = \(bind: importedAt)
                 WHERE "sourceBaselineID" = \(bind: sourceBaselineID.rawValue)

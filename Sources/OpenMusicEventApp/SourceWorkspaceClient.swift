@@ -81,17 +81,13 @@ extension SourceWorkspaceClient {
                     workspaceID,
                     activity: .refreshing
                 ) {
-                    try await withDependencies {
-                        $0.defaultDatabase = database
-                    } operation: {
-                        try await Self.refresh(
-                            request,
-                            sourceProvenance: sourceProvenance,
-                            sourceBaselineID: sourceBaselineID,
-                            database: database,
-                            fallback: importSource
-                        )
-                    }
+                    try await Self.refresh(
+                        request,
+                        sourceProvenance: sourceProvenance,
+                        sourceBaselineID: sourceBaselineID,
+                        database: database,
+                        fallback: importSource
+                    )
                 }
             },
             prepareForEditing: { sourceBaselineID in
@@ -102,11 +98,7 @@ extension SourceWorkspaceClient {
                     workspaceID,
                     activity: .preparingForEditing
                 ) {
-                    try await withDependencies {
-                        $0.defaultDatabase = database
-                    } operation: {
-                        try await prepareForEditing.prepare(sourceBaselineID)
-                    }
+                    try await prepareForEditing.prepare(sourceBaselineID)
                 }
             }
         )
@@ -124,7 +116,6 @@ extension SourceWorkspaceClient {
         ) var sourcePatchGenerator
         @Dependency(\.sourcePatchApplier) var sourcePatchApplier
         @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
-        @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
         @Dependency(\.sourceWorkingTreeMaterializer) var sourceWorkingTreeMaterializer
         @Dependency(\.uuid) var uuid
 
@@ -143,30 +134,19 @@ extension SourceWorkspaceClient {
             return try await fallback.importSource(request)
         }
 
-        let workspaceID = EditingWorkspaceRecord.ID(
-            sourceBaselineID: sourceBaselineID
-        )
-        guard let workspace = try sourceWorkspaceDatabase.existingWorkspace(workspaceID)
-        else {
-            return try await fallback.importSource(request)
-        }
         let organizerID = try await organizerID(
             for: sourceBaselineID,
             in: database
         )
-        let localPatch = try await withDependencies {
-            $0.defaultDatabase = workspace.database
-        } operation: {
-            try await sourcePatchGenerator.generate(
-                OpenMusicEventCalendarSourcePatchRequest(
-                    calendarID: OME.Calendar.ID(
-                        ownerID: organizerID,
-                        calendarID: OME.Calendar.defaultID
-                    ),
-                    sourceBaselineID: sourceBaselineID
-                )
+        let localPatch = try await sourcePatchGenerator.generate(
+            OpenMusicEventCalendarSourcePatchRequest(
+                calendarID: OME.Calendar.ID(
+                    ownerID: organizerID,
+                    calendarID: OME.Calendar.defaultID
+                ),
+                sourceBaselineID: sourceBaselineID
             )
-        }
+        )
 
         let backendRepositoryURL = SourceRepositoryStorageClient
             .temporaryDownloadURL(uuid: uuid())
@@ -201,9 +181,8 @@ extension SourceWorkspaceClient {
         }
 
         try await backendResult.insertion.migrateAndInsert(
-            backendInto: database,
             rebasedWorkingCopy: workingResult.insertion,
-            into: workspace.database
+            into: database
         )
         backendResult.repositoryURL = try sourceRepositoryStorage.store(
             backendRepositoryURL,

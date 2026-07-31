@@ -27,18 +27,15 @@ public extension OME.SourceDatabaseInsertion {
     }
 
     func migrateAndInsert(
-        backendInto database: any DatabaseWriter,
         rebasedWorkingCopy: OME.SourceDatabaseInsertion,
-        into workspaceDatabase: any DatabaseWriter
+        into database: any DatabaseWriter
     ) async throws {
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
         try migrator.migrate(database)
-        try migrator.migrate(workspaceDatabase)
         try await insert(
-            backendInto: database,
             rebasedWorkingCopy: rebasedWorkingCopy,
-            into: workspaceDatabase
+            into: database
         )
     }
 
@@ -74,14 +71,11 @@ public extension OME.SourceDatabaseInsertion {
     }
 
     private func insert(
-        backendInto database: any DatabaseWriter,
         rebasedWorkingCopy: OME.SourceDatabaseInsertion,
-        into workspaceDatabase: any DatabaseWriter
+        into database: any DatabaseWriter
     ) async throws {
         try await database.read { db in
             try validateEventSourceProvenanceConflicts(in: db)
-        }
-        try await workspaceDatabase.read { db in
             try rebasedWorkingCopy.validateEventSourceProvenanceConflicts(in: db)
         }
 
@@ -116,14 +110,15 @@ public extension OME.SourceDatabaseInsertion {
             baseline,
             intoSourceReferenceDatabases: stagedSourceReferenceDatabases.values.map(\.database)
         )
+        // Current edits live in the one writable default database. The backend insertion becomes
+        // the reference baseline, and the rebased working insertion is applied over it in the same
+        // default-database transaction. No third working database may be introduced here.
         try await database.write { db in
             try baseline.insert(into: db)
+            try workingCopy.insert(into: db)
             for stagedDatabase in stagedSourceReferenceDatabases.values {
                 try stagedDatabase.commit()
             }
-        }
-        try await workspaceDatabase.write { db in
-            try workingCopy.insert(into: db)
         }
     }
 

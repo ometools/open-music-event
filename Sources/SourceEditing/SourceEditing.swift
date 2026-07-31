@@ -708,22 +708,6 @@ public struct SourceChangeSummary: Equatable, Hashable, Sendable {
     }
 }
 
-public extension SourceEditingSession {
-    func reset(
-        descriptors: [SourceTableDescriptor],
-        scope: SourceRecordScope = .all
-    ) throws {
-        try database.write { db in
-            try SourceEditingResetter().reset(
-                in: db,
-                baselineSchemaName: Self.baselineSchemaName,
-                descriptors: descriptors,
-                scope: scope
-            )
-        }
-    }
-}
-
 public struct SourceEditingResetter: Sendable {
     public init() {}
 
@@ -733,12 +717,17 @@ public struct SourceEditingResetter: Sendable {
         descriptors: [SourceTableDescriptor],
         scope: SourceRecordScope = .all
     ) throws {
-        try reset(
-            in: db,
-            baselineDatabasePath: baselineDatabase.path,
-            descriptors: descriptors,
-            scope: scope
-        )
+        try baselineDatabase.withAttached(to: db) { baselineSchemaName in
+            try db.inTransaction {
+                try reset(
+                    in: db,
+                    baselineSchemaName: baselineSchemaName,
+                    descriptors: descriptors,
+                    scope: scope
+                )
+                return .commit
+            }
+        }
     }
 
     public func reset(
@@ -747,22 +736,20 @@ public struct SourceEditingResetter: Sendable {
         descriptors: [SourceTableDescriptor],
         scope: SourceRecordScope = .all
     ) throws {
-        let baselineSchemaName = "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
-
-        try #sql(
-            "ATTACH DATABASE \(bind: baselineDatabasePath) AS \(quote: baselineSchemaName)"
-        )
-        .execute(db)
-        defer {
-            try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+        try SourceBaselineDatabase.withAttached(
+            path: baselineDatabasePath,
+            to: db
+        ) { baselineSchemaName in
+            try db.inTransaction {
+                try reset(
+                    in: db,
+                    baselineSchemaName: baselineSchemaName,
+                    descriptors: descriptors,
+                    scope: scope
+                )
+                return .commit
+            }
         }
-
-        try reset(
-            in: db,
-            baselineSchemaName: baselineSchemaName,
-            descriptors: descriptors,
-            scope: scope
-        )
     }
 
     public func reset(
@@ -834,18 +821,7 @@ public struct SourceEditingComparer: Sendable {
     ) throws -> SourceChangeSummary {
         @Dependency(\.defaultDatabase) var database
 
-        return try database.read { db in
-            if let baselineSchemaName = try SourceEditingSession
-                .attachedBaselineSchemaName(in: db)
-            {
-                return try summary(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName,
-                    descriptors: descriptors,
-                    scope: scope
-                )
-            }
-
+        return try database.writeWithoutTransaction { db in
             @Dependency(\.defaultBaselineDatabase) var baselineDatabase
             return try summary(
                 in: db,
@@ -862,18 +838,7 @@ public struct SourceEditingComparer: Sendable {
     ) throws -> SourceChangeSummary {
         @Dependency(\.defaultDatabase) var database
 
-        return try database.read { db in
-            if let baselineSchemaName = try SourceEditingSession
-                .attachedBaselineSchemaName(in: db)
-            {
-                return try summary(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName,
-                    recordTypes: recordTypes,
-                    scope: scope
-                )
-            }
-
+        return try database.writeWithoutTransaction { db in
             @Dependency(\.defaultBaselineDatabase) var baselineDatabase
             return try summary(
                 in: db,
@@ -890,12 +855,14 @@ public struct SourceEditingComparer: Sendable {
         descriptors: [SourceTableDescriptor],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
-        try summary(
-            in: db,
-            baselineDatabasePath: baselineDatabase.path,
-            descriptors: descriptors,
-            scope: scope
-        )
+        try baselineDatabase.withAttached(to: db) { baselineSchemaName in
+            try summary(
+                in: db,
+                baselineSchemaName: baselineSchemaName,
+                descriptors: descriptors,
+                scope: scope
+            )
+        }
     }
 
     public func summary(
@@ -904,12 +871,14 @@ public struct SourceEditingComparer: Sendable {
         recordTypes: [AnySourceEditableRecordType],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
-        try summary(
-            in: db,
-            baselineDatabasePath: baselineDatabase.path,
-            recordTypes: recordTypes,
-            scope: scope
-        )
+        try baselineDatabase.withAttached(to: db) { baselineSchemaName in
+            try summary(
+                in: db,
+                baselineSchemaName: baselineSchemaName,
+                recordTypes: recordTypes,
+                scope: scope
+            )
+        }
     }
 
     public func summary(
@@ -918,22 +887,17 @@ public struct SourceEditingComparer: Sendable {
         descriptors: [SourceTableDescriptor],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
-        let baselineSchemaName = "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
-
-        try #sql(
-            "ATTACH DATABASE \(bind: baselineDatabasePath) AS \(quote: baselineSchemaName)"
-        )
-        .execute(db)
-        defer {
-            try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+        try SourceBaselineDatabase.withAttached(
+            path: baselineDatabasePath,
+            to: db
+        ) { baselineSchemaName in
+            try summary(
+                in: db,
+                baselineSchemaName: baselineSchemaName,
+                descriptors: descriptors,
+                scope: scope
+            )
         }
-
-        return try summary(
-            in: db,
-            baselineSchemaName: baselineSchemaName,
-            descriptors: descriptors,
-            scope: scope
-        )
     }
 
     public func summary(
@@ -942,22 +906,17 @@ public struct SourceEditingComparer: Sendable {
         recordTypes: [AnySourceEditableRecordType],
         scope: SourceRecordScope = .all
     ) throws -> SourceChangeSummary {
-        let baselineSchemaName = "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
-
-        try #sql(
-            "ATTACH DATABASE \(bind: baselineDatabasePath) AS \(quote: baselineSchemaName)"
-        )
-        .execute(db)
-        defer {
-            try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
+        try SourceBaselineDatabase.withAttached(
+            path: baselineDatabasePath,
+            to: db
+        ) { baselineSchemaName in
+            try summary(
+                in: db,
+                baselineSchemaName: baselineSchemaName,
+                recordTypes: recordTypes,
+                scope: scope
+            )
         }
-
-        return try summary(
-            in: db,
-            baselineSchemaName: baselineSchemaName,
-            recordTypes: recordTypes,
-            scope: scope
-        )
     }
 
     public func summary(

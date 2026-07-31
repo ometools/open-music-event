@@ -270,7 +270,7 @@ public struct SourceProposalFlow {
             return .notMounted
         }
         do {
-            let admission = try await authoringPolicy.admission(grant.workspace.id)
+            let admission = try await authoringPolicy.admission(grant.workspaceID)
             guard case let .granted(principal, role) = admission,
                   principal == grant.principal,
                   role == grant.role

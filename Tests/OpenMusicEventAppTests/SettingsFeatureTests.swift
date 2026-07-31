@@ -216,24 +216,17 @@ struct SettingsFeatureTests {
     func eventSettingsButtonsEnterAndExitAuthoring() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID()
-        let workspace = EditingWorkspace(
-            id: EditingWorkspaceRecord.ID(localEventID: eventID),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-        )
+        let workspaceID = EditingWorkspaceRecord.ID(localEventID: eventID)
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
             $0[AuthoringPolicyClient.self] = .authoring
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
-                open: { workspaceID in
-                    #expect(workspaceID == workspace.id)
-                    return workspace
-                },
                 prepareSource: { _ in }
             )
         } operation: {
             TestStore(
-                initialState: Authoring<EventSettings>.State(workspace: workspace) {
+                initialState: Authoring<EventSettings>.State(workspaceID: workspaceID) {
                     EventSettings.State(eventID: eventID)
                 }
             ) {
@@ -248,7 +241,7 @@ struct SettingsFeatureTests {
             $0.grant = AuthoringGrant(
                 principal: .local,
                 role: .owner,
-                workspace: workspace
+                workspaceID: workspaceID
             )
         }
 

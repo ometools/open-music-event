@@ -588,6 +588,54 @@ struct DatabaseMigrationTests {
     }
 
     @Test
+    func editingWorkspaceReferenceDatabaseRenamePreservesTheStoredFileName() async throws {
+        let database = try SQLiteData.defaultDatabase()
+        var migrator = DatabaseMigrator()
+        OME.DatabaseMigrations.register(into: &migrator)
+        try migrator.migrate(
+            database,
+            upTo: "Create OpenMusicEvent workspace authoring activation schema"
+        )
+        try await database.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO "editingWorkspaces" (
+                      "id", "kind", "databaseFileName", "createdAt", "updatedAt"
+                    ) VALUES (?, 'local', ?, ?, ?)
+                    """,
+                arguments: [
+                    "local.value-preserving-migration",
+                    "reference-before-rename.sqlite",
+                    "2026-07-31T00:00:00Z",
+                    "2026-07-31T00:00:00Z",
+                ]
+            )
+        }
+
+        try migrator.migrate(database)
+
+        try await database.read { db in
+            expectNoDifference(
+                try String.fetchAll(
+                    db,
+                    sql: #"SELECT "name" FROM pragma_table_info('editingWorkspaces')"#
+                ).filter { $0.contains("DatabaseFileName") },
+                ["referenceDatabaseFileName"]
+            )
+            #expect(
+                try String.fetchOne(
+                    db,
+                    sql: """
+                        SELECT "referenceDatabaseFileName"
+                        FROM "editingWorkspaces"
+                        WHERE "id" = 'local.value-preserving-migration'
+                        """
+                ) == "reference-before-rename.sqlite"
+            )
+        }
+    }
+
+    @Test
     func workspaceAuthoringActivationMigrationPersistsUpsertsAndCascades() async throws {
         let database = try migratedDatabase()
         let workspaceID = EditingWorkspaceRecord.ID(
@@ -596,7 +644,7 @@ struct DatabaseMigrationTests {
         let workspace = EditingWorkspaceRecord(
             id: workspaceID,
             kind: .local,
-            databaseFileName: "persisted-authoring.sqlite",
+            referenceDatabaseFileName: "persisted-authoring.sqlite",
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 1)
         )

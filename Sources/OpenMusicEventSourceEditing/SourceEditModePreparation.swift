@@ -16,18 +16,13 @@ public struct SourceEditModePreparationClient: Sendable {
 }
 
 public struct WorkspacePreparationClient: Sendable {
-    public var open: @Sendable (EditingWorkspaceRecord.ID) throws -> EditingWorkspace
     public var prepareSource: @Sendable (EditingWorkspaceRecord.ID) async throws -> Void
 
     public init(
-        open: @escaping @Sendable (
-            EditingWorkspaceRecord.ID
-        ) throws -> EditingWorkspace,
         prepareSource: @escaping @Sendable (
             EditingWorkspaceRecord.ID
         ) async throws -> Void
     ) {
-        self.open = open
         self.prepareSource = prepareSource
     }
 }
@@ -101,14 +96,7 @@ public extension SourceEditModePreparationClient {
 
 public extension WorkspacePreparationClient {
     static var live: Self {
-        return Self(
-            open: { workspaceID in
-                @Dependency(\.sourceWorkspaceDatabase) var sourceWorkspaceDatabase
-                return EditingWorkspace(
-                    id: workspaceID,
-                    sourceWorkspaceDatabase: try sourceWorkspaceDatabase.workspace(workspaceID)
-                )
-            },
+        Self(
             prepareSource: { workspaceID in
                 try await WorkspaceSourcePreparationCoordination.live.prepare(workspaceID) {
                     try await Self.prepareSource(workspaceID)
@@ -119,13 +107,6 @@ public extension WorkspacePreparationClient {
 
     static var passthrough: Self {
         Self(
-            open: { workspaceID in
-                @Dependency(\.defaultDatabase) var database
-                return EditingWorkspace(
-                    id: workspaceID,
-                    sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-                )
-            },
             prepareSource: { _ in }
         )
     }

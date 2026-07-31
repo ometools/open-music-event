@@ -124,9 +124,12 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
 
 extension SourceWorkspaceSummary {
     static func query(
-        target: SourceProposalTarget
-    ) -> some FetchKeyRequest<Self> {
-        Query(target: target)
+        target: SourceProposalTarget,
+        using database: any DatabaseWriter
+    ) throws -> Self {
+        try database.writeWithoutTransaction { db in
+            try query(target: target, in: db)
+        }
     }
 
     static func query(
@@ -151,13 +154,6 @@ extension SourceWorkspaceSummary {
         }
     }
 
-    struct Query: FetchKeyRequest {
-        var target: SourceProposalTarget
-
-        func fetch(_ db: Database) throws -> SourceWorkspaceSummary {
-            try SourceWorkspaceSummary.query(target: target, in: db)
-        }
-    }
 }
 
 @Feature
@@ -381,16 +377,17 @@ public struct EventWorkspace {
         }
 
         public init(target: SourceProposalTarget) {
+            @Dependency(\.defaultDatabase) var database
             self._authoringGrant = Self.authoringGrant()
             self._cachedActorIdentities = Fetch(
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
             )
             self.target = target
-            self._sourceWorkspaceSummary = Fetch(
-                wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
-                SourceWorkspaceSummary.query(target: target)
-            )
+            self.sourceWorkspaceSummary = (try? SourceWorkspaceSummary.query(
+                target: target,
+                using: database
+            )) ?? SourceWorkspaceSummary.initialValue(target: target)
             self._sourceProvenance = FetchOne(
                 Self.sourceProvenanceQuery(target: target)
             )
@@ -404,7 +401,7 @@ public struct EventWorkspace {
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         @DebugSnapshotIgnored
-        @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
+        public var sourceWorkspaceSummary: SourceWorkspaceSummary
         @SharedReader public var authoringGrant: AuthoringGrant?
         public var isPreparingSourceProposal = false
         public var isRefreshingSource = false
@@ -617,20 +614,16 @@ public struct EventWorkspace {
                 target: SourceProposalTarget
             ) async throws -> SourceProposalPreparation {
                 let patch = try await calendarSourcePatchGenerator.generate(sourcePatchRequest)
-                let (sourceWorkspaceSummary, sourceFileAttributions) = try await database.read { db in
-                    let sourceWorkspaceSummary = try SourceWorkspaceSummary.query(
-                        target: target,
-                        in: db
-                    )
-                    let sourceFileAttributions = try openMusicEventSourceFileAttributions(
+                let sourceWorkspaceSummary = try SourceWorkspaceSummary.query(
+                    target: target,
+                    using: database
+                )
+                let sourceFileAttributions = try await database.read { db in
+                    try openMusicEventSourceFileAttributions(
                         patch: patch,
                         groups: sourceWorkspaceSummary.groups,
                         recordComparisons: sourceWorkspaceSummary.recordComparisons,
                         in: db
-                    )
-                    return (
-                        sourceWorkspaceSummary,
-                        sourceFileAttributions
                     )
                 }
                 return SourceProposalPreparation(
@@ -665,6 +658,28 @@ public struct EventWorkspace {
                             .sourcePatchGenerationResponse(
                                 .failure(SourcePatchGenerationFailure(error))
                             )
+                        )
+                    }
+                }
+            }
+
+            func reloadSourceWorkspaceSummary(target: SourceProposalTarget) {
+                let database = database
+                store.addTask {
+                    do {
+                        let summary = try SourceWorkspaceSummary.query(
+                            target: target,
+                            using: database
+                        )
+                        try store.modify {
+                            $0.sourceWorkspaceSummary = summary
+                        }
+                    } catch is CancellationError {
+                    } catch {
+                        await store.reportError(
+                            error,
+                            fallbackMessage: .sourceChangeComparisonFailed,
+                            operation: .sourceChangeComparison
                         )
                     }
                 }
@@ -980,6 +995,7 @@ public struct EventWorkspace {
                 mergeTangledPullReview(review, state: &state)
 
             case .onAppear:
+                reloadSourceWorkspaceSummary(target: state.target)
                 if let actor = state.sourceContext?.ownerActorReference {
                     let blueskyActorProfileCache = blueskyActorProfileCache
                     store.addTask {
@@ -1031,6 +1047,7 @@ public struct EventWorkspace {
                 state.sourcePatchStatus = .generated(SourcePatch())
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
+                reloadSourceWorkspaceSummary(target: state.target)
 
             case let .resetEditsResponse(.failure(failure)):
                 state.isResettingEdits = false
@@ -1096,6 +1113,7 @@ public struct EventWorkspace {
                 state.sourcePatchStatus = .needsGeneration(invalidation)
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
+                reloadSourceWorkspaceSummary(target: state.target)
 
             case .sourceProposal(_):
                 break
@@ -1212,6 +1230,10 @@ public struct EventWorkspace {
 }
 
 private extension UserFacingText {
+    static let sourceChangeComparisonFailed = Self(
+        "Unable to compare source changes.",
+        fallback: "Unable to compare source changes."
+    )
     static let tangledPullReviewLoadFailed = Self(
         "Unable to load Tangled pull reviews.",
         fallback: "Unable to load Tangled pull reviews."
@@ -1231,6 +1253,7 @@ private extension UserFacingText {
 }
 
 private extension ErrorOperation {
+    static let sourceChangeComparison = Self("source.change-comparison")
     static let tangledPullReviewLoad = Self("tangled.pull-review.load")
     static let tangledPullReviewClose = Self("tangled.pull-review.close")
     static let tangledPullReviewDelete = Self("tangled.pull-review.delete")
@@ -3283,9 +3306,9 @@ extension EventWorkspace.State {
             collaborators = nil
             return
         }
-        guard collaborators?.workspaceID != grant.workspace.id else { return }
+        guard collaborators?.workspaceID != grant.workspaceID else { return }
         collaborators = WorkspaceCollaborators.State(
-            workspaceID: grant.workspace.id,
+            workspaceID: grant.workspaceID,
             role: grant.role
         )
     }
@@ -3339,53 +3362,50 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
             )
         )
 
-        let workingDatabaseURL = scratchRootURL
+        // This short-lived review snapshot is temporary reference staging used only to compare
+        // the proposed branch with the persisted reference. It is not an application or
+        // workspace-owned writable database.
+        let reviewDatabaseURL = scratchRootURL
             .appending(path: "review.sqlite")
-        let workingDatabase = try DatabasePool(path: workingDatabaseURL.path)
+        let reviewDatabase = try DatabasePool(path: reviewDatabaseURL.path)
         var migrator = DatabaseMigrator()
         OME.DatabaseMigrations.register(into: &migrator)
-        try migrator.migrate(workingDatabase)
+        try migrator.migrate(reviewDatabase)
 
         try await withDependencies {
             $0.sourceReferenceDatabase = .scratch(rootURL: scratchRootURL)
             $0.sourceReferenceDatabaseMigrator = .openMusicEvent
             $0.localImageFileStore = .scratch(rootURL: scratchRootURL)
         } operation: {
-            try await insertion.insert(into: workingDatabase)
+            try await insertion.insert(into: reviewDatabase)
         }
 
-        let semanticDiff = try await workingDatabase.read { db in
-            let baselineSchemaName = "review_source_baseline"
-            try #sql(
-                "ATTACH DATABASE \(bind: baselineDatabase.path) AS \(quote: baselineSchemaName)"
-            )
-            .execute(db)
-            defer {
-                try? #sql("DETACH DATABASE \(quote: baselineSchemaName)").execute(db)
-            }
-            let summary = try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
-            switch summary.availability {
-            case .available:
-                let workspaceSummary = SourceWorkspaceSummary(
-                    target: target,
-                    changeSummary: summary
+        let semanticDiff = try await reviewDatabase.writeWithoutTransaction { db in
+            try baselineDatabase.withAttached(to: db) { baselineSchemaName in
+                let summary = try openMusicEventSourceEditSummary(
+                    in: db,
+                    baselineSchemaName: baselineSchemaName
                 )
-                let sourceFileAttributions = try openMusicEventSourceFileAttributions(
-                    groups: workspaceSummary.groups,
-                    recordComparisons: workspaceSummary.recordComparisons,
-                    in: db
-                )
-                return Self(
-                    groups: workspaceSummary.groups,
-                    recordComparisons: workspaceSummary.recordComparisons,
-                    sourceFileAttributions: sourceFileAttributions
-                )
+                switch summary.availability {
+                case .available:
+                    let workspaceSummary = SourceWorkspaceSummary(
+                        target: target,
+                        changeSummary: summary
+                    )
+                    let sourceFileAttributions = try openMusicEventSourceFileAttributions(
+                        groups: workspaceSummary.groups,
+                        recordComparisons: workspaceSummary.recordComparisons,
+                        in: db
+                    )
+                    return Self(
+                        groups: workspaceSummary.groups,
+                        recordComparisons: workspaceSummary.recordComparisons,
+                        sourceFileAttributions: sourceFileAttributions
+                    )
 
-            case let .unavailable(reason):
-                throw TangledPullReviewSemanticDiffError.unavailable(reason)
+                case let .unavailable(reason):
+                    throw TangledPullReviewSemanticDiffError.unavailable(reason)
+                }
             }
         }
 

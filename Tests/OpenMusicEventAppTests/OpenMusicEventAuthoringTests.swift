@@ -264,16 +264,12 @@ struct OpenMusicEventAuthoringTests {
         let workspace = teamWorkspace("invalidation", ownerID: actorID)
         try await insert(workspace, into: database)
         let storage = testStorage(session: session)
-        let editingWorkspace = EditingWorkspace(
-            id: workspace.id,
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: database)
-        )
         let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
         let grant = Shared<AuthoringGrant?>(
             value: AuthoringGrant(
                 principal: .actor(actorID),
                 role: .owner,
-                workspace: editingWorkspace
+                workspaceID: workspace.id
             )
         )
         let store = withDependencies {
@@ -365,7 +361,7 @@ struct OpenMusicEventAuthoringTests {
             sourceKind: .tangled,
             sourceReference: "tangled.org/did:plc:repository/source",
             ref: "main",
-            databaseFileName: workspace.databaseFileName,
+            databaseFileName: workspace.referenceDatabaseFileName,
             importedAt: workspace.createdAt
         )
     }
@@ -377,7 +373,7 @@ struct OpenMusicEventAuthoringTests {
         EditingWorkspaceRecord(
             id: .init(rawValue: "team.\(name)"),
             kind: .team,
-            databaseFileName: "\(name).sqlite",
+            referenceDatabaseFileName: "\(name).sqlite",
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 1),
             sourceBaselineID: SourceBaselineRecord.ID(rawValue: "baseline.\(name)"),
@@ -393,7 +389,7 @@ struct OpenMusicEventAuthoringTests {
         EditingWorkspaceRecord(
             id: .init(rawValue: "local.\(name)"),
             kind: .local,
-            databaseFileName: "\(name).sqlite",
+            referenceDatabaseFileName: "\(name).sqlite",
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 1)
         )

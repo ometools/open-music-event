@@ -11,6 +11,7 @@ import OpenMusicEventLexicon
 import OpenMusicEventSource
 import OpenMusicEventSourceEditing
 import OpenMusicEventTimeZones
+import Sharing
 import SourceEditing
 import SQLiteData
 import Synchronization
@@ -199,12 +200,10 @@ struct TeamWorkspaceEditorTests {
                 )
             ]
         )
-        let expectedWorkspaceSummary = try await database.read { db in
-            try SourceWorkspaceSummary.query(
-                target: .calendar(calendarID, sourceBaselineID),
-                in: db
-            )
-        }
+        let expectedWorkspaceSummary = try SourceWorkspaceSummary.query(
+            target: .calendar(calendarID, sourceBaselineID),
+            using: database
+        )
         let expectedSourceFileAttributions = try await database.read { db in
             try openMusicEventSourceFileAttributions(
                 patch: patch,
@@ -218,7 +217,6 @@ struct TeamWorkspaceEditorTests {
             sourceFileAttributions: expectedSourceFileAttributions,
             sourceWorkspaceSummary: expectedWorkspaceSummary
         )
-
         let store = withDependencies {
             $0.context = .test
             $0.defaultDatabase = database
@@ -267,9 +265,9 @@ struct TeamWorkspaceEditorTests {
         let baselineDatabasePath = directoryURL.appending(path: "baseline.sqlite").path
         let workingDatabase = try makePreparedDatabase(path: workingDatabasePath)
         let baselineDatabase = try makePreparedDatabase(path: baselineDatabasePath)
-        let sourceEditingSession = try SourceEditingSession(
-            workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: baselineDatabasePath
+        let baselineReference = SourceBaselineDatabase(
+            path: baselineDatabasePath,
+            database: baselineDatabase
         )
         let organizerID = try #require(OMERecord.Organizer.ID("did:plc:sourcemanagement"))
         let calendarID = OMERecord.Calendar.ID(
@@ -323,14 +321,17 @@ struct TeamWorkspaceEditorTests {
                 ]
             )
         }
-        let expectedWorkspaceSummary = try await sourceEditingSession.database.read { db in
+        let expectedWorkspaceSummary = try await withDependencies {
+            $0.defaultDatabase = workingDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineReference)
+        } operation: {
             try SourceWorkspaceSummary.query(
                 target: .calendar(calendarID, sourceBaseline.id),
-                in: db
+                using: workingDatabase
             )
         }
         #expect(expectedWorkspaceSummary.totalCount == 1)
-        let expectedSourceFileAttributions = try await sourceEditingSession.database.read { db in
+        let expectedSourceFileAttributions = try await workingDatabase.read { db in
             try openMusicEventSourceFileAttributions(
                 patch: patch,
                 groups: expectedWorkspaceSummary.groups,
@@ -343,10 +344,19 @@ struct TeamWorkspaceEditorTests {
             sourceFileAttributions: expectedSourceFileAttributions,
             sourceWorkspaceSummary: expectedWorkspaceSummary
         )
-
+        let workspaceID = EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaseline.id)
+        let grant = SharedReader<AuthoringGrant?>(
+            value: AuthoringGrant(
+                principal: .local,
+                role: .owner,
+                workspaceID: workspaceID
+            )
+        )
         let store = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = workingDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineReference)
+            $0.useAuthoringContext(workspaceID, grant: grant)
             $0[SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self] =
                 SourcePatchGenerator { request in
                     #expect(
@@ -368,10 +378,7 @@ struct TeamWorkspaceEditorTests {
             }
         }
 
-        let task = store.send(.proposeChangeButtonTapped) {
-            $0.isPreparingSourceProposal = true
-            $0.sourcePatchStatus = .generating
-        }
+        let task = store.send(.proposeChangeButtonTapped)
         await store.receive(
             \.sourceProposalPreparationResponse,
             .equals(.success(expectedPreparation)),
@@ -504,24 +511,13 @@ struct TeamWorkspaceEditorTests {
             }
         }
 
-        let task = store.send(.resetEditsButtonTapped) {
-            $0.isResettingEdits = true
-        }
-        await store.receive(
-            \.resetEditsResponse,
-            .equals(
-                Result<EventWorkspace.ResetEditsSuccess, EventWorkspace.ResetEditsFailure>
-                    .success(EventWorkspace.ResetEditsSuccess())
-            ),
-            timeout: .seconds(1)
-        ) {
-            $0.isResettingEdits = false
-            $0.sourcePatchStatus = .generated(SourcePatch())
-            $0.sourceProposalStatus = .idle
-        }
+        let task = store.send(.resetEditsButtonTapped)
         await task?.value
 
+        #expect(!store.state.isResettingEdits)
         #expect(store.state.sourceProposal == nil)
+        expectNoDifference(store.state.sourcePatchStatus, .generated(SourcePatch()))
+        expectNoDifference(store.state.sourceProposalStatus, .idle)
         expectNoDifference(
             resetRequests.withLock { $0 },
             [.calendar(calendarID, sourceBaselineID)]
@@ -576,9 +572,9 @@ struct TeamWorkspaceEditorTests {
         let baselineDatabasePath = directoryURL.appending(path: "baseline.sqlite").path
         let workingDatabase = try makePreparedDatabase(path: workingDatabasePath)
         let baselineDatabase = try makePreparedDatabase(path: baselineDatabasePath)
-        let sourceEditingSession = try SourceEditingSession(
-            workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: baselineDatabasePath
+        let baselineReference = SourceBaselineDatabase(
+            path: baselineDatabasePath,
+            database: baselineDatabase
         )
         let organizerID = try #require(OMERecord.Organizer.ID("did:web:wickedwoods.example"))
         let calendarID = OMERecord.Calendar.ID(
@@ -639,7 +635,8 @@ struct TeamWorkspaceEditorTests {
 
         let store = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = workingDatabase
+            $0.sourceReferenceDatabase = .test(database: baselineReference)
         } operation: {
             TestStore(
                 initialState: SourceWorkspace.State(
@@ -653,9 +650,6 @@ struct TeamWorkspaceEditorTests {
 
         expectNoDifference(
             [
-                store.state.$sourceWorkspaceSummary.loadError.map { _ in
-                    "SourceWorkspace.sourceWorkspaceSummary"
-                },
                 store.state.$sourceBaseline.loadError.map { _ in
                     "SourceWorkspace.sourceBaseline"
                 },
@@ -1674,6 +1668,23 @@ private actor SourceEditPreparationRecorder {
 }
 
 private struct SourceWorkspacePatchFailure: Error {}
+
+private extension SourceReferenceDatabaseClient {
+    static func test(database: SourceBaselineDatabase) -> Self {
+        Self(
+            url: { _ in URL(fileURLWithPath: database.path) },
+            prepareForImport: { _ in
+                StagedSourceReferenceDatabase(
+                    database: database,
+                    databaseFileName: URL(fileURLWithPath: database.path).lastPathComponent,
+                    commit: {},
+                    discard: {}
+                )
+            },
+            existing: { _ in database }
+        )
+    }
+}
 
 @Feature
 private struct SourceWorkspaceErrorHost {

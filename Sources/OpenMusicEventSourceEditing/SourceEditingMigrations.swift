@@ -162,6 +162,14 @@ public extension OME {
                     """)
                     .execute(db)
             }
+
+            migrator.registerMigration("Name editing workspace reference databases") { db in
+                try #sql("""
+                    ALTER TABLE "editingWorkspaces"
+                    RENAME COLUMN "databaseFileName" TO "referenceDatabaseFileName"
+                    """)
+                    .execute(db)
+            }
         }
     }
 }

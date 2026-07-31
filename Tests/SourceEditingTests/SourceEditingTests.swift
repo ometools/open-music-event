@@ -386,22 +386,19 @@ struct SourceEditingTests {
     }
 
     @Test
-    func sessionUsesAttachedBaselineForSummariesAndWrites() throws {
+    func defaultDatabaseUsesAttachedReferenceForSummariesAndWrites() throws {
         let fixture = try SourceEditingFixture()
-        let session = try SourceEditingSession(
-            workingDatabasePath: fixture.workingDatabasePath,
-            baselineDatabasePath: fixture.baselineDatabase.path
-        )
 
-        try session.database.write { db in
+        try fixture.workingDatabase.writeWithoutTransaction { db in
             try Todo
                 .find(2)
-                .update { $0.title = "Changed through session" }
+                .update { $0.title = "Changed through default" }
                 .execute(db)
         }
 
         let summary = try withDependencies {
-            $0.defaultDatabase = session.database
+            $0.defaultDatabase = fixture.workingDatabase
+            $0.defaultBaselineDatabase = fixture.baselineDatabase
         } operation: {
             try SourceEditingComparer().summary(
                 descriptors: [Todo.sourceDescriptor],
@@ -431,7 +428,7 @@ struct SourceEditingTests {
                                     sourceFieldChange(
                                         "title",
                                         baselineValue: "Old title".databaseValue,
-                                        workingValue: "Changed through session".databaseValue
+                                        workingValue: "Changed through default".databaseValue
                                     )
                                 ]
                             )
@@ -443,43 +440,36 @@ struct SourceEditingTests {
     }
 
     @Test
-    func sessionAttachesBaselineReadOnly() throws {
+    func referenceAttachmentIsReadOnlyAndGuaranteedToDetach() throws {
         let fixture = try SourceEditingFixture()
-        let session = try SourceEditingSession(
-            workingDatabasePath: fixture.workingDatabasePath,
-            baselineDatabasePath: fixture.baselineDatabase.path
-        )
 
-        try session.database.write { db in
-            try Todo
-                .find(2)
-                .update { $0.title = "Working write succeeds" }
-                .execute(db)
-        }
-
-        #expect(throws: Error.self) {
-            try session.database.write { db in
-                try #sql(
-                    """
-                    UPDATE "source_baseline"."todos"
-                    SET "title" = 'Baseline write should fail'
-                    WHERE "id" = 2
-                    """
-                )
-                .execute(db)
+        try fixture.workingDatabase.writeWithoutTransaction { db in
+            #expect(throws: Error.self) {
+                try fixture.baselineDatabase.withAttached(to: db) { schemaName in
+                    try #sql(
+                        """
+                        UPDATE \(quote: schemaName)."todos"
+                        SET "title" = 'Reference write should fail'
+                        WHERE "id" = 2
+                        """
+                    )
+                    .execute(db)
+                }
             }
+
+            let attachedDatabaseNames = try String.fetchAll(
+                db,
+                sql: "SELECT name FROM pragma_database_list"
+            )
+            expectNoDifference(attachedDatabaseNames, ["main"])
         }
     }
 
     @Test
-    func sessionResetRestoresScopedChangesFromBaseline() throws {
+    func resetRestoresScopedDefaultChangesFromAttachedReference() throws {
         let fixture = try SourceEditingFixture()
-        let session = try SourceEditingSession(
-            workingDatabasePath: fixture.workingDatabasePath,
-            baselineDatabasePath: fixture.baselineDatabase.path
-        )
 
-        try fixture.updateWorking(id: 2, title: "Changed through session")
+        try fixture.updateWorking(id: 2, title: "Changed through default")
         try fixture.deleteWorking(id: 3)
         try fixture.updateWorking(id: 4, localCache: "new local cache")
         try fixture.updateWorking(id: 5, title: "Other list changed")
@@ -493,13 +483,18 @@ struct SourceEditingTests {
             )
         )
 
-        try session.reset(
-            descriptors: [Todo.sourceDescriptor],
-            scope: listScope("list-1")
-        )
+        try fixture.workingDatabase.writeWithoutTransaction { db in
+            try SourceEditingResetter().reset(
+                in: db,
+                baselineDatabase: fixture.baselineDatabase,
+                descriptors: [Todo.sourceDescriptor],
+                scope: listScope("list-1")
+            )
+        }
 
         let summary = try withDependencies {
-            $0.defaultDatabase = session.database
+            $0.defaultDatabase = fixture.workingDatabase
+            $0.defaultBaselineDatabase = fixture.baselineDatabase
         } operation: {
             try SourceEditingComparer().summary(
                 descriptors: [Todo.sourceDescriptor],
@@ -522,7 +517,7 @@ struct SourceEditingTests {
             )
         )
 
-        let listOneRecords = try session.database.read { db in
+        let listOneRecords = try fixture.workingDatabase.read { db in
             try Todo
                 .where { $0.listID.eq("list-1") }
                 .fetchAll(db)
@@ -539,7 +534,7 @@ struct SourceEditingTests {
         )
 
         let otherListRecord = try #require(
-            try session.database.read { db in
+            try fixture.workingDatabase.read { db in
                 try Todo.find(5).fetchOne(db)
             }
         )

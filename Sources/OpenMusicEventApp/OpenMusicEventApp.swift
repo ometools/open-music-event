@@ -64,7 +64,6 @@ extension OME {
 
         dependencies.tangledPullReviewListSource = .constellationBackfill
         dependencies.sourceReferenceDatabaseMigrator = .openMusicEvent
-        dependencies.sourceWorkspaceDatabasePreparation = .openMusicEvent
         dependencies[OpenMusicEventSourceEditing.AuthoringPolicyClient.self] = .openMusicEvent
 
         let baseDatabase = dependencies.defaultDatabase
@@ -82,38 +81,33 @@ extension OME {
         )
 
         dependencies.sourceDataRefresh = SourceDataRefreshClient { sourceBaselineID in
-            try await withDependencies {
-                $0.defaultDatabase = baseDatabase
-            } operation: {
-                @Dependency(\.defaultDatabase) var database
-                @Dependency(\.tangledSourceImport) var tangledSourceImport
-                let (sourceBaseline, organizerID) = try await database.read { db in
-                    let fetchedSourceBaseline = try SourceBaselineRecord
-                        .where { $0.id.eq(sourceBaselineID) }
-                        .fetchOne(db)
-                    guard let sourceBaseline = fetchedSourceBaseline
-                    else {
-                        throw SourceDataRefreshError.sourceBaselineNotFound(sourceBaselineID)
-                    }
-                    let fetchedOrganizerID = try EventSourceProvenanceRecord
-                        .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                        .fetchOne(db)?
-                        .id
-                        .organizerID
-                    guard let organizerID = fetchedOrganizerID
-                    else {
-                        throw SourceDataRefreshError.sourceBaselineHasNoEvents(sourceBaselineID)
-                    }
-                    return (sourceBaseline, organizerID)
+            @Dependency(\.tangledSourceImport) var tangledSourceImport
+            let (sourceBaseline, organizerID) = try await baseDatabase.read { db in
+                let fetchedSourceBaseline = try SourceBaselineRecord
+                    .where { $0.id.eq(sourceBaselineID) }
+                    .fetchOne(db)
+                guard let sourceBaseline = fetchedSourceBaseline
+                else {
+                    throw SourceDataRefreshError.sourceBaselineNotFound(sourceBaselineID)
                 }
-                _ = try await tangledSourceImport.importSource(
-                    OpenMusicEventSourceValidationRequest(
-                        source: sourceBaseline.sourceReference,
-                        organizerID: organizerID,
-                        ref: sourceBaseline.ref ?? "HEAD"
-                    )
-                )
+                let fetchedOrganizerID = try EventSourceProvenanceRecord
+                    .where { $0.sourceBaselineID.eq(sourceBaselineID) }
+                    .fetchOne(db)?
+                    .id
+                    .organizerID
+                guard let organizerID = fetchedOrganizerID
+                else {
+                    throw SourceDataRefreshError.sourceBaselineHasNoEvents(sourceBaselineID)
+                }
+                return (sourceBaseline, organizerID)
             }
+            _ = try await tangledSourceImport.importSource(
+                OpenMusicEventSourceValidationRequest(
+                    source: sourceBaseline.sourceReference,
+                    organizerID: organizerID,
+                    ref: sourceBaseline.ref ?? "HEAD"
+                )
+            )
         }
     }
 

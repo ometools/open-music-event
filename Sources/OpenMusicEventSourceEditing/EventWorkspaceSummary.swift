@@ -42,6 +42,15 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
 public extension EventWorkspaceSummary {
     static func query(
         eventID: OME.Event.ID,
+        using database: any DatabaseWriter
+    ) throws -> Self {
+        try database.writeWithoutTransaction { db in
+            try query(eventID: eventID, in: db)
+        }
+    }
+
+    static func query(
+        eventID: OME.Event.ID,
         in db: Database
     ) throws -> Self {
         let eventWorkspace = try EventEditingWorkspaceRecord
@@ -66,35 +75,43 @@ public extension EventWorkspaceSummary {
             )
         }
 
-        guard let baselineSchemaName = try SourceEditingSession
-            .attachedBaselineSchemaName(in: db)
-        else {
+        let sourceProvenance = try EventSourceProvenanceRecord
+            .where { $0.id.eq(eventID) }
+            .fetchOne(db)
+        guard sourceProvenance?.sourceBaselineID != nil || workspace.kind == .local else {
+            return EventWorkspaceSummary(
+                eventID: eventID,
+                availability: .notInWorkspace,
+                groups: []
+            )
+        }
+        let sourceBaseline = try workspace.sourceBaselineID.flatMap { sourceBaselineID in
+            try SourceBaselineRecord
+                .where { $0.id.eq(sourceBaselineID) }
+                .fetchOne(db)
+        }
+        @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
+        let baselineDatabase: SourceBaselineDatabase?
+        do {
+            baselineDatabase = try workspaceReferenceDatabase.existing(
+                workspace,
+                sourceBaseline: sourceBaseline
+            )
+        } catch WorkspaceReferenceDatabaseError.sourceBaselineMissing(_),
+                WorkspaceReferenceDatabaseError.teamWorkspaceMissingSourceBaseline(_) {
+            baselineDatabase = nil
+        }
+        guard let baselineDatabase else {
             return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .workspaceNeedsPreparation,
                 groups: []
             )
         }
-
-        let sourceProvenance = try EventSourceProvenanceRecord
-            .where { $0.id.eq(eventID) }
-            .fetchOne(db)
-        let sourceSummary: SourceChangeSummary
-        if sourceProvenance?.sourceBaselineID != nil {
-            sourceSummary = try openMusicEventSourceEditSummary(
+        let sourceSummary = try baselineDatabase.withAttached(to: db) { baselineSchemaName in
+            try openMusicEventSourceEditSummary(
                 in: db,
                 baselineSchemaName: baselineSchemaName
-            )
-        } else if workspace.kind == .local {
-            sourceSummary = try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
-        } else {
-            return EventWorkspaceSummary(
-                eventID: eventID,
-                availability: .notInWorkspace,
-                groups: []
             )
         }
 
@@ -154,14 +171,22 @@ public struct SourceEditSummary: Equatable, Sendable {
 public extension SourceEditSummary {
     static func query(
         sourceBaselineID: SourceBaselineRecord.ID,
+        using database: any DatabaseWriter
+    ) throws -> Self {
+        try database.writeWithoutTransaction { db in
+            try query(sourceBaselineID: sourceBaselineID, in: db)
+        }
+    }
+
+    static func query(
+        sourceBaselineID: SourceBaselineRecord.ID,
         in db: Database
     ) throws -> Self {
-        let sourceBaselineExists = try SourceBaselineRecord
+        let sourceBaseline = try SourceBaselineRecord
             .where { $0.id.eq(sourceBaselineID) }
             .fetchOne(db)
-            .map { _ in true } ?? false
 
-        guard sourceBaselineExists else {
+        guard let sourceBaseline else {
             return SourceEditSummary(
                 sourceBaselineID: sourceBaselineID,
                 availability: .missingBaseline,
@@ -169,19 +194,22 @@ public extension SourceEditSummary {
             )
         }
 
-        guard let baselineSchemaName = try SourceEditingSession
-            .attachedBaselineSchemaName(in: db)
-        else {
+        @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
+        guard let baselineDatabase = try sourceReferenceDatabase.existing(
+            sourceBaseline.sourceProvenance
+        ) else {
             return SourceEditSummary(
                 sourceBaselineID: sourceBaselineID,
                 availability: .missingBaseline,
                 groups: []
             )
         }
-        let sourceSummary = try openMusicEventSourceEditSummary(
-            in: db,
-            baselineSchemaName: baselineSchemaName
-        )
+        let sourceSummary = try baselineDatabase.withAttached(to: db) { baselineSchemaName in
+            try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: baselineSchemaName
+            )
+        }
 
         switch sourceSummary.availability {
         case .available:
