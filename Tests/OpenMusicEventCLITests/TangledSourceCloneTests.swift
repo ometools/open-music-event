@@ -369,7 +369,7 @@ struct TangledSourceCloneTests {
         #expect(request.remote.url == "git@tangled.org:did:plc:targetrepo")
         #expect(request.checkout == "main")
         #expect(request.destinationURL == outputURL)
-        #expect(request.depth == 1)
+        #expect(request.depth == nil)
         #expect(request.credentials == repository.sourceControlCredentials(credentials))
     }
 

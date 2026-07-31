@@ -131,7 +131,6 @@ public extension TangledSourceCheckoutClient {
                 repoDID: target.repositoryDID.description,
                 destinationURL: request.outputURL,
                 ref: request.ref,
-                depth: 1,
                 credentials: credentials
             )
             do {
