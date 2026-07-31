@@ -373,7 +373,7 @@ struct SourceWorkspaceDatabaseTests {
     }
 
     @Test
-    func `workspace context installs its working database with the reference attached`() throws {
+    func `workspace context keeps app database mounted with its reference attached`() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -399,7 +399,8 @@ struct SourceWorkspaceDatabaseTests {
 
         let session = try SourceEditingSession(
             workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: referenceDatabasePath
+            baselineDatabasePath: referenceDatabasePath,
+            baselineSchemaName: "mounted_reference"
         )
         let workspace = WorkspaceContext(
             id: EditingWorkspaceRecord.ID(rawValue: "mounted-reference"),
@@ -413,22 +414,27 @@ struct SourceWorkspaceDatabaseTests {
             )
         } operation: {
             @Dependency(\.defaultDatabase) var database
+            @Dependency(\.sourceEditingSession) var mountedSourceEditingSession
+            let sourceEditingSession = try #require(mountedSourceEditingSession)
 
             return try database.read { db in
-                let workingValue = try #require(
+                let appValue = try #require(
                     try String.fetchOne(db, sql: "SELECT value FROM marker")
                 )
-                let referenceValue = try #require(
-                    try String.fetchOne(
-                        db,
-                        sql: "SELECT value FROM source_baseline.marker"
+                let referenceValue = try sourceEditingSession.withAttachedBaseline(to: db) { schemaName in
+                    #expect(schemaName == "mounted_reference")
+                    return try #require(
+                        try String.fetchOne(
+                            db,
+                            sql: "SELECT value FROM mounted_reference.marker"
+                        )
                     )
-                )
-                return [workingValue, referenceValue]
+                }
+                return [appValue, referenceValue]
             }
         }
 
-        expectNoDifference(mountedValues, ["working", "reference"])
+        expectNoDifference(mountedValues, ["app", "reference"])
     }
 
     private func marker(in database: any DatabaseReader) throws -> String? {

@@ -163,7 +163,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func proposeChangeUsesWorkspaceDatabaseWithAttachedBaseline() async throws {
+    func proposeChangeReviewsChangesWhenPatchIsNotReady() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         let expectedSourceBaselineID = sourceBaselineID(for: eventID)
@@ -175,26 +175,22 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             path: directoryURL.appending(path: "baseline.sqlite").path()
         )
         try database.backup(to: baselineDatabase.database)
-        let workingDatabasePath = directoryURL.appending(path: "working.sqlite").path()
-        try database.backup(
-            to: defaultBaselineDatabase(path: workingDatabasePath).database
-        )
-        let sourceEditingSession = try SourceEditingSession(
-            workingDatabasePath: workingDatabasePath,
-            baselineDatabasePath: baselineDatabase.path
-        )
-        try await sourceEditingSession.database.write { db in
+        try await database.write { db in
             try OME.Event
                 .find(eventID)
                 .update { $0.name = "Updated Source Event" }
                 .execute(db)
         }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "session.sqlite").path(),
+            baselineDatabasePath: baselineDatabase.path
+        )
         let expectedWorkspaceSummary = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
             $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await sourceEditingSession.database.read { db in
+            try await database.read { db in
                 try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
             }
         }
@@ -230,7 +226,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
             $0.workspaceContext = workspace.mounting(
                 grant: SharedReader(
                     value: AuthoringGrant(
@@ -310,28 +307,16 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             path: directoryURL.appending(path: "baseline.sqlite").path()
         )
         try database.backup(to: baselineDatabase.database)
-        let workingDatabasePath = directoryURL.appending(path: "working.sqlite").path()
-        do {
-            let workingDatabase = try DatabaseQueue(path: workingDatabasePath)
-            try database.backup(to: workingDatabase)
-        }
-        var configuration = Configuration()
-        configuration.prepareDatabase { db in
-            try db.execute(
-                sql: "ATTACH DATABASE ? AS source_baseline",
-                arguments: [baselineDatabase.path]
-            )
-        }
-        let workingDatabase = try DatabaseQueue(
-            path: workingDatabasePath,
-            configuration: configuration
-        )
-        try await workingDatabase.write { db in
+        try await database.write { db in
             try OME.Event
                 .find(eventID)
                 .update { $0.name = "Updated Source Event" }
                 .execute(db)
         }
+        let sourceEditingSession = try SourceEditingSession(
+            workingDatabasePath: directoryURL.appending(path: "working.sqlite").path(),
+            baselineDatabasePath: baselineDatabase.path
+        )
         let patch = SourcePatch(
             fileChanges: [
                 SourcePatchFileChange(
@@ -344,11 +329,14 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let workspace = WorkspaceContext(
             id: EditingWorkspaceRecord.ID(sourceBaselineID: expectedSourceBaselineID),
-            sourceWorkspaceDatabase: SourceWorkspaceDatabase(database: workingDatabase)
+            sourceWorkspaceDatabase: SourceWorkspaceDatabase(
+                sourceEditingSession: sourceEditingSession
+            )
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = workingDatabase
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
             $0.workspaceContext = workspace.mounting(
                 grant: SharedReader(
                     value: AuthoringGrant(
@@ -422,15 +410,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .execute(db)
         }
         let sourceEditingSession = try makeSourceEditingSession(
-            copying: database,
             baselineDatabase: baselineDatabase,
             in: directoryURL
         )
         let expectedWorkspaceSummary = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await sourceEditingSession.database.read { db in
+            try await database.read { db in
                 try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
             }
         }
@@ -483,7 +471,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
             $0.workspaceContext = workspace.mounting(
                 grant: SharedReader(
                     value: AuthoringGrant(
@@ -598,15 +587,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .execute(db)
         }
         let sourceEditingSession = try makeSourceEditingSession(
-            copying: database,
             baselineDatabase: baselineDatabase,
             in: directoryURL
         )
         let expectedWorkspaceSummary = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await sourceEditingSession.database.read { db in
+            try await database.read { db in
                 try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
             }
         }
@@ -640,7 +629,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         )
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
             $0.workspaceContext = workspace.mounting(
                 grant: SharedReader(
                     value: AuthoringGrant(
@@ -743,15 +733,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
                 .execute(db)
         }
         let sourceEditingSession = try makeSourceEditingSession(
-            copying: database,
             baselineDatabase: baselineDatabase,
             in: directoryURL
         )
         let workspaceSummary = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await sourceEditingSession.database.read { db in
+            try await database.read { db in
                 try SourceWorkspaceSummaryRequest(target: .event(eventID)).fetch(db)
             }
         }
@@ -778,7 +768,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
             ]
         )
 
-        let attributions = try await sourceEditingSession.database.read { db in
+        let attributions = try await database.read { db in
             try openMusicEventSourceFileAttributions(
                 patch: patch,
                 groups: workspaceSummary.groups,
@@ -843,7 +833,6 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let directoryURL = try temporaryDirectoryURL()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let sourceEditingSession = try makeSourceEditingSession(
-            copying: database,
             baselineDatabase: baselineDatabase,
             in: directoryURL
         )
@@ -880,7 +869,8 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         let receivedReviewDiff = Mutex<EventWorkspace.TangledPullReviewSemanticDiff?>(nil)
         let store: TestStore<EventWorkspace> = withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
             $0.workspaceContext = workspace.mounting(
                 grant: SharedReader(
                     value: AuthoringGrant(
@@ -1676,7 +1666,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     @Test
-    func resetterUsesWorkspaceDatabaseAttachedReference() async throws {
+    func resetterAttachesSourceEditingBaselineToDefaultDatabase() async throws {
         let database = try makePreparedDatabase()
         let eventID = testEventID("event-1")
         try await seedSourceBackedEvent(eventID, in: database)
@@ -1696,15 +1686,15 @@ struct EventWorkspaceSourcePatchInvalidationTests {
         }
 
         let sourceEditingSession = try makeSourceEditingSession(
-            copying: database,
             baselineDatabase: baselineDatabase,
             in: directoryURL
         )
         let changedSummary = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await sourceEditingSession.database.read { db in
+            try await database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
             }
         }
@@ -1713,7 +1703,7 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         try withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
             $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try EventWorkspaceResetter.openMusicEvent.reset(eventID)
@@ -1721,13 +1711,14 @@ struct EventWorkspaceSourcePatchInvalidationTests {
 
         let resetSummary = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = sourceEditingSession.database
+            $0.defaultDatabase = database
+            $0.sourceEditingSession = sourceEditingSession
         } operation: {
-            try await sourceEditingSession.database.read { db in
+            try await database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
             }
         }
-        let restoredEvent = try await sourceEditingSession.database.read { db in
+        let restoredEvent = try await database.read { db in
             try OME.Event.find(eventID).fetchOne(db)
         }
         expectNoDifference(restoredEvent?.name, "Source Event")
@@ -2834,15 +2825,12 @@ struct EventWorkspaceSourcePatchInvalidationTests {
     }
 
     private func makeSourceEditingSession(
-        copying database: any DatabaseWriter,
         baselineDatabase: SourceBaselineDatabase,
         in directoryURL: URL
     ) throws -> SourceEditingSession {
         let workingDatabasePath = directoryURL
             .appending(path: "working.sqlite")
             .path()
-        let workingDatabase = try DatabaseQueue(path: workingDatabasePath)
-        try database.backup(to: workingDatabase)
         return try SourceEditingSession(
             workingDatabasePath: workingDatabasePath,
             baselineDatabasePath: baselineDatabase.path

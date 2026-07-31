@@ -185,6 +185,7 @@ public extension SourceWorkspaceDatabaseClient {
             sourceEditingSession: try SourceEditingSession(
                 workingDatabasePath: workingDatabaseURL.path,
                 baselineDatabasePath: referenceDatabase.path,
+                baselineSchemaName: sourceBaselineSchemaName(),
                 configuration: configuration
             )
         )
@@ -211,6 +212,10 @@ public extension SourceWorkspaceDatabaseClient {
             .appending(path: fileName)
     }
 
+    private static func sourceBaselineSchemaName() -> String {
+        "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
+    }
+
 }
 
 private enum WorkspaceContextKey: DependencyKey {
@@ -229,17 +234,11 @@ public extension DependencyValues {
         set { self[SourceWorkspaceDatabaseClientKey.self] = newValue }
     }
 
-    mutating func useSourceWorkspaceDatabase(
-        _ sourceWorkspaceDatabase: SourceWorkspaceDatabase
-    ) {
-        defaultDatabase = sourceWorkspaceDatabase.database
-        sourceEditingSession = sourceWorkspaceDatabase.sourceEditingSession
-    }
-
     mutating func useWorkspaceContext(
         _ workspaceContext: WorkspaceContext
     ) {
-        self.defaultDatabase = workspaceContext.database
+        // App features keep the app database as their read/write authority. Source summary
+        // requests attach the workspace reference database to their exact connection on demand.
         self.sourceEditingSession = workspaceContext.sourceEditingSession
         self.workspaceContext = workspaceContext
     }

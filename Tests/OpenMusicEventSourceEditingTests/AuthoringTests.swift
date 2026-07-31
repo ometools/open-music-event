@@ -333,19 +333,19 @@ struct AuthoringTests {
         )
         expectNoDifference(preparationRequests.withLock { $0 }, [workspaceA.id])
 
-        // Each wrapped feature reads its own workspace database and grant.
+        // Each wrapped feature reads its own workspace and grant, while both keep the app database.
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = true
-            $0.content.observedDatabaseMarker = "A prepared reference"
+            $0.content.observedDatabaseMarker = "app"
             $0.content.observedWorkspaceID = workspaceA.id
         }
         await storeB.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
-            $0.content.observedDatabaseMarker = "B reference"
+            $0.content.observedDatabaseMarker = "app"
             $0.content.observedWorkspaceID = workspaceB.id
         }
 
-        // Exiting revokes the same child's grant and restores its attendee workspace.
+        // Exiting revokes the same child's grant without changing its app database context.
         await TestExhaustivity.$current.withValue(.off) {
             await storeA.send(.exitButtonTapped)?.value
         }
@@ -356,7 +356,7 @@ struct AuthoringTests {
         )
         await storeA.send(.content(.inspectButtonTapped)) {
             $0.content.observedCanAuthor = false
-            $0.content.observedDatabaseMarker = "A reference"
+            $0.content.observedDatabaseMarker = "app"
         }
 
         await storeA.dismount()
@@ -532,7 +532,7 @@ struct AuthoringTests {
 
     @Test
     @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
-    func `one grant carries access and the workspace database across mounts`() async throws {
+    func `one grant carries access while preserving the app database across mounts`() async throws {
         let attendeeDatabase = try DatabaseQueue()
         let authoringDatabase = try DatabaseQueue()
         try setMarker("attendee", in: attendeeDatabase)
@@ -599,7 +599,7 @@ struct AuthoringTests {
         await TestExhaustivity.$current.withValue(.off) {
             await storeB.send(.content(.inspectButtonTapped)) {
                 $0.content.observedCanAuthor = true
-                $0.content.observedDatabaseMarker = "authoring"
+                $0.content.observedDatabaseMarker = "attendee"
                 $0.content.observedWorkspaceID = workspaceID
             }
         }

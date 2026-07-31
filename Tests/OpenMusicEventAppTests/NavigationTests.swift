@@ -2812,15 +2812,13 @@ struct NavigationTests {
     }
 
     @Test
-    func `authoring reads event contributors from the workspace database`() async throws {
+    func `authoring keeps event contributors on the app database`() async throws {
         let appDatabase = try makePreparedDatabase()
-        let referenceDatabase = try makePreparedDatabase()
+        let referenceDatabase = try makeCoreDatabase()
         let eventID = eventID("wicked-woods-2026")
 
-        for (database, contributorName) in [
-            (appDatabase, "Stale App Artist"),
-            (referenceDatabase, "Workspace Artist"),
-        ] {
+        // Wicked Woods has the same source contributor in its app and reference databases.
+        for database in [appDatabase, referenceDatabase] {
             try await database.write { db in
                 try Self.insertOrganizer(db, id: testOrganizerID)
                 try Self.insertEvent(db, id: eventID, name: "Wicked Woods 2026")
@@ -2828,7 +2826,7 @@ struct NavigationTests {
                     db,
                     eventID: eventID,
                     contributorID: "artist",
-                    name: contributorName
+                    name: "Artist"
                 )
             }
         }
@@ -2845,7 +2843,7 @@ struct NavigationTests {
             )
         )
 
-        // Entering authoring installs the workspace database as the feature database.
+        // Entering authoring mounts the reference context without replacing the app database.
         let contributorNames = try await withDependencies {
             $0.defaultDatabase = appDatabase
             $0.useWorkspaceContext(
@@ -2864,7 +2862,8 @@ struct NavigationTests {
             }
         }
 
-        expectNoDifference(contributorNames, ["Workspace Artist"])
+        // The hydrated list still reads app-only actor-cache tables and shows the contributor.
+        expectNoDifference(contributorNames, ["Artist"])
     }
 
     @Test

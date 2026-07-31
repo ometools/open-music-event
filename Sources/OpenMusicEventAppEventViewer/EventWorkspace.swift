@@ -122,10 +122,33 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     }
 }
 
+private struct SourceWorkspaceSummaryRequestIdentity: Hashable, Sendable {
+    var sourceEditingSession: SourceEditingSessionIdentity?
+
+    init() {
+        @Dependency(\.sourceEditingSession) var sourceEditingSession
+        self.sourceEditingSession = sourceEditingSession.map(SourceEditingSessionIdentity.init)
+    }
+}
+
+private struct SourceEditingSessionIdentity: Hashable, Sendable {
+    var baselineDatabasePath: String
+    var baselineSchemaName: String
+    var workingDatabasePath: String
+
+    init(_ sourceEditingSession: SourceEditingSession) {
+        self.baselineDatabasePath = sourceEditingSession.baselineDatabasePath
+        self.baselineSchemaName = sourceEditingSession.baselineSchemaName
+        self.workingDatabasePath = sourceEditingSession.workingDatabasePath
+    }
+}
+
 public struct SourceWorkspaceSummaryRequest: FetchKeyRequest {
+    private var requestIdentity: SourceWorkspaceSummaryRequestIdentity
     public var target: SourceProposalTarget
 
     public init(target: SourceProposalTarget) {
+        self.requestIdentity = SourceWorkspaceSummaryRequestIdentity()
         self.target = target
     }
 
