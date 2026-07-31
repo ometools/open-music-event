@@ -5657,6 +5657,40 @@ struct NavigationTests {
     }
 
     @Test
+    func `image picker shows remote URL and local filename`() throws {
+        let remoteURL = try #require(
+            URL(
+                string: "https://wickedwoods.festivalpro.com/?getPublicFile&ENCSTR=qgHiinSYLIbtusbFnwpO"
+            )
+        )
+        let remoteImage = ImageAssetPicker.ImageValue(
+            id: UUID(uuidString: "00000000-0000-0000-0000-00000000c002"),
+            asset: OMERecord.ImageAsset(
+                source: .url(remoteURL),
+                role: .photo,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy
+            )
+        )
+
+        // The contributor's remote endpoint keeps its complete URL, including the query.
+        expectNoDifference(remoteImage.displaySource, remoteURL.absoluteString)
+
+        let localImage = ImageAssetPicker.ImageValue(
+            id: UUID(uuidString: "00000000-0000-0000-0000-00000000c003"),
+            asset: OMERecord.ImageAsset(
+                source: .url(URL(fileURLWithPath: "/tmp/contributor-photo.png")),
+                role: .photo,
+                renderKind: .fullImage,
+                materializationPolicy: .lazy
+            )
+        )
+
+        // A local asset stays concise because its filename identifies it.
+        expectNoDifference(localImage.displaySource, "contributor-photo.png")
+    }
+
+    @Test
     func editContributorSaveSurfacesUnderlyingError() async throws {
         let database = try defaultDatabase()
         let eventID = eventID("event-1")

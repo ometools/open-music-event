@@ -237,8 +237,11 @@ public struct ImageAssetPicker {
         var displaySource: String {
             sourceLabel
                 ?? importedImage?.sourceLabel
-                ?? asset.url?.lastPathComponent.nilIfEmpty
-                ?? asset.url?.absoluteString
+                ?? asset.url.flatMap { url in
+                    url.isFileURL
+                        ? url.lastPathComponent.nilIfEmpty
+                        : url.absoluteString
+                }
                 ?? asset.role.imageAssetPickerTitle
         }
     }
