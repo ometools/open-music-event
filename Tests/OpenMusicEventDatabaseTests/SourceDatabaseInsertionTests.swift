@@ -2593,6 +2593,99 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
+    func `failed source refresh preserves the last good reference baseline`() async throws {
+        let rootURL = try temporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let referenceDatabaseURL = rootURL.appending(path: "reference.sqlite")
+        let sourceProvenance = tangledSourceProvenance("wicked-woods", ref: "main")
+        let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
+        let originalInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "2026",
+                    eventName: "Wicked Woods"
+                ),
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance
+            )
+        )
+        let database = try makeCoreDatabase()
+        let sourceReferenceDatabase = SourceReferenceDatabaseClient(
+            url: { _ in referenceDatabaseURL },
+            prepareForImport: { _ in
+                try SourceReferenceDatabaseClient.stagedImport(at: referenceDatabaseURL)
+            },
+            existing: { _ in
+                guard FileManager.default.fileExists(atPath: referenceDatabaseURL.path) else {
+                    return nil
+                }
+                let database = try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+                try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(database)
+                return database
+            }
+        )
+
+        try await withDependencies {
+            $0.sourceReferenceDatabase = sourceReferenceDatabase
+        } operation: {
+            try await originalInsertion.insert(into: database)
+        }
+
+        let eventDirectoryURL = rootURL
+            .appending(path: "events", directoryHint: .isDirectory)
+            .appending(path: "2026", directoryHint: .isDirectory)
+        let imagesDirectoryURL = eventDirectoryURL
+            .appending(path: "images", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: imagesDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        try Data("replacement-logo".utf8).write(
+            to: imagesDirectoryURL.appending(path: "meadow-logo.png")
+        )
+        let replacementInsertion = try OME.SourceDatabaseInsertion(
+            .init(
+                source: try makeSourceRepository(
+                    eventDirectoryName: "2026",
+                    eventName: "Wicked Woods Updated",
+                    stageImages: [
+                        SourceImageAsset(
+                            source: .file("images/meadow-logo.png"),
+                            role: .logo,
+                            renderKind: .transparent,
+                            materializationPolicy: .prefetchOnOpen
+                        )
+                    ]
+                ),
+                organizerID: organizerID,
+                sourceProvenance: sourceProvenance,
+                sourceRootURL: rootURL
+            )
+        )
+
+        do {
+            try await withDependencies {
+                $0.sourceReferenceDatabase = sourceReferenceDatabase
+                $0.localImageFileStore = LocalImageFileStoreClient { _, _, _ in
+                    throw TestImageCacheError.failed
+                }
+            } operation: {
+                try await replacementInsertion.insert(into: database)
+            }
+            Issue.record("Expected the replacement import to fail before it was complete.")
+        } catch TestImageCacheError.failed {
+        }
+
+        let referenceDatabase = try defaultBaselineDatabase(path: referenceDatabaseURL.path)
+        let preservedEvent = try referenceDatabase.read { db in
+            try OME.Event.fetchOne(db)
+        }
+
+        #expect(preservedEvent?.name == "Wicked Woods")
+    }
+
+    @Test
     func reimportsSameSourceRefWithoutDuplicatingSourceBaseline() async throws {
         let firstSource = try makeSourceRepository(
             eventDirectoryName: "2026",
@@ -4269,7 +4362,14 @@ private extension SourceReferenceDatabaseClient {
     static func test(database: SourceBaselineDatabase) -> Self {
         Self(
             url: { _ in URL(fileURLWithPath: database.path) },
-            prepareForImport: { _ in database },
+            prepareForImport: { _ in
+                StagedSourceReferenceDatabase(
+                    database: database,
+                    databaseFileName: URL(fileURLWithPath: database.path).lastPathComponent,
+                    commit: {},
+                    discard: {}
+                )
+            },
             existing: { _ in database }
         )
     }

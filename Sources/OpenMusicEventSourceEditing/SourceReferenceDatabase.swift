@@ -5,14 +5,41 @@ import OpenMusicEventSource
 import SQLiteData
 import SourceEditing
 
+public struct StagedSourceReferenceDatabase: Sendable {
+    public let database: SourceBaselineDatabase
+    public let databaseFileName: String
+    private let commitOperation: @Sendable () throws -> Void
+    private let discardOperation: @Sendable () throws -> Void
+
+    public init(
+        database: SourceBaselineDatabase,
+        databaseFileName: String,
+        commit: @escaping @Sendable () throws -> Void,
+        discard: @escaping @Sendable () throws -> Void
+    ) {
+        self.database = database
+        self.databaseFileName = databaseFileName
+        self.commitOperation = commit
+        self.discardOperation = discard
+    }
+
+    public func commit() throws {
+        try commitOperation()
+    }
+
+    public func discard() throws {
+        try discardOperation()
+    }
+}
+
 public struct SourceReferenceDatabaseClient: Sendable {
     public var url: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL
-    public var prepareForImport: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> SourceBaselineDatabase
+    public var prepareForImport: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> StagedSourceReferenceDatabase
     public var existing: @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> SourceBaselineDatabase?
 
     public init(
         url: @escaping @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> URL,
-        prepareForImport: @escaping @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> SourceBaselineDatabase,
+        prepareForImport: @escaping @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> StagedSourceReferenceDatabase,
         existing: @escaping @Sendable (OME.SourceDatabaseInsertion.SourceProvenance) throws -> SourceBaselineDatabase?
     ) {
         self.url = url
@@ -91,15 +118,11 @@ public extension SourceReferenceDatabaseClient {
             },
             prepareForImport: { provenance in
                 @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
-                @Dependency(\.sourceReferenceDatabaseMigrator) var migrator
                 let repositoryURL = try sourceRepositoryStorage.repositoryURL(provenance)
                 let referenceDatabaseURL = try referenceDatabaseURL(repositoryURL: repositoryURL)
                 try prepareReferenceDirectory(for: referenceDatabaseURL)
                 try ensureReferenceDatabaseIgnored(in: repositoryURL)
-                try removeSQLiteDatabase(at: referenceDatabaseURL)
-                let database = try defaultBaselineDatabase(path: referenceDatabaseURL.path)
-                try migrator.migrate(database)
-                return database
+                return try stagedImport(at: referenceDatabaseURL)
             },
             existing: { provenance in
                 @Dependency(\.sourceRepositoryStorage) var sourceRepositoryStorage
@@ -129,6 +152,52 @@ public extension SourceReferenceDatabaseClient {
             at: referenceDatabaseURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+    }
+
+    static func stagedImport(
+        at referenceDatabaseURL: URL
+    ) throws -> StagedSourceReferenceDatabase {
+        @Dependency(\.sourceReferenceDatabaseMigrator) var migrator
+        try prepareReferenceDirectory(for: referenceDatabaseURL)
+
+        let stagingDirectoryURL = FileManager.default.temporaryDirectory
+            .appending(
+                path: "open-music-event-source-reference-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        do {
+            try FileManager.default.createDirectory(
+                at: stagingDirectoryURL,
+                withIntermediateDirectories: true
+            )
+            let stagingDatabaseURL = stagingDirectoryURL
+                .appending(path: referenceDatabaseURL.lastPathComponent)
+            let stagingDatabase = try defaultBaselineDatabase(
+                path: stagingDatabaseURL.path
+            )
+            try migrator.migrate(stagingDatabase)
+            return StagedSourceReferenceDatabase(
+                database: stagingDatabase,
+                databaseFileName: referenceDatabaseURL.lastPathComponent,
+                commit: {
+                    let referenceDatabase = try defaultBaselineDatabase(
+                        path: referenceDatabaseURL.path
+                    )
+                    try migrator.migrate(referenceDatabase)
+                    try stagingDatabase.database.backup(to: referenceDatabase.database)
+                },
+                discard: {
+                    do {
+                        try FileManager.default.removeItem(at: stagingDirectoryURL)
+                    } catch {
+                        guard error.isMissingFile else { throw error }
+                    }
+                }
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: stagingDirectoryURL)
+            throw error
+        }
     }
 
     static func ensureReferenceDatabaseIgnored(in repositoryURL: URL) throws {
@@ -255,7 +324,17 @@ public extension WorkspaceReferenceDatabaseClient {
             resolvedSourceBaseline: resolvedSourceBaseline
         )
         @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        return try sourceReferenceDatabase.existing(sourceBaseline.sourceProvenance)
+        guard let referenceDatabase = try sourceReferenceDatabase.existing(
+            sourceBaseline.sourceProvenance
+        ) else {
+            return nil
+        }
+        let containsExpectedBaseline = try referenceDatabase.read { db in
+            try SourceBaselineRecord
+                .where { $0.id.eq(sourceBaseline.id) }
+                .fetchCount(db) == 1
+        }
+        return containsExpectedBaseline ? referenceDatabase : nil
     }
 
     private static func localReferenceDatabaseURL(

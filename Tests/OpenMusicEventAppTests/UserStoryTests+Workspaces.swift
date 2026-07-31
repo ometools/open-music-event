@@ -1146,7 +1146,14 @@ private extension SourceReferenceDatabaseClient {
     static func test(database: SourceBaselineDatabase) -> Self {
         Self(
             url: { _ in URL(fileURLWithPath: database.path) },
-            prepareForImport: { _ in database },
+            prepareForImport: { _ in
+                StagedSourceReferenceDatabase(
+                    database: database,
+                    databaseFileName: URL(fileURLWithPath: database.path).lastPathComponent,
+                    commit: {},
+                    discard: {}
+                )
+            },
             existing: { _ in database }
         )
     }

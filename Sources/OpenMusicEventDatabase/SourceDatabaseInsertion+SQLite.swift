@@ -32,43 +32,56 @@ public extension OME.SourceDatabaseInsertion {
         }
 
         @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        let sourceReferenceDatabases = try sourceReferenceDatabasesByBaselineID(
+        let stagedSourceReferenceDatabases = try stagedSourceReferenceDatabasesByBaselineID(
             sourceReferenceDatabase: sourceReferenceDatabase
         )
+        defer {
+            for stagedDatabase in stagedSourceReferenceDatabases.values {
+                try? stagedDatabase.discard()
+            }
+        }
         let prepared = try await preparedInsertion(
-            sourceReferenceDatabases: sourceReferenceDatabases
+            stagedSourceReferenceDatabases: stagedSourceReferenceDatabases
         )
 
         try insert(
             prepared,
-            intoSourceReferenceDatabases: sourceReferenceDatabases.values
+            intoSourceReferenceDatabases: stagedSourceReferenceDatabases.values.map(\.database)
         )
 
         try await database.write { db in
             try prepared.insert(into: db)
+            for stagedDatabase in stagedSourceReferenceDatabases.values {
+                try stagedDatabase.commit()
+            }
         }
     }
 
     func prepareSourceReferenceDatabases() async throws {
         @Dependency(\.sourceReferenceDatabase) var sourceReferenceDatabase
-        let sourceReferenceDatabases = try sourceReferenceDatabasesByBaselineID(
+        let stagedSourceReferenceDatabases = try stagedSourceReferenceDatabasesByBaselineID(
             sourceReferenceDatabase: sourceReferenceDatabase
         )
+        defer {
+            for stagedDatabase in stagedSourceReferenceDatabases.values {
+                try? stagedDatabase.discard()
+            }
+        }
         let prepared = try await preparedInsertion(
-            sourceReferenceDatabases: sourceReferenceDatabases
+            stagedSourceReferenceDatabases: stagedSourceReferenceDatabases
         )
         try insert(
             prepared,
-            intoSourceReferenceDatabases: sourceReferenceDatabases.values
+            intoSourceReferenceDatabases: stagedSourceReferenceDatabases.values.map(\.database)
         )
+        for stagedDatabase in stagedSourceReferenceDatabases.values {
+            try stagedDatabase.commit()
+        }
     }
 
     private func insert(
         _ prepared: PreparedSourceDatabaseInsertion,
-        intoSourceReferenceDatabases sourceReferenceDatabases: Dictionary<
-            SourceBaselineRecord.ID,
-            SourceBaselineDatabase
-        >.Values
+        intoSourceReferenceDatabases sourceReferenceDatabases: [SourceBaselineDatabase]
     ) throws {
         for sourceReferenceDatabase in sourceReferenceDatabases {
             try sourceReferenceDatabase.write { db in
@@ -78,13 +91,15 @@ public extension OME.SourceDatabaseInsertion {
     }
 
     private func preparedInsertion(
-        sourceReferenceDatabases: [SourceBaselineRecord.ID: SourceBaselineDatabase]
+        stagedSourceReferenceDatabases: [
+            SourceBaselineRecord.ID: StagedSourceReferenceDatabase
+        ]
     ) async throws -> PreparedSourceDatabaseInsertion {
         let baselineDatabaseFileNamesByID = Dictionary(
-            uniqueKeysWithValues: sourceReferenceDatabases.map { baselineID, database in
+            uniqueKeysWithValues: stagedSourceReferenceDatabases.map { baselineID, database in
                 (
                     baselineID,
-                    URL(fileURLWithPath: database.path).lastPathComponent
+                    database.databaseFileName
                 )
             }
         )
@@ -95,14 +110,14 @@ public extension OME.SourceDatabaseInsertion {
         )
     }
 
-    private func sourceReferenceDatabasesByBaselineID(
+    private func stagedSourceReferenceDatabasesByBaselineID(
         sourceReferenceDatabase: SourceReferenceDatabaseClient
-    ) throws -> [SourceBaselineRecord.ID: SourceBaselineDatabase] {
-        var databases: [SourceBaselineRecord.ID: SourceBaselineDatabase] = [:]
+    ) throws -> [SourceBaselineRecord.ID: StagedSourceReferenceDatabase] {
+        var databases: [SourceBaselineRecord.ID: StagedSourceReferenceDatabase] = [:]
         for sourceProvenance in eventSourceProvenances.map(\.source).uniquedSourceProvenances() {
-            let database = try sourceReferenceDatabase.prepareForImport(sourceProvenance)
-            try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(database)
-            databases[SourceBaselineRecord.ID(source: sourceProvenance)] = database
+            let stagedDatabase = try sourceReferenceDatabase.prepareForImport(sourceProvenance)
+            try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(stagedDatabase.database)
+            databases[SourceBaselineRecord.ID(source: sourceProvenance)] = stagedDatabase
         }
         return databases
     }

@@ -3477,11 +3477,7 @@ private extension SourceReferenceDatabaseClient {
                     rootURL: rootURL,
                     provenance: provenance
                 )
-                try SourceReferenceDatabaseClient.prepareReferenceDirectory(for: databaseURL)
-                try SourceReferenceDatabaseClient.removeSQLiteDatabase(at: databaseURL)
-                let database = try defaultBaselineDatabase(path: databaseURL.path)
-                try SourceReferenceDatabaseMigrator.openMusicEvent.migrate(database)
-                return database
+                return try SourceReferenceDatabaseClient.stagedImport(at: databaseURL)
             },
             existing: { provenance in
                 let databaseURL = scratchReferenceDatabaseURL(

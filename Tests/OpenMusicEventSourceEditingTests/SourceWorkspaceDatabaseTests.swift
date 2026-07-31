@@ -253,6 +253,126 @@ struct SourceWorkspaceDatabaseTests {
     }
 
     @Test
+    func `restored team workspace does not mount an unverified reference baseline`() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let workingDirectory = root
+            .appending(path: "working", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: workingDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let appDatabase = try DatabaseQueue()
+        try appDatabase.write { db in
+            try db.execute(sql: """
+                CREATE TABLE sourceBaselines (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  sourceKind TEXT NOT NULL,
+                  sourceReference TEXT NOT NULL,
+                  ref TEXT,
+                  databaseFileName TEXT NOT NULL,
+                  importedAt TEXT NOT NULL
+                )
+                """)
+            try db.execute(sql: """
+                CREATE TABLE editingWorkspaces (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  kind TEXT NOT NULL,
+                  databaseFileName TEXT NOT NULL,
+                  createdAt TEXT NOT NULL,
+                  updatedAt TEXT NOT NULL,
+                  sourceBaselineID TEXT,
+                  publicRecord TEXT
+                )
+                """)
+        }
+        let sourceBaseline = SourceBaselineRecord(
+            id: SourceBaselineRecord.ID(rawValue: "wicked-woods"),
+            sourceKind: .tangled,
+            sourceReference: "tangled.org/woody.fm/wicked-woods",
+            ref: "main",
+            databaseFileName: "reference.sqlite",
+            importedAt: Date(timeIntervalSince1970: 1)
+        )
+        let workspace = EditingWorkspaceRecord(teamSourceBaseline: sourceBaseline)
+        try appDatabase.write { db in
+            try SourceBaselineRecord.insert { sourceBaseline }.execute(db)
+            try EditingWorkspaceRecord.insert { workspace }.execute(db)
+        }
+
+        let workingDatabasePath = workingDirectory
+            .appending(path: workspace.databaseFileName)
+            .path
+        let workingDatabase = try DatabasePool(path: workingDatabasePath)
+        try workingDatabase.write { db in
+            try db.execute(sql: "CREATE TABLE marker (value TEXT NOT NULL)")
+            try db.execute(sql: "INSERT INTO marker VALUES ('persisted edits')")
+        }
+
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: root.appending(path: "reference.sqlite").path
+        )
+        try referenceDatabase.write { db in
+            try db.execute(sql: """
+                CREATE TABLE sourceBaselines (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  sourceKind TEXT NOT NULL,
+                  sourceReference TEXT NOT NULL,
+                  ref TEXT,
+                  databaseFileName TEXT NOT NULL,
+                  importedAt TEXT NOT NULL
+                )
+                """)
+        }
+        let sourceReferenceDatabase = SourceReferenceDatabaseClient(
+            url: { _ in URL(fileURLWithPath: referenceDatabase.path) },
+            prepareForImport: { _ in
+                StagedSourceReferenceDatabase(
+                    database: referenceDatabase,
+                    databaseFileName: URL(fileURLWithPath: referenceDatabase.path)
+                        .lastPathComponent,
+                    commit: {},
+                    discard: {}
+                )
+            },
+            existing: { _ in referenceDatabase }
+        )
+
+        let openedWorkspace = try withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0.sourceReferenceDatabase = sourceReferenceDatabase
+            $0.sourceReferenceDatabaseMigrator = .noop
+            $0.workspaceReferenceDatabase = .fileBacked()
+        } operation: {
+            try SourceWorkspaceDatabaseClient
+                .fileBacked(workingDirectory: workingDirectory)
+                .workspace(workspace.id)
+        }
+
+        #expect(try marker(in: openedWorkspace.database) == "persisted edits")
+        #expect(openedWorkspace.sourceEditingSession == nil)
+
+        try referenceDatabase.write { db in
+            try SourceBaselineRecord.insert { sourceBaseline }.execute(db)
+        }
+        let verifiedWorkspace = try withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0.sourceReferenceDatabase = sourceReferenceDatabase
+            $0.sourceReferenceDatabaseMigrator = .noop
+            $0.workspaceReferenceDatabase = .fileBacked()
+        } operation: {
+            try SourceWorkspaceDatabaseClient
+                .fileBacked(workingDirectory: workingDirectory)
+                .workspace(workspace.id)
+        }
+
+        #expect(try marker(in: verifiedWorkspace.database) == "persisted edits")
+        #expect(verifiedWorkspace.sourceEditingSession != nil)
+    }
+
+    @Test
     func `workspace context keeps app database mounted with its reference attached`() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
