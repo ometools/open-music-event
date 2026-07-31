@@ -365,6 +365,7 @@ public extension DependencyValues {
 }
 
 private struct ImageAssetResolutionKey: Hashable, Sendable {
+    @_optimize(none)
     init(image: OME.ImageAsset, context: LocalImageCacheContext) {
         self.assetKey = LocalImageMaterializer.assetKey(
             for: image,
