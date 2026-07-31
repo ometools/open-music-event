@@ -322,7 +322,7 @@ public enum OpenMusicEventOAuth {
             .sorted { $0.rawValue < $1.rawValue }
             .map { OAuth.Scope(rawValue: $0.rawValue) }
         OpenMusicEventOAuthNetworkDiagnostics.install(into: &dependencies)
-        dependencies.xrpcAuthorizationGate = .nonPresentingDefaultSessionAuthorization
+        dependencies.xrpcAuthorizationGate = .defaultSessionAuthorization
     }
 
     public static func isCallbackURL(_ url: URL) -> Bool {

@@ -94,11 +94,18 @@ struct AuthoringTests {
     func `eligible attendee sees explicit entry and tapping rechecks admission`() async throws {
         let workspaceID = EditingWorkspaceRecord.ID(rawValue: "eligible-workspace")
         let admissionRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
+        let authorizationRequests = Mutex<[EditingWorkspaceRecord.ID]>([])
         let store = withDependencies {
-            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient { workspaceID in
-                admissionRequests.withLock { $0.append(workspaceID) }
-                return .granted(principal: .local, role: .owner)
-            }
+            $0[AuthoringPolicyClient.self] = AuthoringPolicyClient(
+                admission: { workspaceID in
+                    admissionRequests.withLock { $0.append(workspaceID) }
+                    return .granted(principal: .local, role: .owner)
+                },
+                authorizeEntry: { workspaceID, principal in
+                    expectNoDifference(principal, .local)
+                    authorizationRequests.withLock { $0.append(workspaceID) }
+                }
+            )
             $0[WorkspacePreparationClient.self] = WorkspacePreparationClient(
                 prepareSource: { _ in }
             )
@@ -126,6 +133,7 @@ struct AuthoringTests {
             admissionRequests.withLock { $0 },
             [workspaceID, workspaceID]
         )
+        expectNoDifference(authorizationRequests.withLock { $0 }, [workspaceID])
     }
 
     @Test

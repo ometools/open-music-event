@@ -12,6 +12,7 @@ import SQLiteData
 import Synchronization
 import TCATProtoAuthentication
 import Testing
+import XRPCClient
 
 @testable import OpenMusicEventApp
 
@@ -19,7 +20,7 @@ import Testing
 @Suite("Open Music Event authoring context")
 struct OpenMusicEventAuthoringTests {
     @Test
-    func signedOutTeamEntryRequestsOnlyBaseSignIn() async throws {
+    func signedOutTeamEntryRequestsCompleteWorkflowAuthorization() async throws {
         let database = try makePreparedDatabase()
         let ownerID = try #require(DID("did:plc:workspace-owner"))
         let workspace = teamWorkspace("signed-out", ownerID: ownerID)
@@ -43,8 +44,73 @@ struct OpenMusicEventAuthoringTests {
         let recordedRequirements = await recorder.requirements
         expectNoDifference(
             recordedRequirements,
-            [OpenMusicEventOAuth.baseAuthRequirement]
+            [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
         )
+    }
+
+    @Test
+    func signedInTeamEntryRequestsCompleteWorkflowAuthorization() async throws {
+        let recorder = AuthorizationRequirementRecorder()
+        let actorID = try #require(DID("did:plc:workspace-owner"))
+
+        try await withDependencies {
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                await recorder.record(requirement)
+            }
+        } operation: {
+            try await AuthoringPolicyClient.openMusicEvent.authorizeEntry(
+                EditingWorkspaceRecord.ID(rawValue: "team-workspace"),
+                .actor(actorID)
+            )
+        }
+
+        let recordedRequirements = await recorder.requirements
+        expectNoDifference(
+            recordedRequirements,
+            [OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement]
+        )
+    }
+
+    @Test
+    func requiredXRPCPermissionStillUpgradesAndResumes() async throws {
+        let initialSession = testSession(
+            permissions: OpenMusicEventOAuth.appManifest.basePermissions.permissions
+        )
+        let upgradedSession = testSession(
+            permissions: OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
+                .permissions
+        )
+        let selectedSession = Mutex(initialSession)
+        let recordedRequirements = Mutex([OAuth.AuthRequirement]())
+        let operationCount = Mutex(0)
+        let operation: @Sendable () async throws -> Data? = {
+            operationCount.withLock { $0 += 1 }
+            return Data("resumed".utf8)
+        }
+
+        let result = try await withDependencies {
+            OpenMusicEventOAuth.prepareDependencies(&$0)
+            $0.getDefaultSession = { selectedSession.withLock { $0 } }
+            $0.getOptionalDefaultSession = { selectedSession.withLock { $0 } }
+            $0.oauthAuthorizationBroker = OAuth.AuthorizationBroker { requirement in
+                recordedRequirements.withLock { $0.append(requirement) }
+                selectedSession.withLock { $0 = upgradedSession }
+            }
+        } operation: {
+            @Dependency(\.xrpcAuthorizationGate) var authorizationGate
+            return try await authorizationGate.run(
+                policy: .required(OpenMusicEventOAuth.tangledPublicKeyAuthRequirement),
+                routing: XRPC.Routing(),
+                operation: operation
+            )
+        }
+
+        expectNoDifference(try #require(result), Data("resumed".utf8))
+        expectNoDifference(
+            recordedRequirements.withLock { $0 },
+            [OpenMusicEventOAuth.tangledPublicKeyAuthRequirement]
+        )
+        expectNoDifference(operationCount.withLock { $0 }, 1)
     }
 
     @Test
@@ -244,7 +310,10 @@ struct OpenMusicEventAuthoringTests {
                 await recorder.record(requirement)
             }
         } operation: {
-            try await AuthoringPolicyClient.openMusicEvent.admission(workspace.id)
+            let policy = AuthoringPolicyClient.openMusicEvent
+            let admission = try await policy.admission(workspace.id)
+            try await policy.authorizeEntry(workspace.id, .local)
+            return admission
         }
 
         expectNoDifference(admission, .granted(principal: .local, role: .owner))

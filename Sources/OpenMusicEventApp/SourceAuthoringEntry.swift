@@ -119,10 +119,17 @@ extension OpenMusicEventSourceEditing.AuthoringPolicyClient {
                     )
                 }
             },
+            authorizeEntry: { _, principal in
+                guard case .actor = principal else { return }
+                @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
+                try await authorizationBroker.authorize(
+                    OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
+                )
+            },
             requestSignIn: {
                 @Dependency(\.oauthAuthorizationBroker) var authorizationBroker
                 try await authorizationBroker.authorize(
-                    OpenMusicEventOAuth.baseAuthRequirement
+                    OpenMusicEventOAuth.tangledPullRequestWorkflowAuthRequirement
                 )
             }
         )

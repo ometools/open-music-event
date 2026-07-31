@@ -214,15 +214,24 @@ public struct AuthoringPolicyClient: Sendable {
     public var admission: @Sendable (
         EditingWorkspaceRecord.ID
     ) async throws -> AuthoringAdmission
+    public var authorizeEntry: @Sendable (
+        EditingWorkspaceRecord.ID,
+        AuthoringPrincipal
+    ) async throws -> Void
     public var requestSignIn: @Sendable () async throws -> Void
 
     public init(
         admission: @escaping @Sendable (
             EditingWorkspaceRecord.ID
         ) async throws -> AuthoringAdmission,
+        authorizeEntry: @escaping @Sendable (
+            EditingWorkspaceRecord.ID,
+            AuthoringPrincipal
+        ) async throws -> Void = { _, _ in },
         requestSignIn: @escaping @Sendable () async throws -> Void = {}
     ) {
         self.admission = admission
+        self.authorizeEntry = authorizeEntry
         self.requestSignIn = requestSignIn
     }
 }
@@ -521,6 +530,7 @@ public struct Authoring<Content: FeatureProtocol> {
                 case let .granted(grantedPrincipal, grantedRole):
                     principal = grantedPrincipal
                     role = grantedRole
+                    try await policy.authorizeEntry(workspaceID, grantedPrincipal)
                 case .signInRequired:
                     try store.modify {
                         $0.admission = admission
