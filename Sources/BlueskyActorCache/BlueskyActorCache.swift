@@ -413,7 +413,10 @@ private enum BlueskyActorProfileCacheLive {
         let actor = BlueskyActorProfileCacheEntry.normalizedActor(actor)
         let shouldRefresh = try await database.write { db in
             let entry = try cacheEntry(actor: actor, in: db)
-            if let lastFetchedAt = entry?.lastFetchedAt,
+            let hasCachedIdentity = try cachedProfile(actor: actor, in: db)
+                .flatMap(ActorIdentity.init) != nil
+            if hasCachedIdentity,
+               let lastFetchedAt = entry?.lastFetchedAt,
                now.timeIntervalSince(lastFetchedAt) < staleAfter {
                 return false
             }

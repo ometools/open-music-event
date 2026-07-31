@@ -404,6 +404,71 @@ struct AccountTests {
     }
 
     @Test
+    func `account rows hydrate a missing requested identity into the shared cache`() async throws {
+        let database = try makeAccountTestDatabase()
+        let actor = "did:plc:alice123"
+        let avatarURL = URL(string: "https://cdn.example/alice-avatar.jpg")
+        let session = try accountTestSession(
+            did: actor,
+            pdsHost: "alice.pds.example"
+        )
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(session)
+        let requestedActors = AccountObservationRecorder<String>()
+        let validation = AccountSessionValidationRecorder(
+            results: [session.accountID: .accepted(session)]
+        )
+        let store = withDependencies {
+            $0.defaultDatabase = database
+            $0.blueskyActorProfileCache = BlueskyActorProfileCacheClient(
+                cachedProfile: { _ in nil },
+                refreshProfile: { actor in
+                    BlueskyActorProfile(did: actor, handle: "unused.example")
+                },
+                refreshProfileIfNeeded: { actor, _, _ in
+                    await requestedActors.record(actor)
+                    try await seedAccountTestIdentity(
+                        in: database,
+                        did: actor,
+                        handle: "alice.example.com",
+                        displayName: "Alice Example",
+                        avatar: avatarURL
+                    )
+                    return BlueskyActorProfile(
+                        did: actor,
+                        handle: "alice.example.com",
+                        displayName: "Alice Example",
+                        avatar: avatarURL
+                    )
+                }
+            )
+            $0.openMusicEventAccountSessionValidationClient = .recording(validation)
+        } operation: {
+            Store(
+                initialState: Account.State.localTestState(
+                    sessionStore: Shared(value: sessionStoreValue),
+                    selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
+                )
+            ) {
+                Account()
+            }
+        }
+
+        #expect(store.accountRows.first?.title == "Account")
+
+        try await waitForCondition {
+            store.accountRows.first?.title == "Alice Example"
+        }
+
+        let actors = await requestedActors.values
+        expectNoDifference(actors, [actor])
+        let row = try #require(store.accountRows.first)
+        #expect(row.subtitle == "alice.example.com")
+        #expect(row.pickerHandle == "@alice.example.com")
+        #expect(row.identity?.avatar == avatarURL)
+    }
+
+    @Test
     func accountStoresObserveOneActorIdentityCache() async throws {
         let database = try makeAccountTestDatabase()
         let session = try accountTestSession(
@@ -838,6 +903,7 @@ struct AccountTests {
     @Test
     func signInFormLaunchesSharedAuthorizationWithLoginHint() async throws {
         let authorizationRequests = AccountAuthorizationRecorder()
+        let hydratedActors = AccountObservationRecorder<String>()
         let state = Account.State.localTestState(
             presentation: .authentication(.direct),
             signInLoginHint: "  woody.fm  "
@@ -848,6 +914,7 @@ struct AccountTests {
                 authorizationRequests,
                 sessionStore: state.oauth.state.$sessionStore
             )
+            $0.blueskyActorProfileCache = .recordingHydrations(hydratedActors)
         } operation: {
             Store(initialState: state) {
                 Account()
@@ -874,6 +941,11 @@ struct AccountTests {
         #expect(store.presentation == nil)
         #expect(store.isLoginInProgress == false)
         #expect(store.errorMessage == nil)
+        let hydratedActorValues = await hydratedActors.values
+        expectNoDifference(
+            hydratedActorValues,
+            [OAuth.Session.placeholder.accountID.rawValue.description]
+        )
     }
 
     @Test
@@ -1012,6 +1084,7 @@ struct AccountTests {
     @Test
     func signUpFormLaunchesSharedAuthorizationWithSelectedServer() async throws {
         let authorizationRequests = AccountAuthorizationRecorder()
+        let hydratedActors = AccountObservationRecorder<String>()
         let state = Account.State.localTestState(
             presentation: .authentication(.direct),
             selectedMode: .signUp
@@ -1022,6 +1095,7 @@ struct AccountTests {
                 authorizationRequests,
                 sessionStore: state.oauth.state.$sessionStore
             )
+            $0.blueskyActorProfileCache = .recordingHydrations(hydratedActors)
         } operation: {
             Store(initialState: state) {
                 Account()
@@ -1048,6 +1122,11 @@ struct AccountTests {
         #expect(store.presentation == nil)
         #expect(store.isSignUpInProgress == false)
         #expect(store.errorMessage == nil)
+        let hydratedActorValues = await hydratedActors.values
+        expectNoDifference(
+            hydratedActorValues,
+            [OAuth.Session.placeholder.accountID.rawValue.description]
+        )
     }
 
     @Test
@@ -1222,6 +1301,24 @@ private actor AccountObservationRecorder<Value: Sendable> {
 
     func record(_ value: Value) {
         values.append(value)
+    }
+}
+
+private extension BlueskyActorProfileCacheClient {
+    static func recordingHydrations(
+        _ recorder: AccountObservationRecorder<String>
+    ) -> Self {
+        Self(
+            cachedProfile: { _ in nil },
+            refreshProfile: { actor in
+                await recorder.record(actor)
+                return BlueskyActorProfile(
+                    did: actor,
+                    handle: "hydrated.example"
+                )
+            },
+            refreshProfileIfNeeded: { _, _, _ in nil }
+        )
     }
 }
 

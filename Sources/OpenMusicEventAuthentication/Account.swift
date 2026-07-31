@@ -751,6 +751,10 @@ public struct Account {
                                 sessionStore: sessionStore,
                                 selectedSessionID: selectedSessionID
                             )
+                            try await Self.hydrateProfile(
+                                for: session,
+                                using: blueskyActorProfileCache
+                            )
                         } catch is CancellationError {
                             try store.modify {
                                 $0.oauth.state.isLoginInProgress = false
@@ -790,6 +794,10 @@ public struct Account {
                             await saveOpenMusicEventAuthenticationStorage(
                                 sessionStore: sessionStore,
                                 selectedSessionID: selectedSessionID
+                            )
+                            try await Self.hydrateProfile(
+                                for: session,
+                                using: blueskyActorProfileCache
                             )
                         } catch is CancellationError {
                             try store.modify {
@@ -891,6 +899,20 @@ public struct Account {
             .search(query)
             try Task.checkCancellation()
             try store.send(.signInActorSearchResponse(response))
+        }
+    }
+
+    private static func hydrateProfile(
+        for session: OAuth.Session,
+        using cache: BlueskyActorProfileCacheClient
+    ) async throws {
+        do {
+            _ = try await cache.refreshProfile(
+                session.accountID.rawValue.description
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
         }
     }
 

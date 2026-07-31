@@ -243,6 +243,56 @@ struct BlueskyActorCacheTests {
     }
 
     @Test
+    func freshEntryWithoutIdentityRefreshes() async throws {
+        let database = try makePreparedDatabase()
+        let now = Date(timeIntervalSince1970: 1_000)
+        try await database.write { db in
+            try BlueskyActorProfileCacheEntry.insert {
+                BlueskyActorProfileCacheEntry(
+                    actor: "did:plc:alice123",
+                    lastFetchedAt: now.addingTimeInterval(-60),
+                    lastFetchAttemptAt: now.addingTimeInterval(-16 * 60)
+                )
+            }
+            .execute(db)
+        }
+
+        let requestRecorder = HTTPRequestRecorder()
+        let refreshed = try await withDependencies {
+            $0.defaultDatabase = database
+            $0.date.now = now
+            $0.blueskyActorProfileCache = .live
+            $0[XRPC.Client.self] = .liveValue
+            $0.httpClient = HTTPClient { request, body in
+                await requestRecorder.record(request, body)
+                return Data(
+                    """
+                    {
+                      "did": "did:plc:alice123",
+                      "handle": "alice.bsky.social",
+                      "displayName": "Alice Example"
+                    }
+                    """.utf8
+                )
+            }
+        } operation: {
+            @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
+            return try await blueskyActorProfileCache.refreshProfileIfNeeded(
+                "did:plc:alice123",
+                24 * 60 * 60,
+                15 * 60
+            )
+        }
+
+        #expect(refreshed?.displayName == "Alice Example")
+        #expect(await requestRecorder.requests.count == 1)
+        let identities = try await database.read { db in
+            try CachedActorIdentitiesRequest().fetch(db)
+        }
+        #expect(identities["did:plc:alice123"]?.displayName == "Alice Example")
+    }
+
+    @Test
     func concurrentPassiveRefreshesShareDatabaseClaim() async throws {
         let database = try makePreparedDatabase()
         let requestRecorder = HTTPRequestRecorder()
