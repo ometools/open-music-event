@@ -187,6 +187,22 @@ public struct Account {
         case accountManagement
     }
 
+    public enum Presentation: Equatable, Identifiable, Sendable {
+        public enum AuthenticationOrigin: Equatable, Sendable {
+            case direct
+            case accountManagement
+        }
+
+        public enum ID: Hashable, Sendable {
+            case account
+        }
+
+        case accountManagement
+        case authentication(AuthenticationOrigin)
+
+        public var id: ID { .account }
+    }
+
     public enum Mode: String, CaseIterable, Equatable, Hashable, Sendable {
         case signIn
         case signUp
@@ -230,8 +246,7 @@ public struct Account {
 
     public struct State: Equatable {
         public init(
-            isAccountManagementSheetPresented: Bool = false,
-            isAuthenticationSheetPresented: Bool = false,
+            presentation: Presentation? = nil,
             authRequirement: OAuth.AuthRequirement = OpenMusicEventOAuth.baseAuthRequirement,
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
@@ -254,8 +269,7 @@ public struct Account {
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
             )
-            self.isAccountManagementSheetPresented = isAccountManagementSheetPresented
-            self.isAuthenticationSheetPresented = isAuthenticationSheetPresented
+            self.presentation = presentation
             self._selectedSessionID = selectedSessionID
             self._recentlyUsedAccountIDs = recentlyUsedAccountIDs
             self.oauth = Spawn(OAuthAccount.State(storage: storage))
@@ -275,8 +289,7 @@ public struct Account {
         }
 
         public init(
-            isAccountManagementSheetPresented: Bool = false,
-            isAuthenticationSheetPresented: Bool = false,
+            presentation: Presentation? = nil,
             authRequirement: OAuth.AuthRequirement = OpenMusicEventOAuth.baseAuthRequirement,
             selectedMode: Mode = .signIn,
             signInLoginHint: String = "",
@@ -287,8 +300,7 @@ public struct Account {
             recentlyUsedAccountIDs: Shared<[Atmosphere.Account.ID]> = Shared(value: [])
         ) {
             self.init(
-                isAccountManagementSheetPresented: isAccountManagementSheetPresented,
-                isAuthenticationSheetPresented: isAuthenticationSheetPresented,
+                presentation: presentation,
                 authRequirement: authRequirement,
                 selectedMode: selectedMode,
                 signInLoginHint: signInLoginHint,
@@ -306,8 +318,7 @@ public struct Account {
         public var authRequirement: OAuth.AuthRequirement
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
-        public var isAccountManagementSheetPresented: Bool
-        public var isAuthenticationSheetPresented: Bool
+        public var presentation: Presentation?
         public var accountSessionValidationStatuses: [Atmosphere.Account.ID: AccountSessionValidationStatus] = [:]
         public var oauth: Spawn<OAuthAccount>
         @Shared public var selectedSessionID: Atmosphere.Account.ID?
@@ -408,6 +419,12 @@ public struct Account {
             )
         }
 
+        var accountSessionIDs: [String] {
+            sessionStore.sessions.values
+                .map { $0.accountID.rawValue.description }
+                .sorted()
+        }
+
         func mostRecentlyUsedAccountID(excluding excludedAccountID: Atmosphere.Account.ID) -> Atmosphere.Account.ID? {
             let accountIDs = Set(sessionStore.sessions.values.map(\.accountID))
             return accountIDsSortedByRecentUse.first { accountID in
@@ -463,17 +480,17 @@ public struct Account {
     }
 
     public enum Action {
-        case accountButtonTapped
+        case addAnotherAccountButtonTapped
         case accountListButtonTapped
         case accountLogOutButtonTapped(Atmosphere.Account.ID)
-        case accountManagementSheetDismissed
+        case accountPresentationCloseButtonTapped
+        case accountPresentationDismissed
         case accountRowTapped(Atmosphere.Account.ID)
-        case accountRowsAppeared
+        case accountSessionsChanged
         case accountSessionValidationResponse(
             Atmosphere.Account.ID,
             OpenMusicEventAccountSessionValidationClient.ValidationResult
         )
-        case authenticationSheetDismissed
         case customSignUpServerOptionTapped
         case selectedModeChanged(Mode)
         case signOutAllButtonTapped
@@ -486,6 +503,7 @@ public struct Account {
         case signUpForm(SignUpFormFeature.Action)
         case signUpFormSubmitted(SignUpFormValue)
         case signUpServerOptionTapped(OAuthSignUpServerOption.ID)
+        case signInButtonTapped
         case submitAuthenticationFormButtonTapped
     }
 
@@ -511,14 +529,11 @@ public struct Account {
             }
             Update { state, action in
                 switch action {
-                case .accountButtonTapped:
-                    state.selectedMode = .signIn
-                    state.signInForm = SignInFormFeature.State(value: SignInFormValue())
-                    state.resetSignInActorSearch()
-                    state.isAuthenticationSheetPresented = true
+                case .addAnotherAccountButtonTapped:
+                    state.prepareAuthentication(origin: .accountManagement)
 
                 case .accountListButtonTapped:
-                    state.isAccountManagementSheetPresented = true
+                    state.presentation = .accountManagement
 
                 case .accountLogOutButtonTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
@@ -558,8 +573,19 @@ public struct Account {
                         }
                     }
 
-                case .accountManagementSheetDismissed:
-                    state.isAccountManagementSheetPresented = false
+                case .accountPresentationCloseButtonTapped:
+                    if state.presentation == .authentication(.accountManagement),
+                       !state.accountRows.isEmpty
+                    {
+                        state.presentation = .accountManagement
+                    } else {
+                        state.presentation = nil
+                    }
+                    state.resetSignInActorSearch()
+
+                case .accountPresentationDismissed:
+                    state.presentation = nil
+                    state.resetSignInActorSearch()
 
                 case .accountRowTapped(let accountID):
                     guard state.sessionStore[accountID] != nil else { return }
@@ -568,7 +594,11 @@ public struct Account {
                         state.signInForm = SignInFormFeature.State(
                             value: SignInFormValue(handle: state.reloginHint(for: accountID))
                         )
-                        state.isAuthenticationSheetPresented = true
+                        let origin: Presentation.AuthenticationOrigin =
+                            state.presentation == .accountManagement
+                            ? .accountManagement
+                            : .direct
+                        state.presentation = .authentication(origin)
                         return
                     }
                     state.$selectedSessionID.withLock {
@@ -583,7 +613,7 @@ public struct Account {
                         await saveOpenMusicEventSelectedSessionID(selectedSessionID)
                     }
 
-                case .accountRowsAppeared:
+                case .accountSessionsChanged:
                     state.syncRecentlyUsedAccountIDs(
                         selectedAccountID: state.selectedSessionID ?? state.sessionStore.selectedAccountID
                     )
@@ -651,10 +681,6 @@ public struct Account {
                     case .unverified:
                         state.accountSessionValidationStatuses[accountID] = .unverified
                     }
-
-                case .authenticationSheetDismissed:
-                    state.isAuthenticationSheetPresented = false
-                    state.resetSignInActorSearch()
 
                 case .customSignUpServerOptionTapped:
                     guard state.signUpServerConfiguration.allowsCustomServerHost else { return }
@@ -785,6 +811,9 @@ public struct Account {
                     state.usesCustomSignUpServerHost = false
                     state.signUpServerHost = serverHost
 
+                case .signInButtonTapped:
+                    state.prepareAuthentication(origin: .direct)
+
                 case .signOutAllButtonTapped:
                     state.accountSessionValidationStatuses = [:]
                     state.oauth.state.errorMessage = nil
@@ -829,6 +858,16 @@ public struct Account {
                 signUpServerConfiguration: signUpServerConfiguration
             )
         }
+        .onMount { _ in
+            store.addTask {
+                try store.send(.accountSessionsChanged)
+            }
+        }
+        .onChange(of: store.accountSessionIDs) { _, _, _ in
+            store.addTask {
+                try store.send(.accountSessionsChanged)
+            }
+        }
     }
 
     private func searchSignInActors(
@@ -871,7 +910,18 @@ public struct Account {
 }
 
 private extension Account.State {
+    mutating func prepareAuthentication(origin: Account.Presentation.AuthenticationOrigin) {
+        selectedMode = .signIn
+        signInForm = Account.SignInFormFeature.State(value: Account.SignInFormValue())
+        resetSignInActorSearch()
+        presentation = .authentication(origin)
+    }
+
     mutating func finishAuthentication(_ session: OAuth.Session) {
+        let returnsToAccountManagement = switch presentation {
+        case .accountManagement, .authentication(.accountManagement): true
+        case .authentication(.direct), nil: false
+        }
         oauth.state.isLoginInProgress = false
         oauth.state.isSignUpInProgress = false
         oauth.state.errorMessage = nil
@@ -883,7 +933,9 @@ private extension Account.State {
             $0 = session.accountID
         }
         syncRecentlyUsedAccountIDs(selectedAccountID: session.accountID)
-        isAuthenticationSheetPresented = false
+        presentation = returnsToAccountManagement
+            ? .accountManagement
+            : nil
     }
 }
 
@@ -942,7 +994,7 @@ public struct AccountPicker: View {
         Menu {
             if store.accountRows.isEmpty {
                 Button {
-                    store.send(.accountButtonTapped)
+                    store.send(.signInButtonTapped)
                 } label: {
                     Label("Sign In", systemImage: "person")
                 }
@@ -971,13 +1023,6 @@ public struct AccountPicker: View {
         .accountAccessibilityHint(
             Text("Selects the account used for workspace changes and approvals.")
         )
-        .sheet(isPresented: $store.isAccountManagementSheetPresented) {
-            AccountManagementSheetView(store: store)
-        }
-        .accountAuthenticationSheet(store: store)
-        .task(id: store.accountRows.map(\.id)) {
-            await store.send(.accountRowsAppeared)?.value
-        }
     }
 
     private var accessibilityLabel: String {
@@ -995,7 +1040,27 @@ public struct AccountPicker: View {
     }
 }
 
-struct AccountManagementSheetView: View {
+public struct AccountPresentationView: View {
+    @Bindable var store: StoreOf<Account>
+
+    public init(store: StoreOf<Account>) {
+        self.store = store
+    }
+
+    @ViewBuilder
+    public var body: some View {
+        switch store.presentation {
+        case .accountManagement:
+            AccountManagementPresentationView(store: store)
+        case .authentication:
+            AccountAuthenticationPresentationView(store: store)
+        case nil:
+            EmptyView()
+        }
+    }
+}
+
+struct AccountManagementPresentationView: View {
     @Bindable var store: StoreOf<Account>
 
     var body: some View {
@@ -1011,7 +1076,7 @@ struct AccountManagementSheetView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
-                        store.send(.accountManagementSheetDismissed)
+                        store.send(.accountPresentationCloseButtonTapped)
                     } label: {
                         Label("Close", systemImage: "xmark")
                             .labelStyle(.iconOnly)
@@ -1019,7 +1084,6 @@ struct AccountManagementSheetView: View {
                 }
             }
         }
-        .accountAuthenticationSheet(store: store)
     }
 }
 
@@ -1127,7 +1191,7 @@ struct AccountManagementSection: View {
             }
 
             Button {
-                store.send(.accountButtonTapped)
+                store.send(.addAnotherAccountButtonTapped)
             } label: {
                 Label("Add Another Account", systemImage: "person.badge.plus")
             }
@@ -1142,9 +1206,6 @@ struct AccountManagementSection: View {
                 Text(errorMessage)
                     .foregroundStyle(.red)
             }
-        }
-        .task(id: store.accountRows.map(\.id)) {
-            await store.send(.accountRowsAppeared)?.value
         }
     }
 
@@ -1279,24 +1340,9 @@ public extension View {
             #endif
         }
     }
-
-    func accountAuthenticationSheet(store: StoreOf<Account>) -> some View {
-        modifier(AccountAuthenticationSheetModifier(store: store))
-    }
 }
 
-private struct AccountAuthenticationSheetModifier: ViewModifier {
-    @Bindable var store: StoreOf<Account>
-
-    func body(content: Content) -> some View {
-        content
-            .sheet(isPresented: $store.isAuthenticationSheetPresented) {
-                AccountAuthenticationSheetView(store: store)
-            }
-    }
-}
-
-struct AccountAuthenticationSheetView: View {
+struct AccountAuthenticationPresentationView: View {
     @Bindable var store: StoreOf<Account>
 
     var body: some View {
@@ -1315,7 +1361,7 @@ struct AccountAuthenticationSheetView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
-                        store.send(.authenticationSheetDismissed)
+                        store.send(.accountPresentationCloseButtonTapped)
                     } label: {
                         Label("Close", systemImage: "xmark")
                             .labelStyle(.iconOnly)

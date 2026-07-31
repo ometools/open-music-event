@@ -355,9 +355,11 @@ public struct WhiteLabelRoot {
 public struct WhiteLabelRootView: View {
     public init(store: StoreOf<WhiteLabelRoot>) {
         self.store = store
+        self.accountStore = store.spawn(\.account)
     }
 
     @Bindable var store: StoreOf<WhiteLabelRoot>
+    @Bindable var accountStore: StoreOf<Account>
 
     public var body: some View {
         Group {
@@ -401,6 +403,12 @@ public struct WhiteLabelRootView: View {
                         .whiteLabelRootToolbar(store: store)
                 }
             }
+        }
+        .sheet(
+            item: $accountStore.presentation,
+            onDismiss: { accountStore.send(.accountPresentationDismissed) }
+        ) { _ in
+            AccountPresentationView(store: accountStore)
         }
     }
 

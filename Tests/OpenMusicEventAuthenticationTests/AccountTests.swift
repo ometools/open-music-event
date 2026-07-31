@@ -29,26 +29,26 @@ struct AccountTests {
             Account()
         }
 
-        #expect(store.isAuthenticationSheetPresented == false)
+        #expect(store.presentation == nil)
         #expect(store.selectedMode == .signIn)
         #expect(store.accountIDDescription == nil)
         #expect(store.surface == .authentication)
     }
 
     @Test
-    func accountButtonPresentsAuthenticationSheet() async {
+    func signInButtonPresentsAuthentication() async {
         let store = Store(initialState: Account.State.localTestState()) {
             Account()
         }
 
-        let task = store.send(.accountButtonTapped)
+        let task = store.send(.signInButtonTapped)
         await task?.value
 
-        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.presentation == .authentication(.direct))
     }
 
     @Test
-    func accountButtonPresentsAuthenticationSheetWhenAlreadySignedIn() async throws {
+    func signInButtonPresentsAuthenticationWhenAlreadySignedIn() async throws {
         let session = try accountTestSession(
             did: "did:plc:alice123",
             pdsHost: "alice.pds.example"
@@ -64,10 +64,10 @@ struct AccountTests {
             Account()
         }
 
-        let task = store.send(.accountButtonTapped)
+        let task = store.send(.signInButtonTapped)
         await task?.value
 
-        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.presentation == .authentication(.direct))
         #expect(store.sessionStore[session.accountID] == session)
         #expect(store.surface == .accountManagement)
     }
@@ -92,16 +92,16 @@ struct AccountTests {
         let presentationTask = store.send(.accountListButtonTapped)
         await presentationTask?.value
 
-        #expect(store.isAccountManagementSheetPresented)
+        #expect(store.presentation == .accountManagement)
 
-        let dismissalTask = store.send(.accountManagementSheetDismissed)
+        let dismissalTask = store.send(.accountPresentationCloseButtonTapped)
         await dismissalTask?.value
 
-        #expect(store.isAccountManagementSheetPresented == false)
+        #expect(store.presentation == nil)
     }
 
     @Test
-    func accountButtonClearsSignInFormWhenAddingAnotherAccount() async throws {
+    func addAnotherAccountClearsSignInFormAndKeepsAccountReturnRoute() async throws {
         let session = try accountTestSession(
             did: "did:plc:alice123",
             pdsHost: "alice.pds.example"
@@ -123,26 +123,52 @@ struct AccountTests {
             }
         }
 
-        let task = store.send(.accountButtonTapped)
+        let task = store.send(.addAnotherAccountButtonTapped)
         await task?.value
 
-        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.presentation == .authentication(.accountManagement))
         #expect(store.selectedMode == .signIn)
         #expect(store.signInLoginHint == "")
     }
 
     @Test
-    func dismissingAuthenticationSheetClearsPresentation() async {
+    func dismissingAuthenticationClearsPresentation() async {
         let store = Store(
-            initialState: Account.State.localTestState(isAuthenticationSheetPresented: true)
+            initialState: Account.State.localTestState(
+                presentation: .authentication(.direct)
+            )
         ) {
             Account()
         }
 
-        let task = store.send(.authenticationSheetDismissed)
+        let task = store.send(.accountPresentationDismissed)
         await task?.value
 
-        #expect(store.isAuthenticationSheetPresented == false)
+        #expect(store.presentation == nil)
+    }
+
+    @Test
+    func closingAddAnotherAccountReturnsToAccountManagement() async throws {
+        let session = try accountTestSession(
+            did: "did:plc:alice123",
+            pdsHost: "alice.pds.example"
+        )
+        var sessionStoreValue = OAuth.SessionStore()
+        sessionStoreValue.upsert(session)
+        let store = Store(
+            initialState: Account.State.localTestState(
+                presentation: .authentication(.accountManagement),
+                sessionStore: Shared(value: sessionStoreValue),
+                selectedSessionID: Shared(value: session.accountID as Atmosphere.Account.ID?)
+            )
+        ) {
+            Account()
+        }
+
+        let task = store.send(.accountPresentationCloseButtonTapped)
+        await task?.value
+
+        #expect(store.presentation == .accountManagement)
     }
 
     @Test
@@ -228,7 +254,7 @@ struct AccountTests {
             source: .typeahead
         )
         let state = Account.State.localTestState(
-            isAuthenticationSheetPresented: true
+            presentation: .authentication(.direct)
         )
         let store = withDependencies {
             $0.context = .test
@@ -276,11 +302,11 @@ struct AccountTests {
         await authorizationRequests.resumeSignIn(returning: .placeholder)
         await selectionTask?.value
         try await waitForCondition {
-            store.session == .placeholder && !store.isAuthenticationSheetPresented
+            store.session == .placeholder && store.presentation == nil
         }
 
         #expect(store.session == .placeholder)
-        #expect(store.isAuthenticationSheetPresented == false)
+        #expect(store.presentation == nil)
     }
 
     @Test
@@ -362,7 +388,7 @@ struct AccountTests {
             }
         }
 
-        let task = store.send(.accountRowsAppeared)
+        let task = store.send(.accountSessionsChanged)
         await task?.value
         try await waitForCondition {
             store.accountRows.first?.title == "Alice Example"
@@ -538,7 +564,7 @@ struct AccountTests {
             }
         }
 
-        let task = store.send(.accountRowsAppeared)
+        let task = store.send(.accountSessionsChanged)
         await task?.value
         try await waitForCondition {
             store.accountRows.first { $0.id == alice.accountID }?.requiresRelog == true
@@ -596,7 +622,7 @@ struct AccountTests {
             }
         }
 
-        let task = store.send(.accountRowsAppeared)
+        let task = store.send(.accountSessionsChanged)
         await task?.value
         try await waitForCondition {
             store.sessionStore[bob.accountID]?.accessToken == refreshedBob.accessToken
@@ -636,7 +662,7 @@ struct AccountTests {
             }
         }
 
-        let validationTask = store.send(.accountRowsAppeared)
+        let validationTask = store.send(.accountSessionsChanged)
         await validationTask?.value
         try await waitForCondition {
             store.accountRows.first?.sessionValidationStatus == .unverified
@@ -666,7 +692,7 @@ struct AccountTests {
         var sessionStoreValue = OAuth.SessionStore()
         sessionStoreValue.upsert(bob)
         sessionStoreValue.upsert(alice, select: false)
-        var state = withDependencies {
+        let state = withDependencies {
             $0.defaultDatabase = database
         } operation: {
             Account.State.localTestState(
@@ -674,14 +700,23 @@ struct AccountTests {
                 selectedSessionID: Shared(value: bob.accountID as Atmosphere.Account.ID?)
             )
         }
-        state.accountSessionValidationStatuses[alice.accountID] = .requiresRelog
+        let validation = AccountSessionValidationRecorder(
+            results: [
+                alice.accountID: .requiresRelog,
+                bob.accountID: .accepted(bob),
+            ]
+        )
         let store = withDependencies {
             $0.continuousClock = ImmediateClock()
             $0.defaultDatabase = database
+            $0.openMusicEventAccountSessionValidationClient = .recording(validation)
         } operation: {
             Store(initialState: state) {
                 Account()
             }
+        }
+        try await waitForCondition {
+            store.accountSessionValidationStatuses[alice.accountID] == .requiresRelog
         }
 
         let task = store.send(.accountRowTapped(alice.accountID))
@@ -689,7 +724,7 @@ struct AccountTests {
 
         #expect(store.selectedSessionID == bob.accountID)
         #expect(store.session == bob)
-        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.presentation == .authentication(.direct))
         #expect(store.selectedMode == .signIn)
         #expect(store.signInLoginHint == "alice.example.com")
     }
@@ -804,7 +839,7 @@ struct AccountTests {
     func signInFormLaunchesSharedAuthorizationWithLoginHint() async throws {
         let authorizationRequests = AccountAuthorizationRecorder()
         let state = Account.State.localTestState(
-            isAuthenticationSheetPresented: true,
+            presentation: .authentication(.direct),
             signInLoginHint: "  woody.fm  "
         )
         let store = withDependencies {
@@ -823,7 +858,7 @@ struct AccountTests {
         await task?.value
         try await waitForCondition {
             store.session == .placeholder
-                && !store.isAuthenticationSheetPresented
+                && store.presentation == nil
                 && !store.isLoginInProgress
         }
 
@@ -836,7 +871,7 @@ struct AccountTests {
             ]
         )
         #expect(store.session == .placeholder)
-        #expect(store.isAuthenticationSheetPresented == false)
+        #expect(store.presentation == nil)
         #expect(store.isLoginInProgress == false)
         #expect(store.errorMessage == nil)
     }
@@ -852,7 +887,7 @@ struct AccountTests {
             signInContinuation: .suspended
         )
         let state = Account.State.localTestState(
-            isAuthenticationSheetPresented: true,
+            presentation: .authentication(.accountManagement),
             signInLoginHint: "bob.example.com",
             sessionStore: sessionStore,
             selectedSessionID: Shared(value: alice.accountID as Atmosphere.Account.ID?)
@@ -891,7 +926,7 @@ struct AccountTests {
         #expect(store.sessionStore[alice.accountID] == alice)
         #expect(store.sessionStore[bob.accountID] == bob)
         #expect(store.selectedSessionID == bob.accountID)
-        #expect(store.isAuthenticationSheetPresented == false)
+        #expect(store.presentation == .accountManagement)
     }
 
     @Test
@@ -900,7 +935,7 @@ struct AccountTests {
             signInContinuation: .suspended
         )
         let state = Account.State.localTestState(
-            isAuthenticationSheetPresented: true,
+            presentation: .authentication(.direct),
             signInLoginHint: "woody.fm"
         )
         let store = withDependencies {
@@ -920,7 +955,7 @@ struct AccountTests {
             store.isLoginInProgress
         }
 
-        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.presentation == .authentication(.direct))
         #expect(store.isLoginInProgress)
         #expect(store.errorMessage == nil)
 
@@ -928,11 +963,11 @@ struct AccountTests {
         await task?.value
         try await waitForCondition {
             store.session == .placeholder
-                && !store.isAuthenticationSheetPresented
+                && store.presentation == nil
                 && !store.isLoginInProgress
         }
 
-        #expect(store.isAuthenticationSheetPresented == false)
+        #expect(store.presentation == nil)
         #expect(store.isLoginInProgress == false)
         #expect(store.session == .placeholder)
     }
@@ -943,7 +978,7 @@ struct AccountTests {
             signInContinuation: .suspended
         )
         let state = Account.State.localTestState(
-            isAuthenticationSheetPresented: true,
+            presentation: .authentication(.direct),
             signInLoginHint: "woody.fm"
         )
         let store = withDependencies {
@@ -968,7 +1003,7 @@ struct AccountTests {
             !store.isLoginInProgress
         }
 
-        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.presentation == .authentication(.direct))
         #expect(store.isLoginInProgress == false)
         #expect(store.errorMessage == nil)
         #expect(store.session == nil)
@@ -978,7 +1013,7 @@ struct AccountTests {
     func signUpFormLaunchesSharedAuthorizationWithSelectedServer() async throws {
         let authorizationRequests = AccountAuthorizationRecorder()
         let state = Account.State.localTestState(
-            isAuthenticationSheetPresented: true,
+            presentation: .authentication(.direct),
             selectedMode: .signUp
         )
         let store = withDependencies {
@@ -997,7 +1032,7 @@ struct AccountTests {
         await task?.value
         try await waitForCondition {
             store.session == .placeholder
-                && !store.isAuthenticationSheetPresented
+                && store.presentation == nil
                 && !store.isSignUpInProgress
         }
 
@@ -1010,7 +1045,7 @@ struct AccountTests {
             ]
         )
         #expect(store.session == .placeholder)
-        #expect(store.isAuthenticationSheetPresented == false)
+        #expect(store.presentation == nil)
         #expect(store.isSignUpInProgress == false)
         #expect(store.errorMessage == nil)
     }
@@ -1092,7 +1127,7 @@ struct AccountTests {
             signUpContinuation: .suspended
         )
         let state = Account.State.localTestState(
-            isAuthenticationSheetPresented: true,
+            presentation: .authentication(.direct),
             selectedMode: .signUp
         )
         let store = withDependencies {
@@ -1117,7 +1152,7 @@ struct AccountTests {
             !store.isSignUpInProgress
         }
 
-        #expect(store.isAuthenticationSheetPresented)
+        #expect(store.presentation == .authentication(.direct))
         #expect(store.isSignUpInProgress == false)
         #expect(store.errorMessage == nil)
     }
@@ -1150,9 +1185,9 @@ struct AccountTests {
     }
 
     @Test
-    func accountManagementLogOutReturnsToAuthenticationSurface() async {
+    func accountManagementLogOutReturnsToAuthenticationSurfaceInSamePresentation() async {
         let recorder = AccountAuthorizationRecorder()
-        let state = Account.State.localTestState()
+        let state = Account.State.localTestState(presentation: .accountManagement)
         state.oauth.state.$sessionStore.withLock { $0.upsert(.placeholder) }
         state.$selectedSessionID.withLock {
             $0 = OAuth.Session.placeholder.accountID
@@ -1177,7 +1212,7 @@ struct AccountTests {
         #expect(store.sessionStore.sessions.isEmpty)
         #expect(store.selectedSessionID == nil)
         #expect(store.surface == .authentication)
-        #expect(store.isAuthenticationSheetPresented == false)
+        #expect(store.presentation == .accountManagement)
         #expect(await recorder.didCancel)
     }
 }
@@ -1203,7 +1238,7 @@ private func waitForCondition(
 
 private extension Account.State {
     static func localTestState(
-        isAuthenticationSheetPresented: Bool = false,
+        presentation: Account.Presentation? = nil,
         selectedMode: Account.Mode = .signIn,
         signInLoginHint: String = "",
         signUpServerConfiguration: OAuthSignUpServerConfiguration? = nil,
@@ -1213,7 +1248,7 @@ private extension Account.State {
         recentlyUsedAccountIDs: Shared<[Atmosphere.Account.ID]> = Shared(value: [])
     ) -> Self {
         Self(
-            isAuthenticationSheetPresented: isAuthenticationSheetPresented,
+            presentation: presentation,
             selectedMode: selectedMode,
             signInLoginHint: signInLoginHint,
             signUpServerConfiguration: signUpServerConfiguration,

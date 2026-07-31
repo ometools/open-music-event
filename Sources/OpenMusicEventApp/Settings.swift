@@ -46,14 +46,14 @@ public struct Settings {
 
 public struct SettingsFeatureView: View {
     let store: StoreOf<Settings>
+    @Bindable var accountStore: StoreOf<Account>
 
     public init(store: StoreOf<Settings>) {
         self.store = store
+        self.accountStore = store.spawn(\.account)
     }
 
     public var body: some View {
-        let accountStore = store.spawn(\.account)
-
         _SwiftUIForm {
             AccountView(store: accountStore)
 
@@ -71,7 +71,12 @@ public struct SettingsFeatureView: View {
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity)
         #endif
-        .accountAuthenticationSheet(store: accountStore)
+        .sheet(
+            item: $accountStore.presentation,
+            onDismiss: { accountStore.send(.accountPresentationDismissed) }
+        ) { _ in
+            AccountPresentationView(store: accountStore)
+        }
         .navigationTitle("Settings")
     }
 }

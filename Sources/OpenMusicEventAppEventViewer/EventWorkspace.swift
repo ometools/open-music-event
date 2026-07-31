@@ -1248,18 +1248,28 @@ public typealias SourceWorkspaceView = EventWorkspaceView
 
 public struct EventWorkspaceView: View {
     @Bindable var store: StoreOf<EventWorkspace>
+    @Bindable var accountStore: StoreOf<Account>
+    let presentsAccountPresentation: Bool
     @Environment(\.showsTechnicalDetails) var showsTechnicalDetails
     @State var selectedTab: EventWorkspaceTab
     @State var isResetConfirmationPresented = false
 
-    public init(store: StoreOf<EventWorkspace>) {
+    public init(
+        store: StoreOf<EventWorkspace>,
+        accountStore: StoreOf<Account>? = nil
+    ) {
         self.store = store
+        if let accountStore {
+            self.accountStore = accountStore
+            self.presentsAccountPresentation = false
+        } else {
+            self.accountStore = store.spawn(\.account)
+            self.presentsAccountPresentation = true
+        }
         self._selectedTab = State(initialValue: store.defaultWorkspaceTab)
     }
 
     public var body: some View {
-        let accountStore = store.spawn(\.account)
-
         VStack(spacing: 0) {
             workspaceTabContent
         }
@@ -1299,6 +1309,14 @@ public struct EventWorkspaceView: View {
             }
         }
         .accountPickerToolbar(store: accountStore)
+        .sheet(
+            item: presentsAccountPresentation
+                ? $accountStore.presentation
+                : .constant(nil),
+            onDismiss: { accountStore.send(.accountPresentationDismissed) }
+        ) { _ in
+            AccountPresentationView(store: accountStore)
+        }
         .onAppear {
             store.send(.onAppear)
         }

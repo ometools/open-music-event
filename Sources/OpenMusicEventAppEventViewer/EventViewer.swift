@@ -995,9 +995,11 @@ public struct EventViewerView: View {
     ) {
         self.store = store
         self.authoringAdmission = authoringAdmission
+        self.accountStore = store.spawn(\.account)
     }
 
     @Bindable var store: StoreOf<EventViewer>
+    @Bindable var accountStore: StoreOf<Account>
     let authoringAdmission: AuthoringAdmission?
 
     public var body: some View {
@@ -1010,6 +1012,12 @@ public struct EventViewerView: View {
                     }
                     .environment(\.needsStageDisambiguation, store.needsStageDisambiguation)
                 }
+            }
+            .sheet(
+                item: $accountStore.presentation,
+                onDismiss: { accountStore.send(.accountPresentationDismissed) }
+            ) { _ in
+                AccountPresentationView(store: accountStore)
             }
     }
 
@@ -1257,7 +1265,10 @@ public struct EventViewerView: View {
                         badgeValue: featureStore.changeCount,
                         navigation: .stack
                     ) {
-                        EventWorkspaceView(store: featureStore)
+                        EventWorkspaceView(
+                            store: featureStore,
+                            accountStore: accountStore
+                        )
                     }
                 }
 
@@ -1439,7 +1450,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
-                    EventWorkspaceView(store: featureStore)
+                    EventWorkspaceView(
+                        store: featureStore,
+                        accountStore: accountStore
+                    )
                 }
                 .tag(EventViewer.EventFeature.workspace)
             }
@@ -1557,7 +1571,10 @@ public struct EventViewerView: View {
 
             if let featureStore = store.spawn(\.eventWorkspace) {
                 viewerTab(.workspace, badgeValue: featureStore.changeCount) {
-                    EventWorkspaceView(store: featureStore)
+                    EventWorkspaceView(
+                        store: featureStore,
+                        accountStore: accountStore
+                    )
                 }
                 .tag(EventViewer.EventFeature.workspace)
             }
