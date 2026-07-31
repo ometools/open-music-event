@@ -185,7 +185,6 @@ public extension SourceWorkspaceDatabaseClient {
             sourceEditingSession: try SourceEditingSession(
                 workingDatabasePath: workingDatabaseURL.path,
                 baselineDatabasePath: referenceDatabase.path,
-                baselineSchemaName: sourceBaselineSchemaName(),
                 configuration: configuration
             )
         )
@@ -212,9 +211,6 @@ public extension SourceWorkspaceDatabaseClient {
             .appending(path: fileName)
     }
 
-    private static func sourceBaselineSchemaName() -> String {
-        "source_baseline_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
-    }
 }
 
 private enum WorkspaceContextKey: DependencyKey {
@@ -243,8 +239,7 @@ public extension DependencyValues {
     mutating func useWorkspaceContext(
         _ workspaceContext: WorkspaceContext
     ) {
-        // EventViewer keeps the app database as its read/write authority. The source
-        // session attaches the workspace reference database to that connection on demand.
+        self.defaultDatabase = workspaceContext.database
         self.sourceEditingSession = workspaceContext.sourceEditingSession
         self.workspaceContext = workspaceContext
     }

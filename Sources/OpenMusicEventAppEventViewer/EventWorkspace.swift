@@ -122,33 +122,10 @@ public struct SourceWorkspaceSummary: Equatable, Sendable {
     }
 }
 
-private struct SourceWorkspaceSummaryRequestIdentity: Hashable, Sendable {
-    var sourceEditingSession: SourceEditingSessionIdentity?
-
-    init() {
-        @Dependency(\.sourceEditingSession) var sourceEditingSession
-        self.sourceEditingSession = sourceEditingSession.map(SourceEditingSessionIdentity.init)
-    }
-}
-
-private struct SourceEditingSessionIdentity: Hashable, Sendable {
-    var baselineDatabasePath: String
-    var baselineSchemaName: String
-    var workingDatabasePath: String
-
-    init(_ sourceEditingSession: SourceEditingSession) {
-        self.baselineDatabasePath = sourceEditingSession.baselineDatabasePath
-        self.baselineSchemaName = sourceEditingSession.baselineSchemaName
-        self.workingDatabasePath = sourceEditingSession.workingDatabasePath
-    }
-}
-
 public struct SourceWorkspaceSummaryRequest: FetchKeyRequest {
-    private var requestIdentity: SourceWorkspaceSummaryRequestIdentity
     public var target: SourceProposalTarget
 
     public init(target: SourceProposalTarget) {
-        self.requestIdentity = SourceWorkspaceSummaryRequestIdentity()
         self.target = target
     }
 
@@ -211,6 +188,10 @@ public struct EventWorkspace {
 
         public init(_ error: any Error) {
             self.message = String(describing: error)
+        }
+
+        public init(message: String) {
+            self.message = message
         }
     }
 
@@ -1538,22 +1519,19 @@ public struct EventWorkspaceView: View {
             || store.sourceProposalStatus.isVisibleInWorkspace
         {
             Section("Your changes") {
-                if store.sourceWorkspaceSummary.totalCount == 0 {
+                if store.isPreparingSourceProposal {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Preparing proposal")
+                    }
+                    .foregroundStyle(.secondary)
+                } else if store.sourcePatchStatus.requiresAttentionInChanges {
+                    SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
+                } else if store.sourceWorkspaceSummary.totalCount == 0 {
                     Text("No local changes")
                         .foregroundStyle(.secondary)
                 } else if store.canPublishSourceProposal {
-                    if store.isPreparingSourceProposal {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Preparing proposal")
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-
                     SourceProposalStatusView(status: store.sourceProposalStatus)
-                    if store.sourcePatchStatus.requiresAttentionInChanges {
-                        SourcePatchStatusView(status: store.sourcePatchStatus, mode: .proposal)
-                    }
                 } else {
                     Text("These changes stay on this device and won’t create a proposal.")
                         .foregroundStyle(.secondary)
@@ -3196,10 +3174,20 @@ private extension EventWorkspace.State {
         sourceWorkspaceSummary: SourceWorkspaceSummary
     ) {
         guard canPublishSourceProposal,
-              !patch.isEmpty,
-              sourceWorkspaceSummary.totalCount > 0,
+              !patch.isEmpty
+        else {
+            sourceProposal = nil
+            sourceProposalStatus = .idle
+            return
+        }
+        guard sourceWorkspaceSummary.totalCount > 0,
               case .available = sourceWorkspaceSummary.availability
         else {
+            sourcePatchStatus = .failed(
+                EventWorkspace.SourcePatchGenerationFailure(
+                    message: "The source patch was generated, but the workspace comparison was unavailable."
+                )
+            )
             sourceProposal = nil
             sourceProposalStatus = .idle
             return

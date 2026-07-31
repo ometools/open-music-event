@@ -69,8 +69,9 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             )
         }
 
-        @Dependency(\.sourceEditingSession) var sourceEditingSession
-        guard let sourceEditingSession else {
+        guard let baselineSchemaName = try SourceEditingSession
+            .attachedBaselineSchemaName(in: db)
+        else {
             return EventWorkspaceSummary(
                 eventID: eventID,
                 availability: .workspaceNeedsPreparation,
@@ -83,19 +84,15 @@ public struct EventWorkspaceSummaryRequest: FetchKeyRequest {
             .fetchOne(db)
         let sourceSummary: SourceChangeSummary
         if sourceProvenance?.sourceBaselineID != nil {
-            sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-                try openMusicEventSourceEditSummary(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName
-                )
-            }
+            sourceSummary = try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: baselineSchemaName
+            )
         } else if workspace.kind == .local {
-            sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-                try openMusicEventSourceEditSummary(
-                    in: db,
-                    baselineSchemaName: baselineSchemaName
-                )
-            }
+            sourceSummary = try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: baselineSchemaName
+            )
         } else {
             return EventWorkspaceSummary(
                 eventID: eventID,
@@ -178,20 +175,19 @@ public struct SourceEditSummaryRequest: FetchKeyRequest {
             )
         }
 
-        @Dependency(\.sourceEditingSession) var sourceEditingSession
-        guard let sourceEditingSession else {
+        guard let baselineSchemaName = try SourceEditingSession
+            .attachedBaselineSchemaName(in: db)
+        else {
             return SourceEditSummary(
                 sourceBaselineID: sourceBaselineID,
                 availability: .missingBaseline,
                 groups: []
             )
         }
-        let sourceSummary = try sourceEditingSession.withAttachedBaseline(to: db) { baselineSchemaName in
-            try openMusicEventSourceEditSummary(
-                in: db,
-                baselineSchemaName: baselineSchemaName
-            )
-        }
+        let sourceSummary = try openMusicEventSourceEditSummary(
+            in: db,
+            baselineSchemaName: baselineSchemaName
+        )
 
         switch sourceSummary.availability {
         case .available:

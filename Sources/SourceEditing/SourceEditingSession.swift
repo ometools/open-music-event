@@ -4,6 +4,8 @@ import GRDB
 import SQLiteData
 
 public struct SourceEditingSession: Sendable {
+    public static let defaultBaselineSchemaName = "source_baseline"
+
     public var workingDatabasePath: String
     public var baselineDatabasePath: String
     public var baselineSchemaName: String
@@ -12,7 +14,7 @@ public struct SourceEditingSession: Sendable {
     public init(
         workingDatabasePath: String,
         baselineDatabasePath: String,
-        baselineSchemaName: String = "source_baseline",
+        baselineSchemaName: String = SourceEditingSession.defaultBaselineSchemaName,
         configuration: Configuration = Configuration()
     ) throws {
         var configuration = configuration
@@ -28,6 +30,16 @@ public struct SourceEditingSession: Sendable {
         self.baselineDatabasePath = baselineDatabasePath
         self.baselineSchemaName = baselineSchemaName
         self.database = try DatabasePool(path: workingDatabasePath, configuration: configuration)
+    }
+
+    public static func attachedBaselineSchemaName(
+        in db: Database
+    ) throws -> String? {
+        try attachedDatabasePath(
+            schemaName: defaultBaselineSchemaName,
+            in: db
+        )
+        .map { _ in defaultBaselineSchemaName }
     }
 
     public func withAttachedBaseline<Value>(

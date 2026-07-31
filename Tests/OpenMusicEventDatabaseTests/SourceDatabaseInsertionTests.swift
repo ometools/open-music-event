@@ -1456,7 +1456,6 @@ struct SourceDatabaseInsertionTests {
         )
         let summary = try await withDependencies {
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await sourceEditingSession.database.read { db in
                 try SourceEditSummaryRequest(
@@ -1574,7 +1573,7 @@ struct SourceDatabaseInsertionTests {
     }
 
     @Test
-    func editSummariesUseAttachedSourceEditingSession() async throws {
+    func editSummariesUseDefaultDatabaseAttachedReference() async throws {
         let source = try makeSourceRepository()
         let organizerID = try #require(OME.Organizer.ID("did:plc:organizer"))
         let openedEventID = eventID("testival-source-testival-2026", organizerID: organizerID)
@@ -1613,7 +1612,6 @@ struct SourceDatabaseInsertionTests {
         )
         let eventSummary = try await withDependencies {
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await sourceEditingSession.database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
@@ -1621,7 +1619,6 @@ struct SourceDatabaseInsertionTests {
         }
         let sourceSummary = try await withDependencies {
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await sourceEditingSession.database.read { db in
                 try SourceEditSummaryRequest(
@@ -1764,7 +1761,6 @@ struct SourceDatabaseInsertionTests {
         )
         let summary = try await withDependencies {
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await sourceEditingSession.database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
@@ -2024,7 +2020,6 @@ struct SourceDatabaseInsertionTests {
         )
         let summary = try await withDependencies {
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await sourceEditingSession.database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: openedEventID).fetch(db)
@@ -4287,7 +4282,6 @@ struct SourceDatabaseInsertionTests {
         )
         return try await withDependencies {
             $0.defaultDatabase = sourceEditingSession.database
-            $0.sourceEditingSession = sourceEditingSession
         } operation: {
             try await sourceEditingSession.database.read { db in
                 try EventWorkspaceSummaryRequest(eventID: eventID).fetch(db)
