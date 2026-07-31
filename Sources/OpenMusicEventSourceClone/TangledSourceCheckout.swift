@@ -501,17 +501,15 @@ private enum TangledSourceCheckoutDiagnostics {
     private static func notice(_ message: String) {
         #if canImport(OSLog)
         logger.notice("\(message, privacy: .public)")
-        #else
-        print(message)
         #endif
+        print(message)
     }
 
     private static func failure(_ message: String) {
         #if canImport(OSLog)
         logger.error("\(message, privacy: .public)")
-        #else
-        print(message)
         #endif
+        print(message)
     }
 }
 

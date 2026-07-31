@@ -586,9 +586,8 @@ enum TangledSourcePatchPublisherDiagnostics {
     private static func log(_ message: String) {
         #if canImport(OSLog)
         logger.log("\(message, privacy: .public)")
-        #else
-        print(message)
         #endif
+        print(message)
     }
 }
 
