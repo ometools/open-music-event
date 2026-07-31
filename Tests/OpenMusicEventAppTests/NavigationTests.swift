@@ -1835,11 +1835,16 @@ struct NavigationTests {
             try EventWorkspaceSummary.query(eventID: eventID, using: database)
         }
         expectNoDifference(initialSummary.totalCount, 1)
+        let authoringDatabase = try SourceWorkspaceDatabase(
+            workspaceID: workspace.id,
+            mainDatabase: database,
+            referenceDatabase: oldBaselineDatabase
+        )
 
         let store = withDependencies {
             $0.context = .test
             $0.date = .constant(Date(timeIntervalSince1970: 0))
-            $0.defaultDatabase = database
+            $0.defaultDatabase = authoringDatabase.database
             $0.sourceReferenceDatabase = .test(database: oldBaselineDatabase)
             $0.workspaceReferenceDatabase = .test(database: oldBaselineDatabase)
             $0.useAuthoringContext(
@@ -1875,6 +1880,10 @@ struct NavigationTests {
         )?.value
         let sourceBaselineIDs = await recorder.sourceBaselineIDs
         expectNoDifference(sourceBaselineIDs, [sourceBaselineID])
+        let refreshedSummary = try await authoringDatabase.database.read { db in
+            try SourceWorkspaceSummary.Query(target: .event(eventID)).fetch(db)
+        }
+        expectNoDifference(refreshedSummary.totalCount, 0)
         expectNoDifference(
             store.state.eventViewer.selectedFeature,
             EventViewer.EventFeature.workspace
@@ -2828,10 +2837,15 @@ struct NavigationTests {
                 workspaceID: workspaceID
             )
         )
+        let authoringDatabase = try SourceWorkspaceDatabase(
+            workspaceID: workspaceID,
+            mainDatabase: appDatabase,
+            referenceDatabase: referenceDatabase
+        )
 
         let (scheduleTitles, performanceTitles, eventWorkspaceSourceBaselineID, workspaceChangeCount) = try await withDependencies {
             $0.context = .test
-            $0.defaultDatabase = appDatabase
+            $0.defaultDatabase = authoringDatabase.database
             $0.defaultEventID = eventID
             $0.sourceReferenceDatabase = .test(database: referenceDatabase)
             $0.workspaceReferenceDatabase = .test(database: referenceDatabase)
@@ -2854,10 +2868,9 @@ struct NavigationTests {
                 )
             }
             let eventViewer = EventViewer.State(eventID: eventID)
-            let workspaceSummary = try SourceWorkspaceSummary.query(
-                target: .event(eventID),
-                using: database
-            )
+            let workspaceSummary = try await database.read { db in
+                try SourceWorkspaceSummary.Query(target: .event(eventID)).fetch(db)
+            }
             return (
                 scheduleTitles,
                 performanceTitles,

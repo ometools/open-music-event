@@ -128,7 +128,41 @@ extension SourceWorkspaceSummary {
         using database: any DatabaseWriter
     ) throws -> Self {
         try database.writeWithoutTransaction { db in
-            try query(target: target, in: db)
+            if try SourceEditingSession.attachedBaselineSchemaName(in: db) != nil {
+                return try queryAttached(target: target, in: db)
+            }
+            return try query(target: target, in: db)
+        }
+    }
+
+    static func query(
+        target: SourceProposalTarget
+    ) -> some FetchKeyRequest<Self> {
+        Query(target: target)
+    }
+
+    static func queryAttached(
+        target: SourceProposalTarget,
+        in db: Database
+    ) throws -> Self {
+        switch target {
+        case let .event(eventID):
+            return SourceWorkspaceSummary(
+                target: target,
+                eventSummary: try EventWorkspaceSummary.queryAttached(
+                    eventID: eventID,
+                    in: db
+                )
+            )
+
+        case let .calendar(_, sourceBaselineID):
+            return SourceWorkspaceSummary(
+                target: target,
+                sourceSummary: try SourceEditSummary.queryAttached(
+                    sourceBaselineID: sourceBaselineID,
+                    in: db
+                )
+            )
         }
     }
 
@@ -154,6 +188,13 @@ extension SourceWorkspaceSummary {
         }
     }
 
+    struct Query: FetchKeyRequest {
+        var target: SourceProposalTarget
+
+        func fetch(_ db: Database) throws -> SourceWorkspaceSummary {
+            try SourceWorkspaceSummary.queryAttached(target: target, in: db)
+        }
+    }
 }
 
 @Feature
@@ -164,7 +205,7 @@ public struct EventWorkspace {
         case failed(SourcePatchGenerationFailure)
         case generated(SourcePatch, sourceFileAttributions: [SourceFileAttribution] = [])
         case generating
-        case needsGeneration(SourcePatchInvalidation)
+        case needsGeneration
         case notGenerated
     }
 
@@ -377,17 +418,16 @@ public struct EventWorkspace {
         }
 
         public init(target: SourceProposalTarget) {
-            @Dependency(\.defaultDatabase) var database
             self._authoringGrant = Self.authoringGrant()
             self._cachedActorIdentities = Fetch(
                 wrappedValue: CachedActorIdentities(),
                 CachedActorIdentitiesRequest()
             )
             self.target = target
-            self.sourceWorkspaceSummary = (try? SourceWorkspaceSummary.query(
-                target: target,
-                using: database
-            )) ?? SourceWorkspaceSummary.initialValue(target: target)
+            self._sourceWorkspaceSummary = Fetch(
+                wrappedValue: SourceWorkspaceSummary.initialValue(target: target),
+                SourceWorkspaceSummary.query(target: target)
+            )
             self._sourceProvenance = FetchOne(
                 Self.sourceProvenanceQuery(target: target)
             )
@@ -401,7 +441,7 @@ public struct EventWorkspace {
         @DebugSnapshotIgnored
         @Fetch public var cachedActorIdentities: CachedActorIdentities
         @DebugSnapshotIgnored
-        public var sourceWorkspaceSummary: SourceWorkspaceSummary
+        @Fetch public var sourceWorkspaceSummary: SourceWorkspaceSummary
         @SharedReader public var authoringGrant: AuthoringGrant?
         public var isPreparingSourceProposal = false
         public var isRefreshingSource = false
@@ -529,7 +569,6 @@ public struct EventWorkspace {
         case resetEditsButtonTapped
         case resetEditsResponse(Result<ResetEditsSuccess, ResetEditsFailure>)
         case sourcePatchGenerationResponse(Result<SourceProposalPreparation, SourcePatchGenerationFailure>)
-        case sourcePatchInvalidationReceived(SourcePatchInvalidation)
         case sourceProposalPreparationResponse(
             Result<SourceProposalPreparation, SourcePatchGenerationFailure>
         )
@@ -566,7 +605,6 @@ public struct EventWorkspace {
     @Dependency(SourcePatchGeneratorKey<OpenMusicEventCalendarSourcePatchRequest>.self)
     var calendarSourcePatchGenerator
     @Dependency(\.defaultDatabase) var database
-    @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
     @Dependency(\.blueskyActorProfileCache) var blueskyActorProfileCache
     @Dependency(\.tangledPullReviewClient) var tangledPullReviewClient
     @Dependency(\.tangledPullReviewSourceSnapshot) var tangledPullReviewSourceSnapshot
@@ -611,13 +649,9 @@ public struct EventWorkspace {
 
             func prepareSourcePatch(
                 sourcePatchRequest: OpenMusicEventCalendarSourcePatchRequest,
-                target: SourceProposalTarget
+                sourceWorkspaceSummary: SourceWorkspaceSummary
             ) async throws -> SourceProposalPreparation {
                 let patch = try await calendarSourcePatchGenerator.generate(sourcePatchRequest)
-                let sourceWorkspaceSummary = try SourceWorkspaceSummary.query(
-                    target: target,
-                    using: database
-                )
                 let sourceFileAttributions = try await database.read { db in
                     try openMusicEventSourceFileAttributions(
                         patch: patch,
@@ -639,7 +673,7 @@ public struct EventWorkspace {
                 guard state.canGenerateSourcePatch,
                       let sourcePatchRequest = state.workspaceSourcePatchRequest
                 else { return }
-                let target = state.target
+                let sourceWorkspaceSummary = state.sourceWorkspaceSummary
                 state.sourcePatchStatus = .generating
                 store.addTask {
                     do {
@@ -648,7 +682,7 @@ public struct EventWorkspace {
                                 .success(
                                     try await prepareSourcePatch(
                                         sourcePatchRequest: sourcePatchRequest,
-                                        target: target
+                                        sourceWorkspaceSummary: sourceWorkspaceSummary
                                     )
                                 )
                             )
@@ -663,28 +697,6 @@ public struct EventWorkspace {
                 }
             }
 
-            func reloadSourceWorkspaceSummary(target: SourceProposalTarget) {
-                let database = database
-                store.addTask {
-                    do {
-                        let summary = try SourceWorkspaceSummary.query(
-                            target: target,
-                            using: database
-                        )
-                        try store.modify {
-                            $0.sourceWorkspaceSummary = summary
-                        }
-                    } catch is CancellationError {
-                    } catch {
-                        await store.reportError(
-                            error,
-                            fallbackMessage: .sourceChangeComparisonFailed,
-                            operation: .sourceChangeComparison
-                        )
-                    }
-                }
-            }
-
             func prepareSourceProposal(
                 state: inout State
             ) {
@@ -693,7 +705,7 @@ public struct EventWorkspace {
                       state.canPublishSourceProposal,
                       let sourcePatchRequest = state.workspaceSourcePatchRequest
                 else { return }
-                let target = state.target
+                let sourceWorkspaceSummary = state.sourceWorkspaceSummary
                 state.isPreparingSourceProposal = true
                 state.sourcePatchStatus = .generating
                 state.sourceProposal = nil
@@ -705,7 +717,7 @@ public struct EventWorkspace {
                                 .success(
                                     try await prepareSourcePatch(
                                         sourcePatchRequest: sourcePatchRequest,
-                                        target: target
+                                        sourceWorkspaceSummary: sourceWorkspaceSummary
                                     )
                                 )
                             )
@@ -725,6 +737,7 @@ public struct EventWorkspace {
                 switch state.target {
                 case let .calendar(_, sourceBaselineID):
                     let sourceDataRefresh = sourceDataRefresh
+                    let sourceWorkspaceSummary = state.$sourceWorkspaceSummary
                     state.isRefreshingSource = true
                     store.addTask {
                         let result: Void? = await store.withErrorHandling(
@@ -736,6 +749,7 @@ public struct EventWorkspace {
                             $0.isRefreshingSource = false
                         }
                         guard result != nil else { return }
+                        try await sourceWorkspaceSummary.load()
                         try store.modify {
                             $0.isRefreshingSource = false
                         }
@@ -995,7 +1009,6 @@ public struct EventWorkspace {
                 mergeTangledPullReview(review, state: &state)
 
             case .onAppear:
-                reloadSourceWorkspaceSummary(target: state.target)
                 if let actor = state.sourceContext?.ownerActorReference {
                     let blueskyActorProfileCache = blueskyActorProfileCache
                     store.addTask {
@@ -1047,7 +1060,6 @@ public struct EventWorkspace {
                 state.sourcePatchStatus = .generated(SourcePatch())
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
-                reloadSourceWorkspaceSummary(target: state.target)
 
             case let .resetEditsResponse(.failure(failure)):
                 state.isResettingEdits = false
@@ -1077,6 +1089,13 @@ public struct EventWorkspace {
                 loadTangledPullReviewSemanticDiff(review: review, state: &state)
 
             case let .sourcePatchGenerationResponse(.success(preparation)):
+                guard preparation.sourceWorkspaceSummary == state.sourceWorkspaceSummary else {
+                    state.isPreparingSourceProposal = false
+                    state.sourcePatchStatus = .needsGeneration
+                    state.sourceProposal = nil
+                    state.sourceProposalStatus = .idle
+                    return
+                }
                 state.sourcePatchStatus = .generated(
                     preparation.patch,
                     sourceFileAttributions: preparation.sourceFileAttributions
@@ -1091,6 +1110,13 @@ public struct EventWorkspace {
                 state.sourceProposalStatus = .idle
 
             case let .sourceProposalPreparationResponse(.success(preparation)):
+                guard preparation.sourceWorkspaceSummary == state.sourceWorkspaceSummary else {
+                    state.isPreparingSourceProposal = false
+                    state.sourcePatchStatus = .needsGeneration
+                    state.sourceProposal = nil
+                    state.sourceProposalStatus = .idle
+                    return
+                }
                 state.isPreparingSourceProposal = false
                 state.sourcePatchStatus = .generated(
                     preparation.patch,
@@ -1107,13 +1133,6 @@ public struct EventWorkspace {
                 state.sourcePatchStatus = .failed(failure)
                 state.sourceProposal = nil
                 state.sourceProposalStatus = .idle
-
-            case let .sourcePatchInvalidationReceived(invalidation):
-                state.isPreparingSourceProposal = false
-                state.sourcePatchStatus = .needsGeneration(invalidation)
-                state.sourceProposal = nil
-                state.sourceProposalStatus = .idle
-                reloadSourceWorkspaceSummary(target: state.target)
 
             case .sourceProposal(_):
                 break
@@ -1194,14 +1213,7 @@ public struct EventWorkspace {
             }
         }
         .onMount { state in
-            let target = state.target
-            refreshTangledPullReviews(target: target, state: &state)
-            store.addTask {
-                for await invalidation in sourcePatchInvalidations.stream() {
-                    guard await target.matches(invalidation: invalidation) else { continue }
-                    try store.send(.sourcePatchInvalidationReceived(invalidation))
-                }
-            }
+            refreshTangledPullReviews(target: state.target, state: &state)
         }
         .ifLet(\.sourceProposal, action: \.sourceProposal) {
             SourceProposalFlow()
@@ -1212,6 +1224,18 @@ public struct EventWorkspace {
         .onChange(of: store.sourceProposal?.status) { _, status, state in
             guard let status else { return }
             state.sourceProposalStatus = status
+        }
+        .onChange(of: store.sourceWorkspaceSummary) { oldSummary, summary, state in
+            guard oldSummary != summary else { return }
+            switch state.sourcePatchStatus {
+            case .generated, .generating:
+                state.sourcePatchStatus = .needsGeneration
+            case .failed, .needsGeneration, .notGenerated:
+                break
+            }
+            state.isPreparingSourceProposal = false
+            state.sourceProposal = nil
+            state.sourceProposalStatus = .idle
         }
         .onChange(of: store.authoringGrant) { _, _, state in
             state.reloadCollaboratorsForAuthoringAccess()
@@ -1230,10 +1254,6 @@ public struct EventWorkspace {
 }
 
 private extension UserFacingText {
-    static let sourceChangeComparisonFailed = Self(
-        "Unable to compare source changes.",
-        fallback: "Unable to compare source changes."
-    )
     static let tangledPullReviewLoadFailed = Self(
         "Unable to load Tangled pull reviews.",
         fallback: "Unable to load Tangled pull reviews."
@@ -2652,13 +2672,8 @@ public struct SourcePatchStatusView: View {
                 Text("Checking changes")
             }
 
-        case let .needsGeneration(invalidation):
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Changes need review")
-                Text("\(invalidation.operation.title) \(invalidation.tableName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        case .needsGeneration:
+            Text("Changes need review")
 
         case .notGenerated:
             Text(mode.notGeneratedTitle)
@@ -3037,19 +3052,6 @@ struct SourceChangeCountBadge: View {
     }
 }
 
-private extension SourcePatchInvalidation.Operation {
-    var title: String {
-        switch self {
-        case .delete:
-            "Deleted"
-        case .insert:
-            "Inserted"
-        case .update:
-            "Updated"
-        }
-    }
-}
-
 private extension SourceRecordChange {
     func matches(eventID: OMERecord.Event.ID) -> Bool {
         primaryKeyValues.first { $0.columnName == "organizerID" }?.value
@@ -3410,84 +3412,6 @@ private extension EventWorkspace.TangledPullReviewSemanticDiff {
         }
 
         return semanticDiff
-    }
-}
-
-private extension SourceProposalTarget {
-    func matches(invalidation: SourcePatchInvalidation) async -> Bool {
-        @Dependency(\.defaultDatabase) var database
-        switch invalidation.target {
-        case let .calendar(invalidatedCalendarID):
-            switch self {
-            case let .calendar(calendarID, _):
-                return invalidatedCalendarID == calendarID
-
-            case let .event(eventID):
-                return invalidatedCalendarID == OME.Calendar.ID(
-                    ownerID: eventID.organizerID,
-                    calendarID: OME.Calendar.defaultID
-                )
-            }
-
-        case let .event(invalidatedEventID):
-            return await matches(
-                invalidatedEventID: invalidatedEventID,
-                database: database
-            )
-
-        case let .workspace(workspaceID):
-            guard let sourceBaselineID else { return false }
-            return workspaceID == EditingWorkspaceRecord.ID(sourceBaselineID: sourceBaselineID)
-        }
-    }
-
-    func matches(
-        invalidatedEventID: OME.Event.ID,
-        database: any DatabaseReader
-    ) async -> Bool {
-        switch self {
-        case let .event(eventID):
-            guard invalidatedEventID.organizerID == eventID.organizerID else {
-                return false
-            }
-            do {
-                return try await database.read { db in
-                    guard let sourceBaselineID = try (
-                        EventSourceProvenanceRecord
-                            .where { $0.id.eq(eventID) }
-                            .fetchOne(db)?
-                            .sourceBaselineID
-                    )
-                    else {
-                        return invalidatedEventID == eventID
-                    }
-
-                    return try EventSourceProvenanceRecord
-                        .where { $0.id.eq(invalidatedEventID) }
-                        .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                        .fetchOne(db) != nil
-                }
-            } catch {
-                reportIssue(error)
-                return false
-            }
-
-        case let .calendar(calendarID, sourceBaselineID):
-            guard invalidatedEventID.organizerID == calendarID.ownerID else {
-                return false
-            }
-            do {
-                return try await database.read { db in
-                    try EventSourceProvenanceRecord
-                        .where { $0.id.eq(invalidatedEventID) }
-                        .where { $0.sourceBaselineID.eq(sourceBaselineID) }
-                        .fetchOne(db) != nil
-                }
-            } catch {
-                reportIssue(error)
-                return false
-            }
-        }
     }
 }
 

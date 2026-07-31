@@ -14,7 +14,6 @@ extension ExternalPlatform: SQLiteType {}
 extension DependencyValues {
     mutating func bootstrapDatabase() throws {
         @Dependency(\.context) var context
-        @Dependency(\.sourcePatchInvalidations) var sourcePatchInvalidations
 
         var configuration = Configuration()
         configuration.busyMode = .timeout(5)
@@ -55,10 +54,7 @@ extension DependencyValues {
         }
         let database = try SQLiteData.defaultDatabase(path: path, configuration: configuration)
 
-        try prepareOpenMusicEventDatabase(
-            database,
-            sourcePatchInvalidations: sourcePatchInvalidations
-        )
+        try prepareOpenMusicEventDatabase(database)
 
         if context == .live {
             do {
@@ -68,8 +64,6 @@ extension DependencyValues {
             }
         }
 
-        // This is the only production installation of defaultDatabase. Feature dependency
-        // subtrees must never replace it.
         defaultDatabase = database
     }
 }
@@ -97,8 +91,7 @@ func removeObsoleteEditingWorkspaceDatabases(
 }
 
 private func prepareOpenMusicEventDatabase(
-    _ database: any DatabaseWriter,
-    sourcePatchInvalidations: SourcePatchInvalidations
+    _ database: any DatabaseWriter
 ) throws {
     var migrator = DatabaseMigrator()
     #if DEBUG
@@ -113,7 +106,6 @@ private func prepareOpenMusicEventDatabase(
         try EventSearchTextTriggers.install(in: db)
         try EventSearchSources.installTriggers(in: db)
         try EventSearchSources.rebuild(in: db)
-        try sourcePatchInvalidations.installTriggers(db)
     }
 }
 

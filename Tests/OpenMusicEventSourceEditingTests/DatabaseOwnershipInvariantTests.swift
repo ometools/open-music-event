@@ -4,6 +4,7 @@ import Foundation
 import GRDB
 import OpenMusicEventSourceEditing
 import Sharing
+import SourceEditing
 import Testing
 
 @Suite
@@ -69,33 +70,119 @@ struct DatabaseOwnershipInvariantTests {
     }
 
     @Test
-    func workspaceContextPreservesTheRootDefaultDatabase() throws {
-        let defaultDatabase = try DatabaseQueue()
+    func workspaceContextKeepsTheApplicationDatabaseAsMainAndAttachesTheReferenceReadOnly() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let defaultDatabase = try DatabasePool(
+            path: directory.appending(path: "application.sqlite").path
+        )
         try setMarker("populated default", in: defaultDatabase)
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: directory.appending(path: "reference.sqlite").path
+        )
+        try setMarker("imported baseline", in: referenceDatabase.database)
         let workspaceID = EditingWorkspaceRecord.ID(rawValue: "workspace")
         let grant = AuthoringGrant(
             principal: .local,
             role: .owner,
             workspaceID: workspaceID
         )
+        let workspaceDatabase = try SourceWorkspaceDatabase(
+            workspaceID: workspaceID,
+            mainDatabase: defaultDatabase,
+            referenceDatabase: referenceDatabase
+        )
 
         let observed = try withDependencies {
             $0.defaultDatabase = defaultDatabase
             $0.useAuthoringContext(
-                workspaceID,
+                workspaceDatabase,
                 grant: SharedReader(value: Optional(grant))
             )
         } operation: {
             @Dependency(\.defaultDatabase) var inheritedDatabase
             @Dependency(\.editingWorkspaceID) var inheritedWorkspaceID
-            return (
-                try marker(in: inheritedDatabase),
-                inheritedWorkspaceID
-            )
+            return try inheritedDatabase.write { db in
+                let databasePaths = try Dictionary(
+                    uniqueKeysWithValues: Row
+                        .fetchAll(db, sql: "PRAGMA database_list")
+                        .map { row in
+                            (row["name"] as String, row["file"] as String)
+                        }
+                )
+                let referenceMarker = try String.fetchOne(
+                    db,
+                    sql: #"SELECT value FROM "source_baseline"."marker""#
+                )
+                #expect(throws: Error.self) {
+                    try db.execute(
+                        sql: #"UPDATE "source_baseline"."marker" SET value = 'forbidden'"#
+                    )
+                }
+                try db.execute(sql: "UPDATE marker SET value = 'current edit'")
+                return (
+                    databasePaths,
+                    try #require(referenceMarker),
+                    inheritedWorkspaceID
+                )
+            }
         }
 
-        #expect(observed.0 == "populated default")
-        #expect(observed.1 == workspaceID)
+        #expect(
+            URL(fileURLWithPath: try #require(observed.0["main"]))
+                .standardizedFileURL
+                == URL(fileURLWithPath: defaultDatabase.path).standardizedFileURL
+        )
+        #expect(
+            URL(fileURLWithPath: try #require(observed.0["source_baseline"]))
+                .standardizedFileURL
+                == URL(fileURLWithPath: referenceDatabase.path).standardizedFileURL
+        )
+        #expect(observed.1 == "imported baseline")
+        #expect(observed.2 == workspaceID)
+        #expect(try marker(in: defaultDatabase) == "current edit")
+        #expect(try marker(in: referenceDatabase.database) == "imported baseline")
+
+        let parentMarker = try withDependencies {
+            $0.defaultDatabase = defaultDatabase
+        } operation: {
+            @Dependency(\.defaultDatabase) var parentDatabase
+            return try marker(in: parentDatabase)
+        }
+        #expect(parentMarker == "current edit")
+    }
+
+    @Test
+    func stableReferenceAttachmentObservesAControlledBaselineRefresh() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let defaultDatabase = try DatabasePool(
+            path: directory.appending(path: "application.sqlite").path
+        )
+        try setMarker("current edit", in: defaultDatabase)
+        let referenceDatabase = try defaultBaselineDatabase(
+            path: directory.appending(path: "reference.sqlite").path
+        )
+        try setMarker("old baseline", in: referenceDatabase.database)
+        let workspaceDatabase = try SourceWorkspaceDatabase(
+            workspaceID: EditingWorkspaceRecord.ID(rawValue: "workspace"),
+            mainDatabase: defaultDatabase,
+            referenceDatabase: referenceDatabase
+        )
+
+        #expect(try baselineMarker(in: workspaceDatabase.database) == "old baseline")
+        let refreshedReferenceDatabase = try defaultBaselineDatabase(
+            path: directory.appending(path: "refreshed-reference.sqlite").path
+        )
+        try setMarker("refreshed baseline", in: refreshedReferenceDatabase.database)
+        try refreshedReferenceDatabase.database.backup(to: referenceDatabase.database)
+        #expect(try baselineMarker(in: workspaceDatabase.database) == "refreshed baseline")
     }
 
     @Test
@@ -240,6 +327,16 @@ private func setMarker(_ value: String, in database: any DatabaseWriter) throws 
 private func marker(in database: any DatabaseWriter) throws -> String {
     try database.read { db in
         let value = try String.fetchOne(db, sql: "SELECT value FROM marker")
+        return try #require(value)
+    }
+}
+
+private func baselineMarker(in database: any DatabaseWriter) throws -> String {
+    try database.read { db in
+        let value = try String.fetchOne(
+            db,
+            sql: #"SELECT value FROM "source_baseline"."marker""#
+        )
         return try #require(value)
     }
 }

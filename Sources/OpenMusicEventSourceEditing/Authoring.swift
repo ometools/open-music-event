@@ -8,6 +8,8 @@ import OpenMusicEventLexicon
 import OSLog
 #endif
 import Sharing
+import SourceEditing
+import SQLiteData
 
 public enum AuthoringPrincipal: Codable, Equatable, Hashable, Sendable {
     case local
@@ -76,6 +78,104 @@ private enum EditingWorkspaceIDKey: DependencyKey {
     static var testValue: EditingWorkspaceRecord.ID? { nil }
 }
 
+public struct SourceWorkspaceDatabase: Sendable {
+    public var workspaceID: EditingWorkspaceRecord.ID
+    public var database: any DatabaseWriter
+    public var sourceEditingSession: SourceEditingSession?
+
+    public init(
+        workspaceID: EditingWorkspaceRecord.ID,
+        database: any DatabaseWriter
+    ) {
+        self.workspaceID = workspaceID
+        self.database = database
+    }
+
+    public init(
+        workspaceID: EditingWorkspaceRecord.ID,
+        mainDatabase: any DatabaseWriter,
+        referenceDatabase: SourceBaselineDatabase
+    ) throws {
+        let session = try SourceEditingSession(
+            mainDatabase: mainDatabase,
+            baselineDatabasePath: referenceDatabase.path
+        )
+        self.workspaceID = workspaceID
+        self.database = session.database
+        self.sourceEditingSession = session
+    }
+}
+
+public enum SourceWorkspaceDatabaseError: Equatable, Error, Sendable {
+    case sourceBaselineNotFound(SourceBaselineRecord.ID)
+    case workspaceNotFound(EditingWorkspaceRecord.ID)
+}
+
+public struct SourceWorkspaceDatabaseClient: Sendable {
+    public var open: @Sendable (
+        EditingWorkspaceRecord.ID
+    ) throws -> SourceWorkspaceDatabase?
+
+    public init(
+        open: @escaping @Sendable (
+            EditingWorkspaceRecord.ID
+        ) throws -> SourceWorkspaceDatabase?
+    ) {
+        self.open = open
+    }
+}
+
+public extension SourceWorkspaceDatabaseClient {
+    static var live: Self {
+        Self { workspaceID in
+            @Dependency(\.defaultDatabase) var mainDatabase
+            @Dependency(\.workspaceReferenceDatabase) var workspaceReferenceDatabase
+            let (workspace, sourceBaseline) = try mainDatabase.read { db in
+                let workspace = try EditingWorkspaceRecord
+                    .where { $0.id.eq(workspaceID) }
+                    .fetchOne(db)
+                let sourceBaseline = try workspace?.sourceBaselineID.flatMap { sourceBaselineID in
+                    try SourceBaselineRecord
+                        .where { $0.id.eq(sourceBaselineID) }
+                        .fetchOne(db)
+                }
+                return (workspace, sourceBaseline)
+            }
+            guard let workspace else {
+                throw SourceWorkspaceDatabaseError.workspaceNotFound(workspaceID)
+            }
+            if let sourceBaselineID = workspace.sourceBaselineID,
+               sourceBaseline == nil {
+                throw SourceWorkspaceDatabaseError.sourceBaselineNotFound(sourceBaselineID)
+            }
+            let referenceDatabase = try workspaceReferenceDatabase.existing(
+                workspace,
+                sourceBaseline: sourceBaseline
+            )
+            guard let referenceDatabase else {
+                return SourceWorkspaceDatabase(
+                    workspaceID: workspaceID,
+                    database: mainDatabase
+                )
+            }
+            return try SourceWorkspaceDatabase(
+                workspaceID: workspaceID,
+                mainDatabase: mainDatabase,
+                referenceDatabase: referenceDatabase
+            )
+        }
+    }
+
+    static var passthrough: Self {
+        Self { _ in nil }
+    }
+}
+
+extension SourceWorkspaceDatabaseClient: DependencyKey {
+    public static var liveValue: Self { .live }
+    public static var testValue: Self { .passthrough }
+}
+
 public extension DependencyValues {
     var authoringGrant: SharedReader<AuthoringGrant?> {
         get { self[AuthoringGrantReaderKey.self] }
@@ -87,9 +187,6 @@ public extension DependencyValues {
         set { self[EditingWorkspaceIDKey.self] = newValue }
     }
 
-    /// A workspace ID selects authorization and reference metadata; it never selects a writable
-    /// database. Authoring and workspace features must inherit the application's
-    /// `defaultDatabase` unchanged.
     mutating func useAuthoringContext(
         _ workspaceID: EditingWorkspaceRecord.ID,
         grant: SharedReader<AuthoringGrant?>
@@ -102,6 +199,14 @@ public extension DependencyValues {
         }
         authoringGrant = grant
         editingWorkspaceID = workspaceID
+    }
+
+    mutating func useAuthoringContext(
+        _ workspaceDatabase: SourceWorkspaceDatabase,
+        grant: SharedReader<AuthoringGrant?>
+    ) {
+        useAuthoringContext(workspaceDatabase.workspaceID, grant: grant)
+        defaultDatabase = workspaceDatabase.database
     }
 }
 
@@ -218,6 +323,7 @@ public struct Authoring<Content: FeatureProtocol> {
             initiallyRequestsEntry: Bool = false,
             makeContentState: () -> Content.State
         ) {
+            @Dependency(SourceWorkspaceDatabaseClient.self) var sourceWorkspaceDatabaseClient
             if let grantedWorkspaceID = grant.wrappedValue?.workspaceID {
                 precondition(
                     grantedWorkspaceID == workspaceID,
@@ -230,10 +336,22 @@ public struct Authoring<Content: FeatureProtocol> {
                 .granted(principal: $0.principal, role: $0.role)
             }
             self.initiallyRequestsEntry = initiallyRequestsEntry
+            let sourceWorkspaceDatabaseResult = Result {
+                try sourceWorkspaceDatabaseClient.open(workspaceID)
+            }
+            let sourceWorkspaceDatabase = try? sourceWorkspaceDatabaseResult.get()
+            self.sourceWorkspaceDatabase = sourceWorkspaceDatabase
             self.content = withDependencies {
-                $0.useAuthoringContext(workspaceID, grant: SharedReader(grant))
+                if let sourceWorkspaceDatabase {
+                    $0.useAuthoringContext(sourceWorkspaceDatabase, grant: SharedReader(grant))
+                } else {
+                    $0.useAuthoringContext(workspaceID, grant: SharedReader(grant))
+                }
             } operation: {
                 makeContentState()
+            }
+            if case let .failure(error) = sourceWorkspaceDatabaseResult {
+                sourceWorkspaceDatabaseErrorDescription = String(reflecting: error)
             }
         }
 
@@ -246,6 +364,8 @@ public struct Authoring<Content: FeatureProtocol> {
         @StoreTaskID public var sourcePreparation
         @DebugSnapshotIgnored var activationRestorationErrorDescription: String?
         @DebugSnapshotIgnored var initiallyRequestsEntry: Bool
+        @DebugSnapshotIgnored var sourceWorkspaceDatabaseErrorDescription: String?
+        @DebugSnapshotIgnored public var sourceWorkspaceDatabase: SourceWorkspaceDatabase?
         @DebugSnapshotIgnored public var workspaceID: EditingWorkspaceRecord.ID
 
         public var access: AuthoringAccess {
@@ -272,10 +392,12 @@ public struct Authoring<Content: FeatureProtocol> {
         case enterButtonTapped
         case exitButtonTapped
         case refreshAdmission
+        case sourceWorkspaceDatabasePrepared(SourceWorkspaceDatabase)
     }
 
     @Dependency(WorkspaceAuthoringActivationClient.self) var activations
     @Dependency(AuthoringPolicyClient.self) var policy
+    @Dependency(SourceWorkspaceDatabaseClient.self) var sourceWorkspaceDatabaseClient
     @Dependency(WorkspacePreparationClient.self) var preparation
 
     public var body: some Feature {
@@ -306,15 +428,26 @@ public struct Authoring<Content: FeatureProtocol> {
             case .refreshAdmission:
                 refreshAdmission(state: &state)
 
+            case let .sourceWorkspaceDatabasePrepared(sourceWorkspaceDatabase):
+                guard sourceWorkspaceDatabase.workspaceID == state.workspaceID else { return }
+                state.sourceWorkspaceDatabase = sourceWorkspaceDatabase
+
             }
         }
         Scope(\.content, action: \.content) {
             makeContent()
                 .transformDependency(\.self) { dependencies in
-                    dependencies.useAuthoringContext(
-                        store.workspaceID,
-                        grant: SharedReader(store.$grant)
-                    )
+                    if let sourceWorkspaceDatabase = store.sourceWorkspaceDatabase {
+                        dependencies.useAuthoringContext(
+                            sourceWorkspaceDatabase,
+                            grant: SharedReader(store.$grant)
+                        )
+                    } else {
+                        dependencies.useAuthoringContext(
+                            store.workspaceID,
+                            grant: SharedReader(store.$grant)
+                        )
+                    }
                 }
         }
         .onEvent(AuthoringRequested.self) { _, state in
@@ -328,6 +461,7 @@ public struct Authoring<Content: FeatureProtocol> {
         }
         .onMount { state in
             reportActivationRestorationFailure(state: &state)
+            reportSourceWorkspaceDatabaseFailure(state: &state)
             if state.access.canEditContent {
                 prepareSource(state: &state, workspaceID: state.workspaceID)
             } else if state.initiallyRequestsEntry {
@@ -475,6 +609,12 @@ public struct Authoring<Content: FeatureProtocol> {
         store.addTask(id: state.sourcePreparation) {
             do {
                 try await preparation.prepareSource(workspaceID)
+                guard let sourceWorkspaceDatabase = try sourceWorkspaceDatabaseClient.open(
+                    workspaceID
+                ) else { return }
+                try store.send(
+                    .sourceWorkspaceDatabasePrepared(sourceWorkspaceDatabase)
+                )
             } catch {
                 AuthoringEntryDiagnostics.logFailed(
                     error,
@@ -495,6 +635,21 @@ public struct Authoring<Content: FeatureProtocol> {
         }
     }
 
+    private func reportSourceWorkspaceDatabaseFailure(state: inout State) {
+        guard let description = state.sourceWorkspaceDatabaseErrorDescription else { return }
+        state.sourceWorkspaceDatabaseErrorDescription = nil
+        store.addTask {
+            await store.reportError(
+                WorkspaceAuthoringDatabaseError(description: description),
+                fallbackMessage: UserFacingText(
+                    "Unable to open the source comparison database.",
+                    fallback: "Unable to open the source comparison database."
+                ),
+                operation: ErrorOperation(rawValue: "authoring.database")
+            )
+        }
+    }
+
     private func reportActivationRestorationFailure(state: inout State) {
         guard let description = state.activationRestorationErrorDescription else { return }
         state.activationRestorationErrorDescription = nil
@@ -512,6 +667,10 @@ public struct Authoring<Content: FeatureProtocol> {
 }
 
 private struct WorkspaceAuthoringActivationRestorationError: Error, Sendable {
+    var description: String
+}
+
+private struct WorkspaceAuthoringDatabaseError: Error, Sendable {
     var description: String
 }
 

@@ -40,6 +40,58 @@ public struct EventWorkspaceSummary: Equatable, Sendable {
 }
 
 public extension EventWorkspaceSummary {
+    static func queryAttached(
+        eventID: OME.Event.ID,
+        in db: Database
+    ) throws -> Self {
+        let eventWorkspace = try EventEditingWorkspaceRecord
+            .where { $0.id.eq(eventID) }
+            .fetchOne(db)
+        guard let eventWorkspace else {
+            return EventWorkspaceSummary(
+                eventID: eventID,
+                availability: .notInWorkspace,
+                groups: []
+            )
+        }
+        let workspace = try EditingWorkspaceRecord
+            .where { $0.id.eq(eventWorkspace.workspaceID) }
+            .fetchOne(db)
+        guard let workspace else {
+            return EventWorkspaceSummary(
+                eventID: eventID,
+                availability: .workspaceNeedsPreparation,
+                groups: []
+            )
+        }
+        let sourceProvenance = try EventSourceProvenanceRecord
+            .where { $0.id.eq(eventID) }
+            .fetchOne(db)
+        guard sourceProvenance?.sourceBaselineID != nil || workspace.kind == .local else {
+            return EventWorkspaceSummary(
+                eventID: eventID,
+                availability: .notInWorkspace,
+                groups: []
+            )
+        }
+        guard let baselineSchemaName = try SourceEditingSession
+            .attachedBaselineSchemaName(in: db)
+        else {
+            return EventWorkspaceSummary(
+                eventID: eventID,
+                availability: .workspaceNeedsPreparation,
+                groups: []
+            )
+        }
+        return Self(
+            eventID: eventID,
+            sourceSummary: try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: baselineSchemaName
+            )
+        )
+    }
+
     static func query(
         eventID: OME.Event.ID,
         using database: any DatabaseWriter
@@ -115,9 +167,16 @@ public extension EventWorkspaceSummary {
             )
         }
 
+        return Self(eventID: eventID, sourceSummary: sourceSummary)
+    }
+
+    private init(
+        eventID: OME.Event.ID,
+        sourceSummary: SourceChangeSummary
+    ) {
         switch sourceSummary.availability {
         case .available:
-            return EventWorkspaceSummary(
+            self.init(
                 eventID: eventID,
                 availability: .available,
                 groups: sourceSummary.groups,
@@ -125,7 +184,7 @@ public extension EventWorkspaceSummary {
             )
 
         case let .unavailable(reason):
-            return EventWorkspaceSummary(
+            self.init(
                 eventID: eventID,
                 availability: .unavailable(reason),
                 groups: []
@@ -169,6 +228,38 @@ public struct SourceEditSummary: Equatable, Sendable {
 }
 
 public extension SourceEditSummary {
+    static func queryAttached(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        in db: Database
+    ) throws -> Self {
+        let sourceBaselineExists = try SourceBaselineRecord
+            .where { $0.id.eq(sourceBaselineID) }
+            .fetchCount(db) == 1
+        guard sourceBaselineExists else {
+            return SourceEditSummary(
+                sourceBaselineID: sourceBaselineID,
+                availability: .missingBaseline,
+                groups: []
+            )
+        }
+        guard let baselineSchemaName = try SourceEditingSession
+            .attachedBaselineSchemaName(in: db)
+        else {
+            return SourceEditSummary(
+                sourceBaselineID: sourceBaselineID,
+                availability: .missingBaseline,
+                groups: []
+            )
+        }
+        return Self(
+            sourceBaselineID: sourceBaselineID,
+            sourceSummary: try openMusicEventSourceEditSummary(
+                in: db,
+                baselineSchemaName: baselineSchemaName
+            )
+        )
+    }
+
     static func query(
         sourceBaselineID: SourceBaselineRecord.ID,
         using database: any DatabaseWriter
@@ -211,9 +302,16 @@ public extension SourceEditSummary {
             )
         }
 
+        return Self(sourceBaselineID: sourceBaselineID, sourceSummary: sourceSummary)
+    }
+
+    private init(
+        sourceBaselineID: SourceBaselineRecord.ID,
+        sourceSummary: SourceChangeSummary
+    ) {
         switch sourceSummary.availability {
         case .available:
-            return SourceEditSummary(
+            self.init(
                 sourceBaselineID: sourceBaselineID,
                 availability: .available,
                 groups: sourceSummary.groups,
@@ -221,7 +319,7 @@ public extension SourceEditSummary {
             )
 
         case let .unavailable(reason):
-            return SourceEditSummary(
+            self.init(
                 sourceBaselineID: sourceBaselineID,
                 availability: .unavailable(reason),
                 groups: []

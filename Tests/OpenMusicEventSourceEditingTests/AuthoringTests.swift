@@ -7,6 +7,7 @@ import GRDB
 import IssueReporting
 import OpenMusicEventSourceEditing
 import Sharing
+import SourceEditing
 import SourceControlClient
 import Synchronization
 import Testing
@@ -309,6 +310,66 @@ struct AuthoringTests {
 
         await storeA.dismount()
         await storeB.dismount()
+    }
+
+    @Test @MainActor
+    @available(iOS 26, macOS 26, tvOS 26, watchOS 26, visionOS 26, *)
+    func `authoring installs the enhanced main database across its child subtree`() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let appDatabase = try DatabasePool(
+            path: directoryURL.appending(path: "app.sqlite").path()
+        )
+        let baselineDatabase = try defaultBaselineDatabase(
+            path: directoryURL.appending(path: "baseline.sqlite").path()
+        )
+        try setMarker("app", in: appDatabase)
+        try setMarker("baseline", in: baselineDatabase.database)
+        let workspaceID = EditingWorkspaceRecord.ID(rawValue: "attached-workspace")
+        let sourceEditingSession = try SourceEditingSession(
+            mainDatabase: appDatabase,
+            baselineDatabasePath: baselineDatabase.path
+        )
+        let workspaceDatabase = SourceWorkspaceDatabase(
+            workspaceID: workspaceID,
+            database: sourceEditingSession.database
+        )
+
+        let store = withDependencies {
+            $0.defaultDatabase = appDatabase
+            $0[SourceWorkspaceDatabaseClient.self] = SourceWorkspaceDatabaseClient {
+                requestedWorkspaceID in
+                #expect(requestedWorkspaceID == workspaceID)
+                return workspaceDatabase
+            }
+            $0[AuthoringPolicyClient.self] = .attendee
+        } operation: {
+            Store(
+                initialState: Authoring<WorkspaceProbe>.State(workspaceID: workspaceID) {
+                    WorkspaceProbe.State()
+                }
+            ) {
+                Authoring { WorkspaceProbe() }
+            }
+        }
+
+        await store.send(.content(.inspectButtonTapped))?.value
+        expectNoDifference(store.content.observedDatabaseMarker, "app")
+        expectNoDifference(
+            store.content.observedDatabaseSchemas,
+            ["main", SourceEditingSession.baselineSchemaName]
+        )
+        let parentSchemas = try await appDatabase.read { db in
+            try Row.fetchAll(db, sql: "PRAGMA database_list").map { row in
+                row["name"] as String
+            }
+        }
+        expectNoDifference(parentSchemas, ["main"])
     }
 
     private func setMarker(
@@ -641,6 +702,7 @@ struct WorkspaceProbe {
         @SharedReader var grant: AuthoringGrant?
         var observedCanAuthor: Bool?
         var observedDatabaseMarker: String?
+        var observedDatabaseSchemas: [String]?
         var observedWorkspaceID: EditingWorkspaceRecord.ID?
 
         var access: AuthoringAccess {
@@ -663,6 +725,11 @@ struct WorkspaceProbe {
                 state.observedCanAuthor = state.grant?.access.canEditContent ?? false
                 state.observedDatabaseMarker = try? database.read { db in
                     try String.fetchOne(db, sql: "SELECT value FROM marker")
+                }
+                state.observedDatabaseSchemas = try? database.read { db in
+                    try Row.fetchAll(db, sql: "PRAGMA database_list").map { row in
+                        row["name"] as String
+                    }
                 }
                 state.observedWorkspaceID = editingWorkspaceID
 
